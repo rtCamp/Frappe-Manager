@@ -8,8 +8,7 @@ ORDER, not the plumbing:
 * what ``__init__`` binds and what ``_require_image_mode`` re-binds / refuses,
 * the maintenance-mode window -- when it opens, which phases it spans, and every
   path that closes it again,
-* the ``migrate = true | false | 'auto'`` resolution (and how ``'auto'`` probes
-  pending patches / app-version drift, and what it assumes when the probe dies),
+* the ``migrate = true | false`` resolution and the runtime override that beats it,
 * the backup decision (``backup_db`` true/false/``'auto'``) and the fact that a
   ``--restore-db`` dump counts as a schema step exactly like a migrate,
 * where ``drain_workers`` sits and that a ``False`` return is an ABORT GATE --
@@ -43,9 +42,9 @@ from frappe_manager.site_manager.bench_config import (
     SwitchHookScripts,
     WorkersConfig,
 )
+from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.modules.deploy_orchestrator import (
     BENCH_BIN,
-    MIGRATE_PROBE_MARKER,
     DeployError,
     DeployOrchestrator,
     DrainUnavailable,
@@ -53,6 +52,10 @@ from frappe_manager.site_manager.modules.deploy_orchestrator import (
 )
 
 SITE = "shop.localhost"
+#: The bench's SECOND site. Named so it sorts BEFORE the primary, deliberately: the multi-site
+#: tests pin `site_names` order (primary first), and a loop that sorted, set-ified or reversed
+#: its sites would otherwise agree with the expected order by accident and pass anyway.
+SITE2 = "annex.localhost"
 NEW_TAG = "reg.example/shop:v2"
 OLD_TAG = "reg.example/shop:v1"
 
@@ -63,13 +66,17 @@ OLD_TAG = "reg.example/shop:v1"
 class FakeConfig:
     """Duck-typed stand-in for BenchConfig: only what the orchestrator reads."""
 
-    def __init__(self, root_path, switch=None, workers=None, deploy_state=None):
+    def __init__(self, root_path, switch=None, workers=None, deploy_state=None, site_names=None):
         self.runtime = BenchRuntime.image
         self.image = NEW_TAG
         self.switch = switch if switch is not None else SwitchConfig()
         self.workers = workers
         self.root_path = str(root_path)
         self.deploy_state = deploy_state
+        # Every site the bench serves, primary first: the list every schema-grade step of the
+        # pipeline walks. One entry unless a test asks for more, so the single-site cases below
+        # keep pinning the single call they always pinned.
+        self.site_names = list(site_names) if site_names else [SITE]
         self.db_name = "_shopdb"
         self.apps_list = []
         self.seed_image = None
@@ -100,11 +107,18 @@ def make_bench(tmp_path, config):
         workers=MagicMock(),
         set_common_bench_config=MagicMock(),
         set_bench_site_config=MagicMock(),
+        unmanaged_site_dirs=MagicMock(return_value=[]),
     )
 
 
-def make_orch(tmp_path, switch=None, workers=None, deploy_state=None):
-    config = FakeConfig(tmp_path, switch=switch, workers=workers, deploy_state=deploy_state)
+def make_orch(tmp_path, switch=None, workers=None, deploy_state=None, site_names=None):
+    config = FakeConfig(
+        tmp_path,
+        switch=switch,
+        workers=workers,
+        deploy_state=deploy_state,
+        site_names=site_names,
+    )
     bench = make_bench(tmp_path, config)
     return DeployOrchestrator(bench, output_handler=MagicMock())
 
@@ -125,11 +139,10 @@ SPIED = (
     "_snapshot_compose",
     "_restore_compose",
     "_pin_workers",
-    "_probe_migrate_needed",
     "_set_maintenance",
     "drain_workers",
     "resume_workers",
-    "_backup",
+    "_backup_all",
     "_restore_db",
     "_migrate",
     "_notify_after_migrate",
@@ -151,17 +164,17 @@ DEFAULT_RESULTS = {
     "_snapshot_compose": {"return_value": {"snap": b"x"}},
     "drain_workers": {"return_value": True},
     "_health_check": {"return_value": True},
-    "_probe_migrate_needed": {"return_value": True},
 }
 
 
 class Rig:
     """A DeployOrchestrator whose collaborators are ordered spies."""
 
-    def __init__(self, orch, manager, backup_path):
+    def __init__(self, orch, manager, backups):
         self.orch = orch
         self.manager = manager
-        self.backup_path = backup_path
+        #: What the spied ``_backup_all`` returns: one dump per site, keyed by site.
+        self.backups = backups
 
     @property
     def order(self):
@@ -183,13 +196,19 @@ class Rig:
 def rig(tmp_path):
     """Factory: ``rig(switch=..., running=True, ...)`` -> :class:`Rig`."""
 
-    def _make(switch=None, workers=None, deploy_state=None, running=True, **overrides):
-        orch = make_orch(tmp_path, switch=switch, workers=workers, deploy_state=deploy_state)
+    def _make(switch=None, workers=None, deploy_state=None, running=True, site_names=None, **overrides):
+        orch = make_orch(
+            tmp_path,
+            switch=switch,
+            workers=workers,
+            deploy_state=deploy_state,
+            site_names=site_names,
+        )
         manager = MagicMock()
-        backup_path = tmp_path / "backups" / "db-shop.sql"
+        backups = {site: tmp_path / "backups" / f"db-{site}.sql" for site in orch.sites}
 
         results = dict(DEFAULT_RESULTS)
-        results["_backup"] = {"return_value": backup_path}
+        results["_backup_all"] = {"return_value": backups}
         for key, value in overrides.items():
             results[key] = value if isinstance(value, dict) else {"return_value": value}
 
@@ -211,7 +230,7 @@ def rig(tmp_path):
             manager.attach_mock(spy, label)
             setattr(owner, attr, spy)
 
-        return Rig(orch, manager, backup_path)
+        return Rig(orch, manager, backups)
 
     return _make
 
@@ -235,9 +254,8 @@ class TestBinding:
         assert orch.workers_config.drain is True
         assert orch.workers_config.drain_timeout == 300
 
-    def test_init_leaves_probe_and_migrate_state_unset(self, tmp_path):
+    def test_init_leaves_migrate_state_unset(self, tmp_path):
         orch = make_orch(tmp_path)
-        assert orch._probe_result is None
         assert orch._migrate_status is None
         assert orch._migrate_log_host is None
         assert orch._migrate_log_container is None
@@ -389,7 +407,7 @@ class TestDeployPhaseOrder:
             "_pin_workers",
             "_set_maintenance",  # ON
             "drain_workers",
-            "_backup",
+            "_backup_all",
             "_run_host_hook",  # host_before_migrate
             "_run_container_hook",  # before_migrate
             "_migrate",
@@ -424,66 +442,90 @@ class TestDeployPhaseOrder:
         assert r.order == ["_fetch_image"]
 
     def test_compose_is_repinned_to_the_new_tag_before_the_migrate_decision(self, rig):
-        r = rig(switch=SwitchConfig(migrate="auto"))
+        r = rig(switch=SwitchConfig(migrate=True))
         r.orch.deploy(NEW_TAG)
         r.orch.docker_ops.render_image_compose.assert_called_once_with(NEW_TAG)
         r.orch._pin_workers.assert_any_call(NEW_TAG)
-        assert r.order.index("render_image_compose") < r.order.index("_probe_migrate_needed")
+        assert r.order.index("render_image_compose") < r.order.index("_migrate")
 
     def test_backup_is_taken_at_the_quiesced_point(self, rig):
         """Maintenance on, workers drained, and only THEN the dump."""
         r = rig()
         r.orch.deploy(NEW_TAG)
         order = r.order
-        assert order.index("_set_maintenance") < order.index("drain_workers") < order.index("_backup")
-        assert order.index("_backup") < order.index("_migrate")
+        assert order.index("_set_maintenance") < order.index("drain_workers") < order.index("_backup_all")
+        assert order.index("_backup_all") < order.index("_migrate")
 
     def test_backup_directory_is_a_timestamped_deploy_dir_under_backups(self, rig, tmp_path):
         r = rig()
         r.orch.deploy(NEW_TAG)
-        (backup_dir,), _ = r.orch._backup.call_args
+        (backup_dir,), _ = r.orch._backup_all.call_args
         assert backup_dir.parent == tmp_path / "bench" / "backups"
         assert backup_dir.name.startswith("deploy-")
+
+
+# =============================================== deploy: sites fm does not own
+
+
+class TestUnmanagedSites:
+    """Site directories ``[sites]`` does not record: named up front, never migrated.
+
+    Same rule ``fm delete`` follows, because a migration fm broke on a schema it disclaimed
+    ownership of would be damage to the exact thing it promised not to touch. The warning is
+    louder here than at delete, though: an unmigrated site keeps serving, now against new code,
+    so it is the operator's to migrate by hand.
+    """
+
+    def test_every_unmanaged_dir_is_warned_about_once(self, rig):
+        r = rig()
+        r.orch.bench.unmanaged_site_dirs = MagicMock(return_value=["legacy.localhost", "old.localhost"])
+        r.orch.deploy(NEW_TAG)
+        warned = [str(c.args) for c in r.orch.output.warning.call_args_list if "NOT migrate" in str(c.args)]
+        assert len(warned) == 2
+        assert "sites/legacy.localhost/" in warned[0]
+        assert "sites/old.localhost/" in warned[1]
+        assert "bench --site old.localhost migrate" in warned[1]
+
+    def test_an_unmanaged_dir_is_left_out_of_the_walk_and_stops_nothing(self, rig):
+        """``self.sites`` is the recorded list, and it is the list every schema-grade step walks,
+        so the unmanaged directory is untouched rather than refused."""
+        r = rig()
+        r.orch.bench.unmanaged_site_dirs = MagicMock(return_value=["legacy.localhost"])
+        r.orch.deploy(NEW_TAG)
+        assert r.orch.sites == [SITE]
+        r.orch._record.assert_called_once()
+
+    def test_the_warning_lands_before_the_image_is_even_fetched(self, rig):
+        """Before it starts, not after it finished: the operator has to be able to stop it."""
+        r = rig(_fetch_image={"side_effect": DeployError("pull refused")})
+        r.orch.bench.unmanaged_site_dirs = MagicMock(return_value=["legacy.localhost"])
+        with pytest.raises(DeployError, match="pull refused"):
+            r.orch.deploy(NEW_TAG)
+        assert any("NOT migrate" in str(c.args) for c in r.orch.output.warning.call_args_list)
+
+    def test_a_bench_with_no_unmanaged_dirs_says_nothing(self, rig):
+        r = rig()
+        r.orch.deploy(NEW_TAG)
+        assert not any("NOT migrate" in str(c.args) for c in r.orch.output.warning.call_args_list)
 
 
 # =================================================== deploy: migrate decision
 
 
 class TestMigrateDecision:
-    def test_migrate_true_migrates_without_probing(self, rig):
+    def test_migrate_true_migrates(self, rig):
         r = rig(switch=SwitchConfig(migrate=True))
         r.orch.deploy(NEW_TAG)
-        r.orch._probe_migrate_needed.assert_not_called()
         r.orch._migrate.assert_called_once_with(NEW_TAG)
 
     def test_migrate_false_skips_migrate_and_records_skipped(self, rig):
         r = rig(switch=SwitchConfig(migrate=False))
         r.orch.deploy(NEW_TAG)
         r.orch._migrate.assert_not_called()
-        r.orch._probe_migrate_needed.assert_not_called()
         assert r.orch._record.call_args.args[1] == "skipped"
 
-    def test_migrate_auto_probes_the_new_tag_and_migrates_when_needed(self, rig):
-        r = rig(switch=SwitchConfig(migrate="auto"), _probe_migrate_needed=True)
-        r.orch.deploy(NEW_TAG)
-        r.orch._probe_migrate_needed.assert_called_once_with(NEW_TAG)
-        r.orch._migrate.assert_called_once_with(NEW_TAG)
-
-    def test_migrate_auto_clean_verdict_skips_migrate_and_maintenance(self, rig):
-        r = rig(switch=SwitchConfig(migrate="auto"), _probe_migrate_needed=False)
-        r.orch.deploy(NEW_TAG)
-        r.orch._probe_migrate_needed.assert_called_once_with(NEW_TAG)
-        r.orch._migrate.assert_not_called()
-        r.orch._set_maintenance.assert_not_called()
-
-    def test_runtime_override_false_beats_auto_and_suppresses_the_probe(self, rig):
-        """Rollbacks pass migrate_override=False: old code must never migrate."""
-        r = rig(switch=SwitchConfig(migrate="auto"))
-        r.orch.deploy(NEW_TAG, migrate_override=False)
-        r.orch._probe_migrate_needed.assert_not_called()
-        r.orch._migrate.assert_not_called()
-
     def test_runtime_override_false_beats_config_true(self, rig):
+        """Rollbacks pass migrate_override=False: old code must never migrate."""
         r = rig(switch=SwitchConfig(migrate=True))
         r.orch.deploy(NEW_TAG, migrate_override=False)
         r.orch._migrate.assert_not_called()
@@ -492,96 +534,6 @@ class TestMigrateDecision:
         r = rig(switch=SwitchConfig(migrate=False))
         r.orch.deploy(NEW_TAG, migrate_override=True)
         r.orch._migrate.assert_called_once_with(NEW_TAG)
-        r.orch._probe_migrate_needed.assert_not_called()
-
-
-class TestMigrateProbeVerdict:
-    """``_probe_migrate_needed``: what the one-shot probe decides, and its fallback."""
-
-    def _probing(self, tmp_path, run_result=None, run_error=None):
-        orch = make_orch(tmp_path, switch=SwitchConfig(migrate="auto"))
-        orch.docker.compose.run = MagicMock(
-            side_effect=run_error,
-            return_value=run_result or SimpleNamespace(stdout=[], stderr=[]),
-        )
-        return orch
-
-    def test_probe_runs_a_one_shot_removed_container_from_the_new_image(self, tmp_path):
-        orch = self._probing(
-            tmp_path,
-            SimpleNamespace(stdout=[f"{MIGRATE_PROBE_MARKER} clean pending=0 drift=none"], stderr=[]),
-        )
-        orch._probe_migrate_needed(NEW_TAG)
-        kwargs = orch.docker.compose.run.call_args.kwargs
-        assert kwargs["service"] == "frappe"
-        assert kwargs["entrypoint"] == "/bin/bash"
-        assert kwargs["rm"] is True
-        assert kwargs["user"] == "frappe"
-        assert "base64 -d" in kwargs["command"]
-
-    def test_clean_verdict_returns_false_and_records_the_counts(self, tmp_path):
-        orch = self._probing(
-            tmp_path,
-            SimpleNamespace(stdout=[f"{MIGRATE_PROBE_MARKER} clean pending=0 drift=none"], stderr=[]),
-        )
-        assert orch._probe_migrate_needed(NEW_TAG) is False
-        assert orch._probe_result == {"needed": False, "pending": 0, "drift": [], "verdict": "clean"}
-
-    def test_pending_patches_make_migrate_needed(self, tmp_path):
-        orch = self._probing(
-            tmp_path,
-            SimpleNamespace(stdout=[f"{MIGRATE_PROBE_MARKER} needed pending=4 drift=none"], stderr=[]),
-        )
-        assert orch._probe_migrate_needed(NEW_TAG) is True
-        assert orch._probe_result["pending"] == 4
-        assert orch._probe_result["verdict"] == "needed"
-
-    def test_app_version_drift_makes_migrate_needed(self, tmp_path):
-        orch = self._probing(
-            tmp_path,
-            SimpleNamespace(stdout=[f"{MIGRATE_PROBE_MARKER} needed pending=0 drift=erpnext,hrms"], stderr=[]),
-        )
-        assert orch._probe_migrate_needed(NEW_TAG) is True
-        assert orch._probe_result["drift"] == ["erpnext", "hrms"]
-
-    def test_marker_on_stderr_is_still_a_verdict(self, tmp_path):
-        orch = self._probing(
-            tmp_path,
-            SimpleNamespace(stdout=[], stderr=[f"{MIGRATE_PROBE_MARKER} clean pending=0 drift=none"]),
-        )
-        assert orch._probe_migrate_needed(NEW_TAG) is False
-
-    def test_probe_crash_conservatively_assumes_migrate_is_needed(self, tmp_path):
-        orch = self._probing(tmp_path, run_error=docker_error("image has no python"))
-        assert orch._probe_migrate_needed(NEW_TAG) is True
-        assert orch._probe_result == {
-            "needed": True,
-            "pending": None,
-            "drift": [],
-            "verdict": "assumed-needed",
-        }
-        assert orch.output.warning.called
-
-    def test_verdictless_output_conservatively_assumes_migrate_is_needed(self, tmp_path):
-        orch = self._probing(tmp_path, SimpleNamespace(stdout=["nothing useful"], stderr=[]))
-        assert orch._probe_migrate_needed(NEW_TAG) is True
-        assert orch._probe_result["verdict"] == "assumed-needed"
-
-    def test_a_drifted_app_named_like_the_clean_token_is_still_a_needed_verdict(self, tmp_path):
-        """The verdict is the status TOKEN the probe prints, not a substring of the tail.
-
-        The marker tail also carries ``drift=<comma-joined app names>``, so an app whose module
-        name contains 'clean' (``data_cleanup``, ``cleaner``) used to flip an explicit ``needed``
-        verdict to clean -- under ``migrate = "auto"`` that silently skips both ``bench migrate``
-        and the maintenance window and runs the new code against an unmigrated schema.
-        """
-        orch = self._probing(
-            tmp_path,
-            SimpleNamespace(stdout=[f"{MIGRATE_PROBE_MARKER} needed pending=3 drift=data_cleanup"], stderr=[]),
-        )
-        assert orch._probe_migrate_needed(NEW_TAG) is True
-        assert orch._probe_result["drift"] == ["data_cleanup"]
-        assert orch._probe_result["verdict"] == "needed"
 
 
 # ==================================================== deploy: maintenance mode
@@ -622,9 +574,9 @@ class TestMaintenanceWindow:
     def test_a_restore_dump_opens_the_window_even_without_a_migrate(self, rig, tmp_path):
         dump = tmp_path / "old.sql"
         r = rig(switch=SwitchConfig(migrate=False))
-        r.orch.deploy(NEW_TAG, restore_db_dump=dump)
+        r.orch.deploy(NEW_TAG, restore_db_dumps={SITE: dump})
         assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
-        r.orch._restore_db.assert_called_once_with(dump, requested=True, confirmed=False)
+        r.orch._restore_db.assert_called_once_with(SITE, dump, requested=True, confirmed=False)
 
     def test_empty_maintenance_phases_skips_the_maintenance_window(self, rig):
         """``maintenance_mode_phases = []`` is the operator asserting the migration is
@@ -641,7 +593,7 @@ class TestMaintenanceWindow:
         """The list gates the window's EXISTENCE, not which steps it spans: 'restore' is not a
         phase name, and a restore under the default ``["migrate"]`` still gets the page."""
         r = rig(switch=SwitchConfig(migrate=False, maintenance_mode_phases=["migrate"]))
-        r.orch.deploy(NEW_TAG, restore_db_dump=tmp_path / "old.sql")
+        r.orch.deploy(NEW_TAG, restore_db_dumps={SITE: tmp_path / "old.sql"})
         assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
 
 
@@ -652,30 +604,30 @@ class TestBackupDecision:
     def test_backup_db_true_dumps_even_without_a_schema_step(self, rig):
         r = rig(switch=SwitchConfig(migrate=False, backup_db=True))
         r.orch.deploy(NEW_TAG)
-        r.orch._backup.assert_called_once()
+        r.orch._backup_all.assert_called_once()
 
     def test_backup_db_false_never_dumps(self, rig):
         r = rig(switch=SwitchConfig(migrate=True, backup_db=False))
         r.orch.deploy(NEW_TAG)
-        r.orch._backup.assert_not_called()
-        assert r.orch._record.call_args.kwargs["backup"] is None
+        r.orch._backup_all.assert_not_called()
+        assert r.orch._record.call_args.kwargs["backups"] == {}
 
     def test_backup_db_auto_dumps_for_a_migrate(self, rig):
         r = rig(switch=SwitchConfig(migrate=True, backup_db="auto"))
         r.orch.deploy(NEW_TAG)
-        r.orch._backup.assert_called_once()
+        r.orch._backup_all.assert_called_once()
 
     def test_backup_db_auto_skips_a_code_only_deploy_and_says_so(self, rig):
         r = rig(switch=SwitchConfig(migrate=False, backup_db="auto"))
         r.orch.deploy(NEW_TAG)
-        r.orch._backup.assert_not_called()
+        r.orch._backup_all.assert_not_called()
         printed = " ".join(str(c.args) for c in r.orch.output.print.call_args_list)
         assert "backup_db=auto: no schema change" in printed
 
     def test_backup_db_auto_dumps_for_a_restore_only_deploy(self, rig, tmp_path):
         r = rig(switch=SwitchConfig(migrate=False, backup_db="auto"))
-        r.orch.deploy(NEW_TAG, restore_db_dump=tmp_path / "old.sql")
-        r.orch._backup.assert_called_once()
+        r.orch.deploy(NEW_TAG, restore_db_dumps={SITE: tmp_path / "old.sql"})
+        r.orch._backup_all.assert_called_once()
 
     def test_backup_db_false_is_silent_not_the_auto_message(self, rig):
         r = rig(switch=SwitchConfig(migrate=False, backup_db=False))
@@ -686,8 +638,8 @@ class TestBackupDecision:
     def test_the_insurance_dump_precedes_the_requested_restore(self, rig, tmp_path):
         """`--restore-db` still gets a dump of the CURRENT state first."""
         r = rig(switch=SwitchConfig(migrate=False, backup_db="auto"))
-        r.orch.deploy(NEW_TAG, restore_db_dump=tmp_path / "old.sql")
-        assert r.order.index("_backup") < r.order.index("_restore_db")
+        r.orch.deploy(NEW_TAG, restore_db_dumps={SITE: tmp_path / "old.sql"})
+        assert r.order.index("_backup_all") < r.order.index("_restore_db")
 
     def test_no_restore_dump_means_no_restore_call(self, rig):
         r = rig()
@@ -710,7 +662,7 @@ class TestDrainAbortGate:
         r = rig(drain_workers=False)
         with pytest.raises(DeployError):
             r.orch.deploy(NEW_TAG)
-        r.orch._backup.assert_not_called()
+        r.orch._backup_all.assert_not_called()
         r.orch._migrate.assert_not_called()
         r.orch._rolling_swap.assert_not_called()
         r.orch.docker.compose.up.assert_not_called()
@@ -768,7 +720,7 @@ class TestPreSwapAbort:
         r.orch.resume_workers.assert_called()
 
     def test_a_failing_backup_is_not_swallowed(self, rig):
-        r = rig(_backup={"side_effect": OSError("disk full")})
+        r = rig(_backup_all={"side_effect": OSError("disk full")})
         with pytest.raises(OSError, match="disk full"):
             r.orch.deploy(NEW_TAG)
         r.orch._restore_compose.assert_called_once()
@@ -817,7 +769,7 @@ class TestMigrateFailure:
         )
         with pytest.raises(DeployError):
             r.orch.deploy(NEW_TAG)
-        r.orch._restore_db.assert_called_once_with(r.backup_path)
+        r.orch._restore_db.assert_called_once_with(SITE, r.backups[SITE])
 
     def test_rollback_db_off_leaves_the_database_alone(self, rig):
         r = rig(
@@ -832,7 +784,7 @@ class TestMigrateFailure:
         r = rig(
             switch=SwitchConfig(migrate=True, backup_db="auto", rollback_db=True),
             _migrate={"side_effect": docker_error("patch blew up")},
-            _backup=None,
+            _backup_all={"return_value": {}},
         )
         with pytest.raises(DeployError):
             r.orch.deploy(NEW_TAG)
@@ -849,7 +801,7 @@ class TestMigrateFailure:
         with pytest.raises(DeployError, match="migrate_timeout"):
             r.orch.deploy(NEW_TAG)
         r.orch._notify_after_migrate.assert_called_once_with(NEW_TAG)
-        r.orch._restore_db.assert_called_once_with(r.backup_path)
+        r.orch._restore_db.assert_called_once_with(SITE, r.backups[SITE])
         r.orch._rolling_swap.assert_not_called()
         assert r.orch._migrate_status == "failed"
 
@@ -932,7 +884,7 @@ class TestHookInvocationPoints:
         with pytest.raises(DeployError, match="post hook died"):
             r.orch.deploy(NEW_TAG)
         assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
-        r.orch._record.assert_called_once_with(NEW_TAG, "migrated", backup=r.backup_path)
+        r.orch._record.assert_called_once_with(NEW_TAG, "migrated", backups=r.backups)
         r.orch._restore_compose.assert_not_called()
 
     def test_after_restart_failure_without_a_window_skips_the_maintenance_write(self, rig):
@@ -981,6 +933,22 @@ class TestHookRunners:
         assert f"export SITE_NAME={SITE}" in written["body"]
         assert f"export DEPLOY_TAG={NEW_TAG}" in written["body"]
         assert f"export BENCH_PATH={orch.bench_path}" in written["body"]
+
+    def test_hook_script_exports_the_migrate_outcome_and_both_log_paths(self, tmp_path):
+        """``after_migrate`` fires on success AND failure, so the hook has to be told which one it is, and where the migrate output landed on both sides of the bind mount."""
+        orch = make_orch(tmp_path)
+        orch._migrate_status = "failed"
+        orch._migrate_log_container = "/workspace/frappe-bench/logs/deploy-migrate-1.log"
+        orch._migrate_log_host = orch.bench_path / "workspace" / "frappe-bench" / "logs" / "deploy-migrate-1.log"
+        script = orch._hook_script("echo hi", NEW_TAG)
+        assert "export MIGRATE_STATUS=failed" in script
+        assert f"export MIGRATE_LOG_FILE={orch._migrate_log_container}" in script
+        assert f"export MIGRATE_LOG_FILE_HOST={orch._migrate_log_host}" in script
+
+    def test_hook_script_omits_the_migrate_vars_when_no_migrate_ran(self, tmp_path):
+        script = make_orch(tmp_path)._hook_script("echo hi", NEW_TAG)
+        assert "MIGRATE_STATUS" not in script
+        assert "MIGRATE_LOG_FILE" not in script
 
     def test_host_hook_nonzero_exit_is_a_deploy_error_carrying_stderr(self, tmp_path):
         orch = make_orch(tmp_path)
@@ -1130,7 +1098,7 @@ class TestHealthGate:
         r = rig(deploy_state=DeployState(current_tag=OLD_TAG), _health_check=False)
         with pytest.raises(DeployError, match=f"failed health check; rolled back to {OLD_TAG}"):
             r.orch.deploy(NEW_TAG)
-        r.orch.rollback.assert_called_once_with(OLD_TAG, restore_db_dump=None)
+        r.orch.rollback.assert_called_once_with(OLD_TAG, restore_db_dumps=None)
 
     def test_rollback_db_hands_the_dump_to_the_rollback(self, rig):
         r = rig(
@@ -1140,7 +1108,7 @@ class TestHealthGate:
         )
         with pytest.raises(DeployError):
             r.orch.deploy(NEW_TAG)
-        r.orch.rollback.assert_called_once_with(OLD_TAG, restore_db_dump=r.backup_path)
+        r.orch.rollback.assert_called_once_with(OLD_TAG, restore_db_dumps=r.backups)
 
     def test_no_previous_tag_halts_the_bench_in_maintenance(self, rig):
         r = rig(_health_check=False)
@@ -1194,6 +1162,27 @@ class TestFinalizeAndRecord:
         )
         (command,), _ = r.orch._exec_frappe.call_args
         assert command.endswith(f"--site {SITE} clear-cache")
+        r.orch._exec_frappe.assert_called_once()
+
+    def test_finalize_clears_the_cache_for_every_site(self, rig):
+        """The cache is keyed per schema, so a site whose cache still holds the OLD image's
+        doctype meta serves stale definitions under the new code."""
+        r = rig(site_names=[SITE, SITE2])
+        r.orch.deploy(NEW_TAG)
+        assert [a[0] for a, _k in r.calls("_exec_frappe")] == [
+            f"{BENCH_BIN} --site {SITE} clear-cache",
+            f"{BENCH_BIN} --site {SITE2} clear-cache",
+        ]
+
+    def test_one_sites_failing_clear_cache_does_not_skip_the_next(self, rig):
+        """It is a warning, not a gate: the deploy is already live."""
+        r = rig(site_names=[SITE, SITE2], _exec_frappe={"side_effect": [docker_error("no container"), None]})
+        r.orch.deploy(NEW_TAG)
+        assert [a[0] for a, _k in r.calls("_exec_frappe")] == [
+            f"{BENCH_BIN} --site {SITE} clear-cache",
+            f"{BENCH_BIN} --site {SITE2} clear-cache",
+        ]
+        r.orch._record.assert_called_once()
 
     def test_a_failing_clear_cache_only_warns(self, rig):
         r = rig(_exec_frappe={"side_effect": docker_error("no container")})
@@ -1204,7 +1193,7 @@ class TestFinalizeAndRecord:
     def test_record_carries_the_migrate_status_and_the_dump_path(self, rig):
         r = rig()
         r.orch.deploy(NEW_TAG)
-        r.orch._record.assert_called_once_with(NEW_TAG, "migrated", backup=r.backup_path)
+        r.orch._record.assert_called_once_with(NEW_TAG, "migrated", backups=r.backups)
 
     def test_prune_only_runs_when_keep_was_asked_for(self, rig):
         r = rig()
@@ -1238,12 +1227,12 @@ class TestRecordBookkeeping:
             ],
         )
         orch = make_orch(tmp_path, deploy_state=state)
-        orch._record(NEW_TAG, "migrated", backup=Path("/b/db.sql"))
+        orch._record(NEW_TAG, "migrated", backups={SITE: Path("/b/db.sql")})
         result = orch.config.deploy_state
         assert result.previous_tag == OLD_TAG
         assert result.current_tag == NEW_TAG
         assert [e.tag for e in result.history] == [OLD_TAG, NEW_TAG]
-        assert result.history[-1].backup == "/b/db.sql"
+        assert result.history[-1].backups == {SITE: "/b/db.sql"}
         assert result.history[-1].migrate_status == "migrated"
         assert result.last_deploy_at == result.history[-1].deployed_at
         orch.config.export_to_toml.assert_called_once_with(Path(orch.config.root_path))
@@ -1254,7 +1243,7 @@ class TestRecordBookkeeping:
         result = orch.config.deploy_state
         assert result.previous_tag is None
         assert result.current_tag == NEW_TAG
-        assert result.history[-1].backup is None
+        assert result.history[-1].backups == {}
 
     def test_re_recording_the_current_tag_keeps_the_older_previous(self, tmp_path):
         """``previous_tag`` must not collapse onto ``current_tag``.
@@ -1283,6 +1272,33 @@ class TestRecordBookkeeping:
         state = DeployState(current_tag=OLD_TAG)
         assert make_orch(tmp_path, deploy_state=state)._current_deployed_tag() == OLD_TAG
 
+    def test_every_sites_dump_is_recorded_not_only_the_primarys(self, tmp_path):
+        """``backups`` is what a later ``fm switch --previous --restore-db`` reads back.
+
+        Recording one entry for a bench that dumped N schemas makes that restore silently
+        incomplete: it succeeds, says nothing, and leaves every unrecorded site on the data
+        the release being abandoned wrote.
+        """
+        orch = make_orch(tmp_path, site_names=[SITE, SITE2])
+        orch._record(
+            NEW_TAG,
+            "migrated",
+            backups={SITE: Path("/b/db-shopdb.sql"), SITE2: Path("/b/db-annexdb.sql")},
+        )
+        entry = orch.config.deploy_state.history[-1]
+        assert entry.backups == {SITE: "/b/db-shopdb.sql", SITE2: "/b/db-annexdb.sql"}
+
+    def test_a_two_site_deploy_records_a_dump_per_site_as_strings(self, rig):
+        """End to end: the dumps ``_backup_all`` returned are the dumps history carries, and
+        they are stored as ``str`` because that is what the model holds."""
+        r = rig(site_names=[SITE, SITE2])
+        del r.orch._record  # the real bookkeeping is what this pins
+        r.orch.deploy(NEW_TAG)
+        entry = r.orch.config.deploy_state.history[-1]
+        assert entry.backups == {site: str(path) for site, path in r.backups.items()}
+        assert sorted(entry.backups) == sorted([SITE, SITE2])
+        assert all(isinstance(value, str) for value in entry.backups.values())
+
 
 # ================================================================== rollback
 
@@ -1290,8 +1306,8 @@ class TestRecordBookkeeping:
 class TestRollback:
     """The internal health-gate recovery: minimal by design."""
 
-    def _rollback_rig(self, tmp_path, switch=None, deploy_state=None, healthy=True):
-        orch = make_orch(tmp_path, switch=switch, deploy_state=deploy_state)
+    def _rollback_rig(self, tmp_path, switch=None, deploy_state=None, healthy=True, site_names=None):
+        orch = make_orch(tmp_path, switch=switch, deploy_state=deploy_state, site_names=site_names)
         manager = MagicMock()
         for name, result in (
             ("_fetch_image", {}),
@@ -1304,7 +1320,7 @@ class TestRollback:
             ("_exec_frappe", {}),
             ("_record", {}),
             ("drain_workers", {"return_value": True}),
-            ("_backup", {}),
+            ("_backup_all", {}),
             ("_run_host_hook", {}),
             ("_run_container_hook", {}),
             ("_set_maintenance", {}),
@@ -1344,7 +1360,7 @@ class TestRollback:
         orch, _ = self._rollback_rig(tmp_path)
         orch.rollback(OLD_TAG)
         orch.drain_workers.assert_not_called()
-        orch._backup.assert_not_called()
+        orch._backup_all.assert_not_called()
         orch._run_host_hook.assert_not_called()
         orch._run_container_hook.assert_not_called()
 
@@ -1364,18 +1380,48 @@ class TestRollback:
     def test_rollback_imports_the_dump_before_the_swap(self, tmp_path):
         orch, manager = self._rollback_rig(tmp_path)
         dump = tmp_path / "db.sql"
-        orch.rollback(OLD_TAG, restore_db_dump=dump)
+        orch.rollback(OLD_TAG, restore_db_dumps={SITE: dump})
         names = [n for n, _a, _k in manager.mock_calls]
-        orch._restore_db.assert_called_once_with(dump)
+        orch._restore_db.assert_called_once_with(SITE, dump)
         assert names.index("_restore_db") < names.index("compose_up")
 
     def test_a_declined_dump_import_still_rolls_the_image_back(self, tmp_path):
         orch, _ = self._rollback_rig(tmp_path)
         orch._restore_db = MagicMock(side_effect=RestoreNotConfirmed("not typed"))
-        orch.rollback(OLD_TAG, restore_db_dump=tmp_path / "db.sql")
+        orch.rollback(OLD_TAG, restore_db_dumps={SITE: tmp_path / "db.sql"})
         orch.docker.compose.up.assert_called_once()
         orch._record.assert_called_once_with(OLD_TAG, "rollback")
         assert any("not typed" in str(c.args) for c in orch.output.warning.call_args_list)
+
+    def test_every_site_in_the_dump_set_is_restored_with_its_own_dump(self, tmp_path):
+        """``restore_db_dumps`` maps SITE to a dump, and the loop owes every entry a restore.
+
+        The health gate hands back the insurance dumps for the WHOLE bench. Restoring only the
+        first of them would re-pin the old image over a bench where one schema went back and
+        the others stayed on the data the failed release wrote: two points in time under one
+        code base, and no second dump left to fix it with.
+        """
+        orch, _ = self._rollback_rig(tmp_path, site_names=[SITE, SITE2])
+        dumps = {SITE: tmp_path / "shop.sql", SITE2: tmp_path / "annex.sql"}
+        orch.rollback(OLD_TAG, restore_db_dumps=dumps)
+        assert [c.args for c in orch._restore_db.call_args_list] == [
+            (SITE, dumps[SITE]),
+            (SITE2, dumps[SITE2]),
+        ]
+
+    def test_one_declined_import_neither_stops_the_next_site_nor_the_image_rollback(self, tmp_path):
+        """Declining is a decision about ONE database, not about the bench's image."""
+        orch, _ = self._rollback_rig(tmp_path, site_names=[SITE, SITE2])
+        orch._restore_db = MagicMock(side_effect=[RestoreNotConfirmed("not typed"), None])
+        dumps = {SITE: tmp_path / "shop.sql", SITE2: tmp_path / "annex.sql"}
+        orch.rollback(OLD_TAG, restore_db_dumps=dumps)
+        assert [c.args for c in orch._restore_db.call_args_list] == [
+            (SITE, dumps[SITE]),
+            (SITE2, dumps[SITE2]),
+        ]
+        assert any("not typed" in str(c.args) for c in orch.output.warning.call_args_list)
+        orch.docker.compose.up.assert_called_once()
+        orch._record.assert_called_once_with(OLD_TAG, "rollback")
 
     def test_an_unhealthy_rollback_still_records_the_pinned_reality(self, tmp_path):
         orch, _ = self._rollback_rig(tmp_path, healthy=False)
@@ -1463,14 +1509,14 @@ class TestRestoreConfirmation:
 
     def test_a_missing_dump_is_a_warning_not_an_import(self, tmp_path):
         orch, manager, _ = self._restorer(tmp_path)
-        orch._restore_db(tmp_path / "absent.sql")
+        orch._restore_db(SITE, tmp_path / "absent.sql")
         manager.db_import.assert_not_called()
         assert orch.output.warning.called
 
     def test_an_unresolvable_db_name_refuses_the_import(self, tmp_path):
         orch, manager, dump = self._restorer(tmp_path)
         orch._db_manager = MagicMock(return_value=(manager, None))
-        orch._restore_db(dump)
+        orch._restore_db(SITE, dump)
         manager.db_import.assert_not_called()
 
     def test_the_global_db_is_confirmed_like_any_other_schema(self, tmp_path):
@@ -1478,7 +1524,7 @@ class TestRestoreConfirmation:
         operator loses the same site data either way, so the typed-name question is
         the same. Only the wording naming the owner differs."""
         orch, manager, dump = self._restorer(tmp_path, external=False)
-        orch._restore_db(dump)
+        orch._restore_db(SITE, dump)
         orch.output.prompt_ask.assert_called_once()
         manager.db_run_query.assert_called_once()
         manager.db_import.assert_called_once_with("shopdb", dump, force=True)
@@ -1487,25 +1533,25 @@ class TestRestoreConfirmation:
 
     def test_typing_the_schema_name_authorises_the_overwrite(self, tmp_path):
         orch, manager, dump = self._restorer(tmp_path, answer=" shopdb ")
-        orch._restore_db(dump)
+        orch._restore_db(SITE, dump)
         manager.db_import.assert_called_once_with("shopdb", dump, force=True)
 
     def test_a_wrong_answer_refuses_the_import_entirely(self, tmp_path):
         orch, manager, dump = self._restorer(tmp_path, answer="yes")
         with pytest.raises(RestoreNotConfirmed, match="Nothing was imported"):
-            orch._restore_db(dump)
+            orch._restore_db(SITE, dump)
         manager.db_import.assert_not_called()
 
     def test_the_prompt_quotes_the_live_table_count(self, tmp_path):
         orch, _manager, dump = self._restorer(tmp_path)
-        orch._restore_db(dump)
+        orch._restore_db(SITE, dump)
         warned = " ".join(str(c.args) for c in orch.output.warning.call_args_list)
         assert "it holds 42 tables right now" in warned
 
     def test_an_absent_schema_is_described_as_a_create(self, tmp_path):
         orch, manager, dump = self._restorer(tmp_path)
         manager.db_run_query.return_value = SimpleNamespace(stdout=["0\t0"])
-        orch._restore_db(dump)
+        orch._restore_db(SITE, dump)
         warned = " ".join(str(c.args) for c in orch.output.warning.call_args_list)
         assert "does not exist on that server yet" in warned
 
@@ -1513,13 +1559,13 @@ class TestRestoreConfirmation:
         orch, manager, dump = self._restorer(tmp_path, answer="nope")
         manager.db_run_query.side_effect = RuntimeError("TLS handshake failed")
         with pytest.raises(RestoreNotConfirmed):
-            orch._restore_db(dump)
+            orch._restore_db(SITE, dump)
         warned = " ".join(str(c.args) for c in orch.output.warning.call_args_list)
         assert "could not read how many tables" in warned
 
     def test_non_interactive_imports_unconfirmed_without_querying(self, tmp_path):
         orch, manager, dump = self._restorer(tmp_path, interactive=False)
-        orch._restore_db(dump)
+        orch._restore_db(SITE, dump)
         orch.output.prompt_ask.assert_not_called()
         manager.db_run_query.assert_not_called()
         manager.db_import.assert_called_once_with("shopdb", dump, force=True)
@@ -1527,20 +1573,20 @@ class TestRestoreConfirmation:
     def test_a_promptless_output_mode_imports_unconfirmed(self, tmp_path):
         orch, manager, dump = self._restorer(tmp_path)
         orch.output.prompt_ask.side_effect = NonInteractiveError("json mode")
-        orch._restore_db(dump)
+        orch._restore_db(SITE, dump)
         manager.db_import.assert_called_once_with("shopdb", dump, force=True)
 
     def test_an_external_import_failure_carries_the_tls_hint(self, tmp_path):
         orch, manager, dump = self._restorer(tmp_path)
         manager.db_import.side_effect = RuntimeError("access denied")
         with pytest.raises(DeployError, match=r"ca-bundle\.pem"):
-            orch._restore_db(dump)
+            orch._restore_db(SITE, dump)
 
     def test_a_global_db_import_failure_propagates_unwrapped(self, tmp_path):
         orch, manager, dump = self._restorer(tmp_path, external=False)
         manager.db_import.side_effect = RuntimeError("access denied")
         with pytest.raises(RuntimeError, match="access denied"):
-            orch._restore_db(dump)
+            orch._restore_db(SITE, dump)
 
 
 # ============================================================ new-app install
@@ -1561,21 +1607,28 @@ class TestInstallNewApps:
 
     APPS_LS = "ls -1 /workspace/frappe-bench/apps"
 
-    def _installer(self, tmp_path, switch=None, baked=(), listed=""):
-        """``baked`` is what the image's ``apps/`` listing returns; ``listed`` is
-        the site's ``bench list-apps`` output."""
-        orch = make_orch(tmp_path, switch=switch or SwitchConfig())
+    def _installer(self, tmp_path, switch=None, baked=(), listed="", site_names=None):
+        """``baked`` is what the image's ``apps/`` listing returns; ``listed`` is the
+        ``bench list-apps`` output, either one string used for every site or a
+        ``{site: output}`` mapping when the sites carry different apps."""
+        orch = make_orch(tmp_path, switch=switch or SwitchConfig(), site_names=site_names)
+        per_site = listed if isinstance(listed, dict) else dict.fromkeys(orch.sites, listed)
 
         def _exec(command, user="frappe"):
             if command == self.APPS_LS:
                 return SimpleNamespace(stdout=list(baked))
-            return SimpleNamespace(stdout=listed.splitlines())
+            site = command.split("--site ", 1)[1].split()[0]
+            return SimpleNamespace(stdout=per_site[site].splitlines())
 
         orch._exec_frappe = MagicMock(side_effect=_exec)
         return orch
 
     def _installed(self, orch):
         return [c.args[0] for c in orch._exec_frappe.call_args_list if "install-app" in c.args[0]]
+
+    def _installs(self, orch):
+        """``(site, app)`` per issued ``bench --site <site> install-app <app>``."""
+        return [(c.split("--site ", 1)[1].split()[0], c.split()[-1]) for c in self._installed(orch)]
 
     def test_install_apps_disabled_reconciles_nothing(self, tmp_path):
         orch = self._installer(tmp_path, SwitchConfig(install_apps=False), ("erpnext",), "frappe\n")
@@ -1597,7 +1650,7 @@ class TestInstallNewApps:
         orch = self._installer(tmp_path, baked=("erpnext",), listed="Traceback (most recent call last):")
         orch._install_new_apps()
         assert self._installed(orch) == []
-        assert any("Skipping new-app install" in str(c.args) for c in orch.output.warning.call_args_list)
+        assert any("skipping new-app install" in str(c.args) for c in orch.output.warning.call_args_list)
 
     def test_only_the_missing_apps_are_installed(self, tmp_path):
         orch = self._installer(tmp_path, baked=("erpnext", "hrms", "payments"), listed="frappe\nerpnext\n")
@@ -1622,6 +1675,32 @@ class TestInstallNewApps:
         with pytest.raises(DeployError, match="Failed to install new app 'hrms'"):
             orch._install_new_apps()
 
+    def test_each_site_gets_only_the_apps_it_is_missing(self, tmp_path):
+        """Sites of one bench can carry different apps (``fm create BENCH/SITE --apps``), so the
+        install set is computed against each site's OWN ``bench list-apps`` rather than once for
+        the bench: a set computed from the primary would reinstall on one site what it is missing
+        on the other, and skip what it actually needs. The image is still asked only once."""
+        orch = self._installer(
+            tmp_path,
+            baked=("erpnext", "hrms"),
+            listed={SITE: "frappe\nerpnext\n", SITE2: "frappe\nhrms\n"},
+            site_names=[SITE, SITE2],
+        )
+        orch._install_new_apps()
+        assert self._installs(orch) == [(SITE, "hrms"), (SITE2, "erpnext")]
+        assert [c.args[0] for c in orch._exec_frappe.call_args_list].count(self.APPS_LS) == 1
+
+    def test_one_site_with_an_unreadable_app_list_does_not_skip_the_others(self, tmp_path):
+        """The untrustworthy parse is that site's problem alone."""
+        orch = self._installer(
+            tmp_path,
+            baked=("hrms",),
+            listed={SITE: "Traceback (most recent call last):", SITE2: "frappe\n"},
+            site_names=[SITE, SITE2],
+        )
+        orch._install_new_apps()
+        assert self._installs(orch) == [(SITE2, "hrms")]
+
 
 class TestConfigMerges:
     def test_no_configured_keys_touches_neither_file(self, tmp_path):
@@ -1637,7 +1716,23 @@ class TestConfigMerges:
         )
         orch._apply_config_merges()
         orch.bench.set_common_bench_config.assert_called_once_with({"a": 1})
-        orch.bench.set_bench_site_config.assert_called_once_with({"b": 2})
+        orch.bench.set_bench_site_config.assert_called_once_with(SITE, {"b": 2})
+
+    def test_site_config_keys_are_merged_into_every_site(self, tmp_path):
+        """These keys are part of the deploy, so applying them to one site and not another would
+        leave the bench running one image under two configurations. ``common_site_config`` is
+        bench-wide and is still written exactly once."""
+        orch = make_orch(
+            tmp_path,
+            switch=SwitchConfig(common_site_config={"a": 1}, site_config={"b": 2}),
+            site_names=[SITE, SITE2],
+        )
+        orch._apply_config_merges()
+        assert [c.args for c in orch.bench.set_bench_site_config.call_args_list] == [
+            (SITE, {"b": 2}),
+            (SITE2, {"b": 2}),
+        ]
+        orch.bench.set_common_bench_config.assert_called_once_with({"a": 1})
 
 
 # ============================================================ the rolling swap
@@ -1802,8 +1897,8 @@ class TestFetchImage:
 
 
 class TestMigrateStep:
-    def _migrator(self, tmp_path, switch=None, result=None, error=None):
-        orch = make_orch(tmp_path, switch=switch)
+    def _migrator(self, tmp_path, switch=None, result=None, error=None, site_names=None):
+        orch = make_orch(tmp_path, switch=switch, site_names=site_names)
         orch.docker.compose.run = MagicMock(
             side_effect=error,
             return_value=result or SimpleNamespace(combined=["ok"]),
@@ -1865,7 +1960,7 @@ class TestMigrateStep:
     def test_the_migrate_log_is_persisted_and_exported_to_hook_env(self, tmp_path):
         orch = self._migrator(tmp_path, result=SimpleNamespace(combined=["line one\n", "line two"]))
         orch._migrate(NEW_TAG)
-        assert orch._migrate_log_host.read_text() == "line one\nline two"
+        assert orch._migrate_log_host.read_text() == f"===== {SITE} =====\nline one\nline two"
         assert orch._migrate_log_container == f"/workspace/frappe-bench/logs/{orch._migrate_log_host.name}"
         script = orch._hook_script("echo hi", NEW_TAG)
         assert f"export MIGRATE_LOG_FILE={orch._migrate_log_container}" in script
@@ -1876,6 +1971,56 @@ class TestMigrateStep:
         with pytest.raises(DockerException):
             orch._migrate(NEW_TAG)
         assert "patch exploded" in orch._migrate_log_host.read_text()
+
+    def test_every_site_is_migrated_once_in_site_names_order(self, tmp_path):
+        """N sites means N schemas, so N migrates, primary first.
+
+        One image swap moves the code under every schema at once, so migrating the primary and
+        leaving the rest is exactly "new code against an old schema" for every other site. The
+        order is `site_names` order, not any order the sites happen to sort in: the reverse-order
+        rollback_db restore unwinds this walk, so the walk has to be the promised one.
+        """
+        orch = self._migrator(tmp_path, site_names=[SITE, SITE2])
+        assert orch._migrate(NEW_TAG) is True
+        assert [c.kwargs["command"] for c in orch.docker.compose.run.call_args_list] == [
+            f"300 {BENCH_BIN} --site {SITE} migrate",
+            f"300 {BENCH_BIN} --site {SITE2} migrate",
+        ]
+
+    def test_the_migrate_loop_stops_at_the_first_failing_site(self, tmp_path):
+        """The pipeline keeps the OLD image on a migrate failure and `bench migrate` is
+        resumable, so re-running the switch after the fix picks up where it stopped. Marching on
+        into the remaining sites would spend the whole window on schemas that are about to be
+        rolled back anyway."""
+        orch = self._migrator(tmp_path, site_names=[SITE, SITE2], error=docker_error("patch exploded"))
+        with pytest.raises(DockerException):
+            orch._migrate(NEW_TAG)
+        commands = [c.kwargs["command"] for c in orch.docker.compose.run.call_args_list]
+        assert commands == [f"300 {BENCH_BIN} --site {SITE} migrate"]
+        assert SITE2 not in orch._migrate_log_host.read_text()
+
+    def test_a_custom_migrate_command_runs_once_not_once_per_site(self, tmp_path):
+        """It replaces the whole command INCLUDING the site selector, so fanning it out would
+        run the operator's own command N times against the one site they named in it."""
+        orch = self._migrator(
+            tmp_path,
+            switch=SwitchConfig(migrate_command="--site x migrate --skip-failing", migrate_timeout=0),
+            site_names=[SITE, SITE2],
+        )
+        orch._migrate(NEW_TAG)
+        orch.docker.compose.run.assert_called_once()
+        assert orch.docker.compose.run.call_args.kwargs["command"] == "--site x migrate --skip-failing"
+
+    def test_one_log_carries_every_site_behind_its_own_separator(self, tmp_path):
+        """The hook contract is a single MIGRATE_LOG_FILE, so the sites share one file and the
+        separator is what makes it readable."""
+        orch = self._migrator(
+            tmp_path,
+            site_names=[SITE, SITE2],
+            result=SimpleNamespace(combined=["done"]),
+        )
+        orch._migrate(NEW_TAG)
+        assert orch._migrate_log_host.read_text() == f"===== {SITE} =====\ndone\n===== {SITE2} =====\ndone"
 
 
 # ============================================================ release pruning
@@ -1889,7 +2034,7 @@ class TestPruneReleases:
                 tag=t,
                 deployed_at=f"t{i}",
                 migrate_status="migrated",
-                backup=backups.get(t),
+                backups={SITE: backups[t]} if backups.get(t) else {},
             )
             for i, t in enumerate(tags)
         ]
@@ -2039,63 +2184,172 @@ class TestHealthAndRunningProbes:
         assert orch._frappe_running() is False
 
 
+# ===================================================== per-site database config
+
+
+class TestPerSiteDatabaseResolution:
+    """``_external_db`` is answered PER SITE, and ``_db_manager`` follows that answer.
+
+    One bench can serve one site on fm's own global-db container and another on a server fm
+    does not own. Resolving the entry once from the PRIMARY makes the external site's TLS
+    handling a property of a DIFFERENT site's configuration: the client is handed no CA for a
+    server that demands one, and the failure that follows carries no hint saying why.
+    """
+
+    def _mixed_bench(self, tmp_path, external_site):
+        """A two-site bench where exactly ``external_site`` lives on an external server."""
+        orch = make_orch(tmp_path, site_names=[SITE, SITE2])
+        entry = SimpleNamespace(host="db.example", port=3306)
+        orch.config.database[external_site] = entry
+        return orch, entry
+
+    def test_the_secondary_sites_entry_is_read_for_the_secondary_site(self, tmp_path):
+        orch, entry = self._mixed_bench(tmp_path, SITE2)
+        assert orch._external_db(SITE) is None
+        assert orch._external_db(SITE2) is entry
+
+    def test_the_primarys_entry_is_not_handed_to_the_secondary_site(self, tmp_path):
+        """The mirror arrangement. Asked about a site on global-db while the PRIMARY is the
+        external one, the answer is still that site's own: None."""
+        orch, entry = self._mixed_bench(tmp_path, SITE)
+        assert orch._external_db(SITE) is entry
+        assert orch._external_db(SITE2) is None
+
+    def test_only_the_external_site_is_given_a_mysql_home(self, tmp_path):
+        """The observable consequence. MYSQL_HOME is the only way the client learns a CA, so
+        it has to name the CA of the site being talked to; global-db gets None, whose
+        certificate an external CA would not describe."""
+        orch, _ = self._mixed_bench(tmp_path, SITE2)
+        with (
+            patch(
+                "frappe_manager.site_manager.modules.deploy_orchestrator"
+                ".DatabaseServerServiceInfo.import_from_bench",
+                return_value=SimpleNamespace(name="sitedb"),
+            ),
+            patch("frappe_manager.site_manager.modules.deploy_orchestrator.MariaDBManager") as mariadb,
+        ):
+            orch._db_manager(SITE)
+            orch._db_manager(SITE2)
+        assert [call.kwargs["mysql_home"] for call in mariadb.call_args_list] == [
+            None,
+            db_tls.site_mysql_home(SITE2),
+        ]
+
+
 # ==================================================================== backup
 
 
 class TestBackupStep:
-    def _backupper(self, tmp_path, running=True, db_name="shopdb", export_error=None, external=False):
-        orch = make_orch(tmp_path)
-        sites = orch.bench_path / "workspace" / "frappe-bench" / "sites" / SITE
-        sites.mkdir(parents=True, exist_ok=True)
-        (sites / "site_config.json").write_text("{}")
-        (sites.parent / "common_site_config.json").write_text("{}")
+    def _backupper(
+        self,
+        tmp_path,
+        running=True,
+        db_name="shopdb",
+        export_error=None,
+        external=False,
+        site_names=None,
+    ):
+        """``db_name`` is one schema name for every site, or a ``{site: name}`` mapping."""
+        orch = make_orch(tmp_path, site_names=site_names)
+        sites_dir = orch.bench_path / "workspace" / "frappe-bench" / "sites"
+        for site in orch.sites:
+            (sites_dir / site).mkdir(parents=True, exist_ok=True)
+            (sites_dir / site / "site_config.json").write_text("{}")
+        (sites_dir / "common_site_config.json").write_text("{}")
         orch._frappe_running = MagicMock(return_value=running)
         manager = MagicMock()
         manager.db_export.side_effect = export_error
-        orch._db_manager = MagicMock(return_value=(manager, db_name))
+        names = db_name if isinstance(db_name, dict) else dict.fromkeys(orch.sites, db_name)
+        orch._db_manager = MagicMock(side_effect=lambda site: (manager, names[site]))
         if external:
             orch.config.database[SITE] = SimpleNamespace(host="db.example", port=3306)
         return orch, manager
 
+    def _writes_the_dump(self, orch):
+        """A ``db_export`` side effect that really writes the container-side dump file."""
+
+        def _export(_db_name, container_path):
+            host = orch.bench_path / "workspace" / Path(container_path).relative_to("/workspace")
+            host.write_text("DUMP")
+
+        return _export
+
     def test_config_snapshots_are_taken_even_when_the_dump_is_skipped(self, tmp_path):
-        orch, _ = self._backupper(tmp_path, running=False)
+        """These are host-side file copies that never needed the container, so a stopped frappe
+        stops the dump and not the snapshot, and it stops it for no site: the per-site copies
+        once sat behind the running gate, which lost them for exactly the bench that was down.
+        """
+        orch, _ = self._backupper(tmp_path, running=False, site_names=[SITE, SITE2])
         target = tmp_path / "out"
-        assert orch._backup(target) is None
-        assert (target / f"{SITE}__site_config.json").exists()
+        assert orch._backup_all(target) == {}
         assert (target / "common_site_config.json").exists()
+        assert (target / f"{SITE}__site_config.json").exists()
+        assert (target / f"{SITE2}__site_config.json").exists()
 
     def test_a_stopped_container_skips_the_dump_with_a_warning(self, tmp_path):
         orch, manager = self._backupper(tmp_path, running=False)
-        assert orch._backup(tmp_path / "out") is None
+        assert orch._backup_all(tmp_path / "out") == {}
         manager.db_export.assert_not_called()
         assert any("skipping DB backup" in str(c.args) for c in orch.output.warning.call_args_list)
 
     def test_an_unresolvable_db_name_skips_the_dump(self, tmp_path):
         orch, manager = self._backupper(tmp_path, db_name=None)
-        assert orch._backup(tmp_path / "out") is None
+        assert orch._backup_all(tmp_path / "out") == {}
         manager.db_export.assert_not_called()
 
     def test_a_successful_dump_is_moved_into_the_backup_dir(self, tmp_path):
         orch, manager = self._backupper(tmp_path)
         logs = orch.bench_path / "workspace" / "frappe-bench" / "logs"
-        manager.db_export.side_effect = lambda *_a: (logs / "deploy-db-backup.sql").write_text("DUMP")
+        manager.db_export.side_effect = self._writes_the_dump(orch)
         target = tmp_path / "out"
-        result = orch._backup(target)
-        assert result == target / "db-shopdb.sql"
-        assert result.read_text() == "DUMP"
-        assert not (logs / "deploy-db-backup.sql").exists()
+        assert orch._backup_all(target) == {SITE: target / "db-shopdb.sql"}
+        assert (target / "db-shopdb.sql").read_text() == "DUMP"
+        assert not (logs / f"deploy-db-backup-{SITE}.sql").exists()
+
+    def test_every_site_is_dumped_and_the_mapping_is_keyed_by_site(self, tmp_path):
+        """The whole point of the change: N sites means N schemas, so N dumps.
+
+        A switch that backed up only the primary left every other site with new code over an
+        old schema and nothing to roll back to. The dump paths are keyed by the site's own
+        schema name, so two sites can never race through one path.
+        """
+        orch, manager = self._backupper(
+            tmp_path,
+            site_names=[SITE, SITE2],
+            db_name={SITE: "shopdb", SITE2: "warehousedb"},
+        )
+        manager.db_export.side_effect = self._writes_the_dump(orch)
+        target = tmp_path / "out"
+        assert orch._backup_all(target) == {
+            SITE: target / "db-shopdb.sql",
+            SITE2: target / "db-warehousedb.sql",
+        }
+        assert [c.args[0] for c in manager.db_export.call_args_list] == ["shopdb", "warehousedb"]
+        assert [c.args[0] for c in orch._db_manager.call_args_list] == [SITE, SITE2]
+
+    def test_one_site_failing_its_dump_leaves_only_that_site_out(self, tmp_path):
+        """Absent from the mapping, never mapped to None: the caller counts the mapping against
+        the site list to decide whether the rollback set is complete."""
+        orch, manager = self._backupper(
+            tmp_path,
+            site_names=[SITE, SITE2],
+            db_name={SITE: "shopdb", SITE2: None},
+        )
+        manager.db_export.side_effect = self._writes_the_dump(orch)
+        target = tmp_path / "out"
+        assert orch._backup_all(target) == {SITE: target / "db-shopdb.sql"}
 
     def test_a_dump_that_never_appeared_yields_no_backup_path(self, tmp_path):
         orch, _ = self._backupper(tmp_path)
-        assert orch._backup(tmp_path / "out") is None
+        assert orch._backup_all(tmp_path / "out") == {}
 
     def test_an_export_failure_continues_the_deploy_without_a_dump(self, tmp_path):
         orch, _ = self._backupper(tmp_path, export_error=docker_error("access denied"))
-        assert orch._backup(tmp_path / "out") is None
+        assert orch._backup_all(tmp_path / "out") == {}
         assert any("DB export failed" in str(c.args) for c in orch.output.warning.call_args_list)
 
     def test_an_external_export_failure_adds_the_tls_hint(self, tmp_path):
         orch, _ = self._backupper(tmp_path, export_error=docker_error("access denied"), external=True)
-        orch._backup(tmp_path / "out")
+        orch._backup_all(tmp_path / "out")
         warned = " ".join(str(c.args) for c in orch.output.warning.call_args_list)
         assert "ca-bundle.pem" in warned

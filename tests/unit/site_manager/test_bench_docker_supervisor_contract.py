@@ -87,14 +87,16 @@ def _ops(
     ops.compose_file_manager.yml = yml or {
         "services": {"nginx": {"image": "nginx:pinned"}, "frappe": {"image": "frappe:pinned"}}
     }
-    # A stand-in for `BenchConfig`. `generate_compose` reads only `domains` for routing, so that is
-    # what the stand-in answers: aliases are no longer a bench-level list, they belong to a site,
-    # and `domains` is each site's own name followed by that site's aliases. This bench has one
-    # site, `site or name`, and `alias_domains` here are ITS aliases.
+    # A stand-in for `BenchConfig`. `generate_compose` reads `domains` for routing and
+    # `site_names` for the mode projection's per-site binds: aliases are no longer a bench-level
+    # list, they belong to a site, and `domains` is each site's own name followed by that site's
+    # aliases. This bench has one site, `site or name`, and `alias_domains` here are ITS aliases.
+    # `site_names` is the sites, never the bench name, which is why it follows `site or name` too.
     ops.config = SimpleNamespace(
         name=name,
         runtime=runtime,
         domains=[site or name, *(alias_domains or [])],
+        site_names=[site or name],
         ssl_certificates=list(ssl_certificates),
         container_name_prefix="fm__test_localhost",
     )
@@ -562,7 +564,9 @@ class TestGenerateCompose:
 
         ops.generate_compose({})
 
-        apply_specs.assert_called_once_with(ops.compose_file_manager, specs, "proj.localhost")
+        # The third argument is the bench's SITES, one bind per site: a list, never a bare
+        # site string, which the projection would iterate character by character.
+        apply_specs.assert_called_once_with(ops.compose_file_manager, specs, ["proj.localhost"])
 
 
 class TestRenderImageCompose:

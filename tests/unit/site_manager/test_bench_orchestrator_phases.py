@@ -1273,7 +1273,11 @@ def test_phase_four_writes_the_admin_password_and_syncs_after_creating_the_site(
 
     harness.events.before("new-site(force=False)", "set_bench_site_config")
     harness.events.before("set_bench_site_config", "sync_bench_config_configuration")
-    assert "admin_password" in harness.bench.set_bench_site_config.call_args[0][0]
+    # The write names the site it is for: `set_bench_site_config` no longer assumes the
+    # bench's primary, because a bench holds N sites and each has its own site_config.json.
+    site, config = harness.bench.set_bench_site_config.call_args[0]
+    assert site == SITE
+    assert "admin_password" in config
 
 
 # --------------------------------------------------------------------------- attach
@@ -1339,7 +1343,7 @@ def test_attach_only_flips_migrate_and_leaves_the_rest_of_switch_alone(attach_ha
     """An existing `[switch]` section is edited, not replaced: the other settings are the
     operator's."""
     harness = attach_harness()
-    harness.config.switch = SwitchConfig(migrate="auto", migrate_timeout=900)
+    harness.config.switch = SwitchConfig(migrate=True, migrate_timeout=900)
 
     harness.reraising_orchestrator(real=("_external_database_gate",)).create_bench()
 

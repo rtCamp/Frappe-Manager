@@ -90,7 +90,7 @@ def _add_bench_certificate(
     if not dry_run:
         # Update host_name to HTTPS since SSL is now active
         try:
-            bench.set_bench_site_config({"host_name": f"https://{domain}"})
+            bench.set_bench_site_config(bench.site_name, {"host_name": f"https://{domain}"})
             output.debug(f"Updated host_name to https://{domain}")
         except Exception as e:
             # Non-fatal -- site config may not exist yet if site isn't created
@@ -131,7 +131,7 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
 
         # Revert host_name to HTTP since SSL was removed
         try:
-            bench.set_bench_site_config({"host_name": f"http://{domain}"})
+            bench.set_bench_site_config(bench.site_name, {"host_name": f"http://{domain}"})
             output.debug(f"Updated host_name to http://{domain}")
         except Exception as e:
             output.debug(f"Could not update host_name to http://{domain}: {e}")

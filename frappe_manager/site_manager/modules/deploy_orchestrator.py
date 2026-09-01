@@ -4,7 +4,7 @@ Implements the decomposed image deploy (recreate-swap) that ``fmx restart
 --migrate`` cannot express in image mode:
 
     fetch -> pre-flight -> render image compose(new tag) -> resolve migrate
-    (probe when 'auto') -> maintenance(if migrate) -> drain(old) -> backup (at
+    -> maintenance(if migrate) -> drain(old) -> backup (at
     the quiesced point) -> migrate(one-shot, new image) -> swap (rolling when
     the overlap is safe, else recreate) -> finalize(resume + site DB ops +
     maintenance off) -> record deploy_state
@@ -15,7 +15,6 @@ migrate); recreate-swap remains for migrate deploys that disable the
 maintenance window. Supervisor stays.
 """
 
-import base64
 import contextlib
 import re
 import shlex
@@ -23,6 +22,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -146,32 +146,7 @@ def rolling_eligible(
     return maintenance_mode
 
 
-MIGRATE_PROBE_MARKER = "FM-MIGRATE-PROBE"
-
-
-def parse_migrate_probe(lines) -> dict | None:
-    """Structured verdict from the migrate-probe marker line, or None.
-
-    ``{"needed": bool, "pending": int | None, "drift": [app, ...]}`` -- the
-    pending patch count and drifted-app names feed the migrate/backup
-    decisions and are exported to hook env (MIGRATE_PROBE /
-    MIGRATE_PENDING_PATCHES / MIGRATE_APP_DRIFT)."""
-    for line in lines or []:
-        if MIGRATE_PROBE_MARKER not in line:
-            continue
-        tail = line.split(MIGRATE_PROBE_MARKER, 1)[1]
-        pending_m = re.search(r"pending=(\d+)", tail)
-        drift_m = re.search(r"drift=(\S+)", tail)
-        drift = [] if not drift_m or drift_m.group(1) == "none" else drift_m.group(1).split(",")
-        return {
-            "needed": tail.split()[:1] != ["clean"],
-            "pending": int(pending_m.group(1)) if pending_m else None,
-            "drift": drift,
-        }
-    return None
-
-
-def pin_workers_to_image(workers, site: str, deploy_tag: str) -> None:
+def pin_workers_to_image(workers, sites: Sequence[str], deploy_tag: str) -> None:
     """Pin the workers compose to ``deploy_tag`` with image-mode data binds.
 
     Thin delegator over the compose_shape projection -- the same specs the
@@ -192,7 +167,7 @@ def pin_workers_to_image(workers, site: str, deploy_tag: str) -> None:
     if not svcs:
         return
     specs = worker_service_specs(workers.bench.bench_config, svcs, RenderContext(deploy_tag=deploy_tag))
-    apply_specs(cfm, specs, site)
+    apply_specs(cfm, specs, sites)
     cfm.write_to_file()
 
 
@@ -234,12 +209,16 @@ def plan_artifact_removal(kept: list, pruned: list, protected_tags: set[str]) ->
     """``(backup_paths, image_tags)`` safe to delete for the pruned rows.
 
     A backup survives while ANY kept row references it; an image tag survives
-    while any kept row OR the protected set (current / previous / seed / base)
-    references it -- pruning must never orphan a tag the bench can still
+    while any kept row OR the protected set (current / previous / target)
+    references it -- pruning must never orphan a tag the bench could still
     switch back to.
+
+    A row records one dump per SITE, so the sets are flattened across every
+    site: a multi-site row whose dumps are all still referenced by a kept row
+    must lose none of them, and one whose dumps are not must lose all of them.
     """
-    kept_backups = {entry.backup for entry in kept if entry.backup}
-    backups = sorted({entry.backup for entry in pruned if entry.backup} - kept_backups)
+    kept_backups = {path for entry in kept for path in entry.backups.values()}
+    backups = sorted({path for entry in pruned for path in entry.backups.values()} - kept_backups)
     kept_tags = {entry.tag for entry in kept} | protected_tags
     tags = sorted({entry.tag for entry in pruned} - kept_tags)
     return backups, tags
@@ -253,17 +232,22 @@ class DeployOrchestrator:
         self.config = bench.bench_config
         self.switch_config = self.config.switch
         self.workers_config = self.config.workers or WorkersConfig()
-        # The SITE, not the bench: this feeds `bench --site {self.site}`, the
-        # `[database."<site>"]` lookup, `site_mysql_home` and `<site>/site_config.json`. It read
-        # `bench.name` until the identities were separated, which was invisible only because the
-        # two are the same string. The annotation on `bench` above is load-bearing too: while the
-        # parameter was untyped, a symbol-aware search for reads of `Bench.name` could not see
-        # this line at all, which is how it survived the census.
+        # The PRIMARY site. Kept for the bench-wide calls that still have to name SOME site:
+        # `set-config -g` (which writes common_site_config and so covers every site regardless
+        # of the one named), the worker pin, and the hook env's SITE_NAME. It read `bench.name`
+        # until the identities were separated, which was invisible only because the two are the
+        # same string. The annotation on `bench` above is load-bearing too: while the parameter
+        # was untyped, a symbol-aware search for reads of `Bench.name` could not see this line.
         self.site = bench.site_name
+        # Every site the bench serves, primary first, and the list the schema-grade steps walk:
+        # backup, restore, migrate, install-apps, config merges and cache clears are all PER
+        # SCHEMA. Recorded sites only. A site directory fm never provisioned is reported by
+        # `unmanaged_site_dirs` and left alone, the same rule `fm delete` follows: fm does not
+        # migrate a schema it disclaimed ownership of, because a migration it broke would be
+        # damage to the exact thing it promised not to touch.
+        self.sites = list(self.config.site_names)
         self.bench_path = Path(bench.path)
         self.docker = bench.docker_client
-        # migrate='auto' probe details (verdict/pending/drift); exported to hook env.
-        self._probe_result: dict | None = None
         # bench-migrate outcome + persisted log paths; exported to hook env so
         # after_migrate hooks (which also run on FAILURE) can ship notifications.
         self._migrate_status: str | None = None
@@ -602,7 +586,7 @@ class DeployOrchestrator:
         return cfm, workers.docker_client, svcs
 
     def _pin_workers(self, deploy_tag: str) -> None:
-        pin_workers_to_image(self.bench.workers, self.site, deploy_tag)
+        pin_workers_to_image(self.bench.workers, self.sites, deploy_tag)
 
     def _up_workers(self) -> None:
         info = self._worker_services()
@@ -626,20 +610,24 @@ class DeployOrchestrator:
         # Reload the in-memory compose managers from the restored files.
         self.compose.__init__(self.compose.compose_path)  # type: ignore[misc]
 
-    def _external_db(self) -> DatabaseConfig | None:
-        """This site's external database entry, or None for the global-db container."""
-        return self.config.get_database_config(self.site)
+    def _external_db(self, site: str) -> DatabaseConfig | None:
+        """That site's external database entry, or None for the global-db container.
 
-    def _db_manager(self) -> tuple[MariaDBManager, str | None]:
+        Per site, not per bench: one bench can serve a site on global-db and another on an
+        external server, so this cannot be resolved once and reused.
+        """
+        return self.config.get_database_config(site)
+
+    def _db_manager(self, site: str) -> tuple[MariaDBManager, str | None]:
         db_info = DatabaseServerServiceInfo.import_from_bench(
-            site_name=self.site,
+            site_name=site,
             bench_path=self.bench_path,
             raise_exception=False,
         )
         db_name = db_info.name or self.config.db_name
         # MYSQL_HOME is the only way the client learns a CA: it reads <dir>/my.cnf.
         # None for global-db, whose certificate an external CA would not describe.
-        mysql_home = db_tls.site_mysql_home(self.site) if self._external_db() else None
+        mysql_home = db_tls.site_mysql_home(site) if self._external_db(site) else None
         manager = MariaDBManager(
             db_info,
             self.compose,
@@ -650,35 +638,64 @@ class DeployOrchestrator:
         )
         return manager, db_name
 
-    def _backup(self, backup_dir: Path) -> Path | None:
-        """DB dump + config copies into ``backup_dir``. Returns the DB dump path
-        (host) or None when skipped/unavailable."""
+    def _backup_all(self, backup_dir: Path) -> dict[str, Path]:
+        """Dump EVERY site's schema into ``backup_dir``. Returns {site: host dump path}.
+
+        Every site, because every site has its own schema and its own database: a bench-wide
+        rollback that could only restore one of them would put the bench at two points in time.
+        Taken at the quiesced point with the maintenance page already up, so all the dumps
+        describe the same instant.
+
+        A site whose dump could not be taken is absent from the mapping rather than mapped to
+        None, so `if backups` and `len(backups)` mean what they look like. The caller compares
+        the count against the site list to decide whether the set is complete.
+        """
         backup_dir.mkdir(parents=True, exist_ok=True)
-        sites = self.bench_path / "workspace" / "frappe-bench" / "sites"
-        for rel in (f"{self.site}/site_config.json", "common_site_config.json"):
-            src = sites / rel
+        sites_dir = self.bench_path / "workspace" / "frappe-bench" / "sites"
+
+        # Config snapshots FIRST, and deliberately ahead of the running gate below: these are
+        # host-side file copies that never needed the container, so a bench whose frappe is
+        # stopped still gets its configs captured even though no dump can be taken.
+        common = sites_dir / "common_site_config.json"
+        if common.exists():
+            # Bench-wide, so copied once rather than per site.
+            shutil.copy2(common, backup_dir / "common_site_config.json")
+        for site in self.sites:
+            src = sites_dir / site / "site_config.json"
             if src.exists():
-                dest = backup_dir / rel.replace("/", "__")
-                shutil.copy2(src, dest)
+                shutil.copy2(src, backup_dir / f"{site}__site_config.json")
 
         if not self._frappe_running():
             self.output.warning("frappe container not running; skipping DB backup.")
-            return None
+            return {}
 
-        manager, db_name = self._db_manager()
+        dumps: dict[str, Path] = {}
+        for site in self.sites:
+            dump = self._backup_site(site, backup_dir)
+            if dump is not None:
+                dumps[site] = dump
+        return dumps
+
+    def _backup_site(self, site: str, backup_dir: Path) -> Path | None:
+        """One site's DB dump into ``backup_dir``, or None when skipped/unavailable."""
+        manager, db_name = self._db_manager(site)
         if not db_name:
-            self.output.warning("Could not resolve DB name; skipping DB backup.")
+            self.output.warning(f"{site}: could not resolve DB name; skipping DB backup.")
             return None
 
         # db_export writes inside the container; /workspace maps to the bench workspace.
-        container_path = Path("/workspace") / "frappe-bench" / "logs" / "deploy-db-backup.sql"
-        host_path = self.bench_path / "workspace" / "frappe-bench" / "logs" / "deploy-db-backup.sql"
+        # Keyed by SITE, not a fixed name: two sites dumping in the same run would otherwise
+        # race through one path, and a failure mid-move would leave one site's rows filed
+        # under another site's dump.
+        rel = Path("frappe-bench") / "logs" / f"deploy-db-backup-{site}.sql"
+        container_path = Path("/workspace") / rel
+        host_path = self.bench_path / "workspace" / rel
         try:
             manager.db_export(db_name, container_path)
         except DockerException as e:
-            self.output.warning(f"DB export failed; continuing without DB backup: {e}")
-            if self._external_db():
-                self.output.warning(external_dump_tls_hint(self.site))
+            self.output.warning(f"{site}: DB export failed; continuing without its DB backup: {e}")
+            if self._external_db(site):
+                self.output.warning(external_dump_tls_hint(site))
             return None
         final = backup_dir / f"db-{db_name}.sql"
         if host_path.exists():
@@ -686,8 +703,8 @@ class DeployOrchestrator:
             return final
         return None
 
-    def _restore_db(self, db_dump: Path, *, requested: bool = False, confirmed: bool = False) -> None:
-        """Import ``db_dump`` over this site's live schema.
+    def _restore_db(self, site: str, db_dump: Path, *, requested: bool = False, confirmed: bool = False) -> None:
+        """Import ``db_dump`` over ``site``'s live schema.
 
         ``requested`` marks the operator's own ``--restore-db``: an OLD dump
         landing on top of everything written since it was taken. That is the case
@@ -701,25 +718,26 @@ class DeployOrchestrator:
         before it is asked.
         """
         if not db_dump or not db_dump.exists():
-            self.output.warning("No DB backup available to restore.")
+            self.output.warning(f"{site}: no DB backup available to restore.")
             return
-        manager, db_name = self._db_manager()
+        manager, db_name = self._db_manager(site)
         if not db_name:
-            self.output.warning("Could not resolve DB name; skipping DB restore.")
+            self.output.warning(f"{site}: could not resolve DB name; skipping DB restore.")
             return
-        self._confirm_restore(manager, db_name, db_dump, requested=requested, confirmed=confirmed)
-        self.output.change_head("Restoring database backup")
+        self._confirm_restore(site, manager, db_name, db_dump, requested=requested, confirmed=confirmed)
+        self.output.change_head(f"Restoring database backup for {site}")
         try:
             manager.db_import(db_name, db_dump, force=True)
         except Exception as e:
-            if not self._external_db():
+            if not self._external_db(site):
                 raise
             raise DeployError(
-                f"Restoring {db_dump} into {db_name} failed: {e}\n{external_dump_tls_hint(self.site)}",
+                f"Restoring {db_dump} into {db_name} failed: {e}\n{external_dump_tls_hint(site)}",
             ) from e
 
     def _confirm_restore(
         self,
+        site: str,
         manager: MariaDBManager,
         schema: str,
         db_dump: Path,
@@ -751,7 +769,7 @@ class DeployOrchestrator:
 
         endpoint = manager.database_server_info
         host = f"{endpoint.host}:{endpoint.port}"
-        external = self._external_db() is not None
+        external = self._external_db(site) is not None
         owner = "a database fm does not own" if external else "fm's own global-db container"
 
         def refuse(reason: str) -> RestoreNotConfirmed:
@@ -776,7 +794,7 @@ class DeployOrchestrator:
             )
             return
 
-        state = self._live_schema_state(manager, schema)
+        state = self._live_schema_state(site, manager, schema)
         if state is None:
             holds = "fm could not read how many tables it holds right now"
         elif not state[0]:
@@ -801,7 +819,7 @@ class DeployOrchestrator:
         if answer.strip() != schema:
             raise refuse("the schema name was not typed.")
 
-    def _live_schema_state(self, manager: MariaDBManager, schema: str) -> tuple[bool, int] | None:
+    def _live_schema_state(self, site: str, manager: MariaDBManager, schema: str) -> tuple[bool, int] | None:
         """``(schema exists, table count)`` read from the server now, None if unreadable.
 
         Same query the create-time probe uses, run through the client the restore
@@ -814,8 +832,8 @@ class DeployOrchestrator:
             output = manager.db_run_query(shlex.quote(sql), capture_output=True)
         except Exception as e:
             self.output.warning(f"Could not count the tables in '{schema}': {e}")
-            if self._external_db():
-                self.output.warning(external_dump_tls_hint(self.site))
+            if self._external_db(site):
+                self.output.warning(external_dump_tls_hint(site))
             return None
         for line in getattr(output, "stdout", None) or ():
             columns = line.split("\t")
@@ -891,16 +909,20 @@ class DeployOrchestrator:
                 self._set_maintenance(0)
         self.resume_workers()
 
-    def _site_installed_apps(self) -> set[str]:
-        """App names installed on the site, parsed from ``bench list-apps``.
+    def _site_installed_apps(self, site: str) -> set[str]:
+        """App names installed on ``site``, parsed from ``bench list-apps``.
+
+        Asked per site rather than read from config, which is why no per-site apps record is
+        needed: apps are installed per schema, and the site itself is the only authority on
+        which ones it has.
 
         Returns an empty set when listing fails; callers must treat a set that
         lacks the always-present ``frappe`` app as unreliable (see
         :meth:`_install_new_apps`)."""
         try:
-            result = self._exec_frappe(f"{BENCH_BIN} --site {self.site} list-apps")
+            result = self._exec_frappe(f"{BENCH_BIN} --site {site} list-apps")
         except Exception as e:
-            self.output.warning(f"Could not list installed apps: {e}")
+            self.output.warning(f"{site}: could not list installed apps: {e}")
             return set()
         return _parse_app_names(getattr(result, "stdout", None))
 
@@ -927,62 +949,66 @@ class DeployOrchestrator:
         return sorted(_parse_app_names(getattr(result, "stdout", None)))
 
     def _install_new_apps(self) -> None:
-        """Install apps present in the image but not yet on the site (``[switch].install_apps``).
+        """Install apps present in the image but not yet on each site (``[switch].install_apps``).
 
         Runs in the new container during finalize (under maintenance when
         migrating), so the container is already the new image and can be asked
         what it carries. Defensive on both sides: an unreadable image listing
         reconciles nothing, and the installed set must contain the always-present
         ``frappe`` app or it is treated as unreliable, so a parse failure skips
-        rather than blindly reinstalling every app."""
+        rather than blindly reinstalling every app.
+
+        Per site, and the difference is not cosmetic: sites of one bench can carry different
+        apps (`fm create BENCH/SITE --apps`), so the set to install is computed against each
+        site's own `bench list-apps` rather than once for the bench.
+        """
         if not self.switch_config.install_apps:
             return
         wanted = self._image_baked_apps()
         if not wanted:
             return
-        installed = self._site_installed_apps()
-        if "frappe" not in installed:
-            self.output.warning(
-                "Skipping new-app install: could not reliably read installed apps "
-                "(no 'frappe' in `bench list-apps` output).",
-            )
-            return
-        new = _new_apps(wanted, installed)
-        if not new:
-            return
-        self.output.change_head(f"Installing new app(s) on site: {', '.join(new)}")
-        for app in new:
-            try:
-                self._exec_frappe(f"{BENCH_BIN} --site {self.site} install-app {app}")
-                self.output.print(f"Installed app '{app}' on site")
-            except Exception as e:
-                raise DeployError(f"Failed to install new app '{app}' on the site during finalize: {e}") from e
+        for site in self.sites:
+            installed = self._site_installed_apps(site)
+            if "frappe" not in installed:
+                self.output.warning(
+                    f"{site}: skipping new-app install: could not reliably read installed apps "
+                    "(no 'frappe' in `bench list-apps` output).",
+                )
+                continue
+            new = _new_apps(wanted, installed)
+            if not new:
+                continue
+            self.output.change_head(f"Installing new app(s) on {site}: {', '.join(new)}")
+            for app in new:
+                try:
+                    self._exec_frappe(f"{BENCH_BIN} --site {site} install-app {app}")
+                    self.output.print(f"Installed app '{app}' on {site}")
+                except Exception as e:
+                    raise DeployError(f"Failed to install new app '{app}' on {site} during finalize: {e}") from e
 
     def _apply_config_merges(self) -> None:
         """Merge ``[deploy].common_site_config`` / ``site_config`` keys into the
-        site's ``common_site_config.json`` / ``site_config.json``.
+        bench's ``common_site_config.json`` and EVERY site's ``site_config.json``.
 
         Both files are host-mounted data, so the new container picks up the merge
         immediately (clear-cache follows in finalize). ``save_dict_to_file``
-        merges, so unrelated keys are preserved."""
+        merges, so unrelated keys are preserved.
+
+        Every site, because these keys are part of the deploy: applying them to one site and
+        not another would leave the bench running one image under two configurations."""
         common = self.switch_config.common_site_config
-        site = self.switch_config.site_config
+        site_keys = self.switch_config.site_config
         if common:
             self.output.change_head("Merging common_site_config keys")
             self.bench.set_common_bench_config(common)
-        if site:
-            self.output.change_head("Merging site_config keys")
-            self.bench.set_bench_site_config(site)
+        if site_keys:
+            for site in self.sites:
+                self.output.change_head(f"Merging site_config keys into {site}")
+                self.bench.set_bench_site_config(site, site_keys)
 
     def _hook_script(self, value: str, deploy_tag: str) -> str:
         """``set -e`` + exported env + resolved content, so no exec env passthrough is needed."""
         core = {"SITE_NAME": self.site, "BENCH_PATH": str(self.bench_path), "DEPLOY_TAG": deploy_tag}
-        if self._probe_result is not None:
-            # migrate='auto' probe details, for hooks concerned with schema state.
-            core["MIGRATE_PROBE"] = self._probe_result["verdict"]
-            pending = self._probe_result["pending"]
-            core["MIGRATE_PENDING_PATCHES"] = "unknown" if pending is None else str(pending)
-            core["MIGRATE_APP_DRIFT"] = ",".join(self._probe_result["drift"]) or "none"
         if self._migrate_status is not None:
             core["MIGRATE_STATUS"] = self._migrate_status
         if self._migrate_log_container is not None:
@@ -1042,56 +1068,83 @@ class DeployOrchestrator:
                 host_script.unlink()
 
     def _migrate(self, deploy_tag: str) -> bool:
-        """Run bench migrate in a one-shot container from the newly-pinned image.
+        """Run bench migrate in a one-shot container from the newly-pinned image, per SITE.
+
+        Every site the bench serves gets its own migrate, because every site has its own
+        schema: one image swap moves the code under all of them at once, so migrating one and
+        not the rest leaves those sites running new code against an old schema. They run in
+        order, primary first, and the first failure stops the rest: the pipeline keeps the OLD
+        image on a migrate failure, and `bench migrate` is resumable, so re-running the switch
+        after the fix skips what already succeeded and picks up where it stopped.
+
+        A custom ``[switch].migrate_command`` is run ONCE, exactly as written. It replaces the
+        whole command including the site selector, so fanning it out would run the operator's
+        own command N times against whatever site they named in it.
 
         The full migrate output is persisted to ``logs/deploy-migrate-<ts>.log``
         (bind-mounted: readable by host AND container hooks) and exported to hook
         env as MIGRATE_LOG_FILE / MIGRATE_LOG_FILE_HOST -- on failure too, so
-        after_migrate notification hooks can ship the log.
+        after_migrate notification hooks can ship the log. One log for the step, carrying
+        every site's output in order, so the hook contract stays a single file.
 
         ``[switch].migrate_timeout`` is enforced INSIDE the container, by wrapping
         the command in coreutils ``timeout``: a wedged migrate (lock wait, hung
         patch) has to be killed where it runs, because the drain of a live child
         never returns and abandoning the wait on the host would leave the migrate
         running against the DB under an open maintenance window. ``<= 0`` means no
-        budget (the pre-timeout behaviour).
+        budget (the pre-timeout behaviour), and it applies PER SITE.
         """
-        self.output.change_head("Running migrations (one-shot new-image container)")
-        command = self.switch_config.migrate_command or f"--site {self.site} migrate"
         budget = self.switch_config.migrate_timeout
-        entrypoint, argv = (BENCH_BIN, command)
-        if budget > 0:
-            entrypoint, argv = ("timeout", f"{budget} {BENCH_BIN} {command}")
         log_name = f"deploy-migrate-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}.log"
         self._migrate_log_host = self.bench_path / "workspace" / "frappe-bench" / "logs" / log_name
         self._migrate_log_container = f"/workspace/frappe-bench/logs/{log_name}"
+        collected: list[str] = []
 
-        def _persist(lines) -> None:
+        def _persist() -> None:
             with contextlib.suppress(OSError):
-                self._migrate_log_host.write_text("\n".join(ln.rstrip("\n") for ln in lines or []))
+                self._migrate_log_host.write_text("\n".join(ln.rstrip("\n") for ln in collected))
 
-        try:
-            result = self.docker.compose.run(
-                service=FRAPPE_SERVICE,
-                entrypoint=entrypoint,
-                command=argv,
-                user="frappe",
-                rm=True,
-                stream=False,
-            )
-        except DockerException as e:
-            out = getattr(e, "output", None)
-            _persist(getattr(out, "combined", None) or [str(e)])
-            if budget > 0 and getattr(out, "exit_code", None) == TIMEOUT_EXIT_CODE:
-                raise DeployError(
-                    f"Migration exceeded \\[switch].migrate_timeout ({budget}s) and was killed. "
-                    f"The migrate log is at {self._migrate_log_host}; a lock wait or a hung patch "
-                    "is the usual cause. Raise \\[switch].migrate_timeout (0 disables the budget) "
-                    "and re-run -- bench migrate is resumable.",
-                ) from e
-            raise
-        _persist(getattr(result, "combined", None))
-        self.output.print("Migrations applied")
+        custom = self.switch_config.migrate_command
+        runs = [(None, custom)] if custom else [(site, f"--site {site} migrate") for site in self.sites]
+
+        for site, command in runs:
+            where = f" for {site}" if site else ""
+            self.output.change_head(f"Running migrations{where} (one-shot new-image container)")
+            entrypoint, argv = (BENCH_BIN, command)
+            if budget > 0:
+                entrypoint, argv = ("timeout", f"{budget} {BENCH_BIN} {command}")
+            if site:
+                collected.append(f"===== {site} =====")
+            try:
+                result = self.docker.compose.run(
+                    service=FRAPPE_SERVICE,
+                    entrypoint=entrypoint,
+                    command=argv,
+                    user="frappe",
+                    rm=True,
+                    stream=False,
+                )
+            except DockerException as e:
+                out = getattr(e, "output", None)
+                collected.extend(getattr(out, "combined", None) or [str(e)])
+                _persist()
+                if budget > 0 and getattr(out, "exit_code", None) == TIMEOUT_EXIT_CODE:
+                    raise DeployError(
+                        f"Migration{where} exceeded \\[switch].migrate_timeout ({budget}s) and was killed. "
+                        f"The migrate log is at {self._migrate_log_host}; a lock wait or a hung patch "
+                        "is the usual cause. Raise \\[switch].migrate_timeout (0 disables the budget) "
+                        "and re-run -- bench migrate is resumable.",
+                    ) from e
+                raise
+            collected.extend(getattr(result, "combined", None) or [])
+            if site:
+                self.output.print(f"Migrations applied to {site}")
+
+        _persist()
+        if not custom:
+            self.output.print(f"Migrations applied ({len(self.sites)} site(s))")
+        else:
+            self.output.print("Migrations applied")
         return True
 
     def _notify_after_migrate(self, new_tag: str) -> None:
@@ -1107,69 +1160,13 @@ class DeployOrchestrator:
             except Exception as e:
                 self.output.warning(f"{phase} hook failed on the migrate-failure path (continuing): {e}")
 
-    def _probe_migrate_needed(self, new_tag: str) -> bool:
-        """``migrate = "auto"``: probe the NEW image against the live site DB.
-
-        Runs a one-shot container from the (already re-pinned) compose and feeds a
-        base64-encoded script to the image's python with frappe initialized -- the
-        same mechanism as ``fm shell --bench-console``. Migrate is needed when the
-        new code has pending patches (patches.txt vs tabPatch Log) or app-version
-        drift (code ``__version__`` vs tabInstalled Application). A failed or
-        verdict-less probe returns True (conservative: full maintenance+migrate).
-        """
-        probe = f"""import sys
-import os
-os.chdir('/workspace/frappe-bench/sites')
-sys.path.insert(0, '/workspace/frappe-bench/apps')
-import frappe
-frappe.init(site='{self.site}')
-frappe.connect()
-from frappe.modules.patch_handler import get_all_patches
-executed = set(frappe.get_all("Patch Log", pluck="patch"))
-pending = [p for p in map(str, get_all_patches()) if p not in executed]
-installed = {{r.app_name: r.app_version for r in frappe.get_all("Installed Application", fields=["app_name", "app_version"])}}
-drift = []
-for app in frappe.get_installed_apps():
-    code_v = getattr(frappe.get_module(app), "__version__", None)
-    if code_v and installed.get(app) != code_v:
-        drift.append(app)
-status = "needed" if (pending or drift) else "clean"
-print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" % (",".join(drift) or "none"))
-"""
-        encoded = base64.b64encode(probe.encode()).decode()
-        assumed = {"needed": True, "pending": None, "drift": [], "verdict": "assumed-needed"}
-        try:
-            result = self.docker.compose.run(
-                service=FRAPPE_SERVICE,
-                entrypoint="/bin/bash",
-                command=f"-c 'echo {encoded} | base64 -d | /workspace/frappe-bench/env/bin/python'",
-                user="frappe",
-                rm=True,
-                stream=False,
-            )
-        except DockerException as e:
-            self.output.warning(f"Migrate probe failed ({e}); assuming migrate is needed.")
-            self._probe_result = assumed
-            return True
-        lines = list(getattr(result, "stdout", None) or []) + list(getattr(result, "stderr", None) or [])
-        parsed = parse_migrate_probe(lines)
-        if parsed is None:
-            self.output.warning("Migrate probe produced no verdict; assuming migrate is needed.")
-            self._probe_result = assumed
-            return True
-        parsed["verdict"] = "needed" if parsed["needed"] else "clean"
-        self._probe_result = parsed
-        marker = next(ln.strip() for ln in lines if MIGRATE_PROBE_MARKER in ln)
-        self.output.print(f"Migrate probe: {marker}")
-        return parsed["needed"]
-
     def _current_deployed_tag(self) -> str | None:
         state = self.config.deploy_state
         if state and state.current_tag:
             return state.current_tag
         return None
 
-    def _record(self, new_tag: str, migrate_status: str, backup: Path | None = None) -> None:
+    def _record(self, new_tag: str, migrate_status: str, backups: dict[str, Path] | None = None) -> None:
         now = datetime.now(UTC).isoformat()
         state = self.config.deploy_state or DeployState()
         # Re-recording the tag that is ALREADY current (the health-gate rollback
@@ -1186,7 +1183,7 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
                 tag=new_tag,
                 deployed_at=now,
                 migrate_status=migrate_status,
-                backup=str(backup) if backup else None,
+                backups={site: str(path) for site, path in (backups or {}).items()},
             ),
         )
         self.config.deploy_state = state
@@ -1194,12 +1191,27 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
 
     # ------------------------------------------------------------------ public
 
+    def _warn_unmanaged_sites(self) -> None:
+        """Name the site directories this deploy will NOT migrate, before it starts.
+
+        Same rule `fm delete` follows: a site fm never provisioned is reported and left alone,
+        because migrating a schema fm disclaimed ownership of turns any breakage into damage fm
+        caused. The warning is louder here than at delete, though: an unmigrated site keeps
+        serving, now against new code, so it is the operator's to migrate by hand.
+        """
+        for site in self.bench.unmanaged_site_dirs():
+            self.output.warning(
+                f"sites/{site}/ exists on disk but is not in bench_config.toml. This deploy will "
+                f"NOT migrate it, so it will run the new image against its old schema. Migrate it "
+                f"yourself with: fm shell {self.bench.name} -c 'bench --site {site} migrate'",
+            )
+
     def deploy(
         self,
         new_tag: str,
         rolling: bool | None = None,
         migrate_override: bool | None = None,
-        restore_db_dump: Path | None = None,
+        restore_db_dumps: dict[str, Path] | None = None,
         prune_keep: int | None = None,
         restore_confirmed: bool = False,
     ) -> None:
@@ -1211,12 +1223,14 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
 
         ``migrate_override`` overrides ``[switch].migrate`` for THIS run only
         (rollbacks pass False: old code must never migrate a newer schema).
-        ``restore_db_dump`` imports the given dump at the quiesced point before
-        the swap -- code and data go back together. A restore is a schema-grade
-        step: it gates maintenance/rolling exactly like a migrate, and it is
-        confirmed before it runs unless ``restore_confirmed`` (``--yes``)."""
+        ``restore_db_dumps`` maps SITE to a dump imported at the quiesced point before
+        the swap -- code and data go back together, for every site the rollback covers.
+        A restore is a schema-grade step: it gates maintenance/rolling exactly like a
+        migrate, and each one is confirmed before it runs unless ``restore_confirmed``
+        (``--yes``)."""
         self._require_image_mode()
         old_tag = self._current_deployed_tag()
+        self._warn_unmanaged_sites()
 
         # 1. Fetch (registry login+pull, or verify save_load-loaded image present)
         self.output.change_head(f"Fetching image {new_tag}")
@@ -1240,7 +1254,8 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         self.output.print("Pre-flight boot check passed")
 
         backup_dir = self.bench_path / "backups" / f"deploy-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
-        db_dump: Path | None = None
+        db_dumps: dict[str, Path] = {}
+        restore_db_dumps = restore_db_dumps or {}
 
         snaps = self._snapshot_compose()
 
@@ -1250,19 +1265,12 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         self.docker_ops.render_image_compose(new_tag)
         self._pin_workers(new_tag)
 
-        # 4. Resolve migrate: runtime override first, else config: explicit bool,
-        # or 'auto' -> probe the NEW image against the live DB (pending patches /
-        # app-version drift).
+        # 4. Resolve migrate: runtime override first, else the bench config.
         requested = self.switch_config.migrate if migrate_override is None else migrate_override
-        if requested == "auto":
-            self.output.change_head("Probing new image for pending migrations")
-            migrate = self._probe_migrate_needed(new_tag)
-            self.output.print(f"Migrate probe verdict: {'migrate needed' if migrate else 'no migration needed'}")
-        else:
-            migrate = bool(requested)
+        migrate = bool(requested)
         # A DB restore changes schema/data under running code the same way a
         # migrate does: same maintenance window, same rolling-eligibility rules.
-        schema_step = migrate or restore_db_dump is not None
+        schema_step = migrate or bool(restore_db_dumps)
         # An EMPTY ``maintenance_mode_phases`` is the operator asserting the
         # migration is backward-compatible, i.e. "no page" -- the same assertion
         # that makes this deploy rolling-eligible below. Honour it here or the
@@ -1315,33 +1323,33 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
             do_backup = schema_step if requested_backup == "auto" else bool(requested_backup)
             if do_backup:
                 self.output.change_head("Backing up DB + site config")
-                db_dump = self._backup(backup_dir)
-                if db_dump is None and requested_backup != "auto" and self.switch_config.rollback_db:
+                db_dumps = self._backup_all(backup_dir)
+                incomplete = [s for s in self.sites if s not in db_dumps]
+                if incomplete and requested_backup != "auto" and self.switch_config.rollback_db:
                     # The operator asked for a dump AND asked fm to restore it if
-                    # the deploy goes wrong. Every way ``_backup`` gives up
+                    # the deploy goes wrong. Every way a site's backup gives up
                     # (frappe stopped, DB name unresolvable, mariadb-dump refused,
-                    # dump file never appeared) lands here as None, and they all
-                    # have one consequence: the rollback_db guard at the migrate
-                    # failure path is `and db_dump`, so it would silently restore
-                    # nothing. A deploy without its insurance is not the deploy
-                    # that was asked for, so abort while the abort is still free:
-                    # nothing has been migrated or swapped, and the handler below
-                    # drops the page and resumes the workers.
+                    # dump file never appeared) leaves it out of the mapping, and they all
+                    # have one consequence: that site could not be rolled back.
+                    # ANY site missing is enough to abort: a partial rollback would put the
+                    # bench at two points in time, which is worse than the failed deploy.
+                    # Abort while the abort is still free: nothing has been migrated or
+                    # swapped, and the handler below drops the page and resumes the workers.
                     raise DeployError(
-                        "DB backup failed and \\[switch].rollback_db is on, so a failed migrate would have "
-                        "nothing to restore. Deploy aborted before migrate/swap; the old stack keeps serving. "
-                        "Fix the dump (see the warning above), or set \\[switch].rollback_db = false to deploy "
-                        "without a database rollback.",
+                        f"DB backup failed for {', '.join(incomplete)} and \\[switch].rollback_db is on, so a "
+                        "failed migrate would have nothing to restore for those sites. Deploy aborted before "
+                        "migrate/swap; the old stack keeps serving. Fix the dump (see the warning above), or "
+                        "set \\[switch].rollback_db = false to deploy without a database rollback.",
                     )
             elif requested_backup == "auto":
                 self.output.print("Backup skipped (backup_db=auto: no schema change)")
 
-            # 7b. Restore a recorded dump (rollback path): after the insurance
+            # 7b. Restore recorded dumps (rollback path): after the insurance
             # backup of the CURRENT state, before migrate/swap. ``requested``:
-            # this is the operator's --restore-db, not fm's own insurance, so it
+            # these are the operator's --restore-db, not fm's own insurance, so each
             # must be confirmed and refuses when it cannot ask.
-            if restore_db_dump is not None:
-                self._restore_db(restore_db_dump, requested=True, confirmed=restore_confirmed)
+            for site, dump in restore_db_dumps.items():
+                self._restore_db(site, dump, requested=True, confirmed=restore_confirmed)
 
             # 8. Migrate in a one-shot new-image container.
             if migrate:
@@ -1356,15 +1364,23 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
                     # DeployError is in the tuple because ``_migrate`` translates a
                     # migrate_timeout kill into one: it must land HERE (notify +
                     # rollback_db), not on the generic pre-swap abort above.
-                    migrate_status = self._migrate_status = "failed"  # noqa: F841
+                    migrate_status = self._migrate_status = "failed"
                     self._notify_after_migrate(new_tag)
-                    if self.switch_config.rollback_db and db_dump:
-                        # A declined external-restore confirmation must not swallow the
-                        # migrate failure below: that message is the one worth reading.
-                        try:
-                            self._restore_db(db_dump)
-                        except RestoreNotConfirmed as declined:
-                            self.output.warning(str(declined))
+                    if self.switch_config.rollback_db and db_dumps:
+                        # Every site, in reverse: the migrate walked them primary-first and
+                        # stopped at the first failure, so unwinding backwards undoes the most
+                        # recently changed schema first. Sites the migrate never reached are
+                        # restored too, and harmlessly: their dump is byte-identical to the
+                        # schema still on disk, and re-importing costs less than deciding
+                        # which sites the failed run had already touched.
+                        for site in reversed(list(db_dumps)):
+                            # A declined external-restore confirmation must not swallow the
+                            # migrate failure below: that message is the one worth reading.
+                            # Nor must one site's decline stop the remaining restores.
+                            try:
+                                self._restore_db(site, db_dumps[site])
+                            except RestoreNotConfirmed as declined:
+                                self.output.warning(str(declined))
                     raise DeployError(
                         f"Migration failed; kept old image ({old_tag or 'dev/mount'}). "
                         f"Compose reverted, no swap performed. Re-run deploy after fixing: {e}",
@@ -1412,7 +1428,7 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         if not self._health_check():
             if self.switch_config.rollback_image and old_tag:
                 self.output.warning("New image unhealthy; rolling back to previous tag.")
-                self.rollback(old_tag, restore_db_dump=db_dump if self.switch_config.rollback_db else None)
+                self.rollback(old_tag, restore_db_dumps=db_dumps if self.switch_config.rollback_db else None)
                 raise DeployError(
                     f"Deploy of {new_tag} failed health check; rolled back to {old_tag}.",
                 )
@@ -1429,10 +1445,13 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         self.resume_workers()
         self._install_new_apps()
         self._apply_config_merges()
-        try:
-            self._exec_frappe(f"{BENCH_BIN} --site {self.site} clear-cache")
-        except Exception as e:
-            self.output.warning(f"clear-cache failed (continuing): {e}")
+        for site in self.sites:
+            # Per site: the cache is keyed per schema, so a site whose cache still holds the
+            # OLD image's doctype meta serves stale definitions under new code.
+            try:
+                self._exec_frappe(f"{BENCH_BIN} --site {site} clear-cache")
+            except Exception as e:
+                self.output.warning(f"{site}: clear-cache failed (continuing): {e}")
         # Switch hooks (post-restart): new container first, then host. The swap has
         # already happened -- a failing post hook must not leave the site in
         # maintenance or the deploy unrecorded (rollback bookkeeping stays truthful).
@@ -1443,14 +1462,14 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
             if maintenance:
                 with contextlib.suppress(Exception):
                     self._set_maintenance(0)
-            self._record(new_tag, migrate_status, backup=db_dump)
+            self._record(new_tag, migrate_status, backups=db_dumps)
             raise
 
         if maintenance:
             self._set_maintenance(0)
 
         # 9. Record.
-        self._record(new_tag, migrate_status, backup=db_dump)
+        self._record(new_tag, migrate_status, backups=db_dumps)
         self.output.print(f"Deployed {new_tag}", emoji_code=":rocket:")
 
         # Opt-in housekeeping: prune old releases only when the caller asked
@@ -1545,14 +1564,14 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         )
         return summary
 
-    def rollback(self, previous_tag: str, restore_db_dump: Path | None = None) -> None:
+    def rollback(self, previous_tag: str, restore_db_dumps: dict[str, Path] | None = None) -> None:
         """INTERNAL health-gate recovery: re-pin to ``previous_tag`` and recreate.
 
         Called only from ``deploy()`` when the new stack fails its health gate
         (``rollback_image``) -- deliberately minimal (no probe/hooks/backup/drain)
         because it runs mid-failure. User-facing rollback is ``fm switch
-        --previous`` (the full pipeline pointed backwards). ``restore_db_dump``
-        (``rollback_db``) is imported BEFORE the swap.
+        --previous`` (the full pipeline pointed backwards). ``restore_db_dumps``
+        (``rollback_db``) maps SITE to a dump, all imported BEFORE the swap.
         """
         self._require_image_mode()
         self.output.change_head(f"Rolling back to {previous_tag}")
@@ -1562,12 +1581,13 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         self.docker_ops.render_image_compose(previous_tag)
         self._pin_workers(previous_tag)
 
-        if restore_db_dump is not None:
+        for site, dump in (restore_db_dumps or {}).items():
             # Declining the DB import is a decision about someone else's database,
             # not a reason to leave the bench on the image that just failed its
-            # health gate. The image rollback continues either way.
+            # health gate. The image rollback continues either way, and one site's
+            # decline does not stop the remaining restores.
             try:
-                self._restore_db(restore_db_dump)
+                self._restore_db(site, dump)
             except RestoreNotConfirmed as declined:
                 self.output.warning(str(declined))
 

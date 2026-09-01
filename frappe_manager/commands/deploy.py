@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -53,22 +54,25 @@ def _reject_impossible_keep(output, keep: int | None) -> None:
         raise typer.Exit(1)
 
 
-def _find_current_deploy_backup(state) -> "tuple[str | None, str | None]":
-    """(dump_path, error) -- the pre-migrate DB dump recorded for the CURRENT deploy.
+def _find_current_deploy_backups(state) -> "tuple[dict[str, str], str | None]":
+    """({site: dump_path}, error) -- the pre-migrate DB dumps recorded for the CURRENT deploy.
 
-    The dump taken while deploying the current (bad) tag is the exact pre-migrate
-    state; restoring it alongside the code rollback undoes a bad migrate.
+    The dumps taken while deploying the current (bad) tag are the exact pre-migrate
+    state; restoring them alongside the code rollback undoes a bad migrate.
+
+    Every site, not one: each site has its own schema, so a rollback that restored only
+    one would leave the others migrated against code that is being rolled back under them.
     """
     current = state.current_tag if state else None
     if not current:
-        return None, "No current deploy recorded; nothing to restore."
-    entries = [e for e in (state.history or []) if e.tag == current and e.backup]
+        return {}, "No current deploy recorded; nothing to restore."
+    entries = [e for e in (state.history or []) if e.tag == current and e.backups]
     if not entries:
-        return None, (
+        return {}, (
             f"No DB backup recorded for the current deploy ({current}). "
             f"Dumps live under <bench>/backups/deploy-*/ -- restore manually if one exists."
         )
-    return entries[-1].backup, None
+    return entries[-1].backups, None
 
 
 @example(
@@ -177,18 +181,19 @@ def switch(
         migrate = False
         output.print("Rollback: migrate disabled for this run (override with --migrate).")
 
-    dump = None
+    dumps: dict[str, Path] = {}
     if restore_db:
-        from pathlib import Path
-
-        dump_path, error = _find_current_deploy_backup(state)
+        recorded, error = _find_current_deploy_backups(state)
         if error:
             output.display_error(error)
             raise typer.Exit(1)
-        dump = Path(dump_path)
-        if not dump.exists():
-            output.display_error(f"Recorded DB backup is missing on disk: {dump}")
+        missing = [p for p in recorded.values() if not Path(p).exists()]
+        if missing:
+            # All or nothing: restoring the sites whose dumps survive would leave the bench
+            # split across two points in time, which is harder to reason about than not starting.
+            output.display_error(f"Recorded DB backup(s) missing on disk: {', '.join(sorted(missing))}")
             raise typer.Exit(1)
+        dumps = {site: Path(p) for site, p in recorded.items()}
 
     try:
         orchestrator = DeployOrchestrator(bench, output_handler=output)
@@ -196,7 +201,7 @@ def switch(
             target,
             rolling=rolling,
             migrate_override=migrate,
-            restore_db_dump=dump,
+            restore_db_dumps=dumps,
             prune_keep=keep,
             restore_confirmed=yes,
         )

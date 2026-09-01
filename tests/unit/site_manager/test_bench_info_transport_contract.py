@@ -569,17 +569,22 @@ def test_display_info_image_runtime_shows_current_and_previous_tag(tmp_path, car
     assert "deploys" not in card.sections  # empty history: no section at all
 
 
+def _deploy_entry(tag, status, backups=None):
+    return SimpleNamespace(tag=tag, deployed_at="2026-01-02T03:04:05", migrate_status=status, backups=backups or {})
+
+
 def test_display_info_deploy_history_is_newest_first_and_marks_current_once(tmp_path, card_spy):
     """The same tag can appear twice (redeploy); only the newest occurrence is '● current'."""
-    entry = lambda tag, status, backup=None: SimpleNamespace(  # noqa: E731
-        tag=tag, deployed_at="2026-01-02T03:04:05", migrate_status=status, backup=backup
-    )
     info = _displayable(tmp_path)
     info.bench_config.runtime = BenchRuntime.image
     info.bench_config.deploy_state = SimpleNamespace(
         current_tag="r:2",
         previous_tag=None,
-        history=[entry("r:1", "migrated"), entry("r:2", "failed", "/dump.sql"), entry("r:2", "skipped")],
+        history=[
+            _deploy_entry("r:1", "migrated"),
+            _deploy_entry("r:2", "failed", {"a.localhost": "/dump.sql"}),
+            _deploy_entry("r:2", "skipped"),
+        ],
     )
     info.display_info()
 
@@ -590,9 +595,31 @@ def test_display_info_deploy_history_is_newest_first_and_marks_current_once(tmp_
     assert "● current" in rows[0]
     assert "● current" not in rows[1]
     assert "[fm.error]failed[/fm.error]" in rows[1]
-    assert "db-dump" in rows[1]
+    assert "1 db-dump" in rows[1]
     assert "2026-01-02 03:04" in rows[0]
     assert "db-dump" not in rows[2]
+
+
+def test_display_info_deploy_history_counts_the_dumps_it_recorded(tmp_path, card_spy):
+    """A multi-site bench dumps every schema, so the row states HOW MANY it took: a bare
+    'db-dump' marker would not say whether the site you need to roll back was covered."""
+    info = _displayable(tmp_path)
+    info.bench_config.runtime = BenchRuntime.image
+    info.bench_config.deploy_state = SimpleNamespace(
+        current_tag="r:2",
+        previous_tag="r:1",
+        history=[
+            _deploy_entry("r:1", "migrated", {"a.localhost": "/one.sql"}),
+            _deploy_entry("r:2", "migrated", {"a.localhost": "/a.sql", "shop.a.localhost": "/shop.sql"}),
+        ],
+    )
+    info.display_info()
+
+    (card,) = card_spy.made
+    rows = card.labelled("history")
+    assert "2 db-dumps" in rows[0]
+    assert "1 db-dump" in rows[1]
+    assert "1 db-dumps" not in rows[1]
 
 
 def test_display_info_admin_tools_disabled_says_not_enabled(tmp_path, card_spy):

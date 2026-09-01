@@ -396,7 +396,10 @@ class BenchInfo:
                 label = "history" if i == 0 else ""
                 status = entry.migrate_status
                 status_markup = f"[fm.error]{status}[/fm.error]" if status == "failed" else status
-                dump = "  [fm.muted]·[/fm.muted] db-dump" if entry.backup else ""
+                # Counted, not just flagged: on a multi-site bench "db-dump" alone would not say
+                # whether every site was covered, which is the question a rollback turns on.
+                n = len(entry.backups)
+                dump = f"  [fm.muted]·[/fm.muted] {n} db-dump{'s' if n > 1 else ''}" if n else ""
                 marker = ""
                 if not current_marked and entry.tag == deploy_state.current_tag:
                     marker = "  [fm.ok]● current[/fm.ok]"

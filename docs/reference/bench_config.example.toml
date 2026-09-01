@@ -46,8 +46,9 @@
 
 # Switch/migrate pipeline configuration ([switch]).
 # [switch]
-# Run bench migrate during switch: true, false, or 'auto' (probe the new image's pending patches /
-# app-version drift against the live DB and migrate only when needed). [default: True]
+# Run bench migrate during switch. There is no 'detect whether it is needed' mode: a DocType field
+# change ships with no patch and no version bump, so any such probe reports 'clean' while bench
+# migrate would still sync the schema. [default: True]
 # migrate = ...
 # Seconds the one-shot bench migrate may run before it is killed (0 disables the budget).
 # [default: 300]

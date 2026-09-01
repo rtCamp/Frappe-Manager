@@ -113,6 +113,7 @@ class SSLHarness:
         """
         configs = {name: SiteConfig(alias_domains=aliases) for name, aliases in sites.items()}
         self.bench.bench_config.sites = configs
+        self.bench.site_name = next(iter(configs))
         self.bench.bench_config.domains = [
             domain for name, config in configs.items() for domain in (name, *config.alias_domains)
         ]
@@ -140,8 +141,10 @@ class SSLHarness:
     def added_cert(self):
         return self.cert_manager.add_certificate.call_args.args[0]
 
-    def site_config_writes(self) -> list[dict]:
-        return [c.args[0] for c in self.bench.set_bench_site_config.call_args_list]
+    def site_config_writes(self) -> list[tuple[str, dict]]:
+        """`(site, config)` per write: a certificate's host_name belongs to ONE site, so the
+        helper names it rather than letting the bench pick."""
+        return [(c.args[0], c.args[1]) for c in self.bench.set_bench_site_config.call_args_list]
 
     def table(self) -> Table:
         assert self.output.print_data.call_count == 1
@@ -329,7 +332,7 @@ def test_add_dry_run_writes_nothing_and_claims_nothing(h):
 def test_add_flips_host_name_to_https_and_confirms_when_not_a_dry_run(h):
     _add(h, dry_run=False)
 
-    assert h.site_config_writes() == [{"host_name": f"https://{DOMAIN}"}]
+    assert h.site_config_writes() == [(DOMAIN, {"host_name": f"https://{DOMAIN}"})]
     assert h.prints() == [
         f"SSL certificate added for {DOMAIN}",
         "Certificate has been issued and configured.",
@@ -420,7 +423,7 @@ def test_remove_skips_the_prompt_entirely_when_yes_was_passed(h):
 def test_remove_reverts_host_name_to_http_and_confirms(h):
     _remove(h)
 
-    assert h.site_config_writes() == [{"host_name": f"http://{DOMAIN}"}]
+    assert h.site_config_writes() == [(DOMAIN, {"host_name": f"http://{DOMAIN}"})]
     assert h.prints() == [f"SSL certificate removed for {DOMAIN}"]
     assert h.spinner_texts() == [f"Removing SSL certificate for {DOMAIN}"]
 

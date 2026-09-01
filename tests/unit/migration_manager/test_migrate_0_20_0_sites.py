@@ -63,6 +63,17 @@ def _bench(tmp_path, text: str):
     return bench, path
 
 
+def _bench_named(tmp_path, name: str, text: str):
+    """A bench whose DIRECTORY name differs from the site it serves: `shop` for `shop.localhost`.
+
+    Everywhere else in this file the two are the same string, which is precisely what hides a step
+    reading one where it means the other.
+    """
+    bench, path = _bench(tmp_path, text)
+    bench.name = name
+    return bench, path
+
+
 # --------------------------------------------------------------------------- the move
 
 
@@ -296,3 +307,146 @@ def test_the_rewrite_leaves_the_file_at_0600(step, tmp_path):
     step._write_sites_table(bench)
 
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+# --------------------------------------------------------- deploy history dumps
+
+
+"""A recorded deploy's DB dump gets filed under the SITE it came from.
+
+The pipeline used to dump one database per deploy and record `backup = "<path>"`. It now dumps one
+per site, because every site has its own schema, and records `backups = {"<site>" = "<path>"}`. A
+rollback that restored one site of three would put the bench at two points in time.
+
+`DeployStateEntry` forbids extra keys, so a row still spelling `backup` does not load with a stale
+field: it refuses the whole config. That makes this step load-bearing rather than tidying, and it
+is why every test here asserts the result LOADS and not merely that the file changed.
+"""
+
+HISTORY = """
+[deploy_state]
+current_tag = "v2"
+previous_tag = "v1"
+
+[[deploy_state.history]]
+tag = "v1"
+deployed_at = "2026-01-01T00:00:00"
+migrate_status = "migrated"
+backup = "/backups/deploy-1/db-one.sql"
+
+[[deploy_state.history]]
+tag = "v2"
+deployed_at = "2026-01-02T00:00:00"
+migrate_status = "skipped"
+backup = ""
+
+[[deploy_state.history]]
+tag = "v3"
+deployed_at = "2026-01-03T00:00:00"
+migrate_status = "skipped"
+"""
+
+
+def test_a_recorded_dump_is_filed_under_the_primary_site(step, tmp_path):
+    # The primary is the right key and not by assumption: a pre-0.20 bench served exactly one
+    # site, so the dump in that row came from the only schema there was.
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + HISTORY)
+
+    step._rewrite_deploy_history(bench)
+
+    doc = tomlkit.parse(path.read_text())
+    rows = doc["deploy_state"]["history"]
+    assert dict(rows[0]["backups"]) == {SITE: "/backups/deploy-1/db-one.sql"}
+    assert "backup" not in rows[0]
+
+
+def test_a_row_recording_an_empty_dump_becomes_an_empty_mapping(step, tmp_path):
+    # A deploy that skipped its backup must not end up pointing at a dump that does not exist.
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + HISTORY)
+
+    step._rewrite_deploy_history(bench)
+
+    rows = tomlkit.parse(path.read_text())["deploy_state"]["history"]
+    assert dict(rows[1]["backups"]) == {}
+
+
+def test_a_row_with_no_dump_key_is_left_alone(step, tmp_path):
+    # Nothing to rewrite, and `backups` defaults to empty, so writing an explicit empty table
+    # would be noise in every operator's config file.
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + HISTORY)
+
+    step._rewrite_deploy_history(bench)
+
+    rows = tomlkit.parse(path.read_text())["deploy_state"]["history"]
+    assert "backups" not in rows[2]
+    assert BenchConfig.import_from_toml(path).deploy_state.history[2].backups == {}
+
+
+def test_the_rewritten_history_loads(step, tmp_path):
+    # The failure that matters: a migration writing something the loader refuses.
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + HISTORY)
+
+    step._rewrite_deploy_history(bench)
+
+    config = BenchConfig.import_from_toml(path)
+    assert config.deploy_state.history[0].backups == {SITE: "/backups/deploy-1/db-one.sql"}
+    assert config.deploy_state.history[1].backups == {}
+    assert config.deploy_state.history[2].backups == {}
+
+
+def test_the_old_spelling_does_not_load_at_all(tmp_path):
+    # Why the rewrite is required rather than optional: `extra="forbid"` means a surviving
+    # `backup` key takes the whole bench config down, not just that row.
+    path = tmp_path / "bench_config.toml"
+    path.write_text(BASE + f'\n[sites."{SITE}"]\n' + HISTORY)
+
+    with pytest.raises(Exception, match="backup"):
+        BenchConfig.import_from_toml(path)
+
+
+def test_the_step_is_idempotent(step, tmp_path):
+    # 0.20.0 is unreleased, so a bench at 0.20.0.dev0 re-runs this whenever a migration triggers.
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + HISTORY)
+
+    step._rewrite_deploy_history(bench)
+    first = path.read_text()
+    step._rewrite_deploy_history(bench)
+
+    assert path.read_text() == first
+
+
+def test_a_bench_with_no_deploy_history_is_untouched(step, tmp_path):
+    # Every mount-runtime bench, which is most of them.
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n')
+    before = path.read_text()
+
+    step._rewrite_deploy_history(bench)
+
+    assert path.read_text() == before
+
+
+BENCH_DIR = "shop"  # the bench's directory name, which is NOT the site it serves
+NAMED_BASE = BASE.replace(f'name = "{SITE}"', f'name = "{BENCH_DIR}"', 1)
+
+
+def test_the_dump_is_filed_under_the_site_and_not_the_bench_directory(step, tmp_path):
+    """A bench directory is not a site name. The bench `shop` serves `shop.localhost`, and the dump
+    in that row came from the SITE's schema, so the site is the key.
+
+    Every other test here uses a bench whose name equals its site, so filing the dump under the
+    bench name looks identical to filing it under the site. It is not: a key no site answers to
+    makes a later `--restore-db` look up a site that does not exist.
+    """
+    bench, path = _bench_named(tmp_path, BENCH_DIR, NAMED_BASE + f'\n[sites."{SITE}"]\n' + HISTORY)
+
+    step._rewrite_deploy_history(bench)
+
+    rows = tomlkit.parse(path.read_text())["deploy_state"]["history"]
+    assert dict(rows[0]["backups"]) == {SITE: "/backups/deploy-1/db-one.sql"}
+
+    # And the loader agrees, because the restore reads the key back through the config, not the
+    # file: it has to name a site the bench actually holds.
+    config = BenchConfig.import_from_toml(path)
+    assert config.name == BENCH_DIR
+    assert list(config.deploy_state.history[0].backups) == [SITE]
+    assert set(config.deploy_state.history[0].backups) <= set(config.sites)

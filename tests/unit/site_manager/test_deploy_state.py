@@ -5,6 +5,11 @@
 that current/previous tags and the deploy history survive the round-trip.
 """
 
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
 from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     BenchRuntime,
@@ -71,9 +76,10 @@ def test_deploy_state_absent_roundtrip(tmp_path):
     assert reloaded.deploy_state is None
 
 
-def test_deploy_state_backup_roundtrip(tmp_path):
-    # The pre-migrate dump path recorded during deploy must survive the round-trip
-    # (it is what `fm rollback --restore-db` consumes).
+def test_deploy_state_backups_roundtrip(tmp_path):
+    # The pre-migrate dump paths recorded during deploy must survive the round-trip
+    # (they are what `fm switch --restore-db` consumes). One entry per SITE: a bench
+    # serving several sites dumps every schema, and a rollback restores all of them.
     path = tmp_path / "bench_config.toml"
     bc = _image_bench(path)
     bc.deploy_state = DeployState(
@@ -85,14 +91,70 @@ def test_deploy_state_backup_roundtrip(tmp_path):
                 tag="local/x:t2",
                 deployed_at="2026-07-21T10:00:00+00:00",
                 migrate_status="migrated",
-                backup="/benches/x/backups/deploy-20260721/db-fm_x.sql",
+                backups={
+                    "x.localhost": "/benches/x/backups/deploy-20260721/db-fm_x.sql",
+                    "shop.x.localhost": "/benches/x/backups/deploy-20260721/db-fm_shop_x.sql",
+                },
             ),
         ],
     )
     bc.export_to_toml(path)
     reloaded = BenchConfig.import_from_toml(path)
-    assert reloaded.deploy_state.history[0].backup is None  # old entries tolerate absence
-    assert reloaded.deploy_state.history[1].backup == "/benches/x/backups/deploy-20260721/db-fm_x.sql"
+    assert reloaded.deploy_state.history[0].backups == {}  # old entries tolerate absence
+    assert reloaded.deploy_state.history[1].backups == {
+        "x.localhost": "/benches/x/backups/deploy-20260721/db-fm_x.sql",
+        "shop.x.localhost": "/benches/x/backups/deploy-20260721/db-fm_shop_x.sql",
+    }
+
+
+def test_deploy_state_backups_rejects_non_string_dump_paths():
+    # `backups` is declared dict[str, str] on purpose: the values are host dump paths that
+    # get written straight into bench_config.toml, and tomlkit cannot serialise a PosixPath.
+    # `_record` does str(path) for exactly this reason; the model REJECTS (never coerces) a
+    # Path, so a future caller that forgets the str() fails loudly at record time instead of
+    # writing a bench config that no later `fm` run can read back.
+    with pytest.raises(ValidationError) as excinfo:
+        DeployStateEntry(
+            tag="local/x:t1",
+            deployed_at="2026-07-21T10:00:00+00:00",
+            migrate_status="migrated",
+            backups={"x.localhost": Path("/benches/x/backups/deploy-20260721/db-fm_x.sql")},
+        )
+    assert excinfo.value.errors()[0]["type"] == "string_type"
+
+    # Same for any other non-string dump value.
+    with pytest.raises(ValidationError):
+        DeployStateEntry(
+            tag="local/x:t1",
+            deployed_at="2026-07-21T10:00:00+00:00",
+            migrate_status="migrated",
+            backups={"x.localhost": 5},
+        )
+
+
+def test_deploy_state_backups_rejects_non_string_site_keys():
+    # The keys are SITE names. A non-string key would become a TOML table name that no
+    # site lookup in `fm switch --restore-db` could ever match.
+    with pytest.raises(ValidationError) as excinfo:
+        DeployStateEntry(
+            tag="local/x:t1",
+            deployed_at="2026-07-21T10:00:00+00:00",
+            migrate_status="migrated",
+            backups={1: "/benches/x/backups/deploy-20260721/db-fm_x.sql"},
+        )
+    assert excinfo.value.errors()[0]["type"] == "string_type"
+
+
+def test_deploy_state_backups_rejects_non_mapping():
+    # backups is a per-site mapping, never a bare path or a sequence of pairs.
+    with pytest.raises(ValidationError) as excinfo:
+        DeployStateEntry(
+            tag="local/x:t1",
+            deployed_at="2026-07-21T10:00:00+00:00",
+            migrate_status="migrated",
+            backups="/benches/x/backups/deploy-20260721/db-fm_x.sql",
+        )
+    assert excinfo.value.errors()[0]["type"] == "dict_type"
 
 
 class TestSwitchResolvers:
@@ -104,7 +166,12 @@ class TestSwitchResolvers:
             previous_tag="local/x:t2",
             history=[
                 DeployStateEntry(tag="local/x:t2", deployed_at="d2", migrate_status="skipped"),
-                DeployStateEntry(tag="local/x:t3", deployed_at="d3", migrate_status="migrated", backup="/b/db.sql"),
+                DeployStateEntry(
+                    tag="local/x:t3",
+                    deployed_at="d3",
+                    migrate_status="migrated",
+                    backups={"x.localhost": "/b/db.sql", "shop.x.localhost": "/b/db-shop.sql"},
+                ),
             ],
         )
 
@@ -139,26 +206,29 @@ class TestSwitchResolvers:
         assert target is None
         assert "Missing target" in error
 
-    def test_backup_found_for_current_deploy(self):
-        from frappe_manager.commands.deploy import _find_current_deploy_backup
+    def test_backups_found_for_current_deploy(self):
+        # Every site's dump, not just the primary's: a rollback that restored one schema
+        # would leave the rest migrated against the code being rolled back under them.
+        from frappe_manager.commands.deploy import _find_current_deploy_backups
 
-        dump, error = _find_current_deploy_backup(self._state())
-        assert (dump, error) == ("/b/db.sql", None)
+        dumps, error = _find_current_deploy_backups(self._state())
+        assert error is None
+        assert dumps == {"x.localhost": "/b/db.sql", "shop.x.localhost": "/b/db-shop.sql"}
 
     def test_backup_missing_for_current_deploy_errors(self):
-        from frappe_manager.commands.deploy import _find_current_deploy_backup
+        from frappe_manager.commands.deploy import _find_current_deploy_backups
 
         state = self._state()
-        state.history[1].backup = None
-        dump, error = _find_current_deploy_backup(state)
-        assert dump is None
+        state.history[1].backups = {}
+        dumps, error = _find_current_deploy_backups(state)
+        assert dumps == {}
         assert "No DB backup recorded for the current deploy (local/x:t3)" in error
 
     def test_no_current_deploy_errors(self):
-        from frappe_manager.commands.deploy import _find_current_deploy_backup
+        from frappe_manager.commands.deploy import _find_current_deploy_backups
 
-        dump, error = _find_current_deploy_backup(None)
-        assert dump is None
+        dumps, error = _find_current_deploy_backups(None)
+        assert dumps == {}
         assert "No current deploy recorded" in error
 
 
@@ -168,7 +238,7 @@ class TestReleasePrunePlanner:
     def _hist(self, *tags, backups=None):
         backups = backups or {}
         return [
-            DeployStateEntry(tag=t, deployed_at=f"d{i}", migrate_status="skipped", backup=backups.get(i))
+            DeployStateEntry(tag=t, deployed_at=f"d{i}", migrate_status="skipped", backups=backups.get(i) or {})
             for i, t in enumerate(tags)
         ]
 
@@ -189,7 +259,8 @@ class TestReleasePrunePlanner:
         from frappe_manager.site_manager.modules.deploy_orchestrator import plan_release_prune
 
         kept, pruned = plan_release_prune(self._hist("a", "b"), 7)
-        assert len(kept) == 2 and pruned == []
+        assert len(kept) == 2
+        assert pruned == []
 
     def test_pingpong_rows_prune_even_when_tags_protected(self):
         # The 33-entry ping-pong bench: rows go, artifacts stay.
@@ -221,7 +292,56 @@ class TestReleasePrunePlanner:
             plan_release_prune,
         )
 
-        history = self._hist("a", "b", "c", backups={0: "/b/one.sql", 1: "/b/shared.sql", 2: "/b/shared.sql"})
+        history = self._hist(
+            "a",
+            "b",
+            "c",
+            backups={
+                0: {"x.localhost": "/b/one.sql"},
+                1: {"x.localhost": "/b/shared.sql"},
+                2: {"x.localhost": "/b/shared.sql"},
+            },
+        )
         kept, pruned = plan_release_prune(history, 1)
         backups, _tags = plan_artifact_removal(kept, pruned, {"c"})
         assert backups == ["/b/one.sql"]  # shared.sql referenced by kept row -> safe
+
+    def test_every_site_dump_on_a_pruned_row_is_removable(self):
+        # A multi-site row records one dump per schema; pruning the row has to free ALL of
+        # them, or a bench that switches often keeps every non-primary site's dump forever.
+        from frappe_manager.site_manager.modules.deploy_orchestrator import (
+            plan_artifact_removal,
+            plan_release_prune,
+        )
+
+        history = self._hist(
+            "a",
+            "b",
+            backups={
+                0: {"x.localhost": "/b/a-x.sql", "shop.x.localhost": "/b/a-shop.sql"},
+                1: {"x.localhost": "/b/b-x.sql", "shop.x.localhost": "/b/b-shop.sql"},
+            },
+        )
+        kept, pruned = plan_release_prune(history, 1)
+        backups, _tags = plan_artifact_removal(kept, pruned, {"b"})
+        assert backups == ["/b/a-shop.sql", "/b/a-x.sql"]
+
+    def test_a_kept_row_protects_a_path_a_pruned_row_files_under_another_site(self):
+        # The safety check is per PATH, not per site key: two sites can name the same dump
+        # (a shared schema, or a row rewritten by migration), and one live reference is enough.
+        from frappe_manager.site_manager.modules.deploy_orchestrator import (
+            plan_artifact_removal,
+            plan_release_prune,
+        )
+
+        history = self._hist(
+            "a",
+            "b",
+            backups={
+                0: {"shop.x.localhost": "/b/shared.sql", "x.localhost": "/b/only-old.sql"},
+                1: {"x.localhost": "/b/shared.sql"},
+            },
+        )
+        kept, pruned = plan_release_prune(history, 1)
+        backups, _tags = plan_artifact_removal(kept, pruned, {"b"})
+        assert backups == ["/b/only-old.sql"]

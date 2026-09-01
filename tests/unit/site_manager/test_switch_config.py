@@ -1,6 +1,7 @@
 """SwitchConfig safety-flag contract: backup_db / rollback_image / rollback_db."""
 
 import pytest
+from pydantic import ValidationError
 
 from frappe_manager.site_manager.bench_config import SwitchConfig
 
@@ -37,6 +38,25 @@ def test_backup_db_auto_accepted():
 def test_rollback_db_allows_auto_backup():
     # 'auto' dumps exactly when migrate runs -- the only time a restore is needed.
     assert SwitchConfig(backup_db="auto", rollback_db=True).rollback_db is True
+
+
+def test_migrate_auto_is_rejected():
+    # `migrate = "auto"` used to probe the new image for pending patches and app-version drift and
+    # skip the migrate when it found neither. The probe cannot see a DocType field change: that
+    # ships with no patch and no version bump, so it reported "clean" while `bench migrate` would
+    # still have run sync_schema. The mode is gone and `migrate` is a plain bool, so the string is
+    # now a load-time error rather than a silently skipped schema change.
+    with pytest.raises(ValidationError):
+        SwitchConfig(migrate="auto")
+    assert SwitchConfig(migrate=True).migrate is True
+    assert SwitchConfig(migrate=False).migrate is False
+
+
+def test_migrate_still_coerces_boolish_strings():
+    # A TOML `migrate = "yes"` stays a documented true; only a non-boolish string fails.
+    assert SwitchConfig(migrate="yes").migrate is True
+    with pytest.raises(ValidationError):
+        SwitchConfig(migrate="atuo")
 
 
 def test_keep_releases_default():

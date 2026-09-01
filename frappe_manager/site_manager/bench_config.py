@@ -847,10 +847,11 @@ class DeployStateEntry(BaseModel):
     tag: str = Field(..., description="Image tag deployed.")
     deployed_at: str = Field(..., description="ISO timestamp of the deploy.")
     migrate_status: str = Field(..., description="Migrate outcome: 'migrated', 'skipped', 'failed', or 'rollback'.")
-    backup: str | None = Field(
-        None,
-        description="Host path of the pre-migrate DB dump taken during this deploy, if any "
-        "(consumed by `fm rollback --restore-db`).",
+    backups: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pre-migrate DB dumps taken during this deploy, keyed by SITE: every site the bench "
+        "serves gets its own dump, because every site has its own schema (consumed by "
+        "`fm switch --previous --restore-db`, which restores all of them).",
     )
 
 
@@ -958,10 +959,11 @@ class SwitchConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    migrate: bool | Literal["auto"] = Field(
+    migrate: bool = Field(
         True,
-        description="Run bench migrate during switch: true, false, or 'auto' (probe the new image's "
-        "pending patches / app-version drift against the live DB and migrate only when needed).",
+        description="Run bench migrate during switch. There is no 'detect whether it is needed' mode: a DocType "
+        "field change ships with no patch and no version bump, so any such probe reports 'clean' while "
+        "bench migrate would still sync the schema.",
     )
     migrate_timeout: int = Field(
         300,

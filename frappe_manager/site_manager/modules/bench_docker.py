@@ -195,7 +195,7 @@ class BenchDockerOps:
         # so every writer produces the identical shape (create/update/deploy).
         from frappe_manager.site_manager.modules.compose_shape import apply_specs, bench_service_specs
 
-        apply_specs(self.compose_file_manager, bench_service_specs(self.config), self.config.name)
+        apply_specs(self.compose_file_manager, bench_service_specs(self.config), self.config.site_names)
         self.compose_file_manager.write_to_file()
 
     def render_image_compose(self, deploy_tag: str, rolling: bool = False) -> str:
@@ -220,7 +220,7 @@ class BenchDockerOps:
             raise ValueError("render_image_compose is only valid for image runtime")
 
         specs = bench_service_specs(self.config, RenderContext(deploy_tag=deploy_tag, rolling=rolling))
-        apply_specs(self.compose_file_manager, specs, self.config.name)
+        apply_specs(self.compose_file_manager, specs, self.config.site_names)
 
         # Rolling swap: shed container_name on the scaled web
         # services so `compose up --scale <svc>=2` is accepted; the canonical

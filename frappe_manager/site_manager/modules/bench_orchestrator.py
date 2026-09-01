@@ -475,7 +475,7 @@ class BenchOrchestrator:
         self.output.change_head(f"Creating bench site {bench.site_name}")
         bench.site_manager.create_bench_site(force=force)
 
-        bench.set_bench_site_config({"admin_password": bench.bench_config.admin_pass})
+        bench.set_bench_site_config(bench.site_name, {"admin_password": bench.bench_config.admin_pass})
         bench.sync_bench_config_configuration()
 
     # ------------------------------------------------------------------ external database

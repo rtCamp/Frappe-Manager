@@ -1195,11 +1195,16 @@ class TestMountRuntimeIsRefused:
         ship.orchestrator_cls.assert_not_called()
 
 
-def _deploy_state(current="local/mybench:t2", previous="local/mybench:t1", backup="/b/db.sql"):
+SHOP = "shop.mybench.localhost"
+
+
+def _deploy_state(current="local/mybench:t2", previous="local/mybench:t1", backups=None):
+    if backups is None:
+        backups = {BENCH: "/b/db.sql"}
     return SimpleNamespace(
         current_tag=current,
         previous_tag=previous,
-        history=[SimpleNamespace(tag=current, backup=backup)],
+        history=[SimpleNamespace(tag=current, backups=backups)],
     )
 
 
@@ -1213,7 +1218,7 @@ class TestSwitchTargetTagResolution:
         assert ship.orchestrator.deploy.call_args.kwargs == {
             "rolling": None,
             "migrate_override": None,
-            "restore_db_dump": None,
+            "restore_db_dumps": {},
             "prune_keep": None,
             # False because no --yes was passed: a restore that would overwrite fm's own global-db
             # has to be confirmed, not just requested.
@@ -1255,23 +1260,41 @@ class TestSwitchTargetTagResolution:
         assert ship.orchestrator.deploy.call_args.kwargs["migrate_override"] is True
         assert ship.prints == []
 
-    def test_restore_db_passes_the_recorded_dump_when_it_still_exists(self, ship):
-        dump = ship.tmp_path / "db.sql"
-        dump.write_text("dump")
-        ship.config.deploy_state = _deploy_state(backup=str(dump))
+    def test_restore_db_passes_every_recorded_dump_when_they_all_exist(self, ship):
+        # One dump per SITE: each site has its own schema, so a rollback that carried only the
+        # primary's dump would leave the rest migrated against the code being rolled back.
+        primary = ship.tmp_path / "db-primary.sql"
+        shop = ship.tmp_path / "db-shop.sql"
+        primary.write_text("dump")
+        shop.write_text("dump")
+        ship.config.deploy_state = _deploy_state(backups={BENCH: str(primary), SHOP: str(shop)})
 
         ship.switch(tag="local/mybench:t9", restore_db=True)
 
-        assert ship.orchestrator.deploy.call_args.kwargs["restore_db_dump"] == dump
+        assert ship.orchestrator.deploy.call_args.kwargs["restore_db_dumps"] == {BENCH: primary, SHOP: shop}
 
     def test_restore_db_refuses_when_the_recorded_dump_is_gone(self, ship):
-        ship.config.deploy_state = _deploy_state(backup="/b/vanished.sql")
+        ship.config.deploy_state = _deploy_state(backups={BENCH: "/b/vanished.sql"})
 
         with pytest.raises(typer.Exit) as exc:
             ship.switch(tag="local/mybench:t9", restore_db=True)
 
         assert exc.value.exit_code == 1
-        assert ship.errors == ["Recorded DB backup is missing on disk: /b/vanished.sql"]
+        assert ship.errors == ["Recorded DB backup(s) missing on disk: /b/vanished.sql"]
+        ship.orchestrator_cls.assert_not_called()
+
+    def test_restore_db_is_all_or_nothing_when_one_site_dump_is_gone(self, ship):
+        # Restoring the sites whose dumps survive would leave the bench split across two points
+        # in time. The refusal names what is missing, and nothing is deployed.
+        primary = ship.tmp_path / "db-primary.sql"
+        primary.write_text("dump")
+        ship.config.deploy_state = _deploy_state(backups={BENCH: str(primary), SHOP: "/b/vanished-shop.sql"})
+
+        with pytest.raises(typer.Exit) as exc:
+            ship.switch(tag="local/mybench:t9", restore_db=True)
+
+        assert exc.value.exit_code == 1
+        assert ship.errors == ["Recorded DB backup(s) missing on disk: /b/vanished-shop.sql"]
         ship.orchestrator_cls.assert_not_called()
 
     def test_restore_db_refuses_when_no_dump_was_recorded(self, ship):

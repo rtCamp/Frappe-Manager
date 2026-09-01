@@ -1131,7 +1131,7 @@ class TestGuards:
 
     def test_setting_site_config_on_a_bench_without_one_is_refused(self, harness):
         with pytest.raises(BenchException) as excinfo:
-            harness.bench.set_bench_site_config({"admin_password": "x"})
+            harness.bench.set_bench_site_config(SITE, {"admin_password": "x"})
         assert "site_config.json" in str(excinfo.value)
 
     def test_create_bench_site_config_makes_the_directory_and_the_file(self, harness):
@@ -1177,6 +1177,42 @@ class TestGuards:
     def test_a_malformed_size_is_refused(self, harness, bad):
         with pytest.raises(BenchException):
             harness.bench._parse_size_to_bytes(bad)
+
+
+class TestPerSiteSiteConfig:
+    """`set_bench_site_config` writes to the site it is GIVEN, not to the bench's own.
+
+    The argument exists because a deploy merges `[switch].site_config` into every site of the
+    bench. Every other caller in the tests here passes the bench's own site, so a method that
+    silently substituted the primary would look identical.
+
+    The bench is named `shop` and serves `shop.localhost` beside `analytics.localhost`: a fixture
+    whose bench name equals its site name cannot tell the two lookups apart.
+    """
+
+    BENCH = "shop"
+    PRIMARY = "shop.localhost"
+    OTHER = "analytics.localhost"
+
+    def _multi_site(self, tmp_path):
+        harness = build_bench(tmp_path, name=self.BENCH)
+        harness.bench.bench_config.sites = {self.PRIMARY: SiteConfig(), self.OTHER: SiteConfig()}
+        put_site_on_disk(harness.path, self.PRIMARY, schema="fm_shop_a1")
+        put_site_on_disk(harness.path, self.OTHER, schema="fm_analytics_b2")
+        return harness
+
+    def _site_config(self, harness, site) -> dict:
+        return json.loads((harness.path / "workspace/frappe-bench/sites" / site / "site_config.json").read_text())
+
+    def test_a_write_lands_in_the_named_site_and_leaves_the_primary_alone(self, tmp_path):
+        harness = self._multi_site(tmp_path)
+        assert harness.bench.site_name == self.PRIMARY  # the one that would be substituted
+
+        harness.bench.set_bench_site_config(self.OTHER, {"maintenance_mode": 1})
+
+        assert self._site_config(harness, self.OTHER) == {"db_name": "fm_analytics_b2", "maintenance_mode": 1}
+        # Both directions: the wrong file must not have gained the key either.
+        assert self._site_config(harness, self.PRIMARY) == {"db_name": "fm_shop_a1"}
 
 
 class TestUpdateUploadLimit:
@@ -1649,7 +1685,7 @@ class TestReset:
         bench.reset(admin_password="explicit")
         # The site travels by keyword, and defaults to the bench's own primary site.
         bench.site_manager.reset_bench_site.assert_called_once_with("explicit", site=SITE)
-        bench.set_bench_site_config.assert_called_once_with({"admin_password": "explicit"})
+        bench.set_bench_site_config.assert_called_once_with(SITE, {"admin_password": "explicit"})
 
     def test_site_config_beats_common_site_config(self, harness):
         bench = self._resettable(harness)
@@ -1677,7 +1713,7 @@ class TestReset:
         bench = self._resettable(harness)
         bench.get_common_bench_config.return_value = {"admin_password": "from-common"}
         bench.reset()
-        bench.set_bench_site_config.assert_called_once_with({"admin_password": "from-common"})
+        bench.set_bench_site_config.assert_called_once_with(SITE, {"admin_password": "from-common"})
 
     def test_an_explicit_site_is_the_one_reset_and_the_one_named(self, harness):
         """A bench holds N sites, so `reset` takes the one it means. Reinstalling the bench's

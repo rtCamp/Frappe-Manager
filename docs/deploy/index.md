@@ -84,10 +84,7 @@ flowchart TD
     SNAP --> PIN[re-render compose + workers\npinned to the new tag]
     PIN --> M{migrate?}
     M -->|config true| MAINT[maintenance page ON\nwhen maintenance_mode = true\nand maintenance_mode_phases is non-empty]
-    M -->|config auto| PROBE[probe new image vs live DB:\npending patches + version drift]
     M -->|false / --no-migrate| DRAIN
-    PROBE -->|clean| DRAIN
-    PROBE -->|needed| MAINT
     MAINT --> DRAIN[drain RQ workers]
     DRAIN --> BK[DB dump per backup_db\npath recorded in history]
     BK -->|migrate on| MIG[bench migrate\none-shot new-image container]

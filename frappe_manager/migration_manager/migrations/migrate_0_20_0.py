@@ -160,6 +160,9 @@ class MigrationV0200(MigrationBase):
         # Also ahead of it, and for the same reason: this moves `[database]` rather than dropping
         # it, so it has to run while the table is still there.
         self._write_sites_table(bench)
+        # After the sites table exists: each history row's single dump has to be filed under a
+        # SITE, and the primary is the only site a pre-0.20 bench ever dumped.
+        self._rewrite_deploy_history(bench)
         self._drop_removed_config_keys(bench)
 
         compose_path = bench.path / "docker-compose.admin-tools.yml"
@@ -407,6 +410,56 @@ class MigrationV0200(MigrationBase):
             self.output.print(f"Dropped the empty \\[database] table for {bench.name}")
         if moved_aliases:
             self.output.print(f'Moved alias_domains under \\[sites."{bench.name}"]')
+
+    def _rewrite_deploy_history(self, bench: MigrationBench):
+        """File each recorded deploy's DB dump under the SITE it was taken from.
+
+        A deploy row carried one `backup = "<path>"` because the pipeline dumped one database.
+        It now carries `backups = {"<site>" = "<path>"}`, because a bench serving several sites
+        gets a dump per schema and a rollback has to restore all of them.
+
+        The primary site is the correct key for every existing row, and not by assumption: a
+        pre-0.20 bench served exactly one site, and the dump in that row came from the only
+        schema there was. `_write_sites_table` has already run, so that name is recorded.
+
+        `DeployStateEntry` forbids extra keys, so a row still spelling `backup` does not load
+        with a stale field, it refuses the whole config. That is why this rewrites rather than
+        leaving the old key for a reader to ignore.
+        """
+        config_path = bench.path / "bench_config.toml"
+        if not config_path.exists():
+            return
+
+        doc = tomlkit.parse(config_path.read_text())
+        state = doc.get("deploy_state")
+        if not isinstance(state, MutableMapping):
+            return
+        history = state.get("history")
+        if not isinstance(history, MutableSequence):
+            return
+
+        primary = bench.name
+        sites = doc.get("sites")
+        if isinstance(sites, MutableMapping) and sites:
+            primary = next(iter(sites))
+
+        moved = 0
+        for row in history:
+            if not isinstance(row, MutableMapping) or "backup" not in row:
+                continue
+            dump = row.pop("backup")
+            # A row recorded with no dump (`backup = None`, a deploy that skipped the backup)
+            # becomes an empty mapping rather than one pointing at nothing.
+            table = tomlkit.inline_table()
+            if dump:
+                table[primary] = dump
+                moved += 1
+            row["backups"] = table
+
+        if moved or any(isinstance(r, MutableMapping) and "backups" in r for r in history):
+            toml_document.save(config_path, doc)
+            if moved:
+                self.output.print(f'Filed {moved} recorded deploy dump(s) under \\[sites."{primary}"] for {bench.name}')
 
     def _rewrite_ssl_table(self, bench: MigrationBench):
         """Bring a bench's TLS configuration into the one shape the loader reads: an [ssl]

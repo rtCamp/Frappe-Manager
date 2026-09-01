@@ -525,14 +525,15 @@ class Bench:
             self.logger.exception(f"Failed to set common bench configuration: {self.name}", extra_fields=extra)
             raise
 
-    def set_bench_site_config(self, config: dict):
-        """
-        Sets the values in the bench's site site_config.json file.
+    def set_bench_site_config(self, site: str, config: dict):
+        """Merge key-value pairs into ``sites/<site>/site_config.json``.
 
-        Args:
-            config (dict): A dictionary containing the key-value pairs
+        The site is named by the caller, never defaulted: a bench can serve several, each with
+        its own schema and its own config file, so "the site" is a question only the caller can
+        answer. Deploy-time merges apply to every site; a certificate's host_name applies to the
+        one site that certificate is for.
         """
-        site_config_path = self.path / "workspace/frappe-bench/sites" / self.site_name / "site_config.json"
+        site_config_path = self.path / "workspace/frappe-bench/sites" / site / "site_config.json"
         if not site_config_path.exists():
             raise BenchException(self.name, message=f"File not found {site_config_path.name}.")
         save_dict_to_file(config, site_config_path)
@@ -1574,7 +1575,7 @@ class Bench:
         self.output.change_head(f"Resetting bench site {target}")
 
         self.site_manager.reset_bench_site(admin_pass, site=target)
-        self.set_bench_site_config({"admin_password": admin_pass})
+        self.set_bench_site_config(self.site_name, {"admin_password": admin_pass})
 
         self.output.print(f"Reset bench site {target}")
 
@@ -1672,7 +1673,7 @@ class Bench:
             except (OSError, ValueError):
                 current = None
             if current != wanted_bytes:
-                self.set_bench_site_config({"max_file_size": wanted_bytes})
+                self.set_bench_site_config(self.site_name, {"max_file_size": wanted_bytes})
                 changed = True
 
         # The global proxy caps the request before bench nginx ever sees it, so the bench conf alone

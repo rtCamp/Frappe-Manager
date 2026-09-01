@@ -32,6 +32,7 @@ Architecture (functional core, imperative shell):
   find the CA bundle through the mariadb client's option file.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import parse_qs, urlparse
@@ -96,11 +97,22 @@ class ServiceSpec:
     env: tuple[tuple[str, str], ...] = ()
 
 
-def data_binds(site: str) -> list[VolumeBind]:
-    """Image-mode data-only binds: mutable site data, never code/assets."""
+def data_binds(sites: Sequence[str]) -> list[VolumeBind]:
+    """Image-mode data-only binds: mutable site data, never code/assets.
+
+    One bind per SITE, because the image carries no site directories at all (they are data) and
+    a site that is not bind-mounted simply does not exist inside the container: `bench --site X`
+    answers "404 Not Found". The sites directory is not mounted wholesale because `assets/` and
+    `apps.txt` live beside the site directories and come FROM the image.
+    """
+    if isinstance(sites, str):
+        # A str IS a Sequence[str], so this would iterate CHARACTERS and silently mount
+        # `sites/s`, `sites/.`, `sites/l` ... The result is a working compose file describing
+        # the wrong thing, which no type checker catches and no import error reveals.
+        raise TypeError(f"data_binds takes the bench's sites, not one site name: got {sites!r}")
     sites_rel = "./workspace/frappe-bench/sites"
     return [
-        VolumeBind(f"{sites_rel}/{site}", f"/workspace/frappe-bench/sites/{site}"),
+        *(VolumeBind(f"{sites_rel}/{site}", f"/workspace/frappe-bench/sites/{site}") for site in sites),
         VolumeBind(f"{sites_rel}/common_site_config.json", "/workspace/frappe-bench/sites/common_site_config.json"),
         VolumeBind(f"{sites_rel}/apps.txt", "/workspace/frappe-bench/sites/apps.txt"),
         VolumeBind("./workspace/frappe-bench/logs", "/workspace/frappe-bench/logs"),
@@ -108,9 +120,9 @@ def data_binds(site: str) -> list[VolumeBind]:
     ]
 
 
-def managed_targets(site: str) -> set[str]:
+def managed_targets(sites: Sequence[str]) -> set[str]:
     """Container paths owned by the mode projection (stripped before re-add)."""
-    return {"/workspace", *(b.container for b in data_binds(site))}
+    return {"/workspace", *(b.container for b in data_binds(sites))}
 
 
 # --------------------------------------------------------------------------- strategy
@@ -163,7 +175,7 @@ class ImageShape:
     """Image runtime: immutable app image; data-only binds."""
 
     tag: str
-    site: str
+    sites: tuple[str, ...]
 
     def image(self, service: str) -> str | None:
         if service == "nginx":
@@ -173,7 +185,7 @@ class ImageShape:
         return self.tag
 
     def binds(self) -> list[VolumeBind]:
-        return data_binds(self.site)
+        return data_binds(self.sites)
 
 
 def runtime_shape(config, ctx: RenderContext = DEFAULT_CONTEXT) -> RuntimeShape | None:
@@ -186,7 +198,10 @@ def runtime_shape(config, ctx: RenderContext = DEFAULT_CONTEXT) -> RuntimeShape 
 
     if config.runtime == BenchRuntime.image:
         tag = ctx.deploy_tag or (config.deploy_state.current_tag if config.deploy_state else None)
-        return ImageShape(tag=tag, site=config.name) if tag else None
+        # Every recorded site, NOT config.name: the bench name is not a site, and on a bench
+        # where they differ the container would mount a directory that does not exist while
+        # the real sites stayed invisible.
+        return ImageShape(tag=tag, sites=tuple(config.site_names)) if tag else None
     return MountShape(base_image=config.base_image)
 
 
@@ -270,7 +285,7 @@ def bind_strings(spec: ServiceSpec) -> list[str]:
     return [f"{b.host}:{b.container}" for b in spec.managed_binds]
 
 
-def apply_specs(compose_file_manager, specs: tuple[ServiceSpec, ...], site: str) -> None:
+def apply_specs(compose_file_manager, specs: tuple[ServiceSpec, ...], sites: Sequence[str]) -> None:
     """Project ``specs`` onto a ComposeFile (enabled, env, image, managed binds).
 
     The single imperative shell over the pure spec model. Idempotent: the
@@ -280,7 +295,7 @@ def apply_specs(compose_file_manager, specs: tuple[ServiceSpec, ...], site: str)
     volumes alone. Does NOT write the file -- callers batch their own write.
     """
     services = compose_file_manager.get_services_list()
-    stripped = managed_targets(site)
+    stripped = managed_targets(sites)
     images: dict = {}
     for spec in specs:
         if spec.name not in services:

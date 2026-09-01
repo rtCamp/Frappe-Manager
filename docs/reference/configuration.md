@@ -645,19 +645,26 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm switch`, `fm prun
 
 | Key | Default | Meaning |
 |---|---|---|
-| `migrate` | `true` | `true` / `false` / `"auto"` (probe the new image against the live DB) |
-| `migrate_timeout` | `300` | seconds the one-shot migrate may run before it is killed (`0` disables the budget) |
-| `migrate_command` | (none) | custom migrate command override |
+| `migrate` | `true` | `true` / `false`: run `bench migrate` during the deploy, once per site the bench serves (there is no detect-it-for-me mode; see the note below) |
+| `migrate_timeout` | `300` | seconds the one-shot migrate may run before it is killed, applied per site (`0` disables the budget) |
+| `migrate_command` | (none) | custom migrate command override; run once exactly as written, since it replaces the site selector too |
 | `maintenance_mode` | `true` | show the maintenance page during schema-changing steps |
 | `maintenance_mode_phases` | `["migrate"]` | `[]` asserts a backward-compatible migration (enables rolling with migrate) |
-| `backup_db` | `true` | `true` / `false` / `"auto"` (dump only when a schema step runs) |
+| `backup_db` | `true` | `true` / `false` / `"auto"` (dump only when a schema step runs); one dump per site, since each site has its own schema |
 | `rollback_image` | `true` | auto-rollback to the previous tag on a failed health gate |
-| `rollback_db` | `false` | also restore the dump when the deploy fails (failed migrate, or alongside the image rollback; requires `backup_db`) |
-| `install_apps` | `true` | during finalize, install apps the new image carries that the site does not have yet (the image is asked directly, so it works on any switch) |
+| `rollback_db` | `false` | also restore the dumps when the deploy fails (failed migrate, or alongside the image rollback; requires `backup_db`). Every site is restored, and a deploy aborts up front if any site's dump could not be taken |
+| `install_apps` | `true` | during finalize, install apps the new image carries that a site does not have yet, computed per site from its own `bench list-apps` (the image is asked directly, so it works on any switch) |
 | `keep_releases` | `7` | retention used by `fm prune` |
 | `common_site_config` | (none) | keys merged into `common_site_config.json` during finalize |
-| `site_config` | (none) | keys merged into `site_config.json` during finalize |
+| `site_config` | (none) | keys merged into every site's `site_config.json` during finalize |
 | `hooks` | (none) | `before/after_migrate`, `before/after_restart` (container + `host.*` variants) |
+
+!!! info "Why `migrate` has no detect-it-for-me mode"
+    The key is `true` or `false`. fm cannot work out for you whether a given deploy needs a schema step: a DocType field change ships with no patch and no app version bump, so probing the new image for pending patches and app-version drift reports "clean" while `bench migrate` would still run `sync_schema` and alter the table. A mode that can silently skip a schema change it could not see is worse than no mode, so it was removed rather than patched.
+
+    If what you wanted was to skip the maintenance window on migrations that turn out to be cheap, keep `migrate = true` and set `maintenance_mode_phases = []`. That is the supported way to assert a migration is backward compatible: the maintenance page stays down and the deploy becomes eligible for the [rolling web swap](../deploy/index.md#the-rolling-web-swap).
+
+    A bench file that still carries the removed `"auto"` value for this key fails validation. Set it to `true` or `false`.
 
 !!! info "There is no `[registry]` table"
     Registry authentication is docker's. Run `docker login` once on each machine that pushes or pulls, or add a login step in CI: `~/.docker/config.json` stores credentials per registry and supports credential helpers (osxkeychain, `pass`, `ecr-login`) that fm cannot reach. The registry host is already part of the [`image`](#images) ref. The table existed until 0.20.0 and did nothing but run `docker login` for you; a bench that still carries it loads fine, and the 0.20.0 migration strips it.
