@@ -43,14 +43,19 @@ V0200 = "frappe_manager.migration_manager.migrations.migrate_0_20_0"
 
 
 class _FakeBench:
-    """Stands in for MigrationBench: only name/path/docker/compose are used here."""
+    """Stands in for MigrationBench: only name/path/docker/compose/site_names are used here."""
 
-    def __init__(self, name, path, output=None):
+    def __init__(self, name, path, output=None, sites=None):
         self.name = name
         self.path = Path(path)
         self.output = output
         self.docker = MagicMock()
         self.compose_file_manager = MagicMock()
+        # The real property reads `[sites]` out of bench_config.toml and falls back to the bench's
+        # own name when there is no table, which is the pre-decoupling shape every migration up to
+        # 0.20.0 was written against. Defaulting to that fallback keeps these tests describing a
+        # pre-decoupling bench unless one explicitly asks for several sites.
+        self.site_names = list(sites) if sites else [name]
 
 
 def _executor(
@@ -669,6 +674,79 @@ def test_the_db_backup_gets_the_benchs_own_docker_and_compose_file(backup_migrat
     # db_info is read off disk, not out of the bench object.
     assert kwargs["db_info"].name == "alpha_db"
 
+
+# --------------------------------------------------------------------------------------
+# every recorded site, not just the one named after the bench
+# --------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def two_site_bench(tmp_path):
+    """A DECOUPLED bench: named `shop`, serving `shop.localhost` and `b.example.com`.
+
+    Neither site is called `shop`, which is what broke the old code: it read
+    `sites/shop/site_config.json`, found nothing, and `DatabaseServerServiceInfo` raised a
+    ValidationError with no `name` or `user` to build from, so the migration aborted before backing
+    up anything at all.
+    """
+    bench_path = tmp_path / "sites" / "shop"
+    sites = bench_path / "workspace" / "frappe-bench" / "sites"
+    for site, schema in (("shop.localhost", "shop_db"), ("b.example.com", "b_db")):
+        (sites / site).mkdir(parents=True)
+        (sites / site / "site_config.json").write_text(
+            json.dumps({"db_name": schema, "db_password": "secret", "db_host": "global-db"}),
+        )
+    (bench_path / "bench_config.toml").write_text(
+        'name = "shop"\n[sites."shop.localhost"]\n[sites."b.example.com"]\n'
+    )
+    (bench_path / "docker-compose.yml").write_text("services: {}\n")
+    (sites / "common_site_config.json").write_text(json.dumps({"db_host": "global-db"}))
+    return _FakeBench("shop", bench_path, sites=["shop.localhost", "b.example.com"])
+
+
+def test_every_recorded_site_gets_its_config_and_its_database_backed_up(backup_migration, two_site_bench):
+    with patch.object(backup_migration, "bench_db_backup") as db_backup:
+        backup_migration.bench_basic_backup(two_site_bench)
+
+    assert [b.src.name for b in backup_migration.backup_manager.backups] == [
+        "bench_config.toml",
+        "docker-compose.yml",
+        "common_site_config.json",
+        "site_config.json",
+        "site_config.json",
+    ]
+    assert [c.kwargs["site"] for c in db_backup.call_args_list] == ["shop.localhost", "b.example.com"]
+
+
+def test_each_site_is_dumped_from_its_own_schema(backup_migration, two_site_bench):
+    """The whole point of backing up per site: one dump per schema. Reading the endpoint off the
+    bench name gave both sites the first site's credentials, or nothing at all."""
+    with patch.object(backup_migration, "bench_db_backup") as db_backup:
+        backup_migration.bench_basic_backup(two_site_bench)
+
+    assert [c.kwargs["db_info"].name for c in db_backup.call_args_list] == ["shop_db", "b_db"]
+
+
+def test_a_recorded_site_with_no_config_on_disk_is_reported_and_skipped(backup_migration, two_site_bench, output):
+    """A recorded site whose directory never got made must not abort the whole migration: the other
+    sites still need their backups, and the operator needs to know which one was missed."""
+    (two_site_bench.path / "workspace" / "frappe-bench" / "sites" / "b.example.com" / "site_config.json").unlink()
+
+    with patch.object(backup_migration, "bench_db_backup") as db_backup:
+        backup_migration.bench_basic_backup(two_site_bench)
+
+    assert [c.kwargs["site"] for c in db_backup.call_args_list] == ["shop.localhost"]
+    warned = " ".join(str(c) for c in output.warning.call_args_list)
+    assert "b.example.com" in warned
+
+
+def test_a_pre_decoupling_bench_still_backs_up_exactly_one_site(backup_migration, backed_up_bench):
+    """`alpha` has no `[sites]` table, so the fallback names the bench's own site. Every migration
+    up to 0.20.0 runs on benches of this shape and must behave exactly as it did."""
+    with patch.object(backup_migration, "bench_db_backup") as db_backup:
+        backup_migration.bench_basic_backup(backed_up_bench)
+
+    assert [c.kwargs["site"] for c in db_backup.call_args_list] == ["alpha"]
 
 # --------------------------------------------------------------------------------------
 # _resolve_database_name / _resolve_mysql_home

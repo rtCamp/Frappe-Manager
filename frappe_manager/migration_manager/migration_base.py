@@ -209,24 +209,37 @@ class MigrationBase(ABC):
         bench_common_site_config = bench.path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
         self.backup_manager.backup(bench_common_site_config, bench_name=bench.name)
 
-        bench_site_config = bench.path / "workspace" / "frappe-bench" / "sites" / bench.name / "site_config.json"
-        self.backup_manager.backup(bench_site_config, bench_name=bench.name)
+        # Every recorded site, not just one named after the bench. A migration that backed up one
+        # site left every other site of a multi-site bench with no way back, and on a bench whose
+        # site is not named after it (`shop` serving `shop.localhost`) it read
+        # `sites/shop/site_config.json`, found nothing, and `DatabaseServerServiceInfo` raised a
+        # ValidationError with no `name` or `user` to build from: the migration aborted before
+        # backing up anything at all. `raise_exception=False` never covered that, because it only
+        # guards the password check further down.
+        for site in bench.site_names:
+            site_config = bench.path / "workspace" / "frappe-bench" / "sites" / site / "site_config.json"
+            if not site_config.is_file():
+                self.output.warning(
+                    f"{bench.name}: no site_config.json for recorded site '{site}', skipping its backup. "
+                    f"Expected it at {site_config}."
+                )
+                continue
+            self.backup_manager.backup(site_config, bench_name=bench.name)
 
-        bench_db_info = DatabaseServerServiceInfo.import_from_bench(
-            bench_path=bench.path,
-            # Pre-decoupling benches are the only ones a migration below 0.20.0 runs on, and on
-            # those the bench name IS the site name.
-            site_name=bench.name,
-            raise_exception=False,
-        )
+            site_db_info = DatabaseServerServiceInfo.import_from_bench(
+                bench_path=bench.path,
+                site_name=site,
+                raise_exception=False,
+            )
 
-        self.bench_db_backup(
-            bench=bench,
-            db_info=bench_db_info,
-            bench_docker=bench.docker,
-            bench_compose_file=bench.compose_file_manager,
-            backup_manager=self.backup_manager,
-        )
+            self.bench_db_backup(
+                bench=bench,
+                db_info=site_db_info,
+                bench_docker=bench.docker,
+                bench_compose_file=bench.compose_file_manager,
+                backup_manager=self.backup_manager,
+                site=site,
+            )
 
     def migrate_bench(self, bench: MigrationBench):
         pass
@@ -234,7 +247,10 @@ class MigrationBase(ABC):
     def undo_bench_migrate(self, bench: MigrationBench):
         pass
 
-    def _resolve_database_name(self, bench: MigrationBench, db_info: DatabaseServerServiceInfo) -> str | None:
+    def _resolve_database_name(
+        self, bench: MigrationBench, db_info: DatabaseServerServiceInfo, site: str | None = None
+    ) -> str | None:
+        site = site or bench.name
         if db_info.name:
             return db_info.name
 
@@ -245,24 +261,32 @@ class MigrationBase(ABC):
 
                 with open(bench_config_path) as f:
                     bench_config = tomlkit.parse(f.read())
-                    db_name = bench_config.get("db_name")
-                    if db_name:
-                        return db_name
+                    # `db_name` is a bench-level key from before the schema became the site's, so it
+                    # only answers for the site named after the bench. Handing it to a sibling site
+                    # would dump the FIRST site's schema under the second site's name.
+                    if site == bench.name:
+                        db_name = bench_config.get("db_name")
+                        if db_name:
+                            return db_name
             except Exception as e:
                 self.output.warning(f"Failed to read db_name from bench_config.toml: {e}")
 
         return None
 
-    def _resolve_mysql_home(self, bench: MigrationBench) -> str | None:
-        """``MYSQL_HOME`` for this bench's dump when its database is external.
+    def _resolve_mysql_home(self, bench: MigrationBench, site: str | None = None) -> str | None:
+        """``MYSQL_HOME`` for one site's dump when its database is external.
 
-        Read straight out of ``bench_config.toml`` rather than through the
-        pydantic model, like ``_resolve_database_name`` above: a migration runs
-        against whatever config version is already on disk. Without it the dump
-        connects in plaintext, because the `mariadb` client never reads
-        ``db_ssl_*`` from ``site_config.json``, and an enforcing server refuses
-        it with 3159. None for a global-db bench.
+        Read straight out of ``bench_config.toml`` rather than through the model, so it works
+        against whatever config version is already on disk. Without it the dump connects in
+        plaintext, because the `mariadb` client never reads ``db_ssl_*`` from ``site_config.json``,
+        and an enforcing server refuses it with 3159. None for a site on the global-db container.
+
+        Both shapes are accepted because a migration meets either: ``[database."<site>"]`` at the
+        top level before the sites table lands, and ``[sites."<site>".database]`` after. Reading
+        only one of them would silently drop TLS on a re-run, which is exactly when the top-level
+        table has already moved.
         """
+        site = site or bench.name
         bench_config_path = bench.path / "bench_config.toml"
         if not bench_config_path.exists():
             return None
@@ -270,16 +294,15 @@ class MigrationBase(ABC):
         try:
             import tomlkit
 
-            with open(bench_config_path) as f:
-                databases = tomlkit.parse(f.read()).get("database") or {}
+            doc = tomlkit.parse(bench_config_path.read_text())
         except Exception as e:
             self.output.warning(f"Failed to read database table from bench_config.toml: {e}")
             return None
 
-        if bench.name not in databases:
-            return None
-
-        return db_tls.site_mysql_home(bench.name)
+        external = site in (doc.get("database") or {}) or bool(
+            ((doc.get("sites") or {}).get(site) or {}).get("database")
+        )
+        return db_tls.site_mysql_home(site) if external else None
 
     def bench_db_backup(
         self,
@@ -288,19 +311,23 @@ class MigrationBase(ABC):
         bench_docker,
         bench_compose_file,
         backup_manager: BackupManager,
+        site: str | None = None,
     ):
-        self.output.change_head(f"Taking {bench.name} db backup")
+        """Dump one SITE's schema. `site` defaults to the bench's name, which is what it is on every
+        pre-decoupling bench and what every caller meant before a bench could hold several."""
+        site = site or bench.name
+        self.output.change_head(f"Taking {site} db backup")
 
-        db_name = self._resolve_database_name(bench, db_info)
+        db_name = self._resolve_database_name(bench, db_info, site)
 
         if not db_name:
             self.output.warning(
-                f"Could not determine database name for {bench.name}.\n"
+                f"Could not determine database name for {site}.\n"
                 f"Checked: site_config.json, db_info, bench_config.toml.",
             )
 
             skip_backup_prompt = [
-                "Database backup will be skipped for this bench.",
+                f"Database backup will be skipped for site '{site}'.",
                 "Do you want to continue migration without database backup?",
             ]
 
@@ -313,11 +340,11 @@ class MigrationBase(ABC):
             if user_choice == "no":
                 self.output.display_error(f"User chose to abort migration for {bench.name}")
                 raise MigrationExceptionInBench(
-                    f"Migration aborted for {bench.name}: Unable to determine database name. "
-                    f"User declined to skip database backup.",
+                    f"Migration aborted for {bench.name}: Unable to determine the database name for "
+                    f"site '{site}'. User declined to skip database backup.",
                 )
 
-            self.output.warning(f"Skipping database backup for {bench.name}")
+            self.output.warning(f"Skipping database backup for site '{site}'")
             return
 
         mariadb_manager = MariaDBManager(
@@ -325,7 +352,7 @@ class MigrationBase(ABC):
             bench_compose_file,
             bench_docker,
             run_on_compose_service="frappe",
-            mysql_home=self._resolve_mysql_home(bench),
+            mysql_home=self._resolve_mysql_home(bench, site),
         )
 
         from datetime import datetime
@@ -334,7 +361,10 @@ class MigrationBase(ABC):
         formatted_date = current_datetime.strftime("%d-%m-%Y--%H-%M-%S")
 
         host_backup_dir: Path = bench.path / "workspace" / ".cache"
-        db_sql_file_name = f"db-{bench.name}-{formatted_date}.sql"
+        # Keyed by SITE, not by bench: two sites of one bench dump within the same second, and a
+        # bench-keyed name made the second overwrite the first, so a "successful" multi-site backup
+        # left one dump holding one schema.
+        db_sql_file_name = f"db-{site}-{formatted_date}.sql"
 
         host_db_sql_file_path: Path = host_backup_dir / db_sql_file_name
         container_db_sql_file_path: Path = Path("/workspace") / ".cache" / db_sql_file_name
@@ -355,4 +385,4 @@ class MigrationBase(ABC):
 
         host_db_sql_file_path.unlink()
 
-        self.output.print(f"[fm.info]{bench.name}[/fm.info] db backup completed successfully.")
+        self.output.print(f"[fm.info]{site}[/fm.info] db backup completed successfully.")

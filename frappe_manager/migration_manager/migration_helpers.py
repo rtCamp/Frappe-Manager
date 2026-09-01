@@ -34,6 +34,35 @@ class MigrationBench:
         return self.docker.compose
 
     @property
+    def site_names(self) -> list[str]:
+        """The sites this bench serves, read straight out of `bench_config.toml`.
+
+        Raw TOML on purpose: a migration runs against whatever shape is on disk, which is by
+        definition a shape the current model may refuse, so `BenchConfig` is not usable here.
+
+        Falls back to the bench's own name when no `[sites]` table is recorded. That is the
+        pre-decoupling shape every migration up to 0.20.0 was written against, where the bench name
+        IS the site name, so the fallback keeps those benches behaving exactly as before. A bench
+        that HAS the table may hold several sites, and may hold one whose name is not the bench's,
+        which is the case that used to send every caller here looking for `sites/<bench>/` and
+        finding nothing.
+        """
+        config_path = self.path / "bench_config.toml"
+        if not config_path.exists():
+            return [self.name]
+
+        try:
+            import tomlkit
+
+            sites = tomlkit.parse(config_path.read_text()).get("sites") or {}
+        except Exception as e:
+            if self.output:
+                self.output.warning(f"Failed to read [sites] from bench_config.toml: {e}")
+            return [self.name]
+
+        return [str(site) for site in sites] or [self.name]
+
+    @property
     def running(self) -> bool:
         services = self.compose_file_manager.get_services_list()
         running_status = self.get_services_running_status()
