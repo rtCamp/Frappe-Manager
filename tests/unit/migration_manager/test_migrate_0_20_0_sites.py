@@ -450,3 +450,80 @@ def test_the_dump_is_filed_under_the_site_and_not_the_bench_directory(step, tmp_
     assert config.name == BENCH_DIR
     assert list(config.deploy_state.history[0].backups) == [SITE]
     assert set(config.deploy_state.history[0].backups) <= set(config.sites)
+
+
+# ------------------------------------------------------- switch.migrate = "auto"
+
+
+"""`[switch].migrate = "auto"` becomes `true`.
+
+The mode is deleted: it probed the new image for pending patches and app-version drift and skipped
+the migration when it found neither, but a DocType field change ships with neither, so it reported
+clean while `bench migrate` would still have synced the schema.
+
+`SwitchConfig.migrate` is a plain bool now, so a surviving `"auto"` does not degrade to a default:
+it fails validation and takes the WHOLE bench config down. Documenting "set it to true or false"
+is not enough when the house rule is that the migration writes the new shape.
+"""
+
+AUTO_SWITCH = """
+[switch]
+migrate = "auto"
+migrate_timeout = 300
+backup_db = "auto"
+"""
+
+
+def test_auto_becomes_true_never_false(step, tmp_path):
+    # `"auto"` meant "migrate when it is needed", so true is the only reading that cannot lose a
+    # schema change. Turning it off would do exactly what deleting the mode was meant to prevent.
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + AUTO_SWITCH)
+
+    step._rewrite_switch_migrate(bench)
+
+    assert tomlkit.parse(path.read_text())["switch"]["migrate"] is True
+
+
+def test_backup_db_auto_is_left_alone(step, tmp_path):
+    # A different mechanism that survives: it keys off whether a migrate WILL run, rather than
+    # guessing whether one is needed. A sweep for the string would have taken it too.
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + AUTO_SWITCH)
+
+    step._rewrite_switch_migrate(bench)
+
+    assert tomlkit.parse(path.read_text())["switch"]["backup_db"] == "auto"
+
+
+def test_the_rewritten_switch_loads(step, tmp_path):
+    # The failure this exists to prevent: one stale value refusing the entire config.
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + AUTO_SWITCH)
+
+    step._rewrite_switch_migrate(bench)
+
+    assert BenchConfig.import_from_toml(path).switch.migrate is True
+
+
+def test_the_old_value_does_not_load_at_all(tmp_path):
+    path = tmp_path / "bench_config.toml"
+    path.write_text(BASE + f'\n[sites."{SITE}"]\n' + AUTO_SWITCH)
+
+    with pytest.raises(Exception, match="migrate"):
+        BenchConfig.import_from_toml(path)
+
+
+def test_an_explicit_bool_is_untouched(step, tmp_path):
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n[switch]\nmigrate = false\n')
+    before = path.read_text()
+
+    step._rewrite_switch_migrate(bench)
+
+    assert path.read_text() == before
+
+
+def test_a_bench_with_no_switch_table_is_untouched(step, tmp_path):
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n')
+    before = path.read_text()
+
+    step._rewrite_switch_migrate(bench)
+
+    assert path.read_text() == before

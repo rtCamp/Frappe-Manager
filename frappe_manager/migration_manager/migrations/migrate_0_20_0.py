@@ -163,6 +163,7 @@ class MigrationV0200(MigrationBase):
         # After the sites table exists: each history row's single dump has to be filed under a
         # SITE, and the primary is the only site a pre-0.20 bench ever dumped.
         self._rewrite_deploy_history(bench)
+        self._rewrite_switch_migrate(bench)
         self._drop_removed_config_keys(bench)
 
         compose_path = bench.path / "docker-compose.admin-tools.yml"
@@ -410,6 +411,32 @@ class MigrationV0200(MigrationBase):
             self.output.print(f"Dropped the empty \\[database] table for {bench.name}")
         if moved_aliases:
             self.output.print(f'Moved alias_domains under \\[sites."{bench.name}"]')
+
+    def _rewrite_switch_migrate(self, bench: MigrationBench):
+        """Turn a surviving `[switch].migrate = "auto"` into `true`.
+
+        The value is gone from the model: it probed the new image for pending patches and app
+        version drift and skipped the migration when it found neither, but a DocType field change
+        ships with neither, so it reported clean while `bench migrate` would still have synced the
+        schema. `SwitchConfig.migrate` is a plain bool now, and `"auto"` fails validation, which
+        takes the WHOLE bench config down rather than just that key.
+
+        It becomes `true`, never `false`. `"auto"` meant "migrate when it is needed", so the only
+        reading that cannot lose a schema change is the one that migrates. Turning it off silently
+        would do exactly what deleting the mode was meant to prevent.
+        """
+        config_path = bench.path / "bench_config.toml"
+        if not config_path.exists():
+            return
+
+        doc = tomlkit.parse(config_path.read_text())
+        switch = doc.get("switch")
+        if not isinstance(switch, MutableMapping) or switch.get("migrate") != "auto":
+            return
+
+        switch["migrate"] = True
+        toml_document.save(config_path, doc)
+        self.output.print(f'Rewrote \\[switch].migrate from "auto" to true for {bench.name}')
 
     def _rewrite_deploy_history(self, bench: MigrationBench):
         """File each recorded deploy's DB dump under the SITE it was taken from.
