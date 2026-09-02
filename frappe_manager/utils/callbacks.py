@@ -302,38 +302,49 @@ def _parse_or_refuse(value: str) -> Address:
         raise typer.BadParameter(str(e)) from e
 
 
+def _pick_bench_name() -> str | None:
+    """The bench menu, in the one place its prompt and options are written.
+
+    None when there is no bench to offer. Exceptions PROPAGATE, because the two callers disagree
+    about what an unanswerable prompt means and both are right: a parameter callback turns it into
+    a `NonInteractiveError` naming the argument to pass, while a command body that has other modes
+    to fall back on treats it as "no answer" and reports the address itself.
+    """
+    names = _bench_names()
+    if not names:
+        return None
+
+    selected = get_global_output_handler().prompt_fuzzy(
+        prompt="Select bench (↑↓ navigate, type to search)",
+        choices=get_sorted_sites_list(names),
+        vi_mode=True,
+        mandatory=True,
+        qmark="🤔",
+        amark="🤔",
+    )
+
+    if selected:
+        update_sites_cache(selected)
+
+    return selected
+
+
 def _resolve_bench(sitename: str | None) -> str:
     """A bench name: the CWD fallback, then the picker, then normalise and require it exists."""
     if not sitename:
         sitename = get_sitename_from_current_path()
 
     if not sitename:
-        sites_list = _bench_names()
-
-        if sites_list:
-            output = get_global_output_handler()
-            sorted_sites = get_sorted_sites_list(sites_list)
-
-            try:
-                sitename = output.prompt_fuzzy(
-                    prompt="Select bench (↑↓ navigate, type to search)",
-                    choices=sorted_sites,
-                    vi_mode=True,
-                    mandatory=True,
-                    qmark="🤔",
-                    amark="🤔",
-                )
-
-                if sitename:
-                    update_sites_cache(sitename)
-            except Exception as e:
-                raise NonInteractiveError(
-                    "Bench name is required in non-interactive mode",
-                    suggestions=[
-                        "Specify the bench name as a positional argument",
-                        "Run 'fm list' to see available benches",
-                    ],
-                ) from e
+        try:
+            sitename = _pick_bench_name()
+        except Exception as e:
+            raise NonInteractiveError(
+                "Bench name is required in non-interactive mode",
+                suggestions=[
+                    "Specify the bench name as a positional argument",
+                    "Run 'fm list' to see available benches",
+                ],
+            ) from e
 
     if sitename is None:
         raise typer.BadParameter("Invalid selection. Must match existing sites")
@@ -529,41 +540,25 @@ def get_sorted_sites_list(sites_list: list[str]) -> list[str]:
 
 
 def prompt_for_bench_selection(current_value: str | None) -> str | None:
+    """The bench menu for a command body rather than a parameter callback.
+
+    The `ssl` subcommands cannot resolve their bench in the callback, because `--standalone` gives
+    the same argument an external domain that belongs to no bench, so the refusal has to wait until
+    the body knows which mode it is in. An unanswerable prompt is None here and the caller reports
+    the address; :func:`_resolve_bench` raises instead.
+    """
     if current_value:
         return current_value
-
-    from frappe_manager.output_manager import get_global_output_handler
 
     benchname = get_sitename_from_current_path()
     if benchname:
         return benchname
 
-    sites_list = _bench_names()
-
-    if not sites_list:
-        return None
-
-    output = get_global_output_handler()
-    sorted_sites = get_sorted_sites_list(sites_list)
-
     try:
-        selected = output.prompt_fuzzy(
-            prompt="Select bench (↑↓ navigate, type to search)",
-            choices=sorted_sites,
-            vi_mode=True,
-            mandatory=True,
-            qmark="🤔",
-            amark="🤔",
-        )
-
-        if selected:
-            update_sites_cache(selected)
-            return selected
+        return _pick_bench_name()
     except Exception:
-        # Silently fail - caller will handle None return
-        pass
-
-    return None
+        # No terminal to ask on. The caller's own error names the address it wanted.
+        return None
 
 
 def code_command_extensions_callback(extensions: list[str]) -> list[str]:
