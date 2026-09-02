@@ -19,6 +19,7 @@ from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, MariaDBManager
 from frappe_manager.site_manager.modules import db_tls
+from frappe_manager.site_manager.modules.compose_shape import container_transit_path
 from frappe_manager.utils.helpers import capture_and_format_exception
 
 
@@ -49,10 +50,9 @@ class MigrationBase(ABC):
             tag = self.effective_image_tag
             self.logger.info(f"Dev environment detected: using image tag {tag}")
             return tag
-        else:
-            tag = self.version.version_string()
-            self.logger.info(f"Stable environment: using image tag {tag}")
-            return tag
+        tag = self.version.version_string()
+        self.logger.info(f"Stable environment: using image tag {tag}")
+        return tag
 
     def init(self):
         self.backup_manager = BackupManager(name=str(self.version), benches_dir=self.benches_dir)
@@ -360,20 +360,34 @@ class MigrationBase(ABC):
         current_datetime = datetime.now()
         formatted_date = current_datetime.strftime("%d-%m-%Y--%H-%M-%S")
 
-        host_backup_dir: Path = bench.path / "workspace" / ".cache"
         # Keyed by SITE, not by bench: two sites of one bench dump within the same second, and a
         # bench-keyed name made the second overwrite the first, so a "successful" multi-site backup
         # left one dump holding one schema.
         db_sql_file_name = f"db-{site}-{formatted_date}.sql"
 
-        host_db_sql_file_path: Path = host_backup_dir / db_sql_file_name
-        container_db_sql_file_path: Path = Path("/workspace") / ".cache" / db_sql_file_name
+        # Handed across the container boundary through the one directory BOTH runtimes mount.
+        # This used to be `/workspace/.cache`, which only exists on the host when the whole
+        # workspace is bind-mounted, i.e. mount runtime. On an image bench the dump was written
+        # into the container's own filesystem, the host then looked for a file that was never
+        # there, and the migration aborted reporting a DB export failure.
+        container_db_sql_file_path, transit_rel = container_transit_path(db_sql_file_name)
+        host_db_sql_file_path: Path = bench.path / "workspace" / transit_rel
 
         backup_gz_file_backup_data_path: Path = (
             bench.path / backup_manager.bench_backup_dir / self.version.version / f"{db_sql_file_name}.gz"
         )
 
         mariadb_manager.db_export(db_name, container_db_sql_file_path)
+
+        if not host_db_sql_file_path.exists():
+            # The export reported success but nothing reached the host, which means the transit
+            # path is not shared with this container. Say that, rather than letting the gzip below
+            # fail with a FileNotFoundError that names neither the bench nor the cause.
+            raise MigrationExceptionInBench(
+                f"{bench.name}: the database dump for {site} did not reach the host at "
+                f"{host_db_sql_file_path}. The export ran, so this is a mount problem, not a "
+                f"database one: the frappe container is not sharing {transit_rel.parent}.",
+            )
 
         import gzip
         import shutil
@@ -383,6 +397,7 @@ class MigrationBase(ABC):
             with gzip.open(backup_gz_file_backup_data_path, "wb") as f_out:
                 shutil.copyfileobj(f_in, f_out)
 
+        # Transit only: the dump must not be left sitting in the log directory.
         host_db_sql_file_path.unlink()
 
         self.output.print(f"[fm.info]{site}[/fm.info] db backup completed successfully.")

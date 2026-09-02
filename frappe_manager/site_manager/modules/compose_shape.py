@@ -34,6 +34,7 @@ Architecture (functional core, imperative shell):
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 from urllib.parse import parse_qs, urlparse
 
@@ -123,6 +124,26 @@ def data_binds(sites: Sequence[str]) -> list[VolumeBind]:
 def managed_targets(sites: Sequence[str]) -> set[str]:
     """Container paths owned by the mode projection (stripped before re-add)."""
     return {"/workspace", *(b.container for b in data_binds(sites))}
+
+
+# The one directory a container can hand a file to the host through, in EITHER runtime.
+# Mount runtime binds the whole `./workspace`, so anything works there. Image runtime binds
+# only the data paths in `data_binds` above, and of those `frappe-bench/logs` is the only
+# writable DIRECTORY. A file written anywhere else, `/workspace/.cache` being the one that
+# bit, lands in the image's own filesystem: the write succeeds, the host never sees it, and
+# the caller reports a failure whose message points at the database rather than the mount.
+TRANSIT_DIR_REL = Path("frappe-bench") / "logs"
+
+
+def container_transit_path(filename: str) -> tuple[Path, Path]:
+    """``(container path, path relative to the bench's workspace)`` for a container-to-host file.
+
+    Callers join the second element onto ``<bench>/workspace`` to read what the container wrote.
+    Transit only: move the file to where it belongs as soon as it lands, so a dump is never left
+    sitting in the log directory.
+    """
+    rel = TRANSIT_DIR_REL / filename
+    return Path("/workspace") / rel, rel
 
 
 # --------------------------------------------------------------------------- strategy

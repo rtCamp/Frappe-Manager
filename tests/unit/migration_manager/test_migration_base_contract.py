@@ -847,9 +847,16 @@ def test_declining_the_skip_aborts_the_migration_for_that_bench(backup_migration
     output.display_error.assert_called_once()
 
 
-def test_the_dump_is_exported_into_the_workspace_cache_and_kept_gzipped(backup_migration, backed_up_bench, tmp_path):
-    cache_dir = backed_up_bench.path / "workspace" / ".cache"
-    cache_dir.mkdir(parents=True)
+def test_the_dump_is_handed_over_through_logs_and_kept_gzipped(backup_migration, backed_up_bench, tmp_path):
+    """The transit directory is `frappe-bench/logs`, and that is not cosmetic.
+
+    It used to be `workspace/.cache`, which the host only sees when the WHOLE workspace is
+    bind-mounted, i.e. mount runtime. An image bench mounts only its data paths, so the dump was
+    written into the container's own filesystem and the migration aborted claiming the database
+    export had failed. `logs` is the one writable directory both runtimes mount.
+    """
+    cache_dir = backed_up_bench.path / "workspace" / "frappe-bench" / "logs"
+    cache_dir.mkdir(parents=True, exist_ok=True)
     backup_manager = backup_migration.backup_manager
     # The gz lands in the per-migration bench backup dir, which earlier backup steps
     # in bench_basic_backup are what actually create.
@@ -872,7 +879,7 @@ def test_the_dump_is_exported_into_the_workspace_cache_and_kept_gzipped(backup_m
 
     db_name, container_path = manager_cls.return_value.db_export.call_args.args
     assert db_name == "alpha_db"
-    assert container_path.parent == Path("/workspace/.cache")
+    assert container_path.parent == Path("/workspace/frappe-bench/logs")
 
     gzipped = list(gz_dir.glob("db-alpha-*.sql.gz"))
     assert len(gzipped) == 1
@@ -884,8 +891,8 @@ def test_the_dump_is_exported_into_the_workspace_cache_and_kept_gzipped(backup_m
 
 def test_the_dump_client_runs_in_the_frappe_service_with_the_benchs_tls_home(backup_migration, backed_up_bench):
     (backed_up_bench.path / "bench_config.toml").write_text('[database]\n[database.alpha]\nhost = "db.example"\n')
-    cache_dir = backed_up_bench.path / "workspace" / ".cache"
-    cache_dir.mkdir(parents=True)
+    cache_dir = backed_up_bench.path / "workspace" / "frappe-bench" / "logs"
+    cache_dir.mkdir(parents=True, exist_ok=True)
     (backed_up_bench.path / backup_migration.backup_manager.bench_backup_dir / "0.9.0").mkdir(parents=True)
 
     db_info = _db_info("alpha_db")
@@ -911,8 +918,8 @@ def test_a_missing_migration_backup_dir_makes_the_db_backup_fail(backup_migratio
     # gzips into, so it only works because bench_basic_backup's file backups made it
     # first. Called on a bench with none of those files, it raises FileNotFoundError
     # rather than reporting a backup problem.
-    cache_dir = backed_up_bench.path / "workspace" / ".cache"
-    cache_dir.mkdir(parents=True)
+    cache_dir = backed_up_bench.path / "workspace" / "frappe-bench" / "logs"
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
     with patch(f"{BASE}.MariaDBManager") as manager_cls:
         manager_cls.return_value.db_export.side_effect = lambda name, path: (cache_dir / Path(path).name).write_text(
@@ -926,6 +933,40 @@ def test_a_missing_migration_backup_dir_makes_the_db_backup_fail(backup_migratio
                 bench_compose_file=backed_up_bench.compose_file_manager,
                 backup_manager=backup_migration.backup_manager,
             )
+
+
+def test_a_dump_that_never_reaches_the_host_is_reported_as_a_mount_problem(backup_migration, backed_up_bench):
+    """The image-runtime failure, named for what it is.
+
+    An export that "succeeds" while the file never appears on the host means the container is not
+    sharing the transit directory. Before the guard, the next line gzipped a path that did not
+    exist and the operator got a FileNotFoundError naming neither the bench nor the cause; the
+    migration reported a DB export failure and sent them looking at the database.
+    """
+    (backed_up_bench.path / "workspace" / "frappe-bench" / "logs").mkdir(parents=True, exist_ok=True)
+    (backed_up_bench.path / backup_migration.backup_manager.bench_backup_dir / "0.9.0").mkdir(parents=True)
+
+    with patch(f"{BASE}.MariaDBManager") as manager_cls:
+        # Exports without error, writes nothing the host can see: exactly an image bench.
+        manager_cls.return_value.db_export.side_effect = lambda name, path: None
+        with pytest.raises(MigrationExceptionInBench, match="did not reach the host"):
+            backup_migration.bench_db_backup(
+                bench=backed_up_bench,
+                db_info=_db_info("alpha_db"),
+                bench_docker=backed_up_bench.docker,
+                bench_compose_file=backed_up_bench.compose_file_manager,
+                backup_manager=backup_migration.backup_manager,
+            )
+
+
+def test_the_transit_path_is_one_both_runtimes_mount(backup_migration, backed_up_bench):
+    # Pins the coupling: the migration's transit directory must be a path image runtime actually
+    # binds. If `data_binds` ever stops mounting logs, this fails here rather than at 3am.
+    from frappe_manager.site_manager.modules.compose_shape import container_transit_path, data_binds
+
+    container_path, _ = container_transit_path("db-x.sql")
+    mounted = {b.container for b in data_binds(["alpha"])}
+    assert str(container_path.parent) in mounted
 
 
 # ======================================================================================

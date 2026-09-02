@@ -46,6 +46,7 @@ from frappe_manager.site_manager.bench_config import (
 )
 from frappe_manager.site_manager.hooks import hook_env, hook_script
 from frappe_manager.site_manager.modules import db_probe, db_tls
+from frappe_manager.site_manager.modules.compose_shape import container_transit_path
 from frappe_manager.utils.docker import run_command_with_exit_code
 
 if TYPE_CHECKING:
@@ -683,12 +684,13 @@ class DeployOrchestrator:
             self.output.warning(f"{site}: could not resolve DB name; skipping DB backup.")
             return None
 
-        # db_export writes inside the container; /workspace maps to the bench workspace.
+        # Handed across the container boundary through the one directory BOTH runtimes mount,
+        # which is why this is not `/workspace/.cache`: an image bench does not mount the
+        # workspace, so a dump written there never reaches the host.
         # Keyed by SITE, not a fixed name: two sites dumping in the same run would otherwise
         # race through one path, and a failure mid-move would leave one site's rows filed
         # under another site's dump.
-        rel = Path("frappe-bench") / "logs" / f"deploy-db-backup-{site}.sql"
-        container_path = Path("/workspace") / rel
+        container_path, rel = container_transit_path(f"deploy-db-backup-{site}.sql")
         host_path = self.bench_path / "workspace" / rel
         try:
             manager.db_export(db_name, container_path)
