@@ -33,6 +33,8 @@ def stop(
     Stop every bench on this host, then the global services (global-nginx-proxy, global-db).
 
     Nothing fm manages is left running unless you narrow the blast radius with --benches-only or --global-only.
+
+    A bench that fails to stop does not abort the run: the remaining benches and the global services are still stopped, and fm ends by naming what is still up and exiting non-zero.
     """
     services_manager: ServicesManager = ctx.obj["services"]
     verbose = ctx.obj["verbose"]

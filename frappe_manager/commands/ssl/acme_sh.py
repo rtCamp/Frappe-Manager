@@ -35,7 +35,7 @@ def acmesh_passthrough(
 
     An escape hatch for inspection and recovery. fm does not see what you change this way, so use fm ssl add, renew and remove for normal work.
 
-    acme.sh is installed by the first fm ssl add, and this command refuses to run until then.
+    acme.sh is installed the first time fm ssl add issues a Let's Encrypt certificate, and this command refuses to run until then. An fm ssl add --dev certificate comes from fm's own CA and does not install it.
     """
     args = ctx.args
 

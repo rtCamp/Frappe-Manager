@@ -84,6 +84,8 @@ fm services stop all
 
 Restart the global services shared by every bench.
 
+Every bench is reached through global-nginx-proxy and keeps its data in global-db, so restarting these is a brief outage for every bench on this host. The containers are restarted in place and never recreated, so a newly pulled image or an edited compose file is not picked up.
+
 **Usage**:
 
 ```console

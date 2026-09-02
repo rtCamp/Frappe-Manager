@@ -59,6 +59,8 @@ Pull the docker images fm's stack runs on.
 
 Running containers keep the image they started with until they are recreated.
 
+Which tags get pulled is fixed by the installed fm version, so a newer stack starts with fm self update.
+
 **Usage**:
 
 ```console
@@ -80,6 +82,8 @@ fm self update-images
 Run docker compose against a bench with all of its compose files already wired up.
 
 Everything after the bench name is handed to docker compose untouched, so any subcommand and flag it accepts works here.
+
+docker compose runs with the bench directory as its working directory, so a relative path in the arguments resolves there and not against the directory you called fm from.
 
 **Usage**:
 
@@ -120,6 +124,8 @@ fm self compose mybench restart frappe
 Stop every bench on this host, then the global services (global-nginx-proxy, global-db).
 
 Nothing fm manages is left running unless you narrow the blast radius with --benches-only or --global-only.
+
+A bench that fails to stop does not abort the run: the remaining benches and the global services are still stopped, and fm ends by naming what is still up and exiting non-zero.
 
 **Usage**:
 

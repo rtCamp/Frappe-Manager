@@ -2,7 +2,7 @@
 
 Show a bench's URL, credentials, apps, deploy history and live service state.
 
-The administrator and database passwords are printed in cleartext.
+Every secret on the card is printed in cleartext: the administrator password, the site and root database passwords, and the basic auth password while a surface is protected.
 
 **Usage**:
 

@@ -22,7 +22,11 @@ def restart_services(
     ctx: typer.Context,
     service_name: Annotated[ServicesEnum, typer.Argument()],
 ):
-    """Restart the global services shared by every bench."""
+    """
+    Restart the global services shared by every bench.
+
+    Every bench is reached through global-nginx-proxy and keeps its data in global-db, so restarting these is a brief outage for every bench on this host. The containers are restarted in place and never recreated, so a newly pulled image or an edited compose file is not picked up.
+    """
     services_manager: ServicesManager = ctx.obj["services"]
     output = get_global_output_handler()
 

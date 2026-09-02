@@ -2,7 +2,9 @@
 
 Switch a bench to an already-built image tag, or roll back.
 
-Every switch records the tag you left, so --previous returns to it; run it twice and you are back where you started. Older releases stay until fm prune clears them.
+A switch is not just a tag change. By default it takes a database backup, raises a maintenance page for the schema-changing steps, and runs bench migrate against the new image, so plan for the site to be briefly unavailable. Each of those is a \[switch] config key and can be turned off there.
+
+Every switch records the tag you left, so --previous returns to it; run it twice and you are back where you started. Rolling back does NOT migrate, because old code must never migrate a newer schema; pass --migrate to insist. Older releases stay until fm prune clears them.
 
 **Usage**:
 

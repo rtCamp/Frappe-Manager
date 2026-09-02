@@ -144,6 +144,8 @@ def shell(
     Open a shell in one of a bench's containers, or run a command in it.
 
     A command can come from -c, from the arguments after --, or from stdin when stdin is not a terminal, and its exit code becomes fm's. --bench-console works on the frappe service only: interactively it is bench console, and with -c or piped input it runs Python with frappe already initialised and connected.
+
+    fm shell BENCH/SITE exports FRAPPE_SITE, so every bare bench command in that shell acts on the site you named. A plain fm shell BENCH exports nothing and leaves them on the bench's own default_site, which on a bench serving several sites is whichever one bench use last wrote. Name the site when it matters: bench migrate is not a command to aim by guesswork.
     """
 
     site = ctx.obj.get("site") if ctx.obj else None

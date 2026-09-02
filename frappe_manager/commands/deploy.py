@@ -164,7 +164,9 @@ def switch(
     """
     Switch a bench to an already-built image tag, or roll back.
 
-    Every switch records the tag you left, so --previous returns to it; run it twice and you are back where you started. Older releases stay until fm prune clears them.
+    A switch is not just a tag change. By default it takes a database backup, raises a maintenance page for the schema-changing steps, and runs bench migrate against the new image, so plan for the site to be briefly unavailable. Each of those is a \\[switch] config key and can be turned off there.
+
+    Every switch records the tag you left, so --previous returns to it; run it twice and you are back where you started. Rolling back does NOT migrate, because old code must never migrate a newer schema; pass --migrate to insist. Older releases stay until fm prune clears them.
     """
     output = get_global_output_handler()
     _reject_impossible_keep(output, keep)
@@ -245,7 +247,7 @@ def prune(
     """
     Delete old deploy releases: history rows, their DB dumps, and their local image tags.
 
-    Keeps the newest keep_releases from the bench config (7 by default) or --keep. Nothing else is touched: a dump or image survives while a kept release, the current or previous tag, or the seed or base image still needs it, so rollback stays possible.
+    Keeps the newest \\[switch].keep_releases from the bench config (7 by default) or --keep. Nothing else is touched: a dump or image survives while a kept release, the current or previous tag, or the seed or base image still needs it, so rollback stays possible.
     """
     output = get_global_output_handler()
     _reject_impossible_keep(output, keep)

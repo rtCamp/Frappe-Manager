@@ -6,7 +6,7 @@ BENCH deletes the bench: every site in it, its containers and volumes, its whole
 
 BENCH/SITE deletes just that site: its schema, its certificate, its proxy entries and its files. The bench and its other sites keep running.
 
-The database is decided separately. fm can drop a site's schema and user from the global-db container it owns, but a schema on a server fm does not own is always left in place, --delete-db-from-global-db or not.
+The database is decided separately. fm can drop a site's schema and user from the global-db container it owns, but a schema on a server fm does not own is always left in place, --delete-db-from-global-db or not. A schema fm cannot account for, one whose name is unreadable or whose drop failed, stops the deletion with the bench directory intact, because that directory holds the only record of the schema.
 
 **Usage**:
 

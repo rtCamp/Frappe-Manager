@@ -57,6 +57,8 @@ def start(
 ):
     """
     Start a bench's containers, admin tools and workers.
+
+    Every start refreshes the bench's own nginx config and its entry in the global proxy, so a bench that predates a change fm makes there heals by being started. It does NOT rewrite the supervisord config, common_site_config.json or the workers compose file: those are only regenerated when you ask, with --reconfigure-supervisor, --reconfigure-common-site-config or --reconfigure-workers, so an edit to bench_config.toml that touches them needs one of those flags or an fm update.
     """
 
     output = get_global_output_handler()

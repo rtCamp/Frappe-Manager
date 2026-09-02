@@ -2,7 +2,7 @@
 
 Restart bench services: web and workers by default, redis and nginx on request.
 
-Workers drain first: fm waits for in-flight jobs and aborts the restart rather than kill a job that does not finish in time. --no-drain skips the wait and interrupts running jobs; --force kills everything fast.
+Workers drain first: fm waits up to \[workers].drain_timeout for in-flight jobs, and rather than kill a job that overruns it resumes the workers and aborts the restart before any service is touched. --no-drain skips the wait and interrupts running jobs, --force kills everything fast, and a run naming --service skips the drain as well.
 
 Supervisor restarts need a running bench. For a stopped one use fm start, or --container to restart-and-start the containers.
 

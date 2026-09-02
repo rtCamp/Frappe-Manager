@@ -29,6 +29,8 @@ Renews every certificate of one bench by default, or a single one when the addre
 
 A certificate that is not yet due is reported and left alone, unless you pass --force.
 
+A failing bench does not stop the run: the failure is reported, the remaining benches still renew, and the command exits nonzero naming every bench that failed, which is what a scheduled run should check. 'all' with --standalone reports and exits the same way across the external domains.
+
 **Usage**:
 
 ```console
@@ -95,7 +97,7 @@ List SSL certificates with their expiry and renewal status.
 
 Lists one bench by default, including its domains that have no certificate yet. 'all' lists every bench and the external domains together, and --standalone lists only the external Docker project domains.
 
-The DNS Provider column names the \[ssl.dns_providers] credential set each DNS-01 certificate authenticates with, "default" for the unlabelled account, and "(missing)" when the label or the default account is not stored at either scope.
+The DNS Provider column names the \[ssl.dns_providers] credential set each DNS-01 certificate authenticates with, "default" for the unlabelled account, and "(missing)" when the label or the default account is not stored at either scope. Any row that is not a DNS-01 certificate reads "N/A".
 
 **Usage**:
 
@@ -273,7 +275,7 @@ Run the bundled acme.sh directly, against fm's certificate home.
 
 An escape hatch for inspection and recovery. fm does not see what you change this way, so use fm ssl add, renew and remove for normal work.
 
-acme.sh is installed by the first fm ssl add, and this command refuses to run until then.
+acme.sh is installed the first time fm ssl add issues a Let's Encrypt certificate, and this command refuses to run until then. An fm ssl add --dev certificate comes from fm's own CA and does not install it.
 
 **Usage**:
 

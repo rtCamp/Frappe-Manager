@@ -307,7 +307,7 @@ def maintenance(
     """
     Put every domain of a bench, aliases included, behind a maintenance page.
 
-    Enabling prints a secret bypass URL: open it once and a cookie lets you through to the real site while everyone else gets the page (visit /fm-bypass/off to drop it again).
+    Enabling prints a secret bypass URL: open it once and a cookie lets you through to the real site for a day while everyone else gets the page (visit /fm-bypass/off to drop it sooner).
 
     Each enable rewrites the settings from the flags you pass, so repeat the ones you still want; only the bypass token carries over, unless you ask for --rotate-token.
     """

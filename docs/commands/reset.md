@@ -2,7 +2,7 @@
 
 Destroy one site: drop its database and reinstall every app, losing all site data.
 
-The address picks the site. `fm reset BENCH` resets the bench's own site; `fm reset BENCH/SITE` resets exactly SITE and leaves the bench's other sites alone.
+The address picks the site. fm reset BENCH resets the bench's own site; fm reset BENCH/SITE resets exactly SITE and leaves the bench's other sites alone.
 
 Only a site whose database is on the server fm owns can be reset. A site with its own \[database] entry is refused, because that schema is not fm's to drop.
 

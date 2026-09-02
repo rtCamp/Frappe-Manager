@@ -59,6 +59,8 @@ def renew(
     Renews every certificate of one bench by default, or a single one when the address names a domain. 'all' covers every bench, and --standalone switches to the external Docker project domains.
 
     A certificate that is not yet due is reported and left alone, unless you pass --force.
+
+    A failing bench does not stop the run: the failure is reported, the remaining benches still renew, and the command exits nonzero naming every bench that failed, which is what a scheduled run should check. 'all' with --standalone reports and exits the same way across the external domains.
     """
 
     # The address's second segment, put there by `bench_domain_callback`.

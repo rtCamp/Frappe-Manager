@@ -95,7 +95,7 @@ def migrate(
 
     Benches are never migrated implicitly: a bare fm migrate updates only FM's own config and global services. Name a bench, or say 'all', to migrate benches themselves.
 
-    Every other bench command refuses to run against a bench that is behind, so migrate first.
+    Most bench commands refuse to run against a bench that is behind, so migrate first: the exceptions are stop and delete, which must keep working on a bench you cannot migrate, and the image commands bake, switch and prune.
     """
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
     output = get_global_output_handler()

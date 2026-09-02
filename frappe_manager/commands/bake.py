@@ -244,6 +244,8 @@ def bake(
     """
     Bake an immutable app image.
 
+    Baking only builds. The image is always loaded into the local daemon and pushed when asked, but the bench keeps serving its current tag until fm switch deploys the new one. Each bake also builds the matching <repo>-nginx:<tag> assets image, and a push sends both.
+
     Two modes:
 
     - With a bench name: bakes that bench's apps.

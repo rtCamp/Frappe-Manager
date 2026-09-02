@@ -982,7 +982,11 @@ def create(
     ] = None,
 ):
     """
-    Create a new bench and install apps into it.
+    Create a new bench, or add a site to one that already exists.
+
+    fm create shop makes the bench shop serving the site shop.localhost. fm create shop/b.example.com adds b.example.com to the bench shop, leaving the sites already there untouched, and --bench-only makes an empty bench with no site at all. A bench name is just a name: it does not have to be a domain, and the site it serves is a separate thing from it.
+
+    Which half of the address a flag acts on is written on its help panel: Bench Options apply either way, Site Options describe the site being created and are refused when there is no site to apply them to.
 
     Image runtime (--runtime image) refuses --apps, --python, --node and developer mode, which the image already carries; 'fm update BENCH --runtime mount' converts a bench to an editable workspace.
     """

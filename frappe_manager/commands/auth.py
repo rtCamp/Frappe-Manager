@@ -183,7 +183,7 @@ def auth(
     """
     Put an HTTP basic auth prompt in front of a bench: the site, the admin tools, or both.
 
-    --protect is declarative: the surfaces you pass become the resulting state, so --protect tools alone turns web off again. Credentials and allow lists are kept when a surface goes off, so re-enabling asks for nothing. A bare fm auth BENCH reports the state.
+    --protect is declarative: the surfaces you pass become the resulting state, and a bench starts with the admin tools prompting and the site open, so --protect web alone also turns the tools prompt off; name both surfaces to keep both. Credentials and allow lists are kept when a surface goes off, so re-enabling asks for nothing. A bare fm auth BENCH reports the state.
 
     Basic auth sends credentials base64-encoded, not encrypted, so on a bench without TLS they are effectively cleartext: protecting the web surface there needs --insecure.
     """

@@ -38,6 +38,8 @@ def compose(
     Run docker compose against a bench with all of its compose files already wired up.
 
     Everything after the bench name is handed to docker compose untouched, so any subcommand and flag it accepts works here.
+
+    docker compose runs with the bench directory as its working directory, so a relative path in the arguments resolves there and not against the directory you called fm from.
     """
     bench_name = sitename_callback(benchname)
     bench_path = CLI_BENCHES_DIRECTORY / bench_name

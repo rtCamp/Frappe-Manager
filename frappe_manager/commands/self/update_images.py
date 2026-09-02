@@ -13,6 +13,8 @@ def update_images(ctx: typer.Context):
     """Pull the docker images fm's stack runs on.
 
     Running containers keep the image they started with until they are recreated.
+
+    Which tags get pulled is fixed by the installed fm version, so a newer stack starts with fm self update.
     """
     with spinner(get_global_output_handler(), "Pulling latest Docker images"):
         pull_docker_images()
