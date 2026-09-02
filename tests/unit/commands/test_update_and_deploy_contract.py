@@ -915,30 +915,86 @@ class TestNewRelic:
 
 
 class TestAppGrafting:
-    def test_grafted_apps_are_installed_migrated_and_services_restarted(self, world):
+    """Fetching an app's code and installing it into a site's database are separate acts.
+
+    They used to be one, and the install had no site: `install_app_to_site(app)` fell through to its
+    default of the BENCH name, so `bench --site shop install-app` named a site that does not exist
+    on a bench serving `shop.localhost` and the step failed outright. The address now says which
+    sites get the database half, and a bare bench name asks for none of them.
+    """
+
+    def test_a_bare_bench_grafts_the_code_and_installs_into_nothing(self, world):
+        """The bench's `apps` list still grows, so a site created later gets it. Nothing existing
+        is migrated without being named, because migrating is a database write."""
         hrms = SimpleNamespace(name="hrms")
         world.bench.app_manager.graft_apps.return_value = (["hrms"], None)
 
         world.run(apps=[hrms])
 
         world.bench.app_manager.graft_apps.assert_called_once_with([hrms], stash=True, use_run=False)
-        world.bench.app_manager.install_app_to_site.assert_called_once_with("hrms")
-        migrate = world.bench.app_manager._container_run
-        migrate.assert_called_once_with(f"/opt/bench --site {BENCH} migrate")
-        world.bench.restart_web_containers_services.assert_called_once_with(use_container_restart=False)
-        world.bench.restart_workers_containers_services.assert_called_once_with(use_container_restart=False)
-        assert "Grafted apps applied: hrms" in world.prints
+        world.bench.app_manager.install_app_to_site.assert_not_called()
+        world.bench.app_manager._container_run.assert_not_called()
+        assert any("Install it with" in line for line in world.prints)
         assert world.saves == 1
 
-    def test_replacing_an_existing_app_installs_nothing_but_still_migrates(self, world):
+    def test_a_named_site_is_the_only_one_installed_and_migrated(self, world):
+        hrms = SimpleNamespace(name="hrms")
+        world.bench.app_manager.graft_apps.return_value = (["hrms"], None)
+
+        world.run(apps=[hrms], site="b.example.com")
+
+        world.bench.app_manager.install_app_to_site.assert_called_once_with("hrms", site_name="b.example.com")
+        world.bench.app_manager._container_run.assert_called_once_with(
+            "/opt/bench --site b.example.com migrate"
+        )
+
+    def test_all_installs_and_migrates_every_site_primary_first(self, world):
+        """Primary first, so a schema change that is going to fail fails on the primary before the
+        rest of the bench is touched."""
+        hrms = SimpleNamespace(name="hrms")
+        world.bench.app_manager.graft_apps.return_value = (["hrms"], None)
+        world.bench.bench_config.site_names = ["shop.localhost", "b.example.com"]
+
+        world.run(apps=[hrms], site="all")
+
+        assert [c.kwargs["site_name"] for c in world.bench.app_manager.install_app_to_site.call_args_list] == [
+            "shop.localhost",
+            "b.example.com",
+        ]
+        assert [c.args[0] for c in world.bench.app_manager._container_run.call_args_list] == [
+            "/opt/bench --site shop.localhost migrate",
+            "/opt/bench --site b.example.com migrate",
+        ]
+
+    def test_one_failing_site_does_not_stop_the_others_and_exits_nonzero(self, world):
+        """A stop at the first failure would leave some sites on the new code and some on the old,
+        with nothing recording which. Same report-and-continue shape as `fm ssl renew all`."""
+        hrms = SimpleNamespace(name="hrms")
+        world.bench.app_manager.graft_apps.return_value = (["hrms"], None)
+        world.bench.bench_config.site_names = ["shop.localhost", "b.example.com"]
+        world.bench.app_manager.install_app_to_site.side_effect = [RuntimeError("boom"), None]
+
+        with pytest.raises(typer.Exit) as exc:
+            world.run(apps=[hrms], site="all")
+
+        assert exc.value.exit_code == 1
+        assert any("shop.localhost" in w for w in world.warnings)
+        # The second site was still attempted after the first failed.
+        assert [c.kwargs["site_name"] for c in world.bench.app_manager.install_app_to_site.call_args_list] == [
+            "shop.localhost",
+            "b.example.com",
+        ]
+
+    def test_replacing_an_existing_app_grafts_but_installs_nothing(self, world):
         """graft_apps reports only NEWLY added apps; a replaced app is already on the site."""
         world.bench.app_manager.graft_apps.return_value = ([], "/benches/x/apps.stash")
 
-        world.run(apps=[SimpleNamespace(name="erpnext")])
+        world.run(apps=[SimpleNamespace(name="erpnext")], site="all")
 
         world.bench.app_manager.install_app_to_site.assert_not_called()
-        assert world.warnings == ["Replaced app code moved to /benches/x/apps.stash -- review and delete it."]
-        world.bench.app_manager._container_run.assert_called_once()
+        assert world.warnings[0] == (
+            "Replaced app code moved to /benches/x/apps.stash -- review and delete it."
+        )
 
 
 class TestPythonAndNodeVersions:

@@ -6,15 +6,17 @@ Not bench update: app code ships with fm bake then fm switch. The bench must be 
 
 Most options change the whole bench. The few that describe one site are grouped as Site Options in the help below, and a plain fm update BENCH applies those to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one.
 
+--apps is the exception, because fetching an app's code and installing it into a site's database are different things. A plain fm update BENCH fetches the code and records the app on the bench, so any site created afterwards gets it, and installs it into nothing. fm update BENCH/SITE installs and migrates that one site, and fm update BENCH/all does every site the bench serves, reporting failures per site and exiting non-zero without stopping at the first.
+
 **Usage**:
 
 ```console
-$ fm update BENCH(/SITE) [OPTIONS]
+$ fm update BENCH(/SITE|all) [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCH(/SITE)`: Bench, or BENCH/SITE to act on one of its sites. Without a site part, the bench's primary site is used.
+* `BENCH(/SITE|all)`: Bench, BENCH/SITE for one of its sites, or BENCH/all for every site it serves.
 
 **Options**:
 

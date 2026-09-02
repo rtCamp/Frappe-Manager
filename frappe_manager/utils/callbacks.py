@@ -418,15 +418,17 @@ def _recorded_sites(bench: str) -> list[str]:
     return list(recorded) if recorded else [bench]
 
 
-def bench_site_callback(ctx: typer.Context, value: str | None) -> str | None:
-    """`BENCH[/SITE]` for the one command that addresses a site.
+def _resolve_bench_site(ctx: typer.Context, value: str | None, *, allow_all: bool) -> str | None:
+    """`BENCH[/SITE]`, returning the BENCH and stashing the site half on `ctx.obj["site"]`.
 
     Returns the BENCH name, exactly as `sitename_callback` does, so command bodies keep
     receiving a plain bench-directory name and the 21 `Bench.get_object` call sites are
     untouched. A named site rides on `ctx.obj["site"]` instead.
 
-    `ctx` must be annotated: typer matches the context parameter by annotation and then
-    takes the last un-annotated parameter as the value.
+    `allow_all` decides whether the reserved word `all` is a legal site half. It is off for the
+    commands that address exactly one site, so `fm delete shop/all` and `fm reset shop/all` are
+    refused by the PARSER rather than by a check each body has to remember: a missed check there
+    would drop or reinstall every schema on the bench.
     """
     site = None
 
@@ -438,6 +440,13 @@ def bench_site_callback(ctx: typer.Context, value: str | None) -> str | None:
     bench = _resolve_bench(value)
 
     if site is not None:
+        if allow_all and site == RESERVED_BENCH_NAME:
+            # Carried through unresolved: the body fans out over `bench_config.site_names`, which is
+            # the only place that knows what "all" means at the time it acts.
+            if ctx.obj is not None:
+                ctx.obj["site"] = RESERVED_BENCH_NAME
+            return bench
+
         recorded = _recorded_sites(bench)
         # EXACT match first, and only then the `<name>.localhost` convenience form. Normalising
         # up front made a bare-label site unaddressable AND silently retargeted the command at a
@@ -449,14 +458,27 @@ def bench_site_callback(ctx: typer.Context, value: str | None) -> str | None:
             site = validate_sitename(site)
         if site not in recorded:
             known = ", ".join(f"'{s}'" for s in sorted(recorded))
-            raise typer.BadParameter(
-                f"bench '{bench}' has no site '{site}'. It serves {known}."
-            )
+            hint = f" Use '{bench}/all' for every site." if allow_all else ""
+            raise typer.BadParameter(f"bench '{bench}' has no site '{site}'. It serves {known}.{hint}")
         # `ctx.obj` is None under --help, which short-circuits before app_callback fills it.
         if ctx.obj is not None:
             ctx.obj["site"] = site
 
     return bench
+
+
+def bench_site_callback(ctx: typer.Context, value: str | None) -> str | None:
+    """`BENCH[/SITE]` for the commands that act on exactly one site.
+
+    `ctx` must be annotated: typer matches the context parameter by annotation and then
+    takes the last un-annotated parameter as the value.
+    """
+    return _resolve_bench_site(ctx, value, allow_all=False)
+
+
+def bench_site_all_callback(ctx: typer.Context, value: str | None) -> str | None:
+    """`BENCH[/SITE|all]` for a command whose per-site work can fan out over the whole bench."""
+    return _resolve_bench_site(ctx, value, allow_all=True)
 
 
 def bench_domain_callback(ctx: typer.Context, value: str | None) -> str | None:

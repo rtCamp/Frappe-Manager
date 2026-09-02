@@ -426,9 +426,9 @@ ADDRESS_GRAMMAR = [
     (["shell"], "[BENCH(/SITE)]"),
     (["delete"], "[BENCH(/SITE)]"),
     (["reset"], "[BENCH(/SITE)]"),
-    (["update"], "[BENCH(/SITE)]"),
-    # bench, or every bench
-    (["migrate"], "[BENCH|all]"),
+    # --apps installs into a site's database, which can legitimately mean every site, so `update`
+    # advertises the `all` form the other site-addressed commands refuse.
+    (["update"], "[BENCH(/SITE|all)]"),
     # bench, or one hostname it serves
     (["ssl", "add"], "[BENCH(/DOMAIN)]"),
     (["ssl", "remove"], "[BENCH(/DOMAIN)]"),

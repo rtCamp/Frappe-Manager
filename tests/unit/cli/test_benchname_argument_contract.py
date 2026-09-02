@@ -40,6 +40,7 @@ from frappe_manager.utils.callbacks import (
     bench_all_callback,
     bench_domain_autocompletion_callback,
     bench_domain_callback,
+    bench_site_all_callback,
     bench_site_autocompletion_callback,
     bench_site_callback,
     sitename_callback,
@@ -246,9 +247,9 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     # They are here rather than in KNOWN_CANONICAL because moving off `sitename_callback` is
     # exactly the change that must not happen by accident.
     #
-    # `fm update`: alias domains moved from the bench to the site, so `--add-alias` has to say
-    # WHICH site the new hostname reaches. It moved off the canonical block deliberately -- this
-    # entry is that decision, not drift.
+    # `fm update` is NOT in that group: it takes `BENCH/all` as well, because --apps installs an app
+    # into a site's database and that is work which legitimately fans out over every site. The other
+    # three act on exactly one site, and their callback refuses `all` so a body cannot forget to.
     **{
         f"fm {command}": BenchnameSpec(
             help="Bench, or BENCH/SITE to act on one of its sites. Without a site part, the bench's primary site is used.",
@@ -259,8 +260,17 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
             autocompletion=bench_site_autocompletion_callback,
             callback=bench_site_callback,
         )
-        for command in ("shell", "delete", "reset", "update")
+        for command in ("shell", "delete", "reset")
     },
+    "fm update": BenchnameSpec(
+        help="Bench, BENCH/SITE for one of its sites, or BENCH/all for every site it serves.",
+        metavar="BENCH(/SITE|all)",
+        default=None,
+        required=False,
+        type_name="text",
+        autocompletion=bench_site_autocompletion_callback,
+        callback=bench_site_all_callback,
+    ),
     # dns-config credentials can be global, hence its own wording.
     "fm ssl dns-config cloudflare": BenchnameSpec(
         help="Bench to configure. Omit for global credentials.",
@@ -477,14 +487,19 @@ def test_commands_that_skip_the_must_exist_check_are_only_the_documented_ones():
     require the bench to exist, because `--standalone` puts a domain belonging to no bench into that
     same position.
 
-    Three callbacks run the check, all of them through `_resolve_bench`: `sitename_callback`,
-    `bench_site_callback`, and `bench_all_callback`, which is `sitename_callback` for every value
-    except the `all` address. `fm migrate` is on this side of the line now: the existence check that
-    used to live in its body moved into the argument when `--all-benches` became the `all` address,
-    so a missing bench is refused as a usage error before the command body runs. A command that
-    silently moves off one of those three loses the check and the picker, which is what this pins.
+    Four callbacks run the check, all of them through `_resolve_bench`: `sitename_callback`,
+    `bench_site_callback`, `bench_site_all_callback`, and `bench_all_callback`, which is
+    `sitename_callback` for every value except the `all` address. `fm migrate` is on this side of the
+    line now: the existence check that used to live in its body moved into the argument when
+    `--all-benches` became the `all` address, so a missing bench is refused as a usage error before
+    the command body runs. A command that silently moves off one of those loses the check and the
+    picker, which is what this pins.
+
+    `bench_site_all_callback` is `bench_site_callback` with the reserved word `all` allowed as the
+    SITE half. The bench still has to exist either way; what differs is whether the site half may
+    name every site instead of one.
     """
-    must_exist = {sitename_callback, bench_site_callback, bench_all_callback}
+    must_exist = {sitename_callback, bench_site_callback, bench_site_all_callback, bench_all_callback}
     skipping = {name for name, param in BENCHNAME_ARGUMENTS.items() if unwrap_callback(param) not in must_exist}
     expected = {
         "fm bake",

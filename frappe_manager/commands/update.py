@@ -6,7 +6,7 @@ from typer_examples import example
 
 from frappe_manager import CLI_BENCHES_DIRECTORY, EnableDisableOptionsEnum
 from frappe_manager.commands import check_bench_migration_required
-from frappe_manager.commands.arguments import BenchSiteArgument
+from frappe_manager.commands.arguments import BenchSiteAllArgument
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.bench_config import (
@@ -29,10 +29,10 @@ from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import (
+    RESERVED_BENCH_NAME,
     alias_domains_validation_callback,
     apps_list_validation_callback,
 )
-
 
 # Rich help panels for `fm update --help`, titled by the segment of the `BENCH/SITE` address each
 # flag acts on. Same rule as `fm create`: scope is where the value LANDS, not how the help reads.
@@ -96,7 +96,7 @@ def is_immutable_update_request(
 )
 def update(
     ctx: typer.Context,
-    address: BenchSiteArgument = None,
+    address: BenchSiteAllArgument = None,
     admin_tools: Annotated[
         EnableDisableOptionsEnum | None,
         typer.Option(
@@ -269,6 +269,8 @@ def update(
     Not bench update: app code ships with fm bake then fm switch. The bench must be running, and the mount-only options need an editable workspace, so demote an image bench with --runtime mount first.
 
     Most options change the whole bench. The few that describe one site are grouped as Site Options in the help below, and a plain fm update BENCH applies those to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one.
+
+    --apps is the exception, because fetching an app's code and installing it into a site's database are different things. A plain fm update BENCH fetches the code and records the app on the bench, so any site created afterwards gets it, and installs it into nothing. fm update BENCH/SITE installs and migrates that one site, and fm update BENCH/all does every site the bench serves, reporting failures per site and exiting non-zero without stopping at the first.
     """
 
     services_manager = ctx.obj["services"]
@@ -276,6 +278,26 @@ def update(
 
     output = get_global_output_handler()
     check_bench_migration_required(address)
+
+    # The site half of the address. `all` stays the literal reserved word: only the `--apps` block
+    # can fan out, so it is the one that expands it against `bench_config.site_names`.
+    apps_site = ctx.obj.get("site") if ctx.obj else None
+
+    # An alias and a database CA belong to ONE site: there is no sensible way to attach the same
+    # alternate hostname to every site, and a per-site CA path is per-site by construction. Refused
+    # rather than silently applied to the primary, which is what an unguarded `all` would do.
+    if apps_site == RESERVED_BENCH_NAME:
+        fanned = [
+            name
+            for name, given in (("--add-alias", add_alias), ("--remove-alias", remove_alias), ("--db-ca", db_ca))
+            if given
+        ]
+        if fanned:
+            output.display_error(
+                f"{', '.join(fanned)} names one site, so it cannot take 'all'. Name the site as "
+                "BENCH/SITE, or drop the site part to use the bench's primary."
+            )
+            raise typer.Exit(1)
 
     bench = Bench.get_object(address, services_manager, output_handler=output)
 
@@ -616,7 +638,7 @@ def update(
             bench.update_alias_domains(
                 add_domains=add_domains_list,
                 remove_domains=remove_domains_list,
-                site=ctx.obj.get("site") if ctx.obj else None,
+                site=apps_site,
             )
             output.print("Alias domains updated successfully")
 
@@ -655,17 +677,52 @@ def update(
             added, apps_stash = bench.app_manager.graft_apps(apps_overrides, stash=True, use_run=False)
             if apps_stash:
                 output.warning(f"Replaced app code moved to {apps_stash} -- review and delete it.")
-            for app_name in added:
-                output.change_head(f"Installing {app_name} to site")
-                bench.app_manager.install_app_to_site(app_name)
-            output.change_head("Running bench migrate")
-            migrate_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", bench.site_name, "migrate"])
-            bench.app_manager._container_run(migrate_cmd)
+
+            # Fetching the code and installing it into a site are two different operations, and only
+            # the second writes to a database. The address says which sites get the second: a bare
+            # bench name does the code only, so the bench's `apps` list grows and any site created
+            # later picks it up, while nothing existing is migrated without being named. This used
+            # to install with no site at all, which resolved to `install_app_to_site`'s default of
+            # the BENCH name: `bench --site shop install-app` on a bench serving `shop.localhost`
+            # names a site that does not exist, so the step failed outright.
+            targets: list[str] = []
+            if apps_site == RESERVED_BENCH_NAME:
+                targets = list(bench.bench_config.site_names)
+            elif apps_site:
+                targets = [apps_site]
+
+            failed: list[str] = []
+            for site in targets:
+                try:
+                    for app_name in added:
+                        output.change_head(f"Installing {app_name} into {site}")
+                        bench.app_manager.install_app_to_site(app_name, site_name=site)
+                    output.change_head(f"Running bench migrate on {site}")
+                    migrate_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", site, "migrate"])
+                    bench.app_manager._container_run(migrate_cmd)
+                except Exception as e:
+                    # Report and continue, like `fm ssl renew all`: stopping here would leave the
+                    # sites already migrated on the new code and the rest on the old, with no
+                    # record of which is which.
+                    output.warning(f"{site}: {e}")
+                    failed.append(site)
+
             output.change_head("Restarting services to load grafted apps")
             bench.restart_web_containers_services(use_container_restart=False)
             bench.restart_workers_containers_services(use_container_restart=False)
-            output.print(f"Grafted apps applied: {', '.join(a.name for a in apps_overrides)}")
             bench_config_save = True
+
+            if failed:
+                output.display_error(f"Apps grafted, but these sites failed: {', '.join(failed)}")
+                raise typer.Exit(1)
+
+            if targets:
+                output.print(f"Grafted apps applied to {', '.join(targets)}: {', '.join(a.name for a in apps_overrides)}")
+            else:
+                output.print(
+                    f"Grafted app code into the bench: {', '.join(a.name for a in apps_overrides)}. "
+                    f"Install it with 'fm update {bench.name}/all --apps ...' or name one site."
+                )
 
         if python_version or node_version:
             # Refused up front unless this same command materializes the workspace the requirement

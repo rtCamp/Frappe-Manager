@@ -60,6 +60,7 @@ from frappe_manager.utils.callbacks import (
     bench_all_callback,
     bench_domain_autocompletion_callback,
     bench_domain_callback,
+    bench_site_all_callback,
     bench_site_autocompletion_callback,
     bench_site_callback,
     sitename_callback,
@@ -114,6 +115,24 @@ BenchSiteArgument = Annotated[
     ),
 ]
 """Optional address. The only alias that accepts a site part; `fm shell`, `fm delete` and `fm reset` use it."""
+
+BenchSiteAllArgument = Annotated[
+    str | None,
+    typer.Argument(
+        metavar="BENCH(/SITE|all)",
+        help="Bench, BENCH/SITE for one of its sites, or BENCH/all for every site it serves.",
+        autocompletion=bench_site_autocompletion_callback,
+        callback=bench_site_all_callback,
+    ),
+]
+"""The same address as :data:`BenchSiteArgument`, plus `BENCH/all`.
+
+A separate alias AND a separate callback, unlike the domain pair below. The domain callback does no
+must-exist check, so `all` passes through it for free and each body decides; the site callback does
+check, so `all` needs explicit permission. Granting it in the shared callback would have made
+`fm delete shop/all` and `fm reset shop/all` parse, and a body that forgot to refuse would drop or
+reinstall every schema on the bench. `fm update` uses this because installing an app is per-site
+work that legitimately fans out; nothing else needs it yet."""
 
 BenchDomainArgument = Annotated[
     str | None,
