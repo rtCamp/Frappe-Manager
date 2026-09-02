@@ -1,5 +1,6 @@
 import contextlib
 import json
+import re
 import shutil
 import time
 from collections.abc import Iterator
@@ -1875,6 +1876,28 @@ class Bench:
         except Exception:
             return None
 
+    def nginx_conf_serves_per_site(self) -> bool:
+        """Whether this bench's rendered nginx conf includes each site's OWN drop-in directory.
+
+        The conf is rendered once, at the nginx container's first boot, and then persists, so it
+        reflects whatever image created it rather than the image running now. One server block per
+        site (and the `custom/<site>/*.conf` include that comes with it) arrived in a LATER image
+        than the Authorization-header fix that `fm auth` already gates on, so there is a real window
+        where a bench passes that gate and still has a conf including only `custom/*.conf`.
+
+        Writing per-site confs there would be silent: nginx includes none of them, the site serves
+        unprotected, and `fm auth --status` still reports the prompt as on. Callers fall back to the
+        bench-wide conf, which every version of the template includes.
+
+        An absent conf counts as NOT supporting it: nothing is being served yet, and the bench-wide
+        fallback is correct under either template, so the safe answer is the compatible one.
+        """
+        conf = self.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+        if not conf.is_file():
+            return False
+        # `custom/<something>/*.conf`, as opposed to the bench-wide `custom/*.conf`.
+        return bool(re.search(r"include\s+/etc/nginx/custom/[^*\s;]+/\*\.conf\s*;", conf.read_text()))
+
     def ensure_fm_nginx_confs(self) -> None:
         """Materialize the fm-managed bench nginx confs, reloading once when
         anything changed. A no-op when nginx is not up yet; a reload nginx REJECTED
@@ -1941,15 +1964,28 @@ class Bench:
         # not appear twice in one context, so a bench-wide conf beside an overriding site's own
         # would be a config nginx refuses to load at all. Rendering every site from its effective
         # auth keeps exactly one `auth_basic` per block whatever the mix.
+        per_site = self.nginx_conf_serves_per_site()
+
         scopes: list[tuple[str, AuthConfig]] = []
-        seen_bench = False
-        for site in self.bench_config.site_names:
-            entry = (self.bench_config.sites or {}).get(site)
-            if entry is not None and entry.auth is not None:
-                scopes.append((site, entry.auth))
-            elif not seen_bench:
-                seen_bench = True
-                scopes.append(("", auth))
+        if not per_site:
+            # The conf on disk includes only `custom/*.conf`, so per-site files would be written and
+            # never read: the site would serve unprotected while fm reported the prompt as on. The
+            # bench-wide conf is included by every version of the template.
+            scopes.append(("", auth))
+            overriding = [s for s in self.bench_config.site_names if (self.bench_config.sites or {}).get(s) and self.bench_config.sites[s].auth is not None]
+            if overriding and auth.web is not None:
+                self.output.warning(
+                    rf"Per-site auth on {', '.join(overriding)} is recorded but not enforced yet: this bench's nginx conf predates one server block per site, so the whole bench follows \[auth]. Update the bench's nginx image to apply it."
+                )
+        else:
+            seen_bench = False
+            for site in self.bench_config.site_names:
+                entry = (self.bench_config.sites or {}).get(site)
+                if entry is not None and entry.auth is not None:
+                    scopes.append((site, entry.auth))
+                elif not seen_bench:
+                    seen_bench = True
+                    scopes.append(("", auth))
 
         # `tools` is bench-wide by design (one Adminer and one Mailpit per bench), so it reads the
         # bench's auth and is backed by the bench's htpasswd whatever the sites do.
@@ -1998,16 +2034,23 @@ class Bench:
         if needs_bench_htpasswd and auth.password:
             htpasswds[bench_htpasswd] = (auth.user, auth.password)
 
-        for site in self.bench_config.site_names:
-            entry = (self.bench_config.sites or {}).get(site)
-            key = site if (entry is not None and entry.auth is not None) else ""
-            scope = by_scope.get(key)
-            if scope is None or not scope[0].web:
-                continue
-            sauth, suffix, container_path = scope
-            wanted[conf_dir / "custom" / site / SERVER_CONF_NAME] = build_server_auth_conf(
-                container_path, sauth.allow_ips, sauth.allow_paths, suffix=suffix
-            )
+        if not per_site:
+            # One conf for the whole bench, at the path every template includes.
+            if auth.web:
+                wanted[legacy_server_conf] = build_server_auth_conf(
+                    container_htpasswd_path(self.name), auth.allow_ips, auth.allow_paths
+                )
+        else:
+            for site in self.bench_config.site_names:
+                entry = (self.bench_config.sites or {}).get(site)
+                key = site if (entry is not None and entry.auth is not None) else ""
+                scope = by_scope.get(key)
+                if scope is None or not scope[0].web:
+                    continue
+                sauth, suffix, container_path = scope
+                wanted[conf_dir / "custom" / site / SERVER_CONF_NAME] = build_server_auth_conf(
+                    container_path, sauth.allow_ips, sauth.allow_paths, suffix=suffix
+                )
 
         if map_blocks:
             wanted[map_conf_path] = "".join(map_blocks)

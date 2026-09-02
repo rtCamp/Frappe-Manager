@@ -623,6 +623,12 @@ def update(
                     )
                     raise typer.Exit(1)
 
+                if not bench.nginx_conf_serves_per_site():
+                    output.display_error(
+                        f"Bench '{bench.name}' nginx conf predates one server block per site, so tool routing cannot be set per site yet: nginx would include none of it and the tools would answer on no hostname at all. Update the bench's nginx image (then 'fm restart {bench.name} --nginx --container'), or use 'fm update {bench.name} --admin-tools' for the whole bench."
+                    )
+                    raise typer.Exit(1)
+
                 label = "every site" if fanning else apps_site
                 if wanted and not bench.bench_config.admin_tools:
                     # Nothing to route to: routing a hostname at a stopped container is a 502.

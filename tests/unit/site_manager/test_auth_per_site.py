@@ -192,3 +192,80 @@ class TestToolsStayBenchWide:
         # only ever be a lie, and the model refuses to store one.
         with pytest.raises(ValueError):
             SiteConfig(auth={"web": True, "tools": False})
+
+
+class TestOlderNginxConf:
+    """A bench's `conf.d/default.conf` is rendered once, at the nginx container's first boot, and
+    then persists, so it reflects whatever image created it rather than the one running now.
+
+    Per-site server blocks arrived in a LATER image than the Authorization-header fix `fm auth`
+    already gates on, so there is a real window where a bench passes that gate and still has a conf
+    including only `custom/*.conf`. Writing per-site confs there is SILENT: nginx reads none of
+    them, the site serves unprotected, and `--status` still reports the prompt as on.
+    """
+
+    def _old_bench(self, tmp_path, **auth_kwargs):
+        bench_path = tmp_path / SITE
+        bench_path.mkdir(parents=True, exist_ok=True)
+        config = make_bench_config(
+            bench_path / "bench_config.toml",
+            auth=AuthConfig(**auth_kwargs),
+            sites={SITE: SiteConfig(), OTHER: SiteConfig()},
+        )
+        return build_bench(tmp_path, bench_config=config, per_site_nginx=False)
+
+    def test_web_auth_falls_back_to_the_conf_the_old_template_includes(self, tmp_path):
+        h = self._old_bench(tmp_path, web=True, password="s3cret")
+        h.bench.ensure_fm_nginx_confs()
+
+        # The bench-wide path is included by EVERY version of the template, so the prompt is
+        # actually served. Per-site files here would have been written and never read.
+        assert (h.conf_dir / "custom" / SERVER_CONF_NAME).is_file()
+        assert not (h.conf_dir / "custom" / SITE / SERVER_CONF_NAME).exists()
+        assert not (h.conf_dir / "custom" / OTHER / SERVER_CONF_NAME).exists()
+
+    def test_the_fallback_conf_actually_gates(self, tmp_path):
+        h = self._old_bench(tmp_path, web=True, password="s3cret")
+        h.bench.ensure_fm_nginx_confs()
+
+        # The property that matters: a real gate naming a real htpasswd, not an empty file.
+        conf = (h.conf_dir / "custom" / SERVER_CONF_NAME).read_text()
+        assert "auth_basic " in conf
+        assert f"auth_basic_user_file {container_htpasswd_path(SITE)};" in conf
+        assert (h.conf_dir / "http_auth" / htpasswd_name(SITE)).is_file()
+
+    def test_an_absent_conf_also_takes_the_compatible_path(self, tmp_path):
+        # Nothing is being served yet and the bench-wide conf is correct under either template, so
+        # the safe answer for "unknown" is the compatible one.
+        h = self._old_bench(tmp_path, web=True, password="s3cret")
+        assert not (h.conf_dir / "conf.d" / "default.conf").exists()
+        h.bench.ensure_fm_nginx_confs()
+
+        assert (h.conf_dir / "custom" / SERVER_CONF_NAME).is_file()
+
+    def test_a_recorded_site_override_is_reported_as_not_enforced(self, tmp_path):
+        h = self._old_bench(tmp_path, web=True, password="bp")
+        h.bench.bench_config.sites[OTHER].auth = WebAuthConfig(web=True, password="sp")
+        h.bench.ensure_fm_nginx_confs()
+
+        # Silently following the bench would leave the operator believing the site had its own
+        # prompt. The whole bench IS protected here, which is the safe direction, but not the one
+        # that was asked for.
+        warned = " ".join(str(c.args[0]) for c in h.bench.output.warning.call_args_list if c.args)
+        assert OTHER in warned
+        assert "not enforced" in warned
+
+    def test_the_probe_reads_the_per_site_include_not_the_bench_wide_one(self, tmp_path):
+        old = self._old_bench(tmp_path, web=False)
+        assert old.bench.nginx_conf_serves_per_site() is False
+
+        conf_d = old.bench.path / "configs" / "nginx" / "conf" / "conf.d"
+        conf_d.mkdir(parents=True, exist_ok=True)
+        # `custom/*.conf` alone is the OLD template: it must not read as support.
+        (conf_d / "default.conf").write_text("server {\n  include /etc/nginx/custom/*.conf;\n}\n")
+        assert old.bench.nginx_conf_serves_per_site() is False
+
+        (conf_d / "default.conf").write_text(
+            f"server {{\n  include /etc/nginx/custom/*.conf;\n  include /etc/nginx/custom/{SITE}/*.conf;\n}}\n"
+        )
+        assert old.bench.nginx_conf_serves_per_site() is True

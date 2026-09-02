@@ -51,6 +51,9 @@ The address says the scope, and the mechanism follows from it:
 
 The bench form is a floor: `fm update mybench/b.example.com --admin-tools enable` is refused while the bench's tools are off, since routing a hostname at a stopped container is a 502 rather than an enable.
 
+!!! note "Needs a bench whose nginx conf has one server block per site"
+    The conf is rendered once, at the nginx container's first boot, so it reflects whatever image created the bench. On a bench whose conf predates per-site server blocks, `fm update BENCH/SITE --admin-tools` is refused rather than recorded and ignored: nginx would include none of it. Update the bench's nginx image, then `fm restart BENCH --nginx --container`. The bench-wide form works on every bench.
+
 ### Why this and not a per-site password
 
 There is exactly one Adminer and one Mailpit per bench, and every hostname routes to the same pair. A per-site password would therefore be a bypass: an attacker who found the weaker hostname would reach the identical tool, with the identical reach into the databases. Two doors, one room.

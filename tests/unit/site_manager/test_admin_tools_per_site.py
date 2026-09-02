@@ -146,3 +146,38 @@ class TestNotABypass:
         first = build_tools_auth_block(web=False, tools=True, auth_file=container_htpasswd_path("shop"))
         second = build_tools_auth_block(web=True, tools=True, auth_file=container_htpasswd_path("shop"))
         assert first == second
+
+
+class TestOlderNginxConf:
+    def test_the_locations_fall_back_to_the_shared_file(self, tools):
+        h, obj = tools(site_value=False)
+        # A conf from an image without per-site server blocks: it includes `custom/*.conf` only.
+        conf_d = h.bench.path / "configs" / "nginx" / "conf" / "conf.d"
+        conf_d.mkdir(parents=True, exist_ok=True)
+        (conf_d / "default.conf").write_text("server {\n  include /etc/nginx/custom/*.conf;\n}\n")
+
+        obj.save_nginx_location_config()
+
+        # Per-site files there would be read by nothing, so the tools would answer on NO hostname
+        # while the config recorded one of them as serving. The shared file is what every version of
+        # the template includes, so the routing request is not honoured but the tools stay usable.
+        assert obj.nginx_config_location_path.is_file()
+        assert not _routed(h, SITE)
+        assert not _routed(h, OTHER)
+        assert "/adminer/" in obj.nginx_config_location_path.read_text()
+
+    def test_stale_per_site_files_are_cleared_on_the_fallback_path(self, tools):
+        h, obj = tools()
+        obj.save_nginx_location_config()
+        assert _routed(h, SITE)
+
+        conf_d = h.bench.path / "configs" / "nginx" / "conf" / "conf.d"
+        conf_d.mkdir(parents=True, exist_ok=True)
+        (conf_d / "default.conf").write_text("server {\n  include /etc/nginx/custom/*.conf;\n}\n")
+        obj.save_nginx_location_config()
+
+        # An image downgrade, or a conf older than the code that wrote these: leaving them beside
+        # the shared file would duplicate the locations once the newer template came back.
+        assert not _routed(h, SITE)
+        assert not _routed(h, OTHER)
+        assert obj.nginx_config_location_path.is_file()

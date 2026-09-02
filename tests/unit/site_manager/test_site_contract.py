@@ -108,10 +108,21 @@ class BenchHarness:
         return self.bench.output
 
 
-def build_bench(tmp_path, *, bench_config=None, subnet=SUBNET, neutralise_nginx=True, **bench_kwargs) -> BenchHarness:
+def build_bench(
+    tmp_path, *, bench_config=None, subnet=SUBNET, neutralise_nginx=True, per_site_nginx=True, **bench_kwargs
+) -> BenchHarness:
     root = tmp_path
     bench_path = root / SITE
     bench_path.mkdir(parents=True, exist_ok=True)
+    if per_site_nginx:
+        # A conf rendered by an image that has one server block per site. Without it the auth
+        # render falls back to the bench-wide conf, because writing per-site files against an older
+        # conf would leave the site serving unprotected. `per_site_nginx=False` is that bench.
+        conf_d = bench_path / "configs" / "nginx" / "conf" / "conf.d"
+        conf_d.mkdir(parents=True, exist_ok=True)
+        (conf_d / "default.conf").write_text(
+            f"server {{\n  include /etc/nginx/custom/*.conf;\n  include /etc/nginx/custom/{SITE}/*.conf;\n}}\n"
+        )
     compose_path = bench_path / "docker-compose.yml"
 
     def mount(host: Path, container: str) -> DockerVolumeMount:

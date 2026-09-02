@@ -1573,3 +1573,33 @@ class TestSiteScopedAdminTools:
             world.run(site="b.example.com", admin_tools=EnableDisableOptionsEnum.disable)
 
         assert "records no entry for site" in " ".join(world.errors)
+
+
+class TestSiteScopedAdminToolsOnOlderNginx:
+    def test_it_is_refused_when_the_conf_predates_per_site_blocks(self, world):
+        """Per-site location files would be read by nothing, so the tools would answer on NO
+        hostname while the config recorded one of them as serving."""
+        world.bench.bench_config.site_names = ["shop.localhost", "b.example.com"]
+        world.bench.bench_config.sites = {
+            "shop.localhost": SiteConfig(),
+            "b.example.com": SiteConfig(),
+        }
+        world.bench.bench_config.admin_tools = True
+        world.bench.nginx_conf_serves_per_site.return_value = False
+
+        with pytest.raises(typer.Exit):
+            world.run(site="b.example.com", admin_tools=EnableDisableOptionsEnum.disable)
+
+        assert "predates one server block per site" in " ".join(world.errors)
+        assert world.bench.bench_config.sites["b.example.com"].serve_admin_tools is None
+
+    def test_the_bench_form_still_works_on_an_older_conf(self, world):
+        """Starting and stopping the containers has nothing to do with per-site blocks, so gating it
+        would refuse a bench-wide action that has always worked."""
+        world.bench.bench_config.admin_tools = True
+        world.bench.nginx_conf_serves_per_site.return_value = False
+
+        world.run(admin_tools=EnableDisableOptionsEnum.disable)
+
+        assert world.bench.bench_config.admin_tools is False
+        world.bench.admin_tools.disable.assert_called_once_with()

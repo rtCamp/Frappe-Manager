@@ -115,25 +115,37 @@ class BenchAdminTools:
         auth = config.auth
         template = Template(get_template_path("admin-tools-location.tmpl").read_text())
 
-        for site in config.site_names:
-            path = self._site_location_path(site)
-            if not config.serves_admin_tools(site):
-                path.unlink(missing_ok=True)
-                continue
-            output = template.render(
+        def _render(site: str | None) -> str:
+            return template.render(
                 {
                     "mailpit_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailpit",
                     "adminer_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}adminer",
                     "auth_block": build_tools_auth_block(
-                        web=config.auth_for(site).web,
+                        web=config.auth_for(site).web if site else bool(auth and auth.web),
                         tools=bool(auth.tools) if auth else True,
                         auth_file=container_htpasswd_path(self.bench_name),
                         allow_ips=auth.allow_ips if auth else [],
                     ),
                 }
             )
+
+        if not self.bench.nginx_conf_serves_per_site():
+            # The conf on disk includes only `custom/*.conf`, so per-site files would be written and
+            # never read: the tools would answer on no hostname at all while the config said
+            # otherwise. One shared file is what every version of the template includes.
+            for site in config.site_names:
+                self._site_location_path(site).unlink(missing_ok=True)
+            self.nginx_config_location_path.parent.mkdir(parents=True, exist_ok=True)
+            self.nginx_config_location_path.write_text(_render(None))
+            return
+
+        for site in config.site_names:
+            path = self._site_location_path(site)
+            if not config.serves_admin_tools(site):
+                path.unlink(missing_ok=True)
+                continue
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(output)
+            path.write_text(_render(site))
 
         # Every bench that had admin tools before this carries the shared file, which would keep
         # serving `/adminer/` from the hostnames a site just opted out of.

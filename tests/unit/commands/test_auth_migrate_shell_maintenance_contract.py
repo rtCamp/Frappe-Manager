@@ -151,6 +151,8 @@ def _auth_bench(
     bench.bench_config.runtime = runtime
     bench.bench_config.get_primary_certificate.return_value = SimpleNamespace(ssl_type=ssl_type)
     bench.bench_config.certificate_for.return_value = SimpleNamespace(ssl_type=ssl_type)
+    # Modern bench by default; the older-conf tests flip it.
+    bench.nginx_conf_serves_per_site.return_value = True
     # A real `[sites]` table, because the site path writes into the entry it finds there and
     # refuses when there is none.
     bench.bench_config.sites = {name: SiteConfig(), "b.example.com": SiteConfig(auth=site_auth)}
@@ -2045,3 +2047,27 @@ def test_a_bare_site_address_reports_that_it_inherits(out, tmp_path):
     # came from is what stops an operator turning it on twice.
     assert "inherited from bench" in joined(out.print)
     bench.save_bench_config.assert_not_called()
+
+
+def test_a_site_scoped_write_is_refused_when_the_nginx_conf_predates_per_site_blocks(out, tmp_path):
+    """The conf is rendered once at the nginx container's first boot, so a bench can be running this
+    code against one that includes only `custom/*.conf`.
+
+    Recording the override there would be silent: nginx reads none of it, the site keeps following
+    the bench, and --status reports a prompt nobody serves."""
+    bench = _auth_bench(tmp_path)
+    bench.nginx_conf_serves_per_site.return_value = False
+    r = _run_auth(bench=bench, site="b.example.com", protect=[AuthSurface.web])
+    assert r.exit.exit_code == 1
+    assert "predates one server block per site" in joined(out.display_error)
+    bench.save_bench_config.assert_not_called()
+
+
+def test_reading_a_site_is_still_allowed_on_an_older_conf(out, tmp_path):
+    """Only writes are refused: reporting what a site currently serves is always safe, and it is how
+    an operator finds out the bench needs its nginx image updated."""
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, password="bp"))
+    bench.nginx_conf_serves_per_site.return_value = False
+    r = _run_auth(bench=bench, site="b.example.com")
+    assert r.exit is None
+    assert "inherited from bench" in joined(out.print)

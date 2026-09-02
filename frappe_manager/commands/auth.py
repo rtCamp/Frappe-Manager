@@ -285,6 +285,16 @@ def auth(
             exception=typer.Exit(code=1),
         )
 
+    # Per-site auth is a per-site server block, and the bench's conf is rendered once at the nginx
+    # container's first boot: a bench can be running this code against a conf that includes only
+    # `custom/*.conf`. Recording an override there would be silent -- nginx reads none of it, the
+    # site keeps following the bench, and --status would report a prompt nobody serves.
+    if site and writes and not bench.nginx_conf_serves_per_site():
+        output.error(
+            f"Bench '{bench.name}' nginx conf predates one server block per site, so '{site}' cannot carry auth of its own yet: nginx would include none of it and the site would keep following the bench. Update the bench's nginx image (then 'fm restart {bench.name} --nginx --container'), or run 'fm auth {bench.name}' for the auth every site follows.",
+            exception=typer.Exit(code=1),
+        )
+
     entry = (bench.bench_config.sites or {}).get(site) if site else None
     if site and entry is None:
         output.error(
