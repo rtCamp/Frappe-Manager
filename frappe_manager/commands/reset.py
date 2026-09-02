@@ -33,7 +33,7 @@ from frappe_manager.site_manager.site import Bench
 )
 def reset(
     ctx: typer.Context,
-    benchname: BenchSiteArgument = None,
+    address: BenchSiteArgument = None,
     yes: Annotated[
         bool,
         typer.Option("--yes", "-y", help="Reset without the confirmation. The site data is gone either way."),
@@ -53,12 +53,12 @@ def reset(
     Only a site whose database is on the server fm owns can be reset. A site with its own \\[database] entry is refused, because that schema is not fm's to drop.
     """
 
-    check_bench_migration_required(benchname)
+    check_bench_migration_required(address)
 
     services_manager = ctx.obj["services"]
 
     output = get_global_output_handler()
-    bench = Bench.get_object(benchname, services_manager, output_handler=output)
+    bench = Bench.get_object(address, services_manager, output_handler=output)
 
     # The address is what picks the site: `BENCH/SITE` names one, a bare `BENCH` falls back to the
     # bench's own site. Everything below reads THIS name, so the site fm warns about, asks about and

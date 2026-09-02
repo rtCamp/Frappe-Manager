@@ -53,7 +53,7 @@ class MigrationFailureAction(str, Enum):
 )
 def migrate(
     ctx: typer.Context,
-    benchname: BenchAllArgument = None,
+    address: BenchAllArgument = None,
     skip_backup: Annotated[
         bool,
         typer.Option(
@@ -102,7 +102,7 @@ def migrate(
 
     failure_action = on_failure.value if on_failure else "prompt"
 
-    if exclude_bench and benchname != RESERVED_BENCH_NAME:
+    if exclude_bench and address != RESERVED_BENCH_NAME:
         output.display_error(f"--exclude-bench only means something with '{RESERVED_BENCH_NAME}', which names every bench")
         output.stop()
         typer.echo(ctx.get_help())
@@ -120,7 +120,7 @@ def migrate(
 
     # The same registry completion and the picker use, so the set `all` migrates is the set the
     # shell offered. The bench named outright was already resolved and checked by the callback.
-    target_benches = [b for b in resolve_bench_targets(benchname) if b not in exclude_bench_list] or None
+    target_benches = [b for b in resolve_bench_targets(address) if b not in exclude_bench_list] or None
 
     fm_infrastructure_version = fm_config_manager.get_system_migration_version()
     fm_infrastructure_needs_migration = rerun or (fm_infrastructure_version < current_version)

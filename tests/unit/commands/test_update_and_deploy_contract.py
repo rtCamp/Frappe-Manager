@@ -220,7 +220,7 @@ class UpdateWorld:
         # `fm update BENCH/SITE` parses to a bench plus the addressed site, and the site rides on
         # ctx.obj. A bare `fm update BENCH` leaves it None, which means the bench's primary site.
         ctx.obj = {"services": self.services, "fm_config_manager": self.fm_config, "site": site}
-        return update(ctx, benchname=BENCH, **kwargs)
+        return update(ctx, address=BENCH, **kwargs)
 
 
 @pytest.fixture

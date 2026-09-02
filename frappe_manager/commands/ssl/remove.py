@@ -36,7 +36,7 @@ from .helpers import get_output_handler
 )
 def remove_certificate(
     ctx: typer.Context,
-    benchname: BenchDomainArgument = None,
+    address: BenchDomainArgument = None,
     yes: Annotated[
         bool,
         typer.Option("--yes", "-y", help="Delete without asking for confirmation."),
@@ -55,7 +55,7 @@ def remove_certificate(
     # The address's second segment, put there by `bench_domain_callback`.
     domain = ctx.obj.get("domain") if ctx.obj else None
 
-    if benchname == RESERVED_BENCH_NAME:
+    if address == RESERVED_BENCH_NAME:
         output = get_output_handler(ctx)
         output.display_error(
             "'all' is not accepted here: deleting every certificate of every bench would take every "
@@ -73,19 +73,19 @@ def remove_certificate(
             )
             raise typer.Exit(1)
 
-        if not benchname:
+        if not address:
             output = get_output_handler(ctx)
             output.display_error("Domain is required in standalone mode")
             with temporary_stop(output):
                 typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
-        _remove_external_certificate(ctx, benchname, yes)
+        _remove_external_certificate(ctx, address, yes)
         return
 
-    benchname = prompt_for_bench_selection(benchname)
+    address = prompt_for_bench_selection(address)
 
-    if not benchname or not domain:
+    if not address or not domain:
         output = get_output_handler(ctx)
         output.display_error(
             "An address of the form BENCH/DOMAIN is required in bench mode, naming the certificate "
@@ -95,5 +95,5 @@ def remove_certificate(
             typer.echo(ctx.get_help())
         raise typer.Exit(1)
 
-    for target in _resolve_domains(ctx, benchname, domain):
-        _remove_bench_certificate(ctx, benchname, target, yes)
+    for target in _resolve_domains(ctx, address, domain):
+        _remove_bench_certificate(ctx, address, target, yes)

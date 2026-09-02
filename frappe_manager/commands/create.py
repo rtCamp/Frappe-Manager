@@ -634,7 +634,7 @@ def _resolve_external_options(
 )
 def create(
     ctx: typer.Context,
-    benchname: Annotated[
+    address: Annotated[
         str,
         typer.Argument(
             metavar="BENCH(/SITE)",
@@ -911,7 +911,7 @@ def create(
     added_site = ctx.obj.get("site") if ctx.obj else None
     if added_site:
         _add_site_to_bench(
-            benchname=benchname,
+            address=address,
             site=added_site,
             services_manager=services_manager,
             verbose=verbose,
@@ -924,10 +924,10 @@ def create(
     # `shop` serving site `shop.localhost`, and `fm create a.example.com` yields bench
     # `a.example.com` serving `a.example.com`, because a name that is already a domain is left
     # alone. This is the one place the two are minted, and everything downstream reads them apart.
-    sitename = validate_sitename(benchname)
+    sitename = validate_sitename(address)
     output = get_global_output_handler()
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
-    bench_config_path = bench_service.benches_directory / benchname / CLI_BENCH_CONFIG_FILE_NAME
+    bench_config_path = bench_service.benches_directory / address / CLI_BENCH_CONFIG_FILE_NAME
 
     developer_mode_status = developer_mode == EnableDisableOptionsEnum.enable
     apps_config = cast("list[AppConfig]", apps)
@@ -960,7 +960,7 @@ def create(
                     "seed_image": seed_image,
                 },
             ),
-            benchname=benchname,
+            address=address,
             root_path=bench_config_path,
             base_image=base_image if "base_image" in requested else None,
             db_name=global_db_name,
@@ -1022,9 +1022,9 @@ def create(
     # Say both names out loud. `fm create shop` makes a bench called `shop` serving a site called
     # `shop.localhost`, and an operator who is told only one of them cannot tell which to type at
     # `fm shell` or which host to open.
-    if sitename != benchname:
+    if sitename != address:
         output.print(
-            f"Bench [fm.info]{benchname}[/fm.info] will serve the site [fm.info]{sitename}[/fm.info].",
+            f"Bench [fm.info]{address}[/fm.info] will serve the site [fm.info]{sitename}[/fm.info].",
             emoji_code=":globe_with_meridians:",
         )
 
@@ -1076,4 +1076,4 @@ def create(
         output.warning("    Containers will not auto-recover from failures or system reboots")
 
     with spinner(output, "Creating bench"):
-        bench_service.create_bench(benchname, bench_config, bench_only=bench_only)
+        bench_service.create_bench(address, bench_config, bench_only=bench_only)

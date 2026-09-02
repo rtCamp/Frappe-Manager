@@ -154,7 +154,7 @@ def _run(
             bench_cls.get_object.return_value = bench
             raised = None
             try:
-                reset_cmd.reset(ctx, benchname=bench_name, yes=yes, admin_pass=admin_pass)
+                reset_cmd.reset(ctx, address=bench_name, yes=yes, admin_pass=admin_pass)
             except (typer.Exit, NonInteractiveError) as exc:
                 raised = exc
     finally:
@@ -516,5 +516,5 @@ def test_the_migration_gate_runs_before_anything_else(yes):
         patch.object(handler, "print"),
         pytest.raises(typer.Exit),
     ):
-        reset_cmd.reset(ctx, benchname=BENCH, yes=yes)
+        reset_cmd.reset(ctx, address=BENCH, yes=yes)
     bench_cls.get_object.assert_not_called()

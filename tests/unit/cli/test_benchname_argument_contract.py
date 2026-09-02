@@ -46,7 +46,11 @@ from frappe_manager.utils.callbacks import (
     sites_autocompletion_callback,
 )
 
-PARAM_NAME = "benchname"
+# The positional is called `benchname` on the commands that take a bench NAME, and `address` on
+# the ten whose argument accepts more than one: the help column shows the parameter name, so
+# `benchname` beside a `BENCH(/SITE)` metavar told the reader "name" about an argument that takes
+# an address. Two names because the split is the information; one name would put it back.
+PARAM_NAMES = ("benchname", "address")
 
 
 @dataclass(frozen=True)
@@ -333,7 +337,7 @@ def discover_benchname_arguments() -> dict[str, click.Parameter]:
     found = {}
     for name, command in iter_click_commands(typer.main.get_command(app)):
         for param in command.params:
-            if param.name == PARAM_NAME and isinstance(param, click.Argument):
+            if param.name in PARAM_NAMES and isinstance(param, click.Argument):
                 found[name] = param
     return found
 
@@ -363,7 +367,7 @@ def test_no_benchname_is_declared_as_an_option():
     wrong = [
         name
         for name, param in BENCHNAME_ARGUMENTS.items()
-        if isinstance(param, click.Option) or param.param_type_name != "argument" or param.opts != [PARAM_NAME]
+        if isinstance(param, click.Option) or param.param_type_name != "argument" or param.opts not in (["benchname"], ["address"])
     ]
     assert not wrong, f"benchname is not a bare positional argument in: {wrong}"
 
@@ -741,3 +745,43 @@ class TestSitesAutocompletionCallback:
 
         for incomplete in ("", "sh", "shop", "shop/", "shop/b"):
             assert not [c for c in sites_autocompletion_callback(incomplete) if "/" in c]
+
+
+# ------------------------- the label matches what the argument accepts
+
+
+"""The parameter NAME is user-facing: typer prints it as the help column's label.
+
+`benchname` beside a `BENCH(/SITE)` metavar said "name" about an argument that takes an address,
+which is how the address form stayed invisible even after the metavar spelled it out. The ten
+commands whose argument accepts more than a bench name are called `address`; the fourteen that
+genuinely take a bench name keep `benchname`, because there the label is accurate.
+
+Derived from the metavar rather than listed by hand: a command that gains or loses a second
+segment has to move sides, and a hand-written list would let the label and the grammar drift apart
+again, which is the whole failure this pins.
+"""
+
+
+def test_an_argument_that_accepts_more_than_a_bench_is_called_address():
+    wrong = {
+        name: param.name
+        for name, param in BENCHNAME_ARGUMENTS.items()
+        if param.metavar and ("/" in param.metavar or "|" in param.metavar) and param.name != "address"
+    }
+    assert not wrong, f"accepts an address but is labelled otherwise: {wrong}"
+
+
+def test_an_argument_that_takes_only_a_bench_name_is_called_benchname():
+    wrong = {
+        name: param.name
+        for name, param in BENCHNAME_ARGUMENTS.items()
+        if param.metavar and "/" not in param.metavar and "|" not in param.metavar and param.name != "benchname"
+    }
+    assert not wrong, f"takes a bench name but is labelled otherwise: {wrong}"
+
+
+def test_both_labels_are_actually_in_use():
+    # Neither assertion above can pass vacuously by everything moving to one side.
+    labels = {param.name for param in BENCHNAME_ARGUMENTS.values()}
+    assert labels == {"benchname", "address"}

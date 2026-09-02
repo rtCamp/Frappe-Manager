@@ -701,7 +701,7 @@ def _run_migrate(
     ctx.obj = {"fm_config_manager": fm_config_manager}
 
     params = {
-        "benchname": None,
+        "address": None,
         "skip_backup": False,
         "skip_backup_for": None,
         "exclude_bench": None,
@@ -817,7 +817,7 @@ def test_exclude_bench_with_one_named_bench_is_refused(out, tmp_path):
     # Subtracting from a set of one is either a no-op or an empty migration; either way the operator
     # asked for something the command cannot honour, so it says so instead of guessing.
     _bench_dir(tmp_path, "a.localhost")
-    r = _run_migrate(tmp_path, benchname="a.localhost", exclude_bench="b.localhost")
+    r = _run_migrate(tmp_path, address="a.localhost", exclude_bench="b.localhost")
     assert r.exit.exit_code == 1
     assert "--exclude-bench only means something with 'all', which names every bench" in joined(out.display_error)
     r.executor_cls.assert_not_called()
@@ -864,7 +864,7 @@ def test_all_collects_only_directories_holding_a_bench_config(tmp_path):
     _bench_dir(tmp_path, "b.localhost")
     _bench_dir(tmp_path, "no-config.localhost", with_config=False)
     (tmp_path / "stray.txt").write_text("x")
-    r = _run_migrate(tmp_path, benchname="all")
+    r = _run_migrate(tmp_path, address="all")
     assert sorted(_executor_kwargs(r)["target_benches"]) == ["a.localhost", "b.localhost"]
 
 
@@ -873,7 +873,7 @@ def test_exclude_bench_is_split_on_commas_and_removes_targets(tmp_path):
     _bench_dir(tmp_path, "a.localhost")
     _bench_dir(tmp_path, "b.localhost")
     _bench_dir(tmp_path, "c.localhost")
-    r = _run_migrate(tmp_path, benchname="all", exclude_bench="a.localhost, c.localhost")
+    r = _run_migrate(tmp_path, address="all", exclude_bench="a.localhost, c.localhost")
     assert _executor_kwargs(r)["target_benches"] == ["b.localhost"]
     assert _executor_kwargs(r)["exclude_benches"] == ["a.localhost", "c.localhost"]
 
@@ -881,7 +881,7 @@ def test_exclude_bench_is_split_on_commas_and_removes_targets(tmp_path):
 @pytest.mark.usefixtures("out")
 def test_skip_backup_for_is_split_and_trimmed(tmp_path):
     _bench_dir(tmp_path, "a.localhost")
-    r = _run_migrate(tmp_path, benchname="a.localhost", skip_backup_for=" a.localhost , b.localhost ")
+    r = _run_migrate(tmp_path, address="a.localhost", skip_backup_for=" a.localhost , b.localhost ")
     assert _executor_kwargs(r)["skip_backup_for"] == ["a.localhost", "b.localhost"]
     assert _executor_kwargs(r)["skip_backup"] is False
 
@@ -889,16 +889,16 @@ def test_skip_backup_for_is_split_and_trimmed(tmp_path):
 @pytest.mark.usefixtures("out")
 def test_on_failure_defaults_to_prompt_and_is_passed_through_as_its_value(tmp_path):
     _bench_dir(tmp_path, "a.localhost")
-    default = _run_migrate(tmp_path, benchname="a.localhost")
+    default = _run_migrate(tmp_path, address="a.localhost")
     assert _executor_kwargs(default)["on_failure"] == "prompt"
 
-    chosen = _run_migrate(tmp_path, benchname="a.localhost", on_failure=MigrationFailureAction.rollback)
+    chosen = _run_migrate(tmp_path, address="a.localhost", on_failure=MigrationFailureAction.rollback)
     assert _executor_kwargs(chosen)["on_failure"] == "rollback"
 
 
 def test_a_failed_execute_aborts_before_any_version_is_stamped(out, tmp_path):
     _bench_dir(tmp_path, "a.localhost")
-    r = _run_migrate(tmp_path, benchname="a.localhost", execute_result=False)
+    r = _run_migrate(tmp_path, address="a.localhost", execute_result=False)
     assert r.exit.exit_code == 1
     r.set_bench_version.assert_not_called()
     r.fm_config_manager.set_system_migration_version.assert_not_called()
@@ -909,7 +909,7 @@ def test_a_dev_release_counts_as_migrated_because_base_versions_are_compared(out
     _bench_dir(tmp_path, "a.localhost")
     r = _run_migrate(
         tmp_path,
-        benchname="a.localhost",
+        address="a.localhost",
         current_version="0.19.0",
         bench_versions={"a.localhost": "0.18.0"},
         migrate_benches={"a.localhost": {"last_migration_version": Version("0.19.0.dev0"), "exception": None}},
@@ -925,7 +925,7 @@ def test_a_bench_the_executor_never_touched_is_reported_as_skipped(out, tmp_path
     _bench_dir(tmp_path, "a.localhost")
     r = _run_migrate(
         tmp_path,
-        benchname="a.localhost",
+        address="a.localhost",
         bench_versions={"a.localhost": "0.19.0"},
         migrate_benches={},
     )
@@ -938,7 +938,7 @@ def test_a_bench_that_raised_is_reported_as_failed_and_never_stamped(out, tmp_pa
     _bench_dir(tmp_path, "a.localhost")
     r = _run_migrate(
         tmp_path,
-        benchname="a.localhost",
+        address="a.localhost",
         migrate_benches={
             "a.localhost": {"last_migration_version": Version("0.19.0"), "exception": RuntimeError("boom")}
         },
@@ -961,7 +961,7 @@ def test_all_exits_nonzero_when_only_some_benches_failed(out, tmp_path):
     _bench_dir(tmp_path, "b.localhost")
     r = _run_migrate(
         tmp_path,
-        benchname="all",
+        address="all",
         current_version="0.19.0",
         migrate_benches={
             "a.localhost": {"last_migration_version": Version("0.19.0"), "exception": None},
@@ -979,7 +979,7 @@ def test_all_exits_zero_when_every_bench_migrated(out, tmp_path):
     _bench_dir(tmp_path, "b.localhost")
     r = _run_migrate(
         tmp_path,
-        benchname="all",
+        address="all",
         current_version="0.19.0",
         migrate_benches={
             "a.localhost": {"last_migration_version": Version("0.19.0"), "exception": None},
@@ -996,7 +996,7 @@ def test_a_bench_left_behind_at_an_older_version_is_neither_stamped_nor_flagged(
     _bench_dir(tmp_path, "a.localhost")
     r = _run_migrate(
         tmp_path,
-        benchname="a.localhost",
+        address="a.localhost",
         current_version="0.19.0",
         migrate_benches={"a.localhost": {"last_migration_version": Version("0.18.0"), "exception": None}},
     )
@@ -1012,7 +1012,7 @@ def test_a_bench_whose_config_vanished_mid_migration_is_not_stamped(tmp_path):
     _bench_dir(tmp_path, "a.localhost", with_config=False)
     r = _run_migrate(
         tmp_path,
-        benchname="a.localhost",
+        address="a.localhost",
         migrate_benches={"a.localhost": {"last_migration_version": Version("0.19.0"), "exception": None}},
     )
     assert r.exit is None
@@ -1023,7 +1023,7 @@ def test_the_infrastructure_row_is_hidden_when_a_bench_was_named_and_infra_is_cu
     _bench_dir(tmp_path, "a.localhost")
     r = _run_migrate(
         tmp_path,
-        benchname="a.localhost",
+        address="a.localhost",
         system_version="0.19.0",
         current_version="0.19.0",
         migrate_benches={"a.localhost": {"last_migration_version": Version("0.19.0"), "exception": None}},
@@ -1199,7 +1199,7 @@ def _run_shell(bench, *, args=None, interactive=True, isatty=True, stdin_data=""
         ctx.obj["site"] = site
     ctx.args = list(args) if args else []
     params = {
-        "benchname": "mybench",
+        "address": "mybench",
         "command": None,
         "user": None,
         "service": "frappe",

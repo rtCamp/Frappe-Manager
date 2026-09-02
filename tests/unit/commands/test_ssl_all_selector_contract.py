@@ -139,7 +139,7 @@ def listing():
 
 def test_list_all_covers_the_external_domains_and_then_every_bench(listing):
     """INVERTED from `all=True` to the address: the selector sits where a bench name goes."""
-    list_certificates(listing.ctx, benchname="all", standalone=False)
+    list_certificates(listing.ctx, address="all", standalone=False)
 
     listing.external.assert_called_once()
     assert [c.args[1] for c in listing.bench_listing.call_args_list] == BENCHES
@@ -147,7 +147,7 @@ def test_list_all_covers_the_external_domains_and_then_every_bench(listing):
 
 def test_list_all_puts_the_external_section_before_the_bench_one(listing):
     """Order is the contract here: the two sections are only distinguishable by their headings."""
-    list_certificates(listing.ctx, benchname="all", standalone=False)
+    list_certificates(listing.ctx, address="all", standalone=False)
 
     printed = listing.printed()
     assert printed.index("External Certificates") < printed.index("Bench Certificates")
@@ -157,7 +157,7 @@ def test_list_all_walks_the_same_registry_as_every_other_all(listing):
     """One registry for every `all`, the one the picker and shell completion offer, so what the
     shell suggests is what the address acts on. `list` used to walk its own compose-file backed
     registry instead, which disagreed with renew's on a half-created bench."""
-    list_certificates(listing.ctx, benchname="all", standalone=False)
+    list_certificates(listing.ctx, address="all", standalone=False)
 
     listing.bench_names.assert_called_once_with()
 
@@ -165,7 +165,7 @@ def test_list_all_walks_the_same_registry_as_every_other_all(listing):
 def test_list_all_with_no_benches_still_lists_the_external_domains(listing):
     listing.bench_names.return_value = []
 
-    list_certificates(listing.ctx, benchname="all", standalone=False)
+    list_certificates(listing.ctx, address="all", standalone=False)
 
     listing.external.assert_called_once()
     assert "No benches found" in listing.printed()
@@ -174,7 +174,7 @@ def test_list_all_with_no_benches_still_lists_the_external_domains(listing):
 def test_list_standalone_lists_the_external_domains_and_nothing_else(listing):
     """The other half of the split `all` makes visible: --standalone is a namespace, not a
     selector, so it must not pick up the benches `all` covers."""
-    list_certificates(listing.ctx, benchname=None, standalone=True)
+    list_certificates(listing.ctx, address=None, standalone=True)
 
     listing.external.assert_called_once()
     listing.bench_listing.assert_not_called()
@@ -183,7 +183,7 @@ def test_list_standalone_lists_the_external_domains_and_nothing_else(listing):
 
 def test_list_all_wins_over_standalone(listing):
     """`all` is the wider of the two, and it already includes the external domains."""
-    list_certificates(listing.ctx, benchname="all", standalone=True)
+    list_certificates(listing.ctx, address="all", standalone=True)
 
     listing.external.assert_called_once()
     assert [c.args[1] for c in listing.bench_listing.call_args_list] == BENCHES
@@ -195,7 +195,7 @@ def test_list_refuses_a_domain_in_the_address(listing):
     listing.address("shop.example.com")
 
     with pytest.raises(typer.Exit) as exc:
-        list_certificates(listing.ctx, benchname=BENCH, standalone=False)
+        list_certificates(listing.ctx, address=BENCH, standalone=False)
 
     assert exc.value.exit_code == 1
     assert "takes a bench, not a single domain" in listing.errors()
@@ -206,7 +206,7 @@ def test_the_refusal_names_the_address_that_does_work(listing):
     listing.address("shop.example.com")
 
     with pytest.raises(typer.Exit):
-        list_certificates(listing.ctx, benchname=BENCH, standalone=False)
+        list_certificates(listing.ctx, address=BENCH, standalone=False)
 
     assert f"fm ssl list {BENCH}" in listing.errors()
 
@@ -217,7 +217,7 @@ def test_list_all_reports_a_failing_bench_and_lists_the_rest(listing):
     listing.bench_listing.side_effect = [None, RuntimeError("beta is broken"), None]
 
     with pytest.raises(typer.Exit):
-        list_certificates(listing.ctx, benchname="all", standalone=False)
+        list_certificates(listing.ctx, address="all", standalone=False)
 
     assert [c.args[1] for c in listing.bench_listing.call_args_list] == BENCHES
     assert "beta is broken" in listing.errors()
@@ -230,7 +230,7 @@ def test_a_failing_bench_makes_the_listing_exit_nonzero(listing):
     listing.bench_listing.side_effect = [None, RuntimeError("beta is broken"), None]
 
     with pytest.raises(typer.Exit) as excinfo:
-        list_certificates(listing.ctx, benchname="all", standalone=False)
+        list_certificates(listing.ctx, address="all", standalone=False)
 
     assert excinfo.value.exit_code == 1
 
@@ -241,7 +241,7 @@ def test_the_listing_exit_names_every_bench_it_could_not_read(listing):
     listing.bench_listing.side_effect = [RuntimeError("alpha is broken"), None, RuntimeError("gamma is broken")]
 
     with pytest.raises(typer.Exit):
-        list_certificates(listing.ctx, benchname="all", standalone=False)
+        list_certificates(listing.ctx, address="all", standalone=False)
 
     assert f"Could not list: {BENCHES[0]}, {BENCHES[2]}" in listing.errors()
 
@@ -249,7 +249,7 @@ def test_the_listing_exit_names_every_bench_it_could_not_read(listing):
 def test_a_listing_where_every_bench_is_readable_exits_zero(listing):
     listing.bench_listing.side_effect = [None, None, None]
 
-    assert list_certificates(listing.ctx, benchname="all", standalone=False) is None
+    assert list_certificates(listing.ctx, address="all", standalone=False) is None
 
 
 # -------------------------------------------------------------------------------- fm ssl renew all
@@ -274,7 +274,7 @@ def _renew_all(harness, **kwargs):
     kwargs.setdefault("standalone", False)
     kwargs.setdefault("dry_run", False)
     kwargs.setdefault("force", False)
-    return renew(harness.ctx, benchname="all", **kwargs)
+    return renew(harness.ctx, address="all", **kwargs)
 
 
 def _renewed(harness) -> list[str]:
@@ -307,7 +307,7 @@ def test_renew_all_carries_dry_run_and_force_to_every_bench(renewing):
 def test_renew_of_one_bench_stays_on_that_bench(renewing):
     """The selector has to select: naming a bench must not expand to the registry now that the
     same positional carries both."""
-    renew(renewing.ctx, benchname=BENCH, standalone=False, dry_run=False, force=False)
+    renew(renewing.ctx, address=BENCH, standalone=False, dry_run=False, force=False)
 
     assert _renewed(renewing) == [BENCH]
 
@@ -399,7 +399,7 @@ def test_a_run_where_every_bench_succeeds_does_not_exit_nonzero(renewing):
 def test_renew_all_standalone_renews_every_external_domain(renewing):
     """--standalone is the other namespace, so `all` there means every external domain and no
     bench is touched at all."""
-    renew(renewing.ctx, benchname="all", standalone=True, dry_run=True, force=True)
+    renew(renewing.ctx, address="all", standalone=True, dry_run=True, force=True)
 
     renewing.external_all.assert_called_once_with(renewing.ctx, True, True)
     assert _renewed(renewing) == []
@@ -439,7 +439,7 @@ def test_add_refuses_a_bare_all(adding):
     """Issuing for every domain of every bench can cross Let's Encrypt's rate limit in one
     command, so the wide selector is refused where the narrow one is not."""
     with pytest.raises(typer.Exit) as exc:
-        add_certificate(adding.ctx, benchname="all")
+        add_certificate(adding.ctx, address="all")
 
     assert exc.value.exit_code == 1
     assert "'all' is not accepted here" in adding.errors()
@@ -448,7 +448,7 @@ def test_add_refuses_a_bare_all(adding):
 
 def test_the_add_refusal_points_at_the_per_bench_form(adding):
     with pytest.raises(typer.Exit):
-        add_certificate(adding.ctx, benchname="all")
+        add_certificate(adding.ctx, address="all")
 
     assert "BENCH/all" in adding.errors()
 
@@ -457,7 +457,7 @@ def test_remove_refuses_a_bare_all(removing):
     """Every certificate of every bench back to plain HTTP in one command is a blast radius, not a
     convenience."""
     with pytest.raises(typer.Exit) as exc:
-        remove_certificate(removing.ctx, benchname="all")
+        remove_certificate(removing.ctx, address="all")
 
     assert exc.value.exit_code == 1
     assert "'all' is not accepted here" in removing.errors()
@@ -466,7 +466,7 @@ def test_remove_refuses_a_bare_all(removing):
 
 def test_the_remove_refusal_points_at_the_per_bench_form(removing):
     with pytest.raises(typer.Exit):
-        remove_certificate(removing.ctx, benchname="all")
+        remove_certificate(removing.ctx, address="all")
 
     assert "BENCH/all" in removing.errors()
 
@@ -474,7 +474,7 @@ def test_the_remove_refusal_points_at_the_per_bench_form(removing):
 def test_add_fans_a_bench_slash_all_over_every_domain_the_bench_serves(adding):
     adding.address("all")
 
-    add_certificate(adding.ctx, benchname=BENCH)
+    add_certificate(adding.ctx, address=BENCH)
 
     assert [c.args[2] for c in adding.issue.call_args_list] == DOMAINS
     assert {c.args[1] for c in adding.issue.call_args_list} == {BENCH}
@@ -485,7 +485,7 @@ def test_add_of_one_domain_issues_exactly_that_one(adding):
     domain as given so the bench's own check can still report an unknown one."""
     adding.address("shop.example.com")
 
-    add_certificate(adding.ctx, benchname=BENCH)
+    add_certificate(adding.ctx, address=BENCH)
 
     assert [c.args[2] for c in adding.issue.call_args_list] == ["shop.example.com"]
 
@@ -493,7 +493,7 @@ def test_add_of_one_domain_issues_exactly_that_one(adding):
 def test_remove_fans_a_bench_slash_all_over_every_domain_the_bench_serves(removing):
     removing.address("all")
 
-    remove_certificate(removing.ctx, benchname=BENCH, yes=True)
+    remove_certificate(removing.ctx, address=BENCH, yes=True)
 
     assert [c.args[2] for c in removing.delete.call_args_list] == DOMAINS
     assert {c.args[1] for c in removing.delete.call_args_list} == {BENCH}
@@ -502,7 +502,7 @@ def test_remove_fans_a_bench_slash_all_over_every_domain_the_bench_serves(removi
 def test_remove_of_one_domain_deletes_exactly_that_one(removing):
     removing.address("shop.example.com")
 
-    remove_certificate(removing.ctx, benchname=BENCH, yes=True)
+    remove_certificate(removing.ctx, address=BENCH, yes=True)
 
     assert [c.args[2] for c in removing.delete.call_args_list] == ["shop.example.com"]
 
@@ -511,7 +511,7 @@ def test_add_without_a_domain_refuses_rather_than_guessing(adding):
     """A bench name alone is not an address for `add`: it could only mean `BENCH/all`, which is the
     thing the operator has to ask for explicitly."""
     with pytest.raises(typer.Exit) as exc:
-        add_certificate(adding.ctx, benchname=BENCH)
+        add_certificate(adding.ctx, address=BENCH)
 
     assert exc.value.exit_code == 1
     assert "BENCH/DOMAIN" in adding.errors()
@@ -520,7 +520,7 @@ def test_add_without_a_domain_refuses_rather_than_guessing(adding):
 
 def test_remove_without_a_domain_refuses_rather_than_guessing(removing):
     with pytest.raises(typer.Exit) as exc:
-        remove_certificate(removing.ctx, benchname=BENCH, yes=True)
+        remove_certificate(removing.ctx, address=BENCH, yes=True)
 
     assert exc.value.exit_code == 1
     assert "BENCH/DOMAIN" in removing.errors()

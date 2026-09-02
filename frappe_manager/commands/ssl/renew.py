@@ -48,7 +48,7 @@ from .helpers import get_output_handler
 )
 def renew(
     ctx: typer.Context,
-    benchname: BenchDomainAllArgument = None,
+    address: BenchDomainAllArgument = None,
     standalone: Annotated[bool, typer.Option("--standalone", help="Renew an external (non-bench) domain.")] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Rehearse against Let's Encrypt staging.")] = False,
     force: Annotated[bool, typer.Option("--force", help="Renew even when the certificate is not due.")] = False,
@@ -72,45 +72,45 @@ def renew(
                 f"use 'fm ssl renew {domain} --standalone'."
             )
             raise typer.Exit(1)
-        if benchname == RESERVED_BENCH_NAME:
+        if address == RESERVED_BENCH_NAME:
             _renew_all_external_certificates(ctx, dry_run, force)
             return
-        if not benchname:
+        if not address:
             output = get_output_handler(ctx)
             output.display_error("Domain required for standalone renewal")
             with temporary_stop(output):
                 typer.echo(ctx.get_help())
             raise typer.Exit(1)
-        _renew_external_certificate(ctx, benchname, dry_run, force)
+        _renew_external_certificate(ctx, address, dry_run, force)
         return
 
     services_manager = ctx.obj["services"]
 
-    if benchname != RESERVED_BENCH_NAME:
-        benchname = prompt_for_bench_selection(benchname)
-        if not benchname:
+    if address != RESERVED_BENCH_NAME:
+        address = prompt_for_bench_selection(address)
+        if not address:
             output = get_output_handler(ctx)
             output.display_error("Benchname required in bench mode")
             with temporary_stop(output):
                 typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
-    targets = resolve_bench_targets(benchname)
+    targets = resolve_bench_targets(address)
     output = get_output_handler(ctx)
     failed: list[str] = []
 
-    for benchname in targets:
+    for address in targets:
         # Inside the loop, and inside the try below, because a bench whose config will not load used
         # to escape as itself and take every remaining bench with it: on a command run from cron,
         # one broken bench silently meant nothing after it was renewed.
         try:
-            bench = Bench.get_object(benchname, services_manager, output_handler=output)
+            bench = Bench.get_object(address, services_manager, output_handler=output)
         except Exception as e:
-            output.display_error(f"{benchname}: {e}")
-            failed.append(benchname)
+            output.display_error(f"{address}: {e}")
+            failed.append(address)
             continue
 
-        output.change_head(f"Renew certificate for {benchname}")
+        output.change_head(f"Renew certificate for {address}")
         try:
             if domain and domain != RESERVED_BENCH_NAME:
                 cert_domains = [cert.domain for cert in bench.certificate_manager.certificates]
@@ -118,7 +118,7 @@ def renew(
                     output.display_error(
                         f"No SSL certificate found for domain '{domain}'.\n"
                         f"Configured certificates: {', '.join(cert_domains) if cert_domains else 'None'}\n"
-                        f"To add a certificate, use: fm ssl add {benchname}/{domain}",
+                        f"To add a certificate, use: fm ssl add {address}/{domain}",
                     )
                     raise typer.Exit(1)
 
@@ -129,7 +129,7 @@ def renew(
             else:
                 # No domain, or `BENCH/all`: every certificate the bench holds. The two mean the
                 # same thing, because a bench's certificates ARE its domains' certificates.
-                with spinner(output, f"Renewing certificates for {benchname}"):
+                with spinner(output, f"Renewing certificates for {address}"):
                     bench.ssl.renew_all_certificates(dry_run=dry_run, force=force)
         except (BenchSSLCertificateNotIssued, SSLCertificateNotDueForRenewalError) as e:
             output.warning(e.message)
@@ -138,8 +138,8 @@ def renew(
         except Exception as e:
             # Report and carry on. Aborting here meant one bench's ACME failure left every bench
             # after it unrenewed, which on a scheduled run is discovered when a certificate expires.
-            output.display_error(f"{benchname}: {e}")
-            failed.append(benchname)
+            output.display_error(f"{address}: {e}")
+            failed.append(address)
 
     if failed:
         output.display_error(f"Renewal failed for: {', '.join(failed)}")

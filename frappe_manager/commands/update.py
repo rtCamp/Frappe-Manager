@@ -90,7 +90,7 @@ def is_immutable_update_request(
 )
 def update(
     ctx: typer.Context,
-    benchname: BenchSiteArgument = None,
+    address: BenchSiteArgument = None,
     admin_tools: Annotated[
         EnableDisableOptionsEnum | None,
         typer.Option(
@@ -263,9 +263,9 @@ def update(
     fm_config: FMConfigManager = ctx.obj["fm_config_manager"]
 
     output = get_global_output_handler()
-    check_bench_migration_required(benchname)
+    check_bench_migration_required(address)
 
-    bench = Bench.get_object(benchname, services_manager, output_handler=output)
+    bench = Bench.get_object(address, services_manager, output_handler=output)
 
     demoting_to_mount = runtime == BenchRuntime.mount
     if (

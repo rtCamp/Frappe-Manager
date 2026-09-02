@@ -115,7 +115,7 @@ frappe.connect()
 )
 def shell(
     ctx: typer.Context,
-    benchname: BenchSiteArgument = None,
+    address: BenchSiteArgument = None,
     command: Annotated[str | None, typer.Option("-c", "--command", help="Run this command and exit.")] = None,
     user: Annotated[
         str | None,
@@ -157,13 +157,13 @@ def shell(
             exception=typer.Exit(code=1),
         )
 
-    check_bench_migration_required(benchname)
+    check_bench_migration_required(address)
 
-    assert benchname is not None
+    assert address is not None
 
     services_manager = ctx.obj["services"]
     output = get_global_output_handler()
-    bench = Bench.get_object(benchname, services_manager, output_handler=output)
+    bench = Bench.get_object(address, services_manager, output_handler=output)
 
     if bench.bench_config.runtime == BenchRuntime.image:
         output.warning(
@@ -197,7 +197,7 @@ def shell(
 
         user = _get_default_user(service, user)
         output.stop()
-        _handle_bench_console(bench, benchname, command, site, user, run, output)
+        _handle_bench_console(bench, address, command, site, user, run, output)
         return
 
     output.stop()

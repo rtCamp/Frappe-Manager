@@ -30,7 +30,7 @@ from .helpers import get_output_handler
 )
 def list_certificates(
     ctx: typer.Context,
-    benchname: BenchOnlyAllArgument = None,
+    address: BenchOnlyAllArgument = None,
     standalone: Annotated[
         bool,
         typer.Option("--standalone", help="List external (non-bench) domains instead of a bench."),
@@ -48,25 +48,25 @@ def list_certificates(
         output = get_output_handler(ctx)
         output.display_error(
             "'fm ssl list' takes a bench, not a single domain: it reports every certificate the "
-            f"bench holds. Use 'fm ssl list {benchname}'."
+            f"bench holds. Use 'fm ssl list {address}'."
         )
         raise typer.Exit(1)
 
-    if benchname == RESERVED_BENCH_NAME:
+    if address == RESERVED_BENCH_NAME:
         _list_all_certificates(ctx)
     elif standalone:
         _list_external_certificates(ctx)
     else:
-        benchname = prompt_for_bench_selection(benchname)
+        address = prompt_for_bench_selection(address)
 
-        if not benchname:
+        if not address:
             output = get_output_handler(ctx)
             output.display_error("Benchname required in bench mode")
             with temporary_stop(output):
                 typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
-        _list_bench_certificates(ctx, benchname)
+        _list_bench_certificates(ctx, address)
 
 
 def _list_all_certificates(ctx: typer.Context):

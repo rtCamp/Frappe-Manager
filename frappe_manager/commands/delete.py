@@ -124,7 +124,7 @@ def _site_schemas(bench_service: BenchService, benchname: str) -> list:
 )
 def delete(
     ctx: typer.Context,
-    benchname: BenchSiteArgument = None,
+    address: BenchSiteArgument = None,
     all_sites: Annotated[
         bool,
         typer.Option(
@@ -158,7 +158,7 @@ def delete(
     The database is decided separately. fm can drop a site's schema and user from the global-db container it owns, but a schema on a server fm does not own is always left in place, --delete-db-from-global-db or not.
     """
 
-    if not benchname:
+    if not address:
         return
 
     output = get_global_output_handler()
@@ -169,7 +169,7 @@ def delete(
 
     if site and all_sites:
         output.display_error(
-            f"--all-sites cannot be combined with the address '{benchname}/{site}', which already names exactly one site. Drop --all-sites to delete that site, or drop the '/{site}' to delete the whole bench."
+            f"--all-sites cannot be combined with the address '{address}/{site}', which already names exactly one site. Drop --all-sites to delete that site, or drop the '/{site}' to delete the whole bench."
         )
         raise typer.Exit(1)
 
@@ -179,16 +179,16 @@ def delete(
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
 
     if site:
-        bench = bench_service.get_bench(benchname, workers_check=False, admin_tools_check=False)
+        bench = bench_service.get_bench(address, workers_check=False, admin_tools_check=False)
 
         if not yes:
             # The bench is loaded first, so a name that resolves to nothing fails as "not found"
             # rather than offering to destroy whatever it did find.
             output.warning(
-                f"Removing the site '{site}' from bench '{benchname}' drops its schema when the schema is fm's to drop, removes its certificate and deletes its files. The bench and its other sites keep running."
+                f"Removing the site '{site}' from bench '{address}' drops its schema when the schema is fm's to drop, removes its certificate and deletes its files. The bench and its other sites keep running."
             )
             choice = output.prompt_ask(
-                prompt=f"🤔 Do you want to remove the site [bold][fm.ok]'{site}'[/bold][/fm.ok] from '{benchname}'",
+                prompt=f"🤔 Do you want to remove the site [bold][fm.ok]'{site}'[/bold][/fm.ok] from '{address}'",
                 choices=["yes", "no"],
                 default="no",
                 required_flag="--yes or -y",
@@ -200,21 +200,21 @@ def delete(
         bench.remove_site(site, delete_db_from_global_db=delete_db_from_global_db)
         return
 
-    schemas = _site_schemas(bench_service, benchname)
+    schemas = _site_schemas(bench_service, address)
     confirmed = False
 
     if len(schemas) > 1:
         if not all_sites:
             names = ", ".join(s.site for s in schemas)
             output.display_error(
-                f"Bench '{benchname}' serves {_plural(len(schemas), 'site')}: {names}. Deleting the bench destroys every one of them. Pass --all-sites to say that is what you mean, or delete one site at a time with 'fm delete {benchname}/{schemas[0].site}'."
+                f"Bench '{address}' serves {_plural(len(schemas), 'site')}: {names}. Deleting the bench destroys every one of them. Pass --all-sites to say that is what you mean, or delete one site at a time with 'fm delete {address}/{schemas[0].site}'."
             )
             raise typer.Exit(1)
 
         if not yes:
-            _confirm_bench_name(output, benchname, schemas)
+            _confirm_bench_name(output, address, schemas)
             # The name has just been typed. `remove_bench`'s own yes/no would be a second question
             # about the same decision, so it is skipped exactly as --yes skips it.
             confirmed = True
 
-    bench_service.delete_bench(benchname, yes=yes or confirmed, delete_db_from_global_db=delete_db_from_global_db)
+    bench_service.delete_bench(address, yes=yes or confirmed, delete_db_from_global_db=delete_db_from_global_db)

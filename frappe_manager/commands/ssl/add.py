@@ -55,7 +55,7 @@ from .helpers import get_output_handler
 )
 def add_certificate(
     ctx: typer.Context,
-    benchname: BenchDomainArgument = None,
+    address: BenchDomainArgument = None,
     challenge: Annotated[
         LETSENCRYPT_PREFERRED_CHALLENGE,
         typer.Option("--challenge", "-c", help="ACME validation method."),
@@ -147,7 +147,7 @@ def add_certificate(
     # is no bench, so the external domain arrives as the whole (unslashed) argument instead.
     domain = ctx.obj.get("domain") if ctx.obj else None
 
-    if benchname == RESERVED_BENCH_NAME:
+    if address == RESERVED_BENCH_NAME:
         output = get_output_handler(ctx)
         output.display_error(
             "'all' is not accepted here: issuing a certificate for every domain of every bench can "
@@ -165,19 +165,19 @@ def add_certificate(
             )
             raise typer.Exit(1)
 
-        if not benchname:
+        if not address:
             output = get_output_handler(ctx)
             output.display_error("Domain is required in standalone mode")
             with temporary_stop(output):
                 typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
-        _add_external_certificate(ctx, benchname, challenge, cname, dry_run, skip_dns_check, wait_for_dns)
+        _add_external_certificate(ctx, address, challenge, cname, dry_run, skip_dns_check, wait_for_dns)
         return
 
-    benchname = prompt_for_bench_selection(benchname)
+    address = prompt_for_bench_selection(address)
 
-    if not benchname or not domain:
+    if not address or not domain:
         output = get_output_handler(ctx)
         output.display_error(
             "An address of the form BENCH/DOMAIN is required in bench mode, naming the hostname the "
@@ -187,5 +187,5 @@ def add_certificate(
             typer.echo(ctx.get_help())
         raise typer.Exit(1)
 
-    for target in _resolve_domains(ctx, benchname, domain):
-        _add_bench_certificate(ctx, benchname, target, challenge, cname, dry_run, dev=dev, dns_provider=dns_provider)
+    for target in _resolve_domains(ctx, address, domain):
+        _add_bench_certificate(ctx, address, target, challenge, cname, dry_run, dev=dev, dns_provider=dns_provider)
