@@ -34,12 +34,18 @@ from frappe_manager.utils.callbacks import (
 )
 
 
-# Rich help panels grouping options by concern / applicable runtime in `fm update --help`.
-_PANEL_RUNTIME = "Runtime Options"
-_PANEL_MOUNT = "Mount Runtime Options (mount only)"
-_PANEL_DOMAIN = "Domain Options"
-_PANEL_MONITORING = "Monitoring Options"
-_PANEL_DATABASE = "External Database Options"
+# Rich help panels for `fm update --help`, titled by the segment of the `BENCH/SITE` address each
+# flag acts on. Same rule as `fm create`: scope is where the value LANDS, not how the help reads.
+# `--mailpit-as-default-mail-server` said "the site's outgoing mail" while writing
+# `common_site_config`, which every site of the bench shares.
+#
+# Rich renders panels in order of first appearance in the signature, so the bench-scoped parameters
+# are all declared before the first site-scoped one.
+_PANEL_BENCH = "Bench Options"
+_PANEL_RUNTIME = "Bench Options: Runtime"
+_PANEL_MOUNT = "Bench Options: Workspace (mount runtime only)"
+_PANEL_MONITORING = "Bench Options: Monitoring"
+_PANEL_SITE = "Site Options (BENCH alone means its primary site)"
 
 
 def is_immutable_update_request(
@@ -97,6 +103,7 @@ def update(
             "--admin-tools",
             help="Enable/disable admin tools (Adminer at /adminer, Mailpit at /mailpit).",
             show_default=False,
+            rich_help_panel=_PANEL_BENCH,
         ),
     ] = None,
     environment: Annotated[
@@ -106,6 +113,7 @@ def update(
             "-e",
             help="Switch the bench between dev and prod serving (FRAPPE_ENV), recreating the frappe container. Admin tools and developer mode are left as they are; use --admin-tools or --developer-mode to change those.",
             show_default=False,
+            rich_help_panel=_PANEL_BENCH,
         ),
     ] = None,
     runtime: Annotated[
@@ -140,36 +148,18 @@ def update(
         bool,
         typer.Option(
             "--mailpit-as-default-mail-server",
-            help="Route the site's outgoing mail to Mailpit. Applies when enabling admin tools.",
+            help="Route outgoing mail to Mailpit for every site the bench holds. Applies when enabling admin tools.",
             show_default=False,
+            rich_help_panel=_PANEL_BENCH,
         ),
     ] = False,
-    add_alias: Annotated[
-        str | None,
-        typer.Option(
-            "--add-alias",
-            help="Add alias domains (comma-separated, e.g. www.example.com,api.example.com).",
-            callback=alias_domains_validation_callback,
-            show_default=False,
-            rich_help_panel=_PANEL_DOMAIN,
-        ),
-    ] = None,
-    remove_alias: Annotated[
-        str | None,
-        typer.Option(
-            "--remove-alias",
-            help="Remove alias domains (comma-separated, e.g. shop.example.com).",
-            callback=alias_domains_validation_callback,
-            show_default=False,
-            rich_help_panel=_PANEL_DOMAIN,
-        ),
-    ] = None,
     upload_limit: Annotated[
         str | None,
         typer.Option(
             "--upload-limit",
             help="Set the maximum file upload size, e.g. 100M or 1G.",
             show_default=False,
+            rich_help_panel=_PANEL_BENCH,
         ),
     ] = None,
     python_version: Annotated[
@@ -214,6 +204,7 @@ def update(
             "--restart",
             help="Update Docker restart policy for all bench services.",
             show_default=False,
+            rich_help_panel=_PANEL_BENCH,
         ),
     ] = None,
     allow_domain_conflicts: Annotated[
@@ -222,7 +213,6 @@ def update(
             "--allow-domain-conflicts",
             help="Add an alias domain even when another bench already serves it.",
             show_default=False,
-            rich_help_panel=_PANEL_DOMAIN,
         ),
     ] = False,
     newrelic: Annotated[
@@ -243,13 +233,33 @@ def update(
             rich_help_panel=_PANEL_MONITORING,
         ),
     ] = None,
+    add_alias: Annotated[
+        str | None,
+        typer.Option(
+            "--add-alias",
+            help="Add alias domains (comma-separated, e.g. www.example.com,api.example.com).",
+            callback=alias_domains_validation_callback,
+            show_default=False,
+            rich_help_panel=_PANEL_SITE,
+        ),
+    ] = None,
+    remove_alias: Annotated[
+        str | None,
+        typer.Option(
+            "--remove-alias",
+            help="Remove alias domains (comma-separated, e.g. shop.example.com).",
+            callback=alias_domains_validation_callback,
+            show_default=False,
+            rich_help_panel=_PANEL_SITE,
+        ),
+    ] = None,
     db_ca: Annotated[
         Path | None,
         typer.Option(
             "--db-ca",
             help="Reinstall the external database CA after a rotation: the site PEM, the bench ca-bundle.pem the dumps use, and the recorded path are refreshed together.",
             show_default=False,
-            rich_help_panel=_PANEL_DATABASE,
+            rich_help_panel=_PANEL_SITE,
         ),
     ] = None,
 ):

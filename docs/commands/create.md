@@ -16,12 +16,10 @@ $ fm create BENCH(/SITE) [OPTIONS]
 
 **Options**:
 
-* `-a, --apps`: App to install: appname or owner/repo, optional :branch (repeatable). Frappe is always first.
 * `-e, --environment`: Bench environment; sets the dev-mode and restart defaults.
+* `-a, --apps`: App to install: appname or owner/repo, optional :branch (repeatable). Frappe is always first.
 * `--developer-mode`: Let DocType edits write app source files. Already on for a dev-environment bench.
 * `--bench-only`: Create the bench (config, directory, containers) with no site in it. Sites are added afterwards with 'fm create BENCH/SITE'.
-* `--admin-pass`: Administrator password.
-* `--alias-domains`: Extra domains this bench answers on (comma-separated). Certificates come from 'fm ssl add'.
 * `-t, --github-token`: Token for cloning private app repos.
 * `--python`: Python version, e.g. '3.11'. Auto-detected by default.
 * `--node`: Node version, e.g. '20'. Auto-detected by default.
@@ -33,6 +31,10 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `--config`: TOML base config: file path or inline. Explicit flags win; later --config wins.
 * `--newrelic/--no-newrelic`: Enable NewRelic APM for the web process.
 * `--newrelic-license-key`: NewRelic ingest license key. Required with --newrelic.
+* `--redis-cache`: External redis URL for the framework cache, e.g. redis://r.example:6379/0. Requires --redis-queue.
+* `--redis-queue`: External redis URL for the queue and realtime. Use a different logical index from --redis-cache: a restore mass-deletes the cache index.
+* `--admin-pass`: Administrator password for sites created on this bench.
+* `--alias-domains`: Extra domains THIS SITE answers on (comma-separated). Certificates come from 'fm ssl add'.
 * `--db-host`: External MariaDB host, replacing fm's global-db container. MySQL is not a supported backend.
 * `--db-port`: Port of the external database server.
 * `--db-name`: Schema on that server this site lives in. Required with --db-host.
@@ -44,8 +46,6 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `--db-no-verify-hostname`: Check the certificate chain but not that the certificate names the host dialled.
 * `--attach-existing-site`: The schema already holds a Frappe site: build the bench around it and write nothing to the database.
 * `--encryption-key`: The attached site's encryption_key, - to read from stdin. Without it Frappe mints a new one and existing encrypted secrets stop being readable.
-* `--redis-cache`: External redis URL for the framework cache, e.g. redis://r.example:6379/0. Requires --redis-queue.
-* `--redis-queue`: External redis URL for the queue and realtime. Use a different logical index from --redis-cache: a restore mass-deletes the cache index.
 
 
 ## Examples

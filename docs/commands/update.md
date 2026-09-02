@@ -21,9 +21,7 @@ $ fm update BENCH(/SITE) [OPTIONS]
 * `--runtime`: Convert the bench runtime. 'mount' extracts an editable workspace from the currently deployed image, stashing anything stale it finds; converting back is a deploy, so use fm switch.
 * `-a, --apps`: Replace or add an app on the running bench (repeatable; appname:ref or org/repo:ref). Replaced code is stashed, never deleted; assets rebuild and the site migrates.
 * `--developer-mode`: Toggle frappe developer mode, so DocType edits write to app files.
-* `--mailpit-as-default-mail-server`: Route the site's outgoing mail to Mailpit. Applies when enabling admin tools.
-* `--add-alias`: Add alias domains (comma-separated, e.g. www.example.com,api.example.com).
-* `--remove-alias`: Remove alias domains (comma-separated, e.g. shop.example.com).
+* `--mailpit-as-default-mail-server`: Route outgoing mail to Mailpit for every site the bench holds. Applies when enabling admin tools.
 * `--upload-limit`: Set the maximum file upload size, e.g. 100M or 1G.
 * `--python`: Update the Python version (e.g. '3.11', '>=3.11,<3.14'); recreates the venv and reinstalls apps.
 * `--node`: Update the Node version (e.g. '20', '>=18') and set it as the bench default.
@@ -33,6 +31,8 @@ $ fm update BENCH(/SITE) [OPTIONS]
 * `--allow-domain-conflicts`: Add an alias domain even when another bench already serves it.
 * `--newrelic/--no-newrelic`: Enable or disable NewRelic APM monitoring for the web process.
 * `--newrelic-license-key`: NewRelic ingest license key. Required the first time you enable NewRelic.
+* `--add-alias`: Add alias domains (comma-separated, e.g. www.example.com,api.example.com).
+* `--remove-alias`: Remove alias domains (comma-separated, e.g. shop.example.com).
 * `--db-ca`: Reinstall the external database CA after a rotation: the site PEM, the bench ca-bundle.pem the dumps use, and the recorded path are refreshed together.
 
 

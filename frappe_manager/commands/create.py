@@ -45,13 +45,25 @@ from frappe_manager.utils.callbacks import (
 )
 from frappe_manager.utils.site import validate_sitename
 
-# Rich help panels for `fm create --help`, grouped by concern / runtime applicability
-# (mirrors `fm update`).
-_PANEL_RUNTIME = "Runtime Options"
-_PANEL_MOUNT = "Mount Runtime Options (mount only)"
-_PANEL_DOMAIN = "Domain Options"
-_PANEL_MONITORING = "Monitoring Options"
-_PANEL_EXTERNAL = "External Database and Redis Options"
+# Rich help panels for `fm create --help`. The FIRST word of every title is the segment of the
+# `BENCH/SITE` address the flag acts on, because that is the question the address form raises and
+# the help could not answer: `--redis-cache` serves every site the bench holds, `--db-name` names
+# the schema of one. They used to share a box called "External Database and Redis Options".
+#
+# Scope is decided by where the value LANDS, not by how the help text reads: a top-level
+# `BenchConfig` field is bench-scoped, an entry under `[sites."<site>"]` is site-scoped (see
+# `_FLAG_TO_CONFIG` below and :func:`record_site`). Flags in the default "Options" box belong to
+# neither: they decide whether the site half happens at all.
+#
+# Rich renders panels in order of first appearance in the signature, so every bench-scoped
+# parameter is declared before the first site-scoped one. Moving one changes the help layout.
+_PANEL_BENCH = "Bench Options"
+_PANEL_RUNTIME = "Bench Options: Runtime"
+_PANEL_MOUNT = "Bench Options: Workspace (mount runtime only)"
+_PANEL_MONITORING = "Bench Options: Monitoring"
+_PANEL_REDIS = "Bench Options: External Redis (every site)"
+_PANEL_SITE = "Site Options (nothing to apply with --bench-only)"
+_PANEL_DATABASE = "Site Options: External Database (nothing to apply with --bench-only)"
 
 
 # The flags that are simply a config value under another name. Each maps to the TOML key path it
@@ -642,6 +654,15 @@ def create(
             callback=create_command_sitename_callback,
         ),
     ],
+    environment: Annotated[
+        FMBenchEnvType,
+        typer.Option(
+            "--environment",
+            "-e",
+            help="Bench environment; sets the dev-mode and restart defaults.",
+            rich_help_panel=_PANEL_BENCH,
+        ),
+    ] = FMBenchEnvType.dev,
     apps: Annotated[
         list[str],
         typer.Option(
@@ -653,10 +674,6 @@ def create(
             rich_help_panel=_PANEL_MOUNT,
         ),
     ] = [],
-    environment: Annotated[
-        FMBenchEnvType,
-        typer.Option("--environment", "-e", help="Bench environment; sets the dev-mode and restart defaults."),
-    ] = FMBenchEnvType.dev,
     developer_mode: Annotated[
         EnableDisableOptionsEnum,
         typer.Option(
@@ -665,19 +682,6 @@ def create(
         ),
     ] = EnableDisableOptionsEnum.disable,
     bench_only: Annotated[bool, typer.Option(help="Create the bench (config, directory, containers) with no site in it. Sites are added afterwards with 'fm create BENCH/SITE'.")] = False,
-    admin_pass: Annotated[
-        str,
-        typer.Option(help="Administrator password."),
-    ] = "admin",
-    alias_domains: Annotated[
-        str | None,
-        typer.Option(
-            help="Extra domains this bench answers on (comma-separated). Certificates come from 'fm ssl add'.",
-            callback=alias_domains_validation_callback,
-            show_default=False,
-            rich_help_panel=_PANEL_DOMAIN,
-        ),
-    ] = None,
     github_token: Annotated[
         str | None,
         typer.Option(
@@ -713,6 +717,7 @@ def create(
             "--restart",
             help="Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).",
             show_default=False,
+            rich_help_panel=_PANEL_BENCH,
         ),
     ] = None,
     allow_domain_conflicts: Annotated[
@@ -721,7 +726,6 @@ def create(
             "--allow-domain-conflicts",
             help="Skip the domain uniqueness check.",
             show_default=False,
-            rich_help_panel=_PANEL_DOMAIN,
         ),
     ] = False,
     runtime: Annotated[
@@ -757,6 +761,7 @@ def create(
             "--config",
             help="TOML base config: file path or inline. Explicit flags win; later --config wins.",
             show_default=False,
+            rich_help_panel=_PANEL_BENCH,
         ),
     ] = [],
     newrelic: Annotated[
@@ -777,111 +782,13 @@ def create(
             rich_help_panel=_PANEL_MONITORING,
         ),
     ] = None,
-    db_host: Annotated[
-        str | None,
-        typer.Option(
-            "--db-host",
-            help="External MariaDB host, replacing fm's global-db container. MySQL is not a supported backend.",
-            show_default=False,
-            rich_help_panel=_PANEL_EXTERNAL,
-        ),
-    ] = None,
-    db_port: Annotated[
-        int,
-        typer.Option(
-            "--db-port",
-            help="Port of the external database server.",
-            rich_help_panel=_PANEL_EXTERNAL,
-        ),
-    ] = 3306,
-    db_name: Annotated[
-        str | None,
-        typer.Option(
-            "--db-name",
-            help="Schema on that server this site lives in. Required with --db-host.",
-            show_default=False,
-            rich_help_panel=_PANEL_EXTERNAL,
-        ),
-    ] = None,
-    db_user: Annotated[
-        str | None,
-        typer.Option(
-            "--db-user",
-            help="Login user for the schema. Defaults to the schema name, and must equal it on a v15 bench.",
-            show_default=False,
-            rich_help_panel=_PANEL_EXTERNAL,
-        ),
-    ] = None,
-    db_password: Annotated[
-        str | None,
-        typer.Option(
-            "--db-password",
-            help="Password of the site's database login. Pass - for stdin; omit with --db-admin-user to generate one.",
-            show_default=False,
-            rich_help_panel=_PANEL_EXTERNAL,
-        ),
-    ] = None,
-    db_admin_user: Annotated[
-        str | None,
-        typer.Option(
-            "--db-admin-user",
-            help="Administrative login, used once at create time to create the schema, the site user and the grant. Never stored.",
-            show_default=False,
-            rich_help_panel=_PANEL_EXTERNAL,
-        ),
-    ] = None,
-    db_admin_password: Annotated[
-        str | None,
-        typer.Option(
-            "--db-admin-password",
-            help="Password for --db-admin-user. Pass - to read it from stdin.",
-            show_default=False,
-            rich_help_panel=_PANEL_EXTERNAL,
-        ),
-    ] = None,
-    db_ca: Annotated[
-        Path | None,
-        typer.Option(
-            "--db-ca",
-            help="Host path to the CA bundle signing the server certificate. Required whenever the server enforces TLS.",
-            show_default=False,
-            rich_help_panel=_PANEL_EXTERNAL,
-        ),
-    ] = None,
-    db_no_verify_hostname: Annotated[
-        bool,
-        typer.Option(
-            "--db-no-verify-hostname",
-            help="Check the certificate chain but not that the certificate names the host dialled.",
-            show_default=False,
-            rich_help_panel=_PANEL_EXTERNAL,
-        ),
-    ] = False,
-    attach_existing_site: Annotated[
-        bool,
-        typer.Option(
-            "--attach-existing-site",
-            help="The schema already holds a Frappe site: build the bench around it and write nothing to the database.",
-            show_default=False,
-            rich_help_panel=_PANEL_EXTERNAL,
-        ),
-    ] = False,
-    encryption_key: Annotated[
-        str | None,
-        typer.Option(
-            "--encryption-key",
-            help="The attached site's encryption_key, - to read from stdin. Without it Frappe mints a new one and existing encrypted secrets stop being readable.",
-            show_default=False,
-            rich_help_panel=_PANEL_EXTERNAL,
-        ),
-    ] = None,
     redis_cache: Annotated[
         str | None,
         typer.Option(
             "--redis-cache",
             help="External redis URL for the framework cache, e.g. redis://r.example:6379/0. Requires --redis-queue.",
             show_default=False,
-            rich_help_panel=_PANEL_EXTERNAL,
+            rich_help_panel=_PANEL_REDIS,
         ),
     ] = None,
     redis_queue: Annotated[
@@ -890,7 +797,121 @@ def create(
             "--redis-queue",
             help="External redis URL for the queue and realtime. Use a different logical index from --redis-cache: a restore mass-deletes the cache index.",
             show_default=False,
-            rich_help_panel=_PANEL_EXTERNAL,
+            rich_help_panel=_PANEL_REDIS,
+        ),
+    ] = None,
+    admin_pass: Annotated[
+        str,
+        typer.Option(
+            help="Administrator password for sites created on this bench.",
+            rich_help_panel=_PANEL_BENCH,
+        ),
+    ] = "admin",
+    alias_domains: Annotated[
+        str | None,
+        typer.Option(
+            help="Extra domains THIS SITE answers on (comma-separated). Certificates come from 'fm ssl add'.",
+            callback=alias_domains_validation_callback,
+            show_default=False,
+            rich_help_panel=_PANEL_SITE,
+        ),
+    ] = None,
+    db_host: Annotated[
+        str | None,
+        typer.Option(
+            "--db-host",
+            help="External MariaDB host, replacing fm's global-db container. MySQL is not a supported backend.",
+            show_default=False,
+            rich_help_panel=_PANEL_DATABASE,
+        ),
+    ] = None,
+    db_port: Annotated[
+        int,
+        typer.Option(
+            "--db-port",
+            help="Port of the external database server.",
+            rich_help_panel=_PANEL_DATABASE,
+        ),
+    ] = 3306,
+    db_name: Annotated[
+        str | None,
+        typer.Option(
+            "--db-name",
+            help="Schema on that server this site lives in. Required with --db-host.",
+            show_default=False,
+            rich_help_panel=_PANEL_DATABASE,
+        ),
+    ] = None,
+    db_user: Annotated[
+        str | None,
+        typer.Option(
+            "--db-user",
+            help="Login user for the schema. Defaults to the schema name, and must equal it on a v15 bench.",
+            show_default=False,
+            rich_help_panel=_PANEL_DATABASE,
+        ),
+    ] = None,
+    db_password: Annotated[
+        str | None,
+        typer.Option(
+            "--db-password",
+            help="Password of the site's database login. Pass - for stdin; omit with --db-admin-user to generate one.",
+            show_default=False,
+            rich_help_panel=_PANEL_DATABASE,
+        ),
+    ] = None,
+    db_admin_user: Annotated[
+        str | None,
+        typer.Option(
+            "--db-admin-user",
+            help="Administrative login, used once at create time to create the schema, the site user and the grant. Never stored.",
+            show_default=False,
+            rich_help_panel=_PANEL_DATABASE,
+        ),
+    ] = None,
+    db_admin_password: Annotated[
+        str | None,
+        typer.Option(
+            "--db-admin-password",
+            help="Password for --db-admin-user. Pass - to read it from stdin.",
+            show_default=False,
+            rich_help_panel=_PANEL_DATABASE,
+        ),
+    ] = None,
+    db_ca: Annotated[
+        Path | None,
+        typer.Option(
+            "--db-ca",
+            help="Host path to the CA bundle signing the server certificate. Required whenever the server enforces TLS.",
+            show_default=False,
+            rich_help_panel=_PANEL_DATABASE,
+        ),
+    ] = None,
+    db_no_verify_hostname: Annotated[
+        bool,
+        typer.Option(
+            "--db-no-verify-hostname",
+            help="Check the certificate chain but not that the certificate names the host dialled.",
+            show_default=False,
+            rich_help_panel=_PANEL_DATABASE,
+        ),
+    ] = False,
+    attach_existing_site: Annotated[
+        bool,
+        typer.Option(
+            "--attach-existing-site",
+            help="The schema already holds a Frappe site: build the bench around it and write nothing to the database.",
+            show_default=False,
+            rich_help_panel=_PANEL_DATABASE,
+        ),
+    ] = False,
+    encryption_key: Annotated[
+        str | None,
+        typer.Option(
+            "--encryption-key",
+            help="The attached site's encryption_key, - to read from stdin. Without it Frappe mints a new one and existing encrypted secrets stop being readable.",
+            show_default=False,
+            rich_help_panel=_PANEL_DATABASE,
         ),
     ] = None,
 ):
