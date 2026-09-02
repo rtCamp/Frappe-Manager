@@ -147,6 +147,13 @@ def delete(
             help="Drop the schema and user from the global-db container, or keep them. Applies to every site being deleted that is on the global-db container, and never touches a database on an external server. fm asks when neither is passed.",
         ),
     ] = None,
+    delete_backups: Annotated[
+        bool,
+        typer.Option(
+            "--delete-backups",
+            help="Also delete the removed site's recorded database dumps. Off by default: a dump is the last copy of something, and once its history row is gone fm can no longer offer to prune it, so the paths are printed instead.",
+        ),
+    ] = False,
 ):
     """
     Delete a whole bench, or one site out of one.
@@ -197,7 +204,9 @@ def delete(
                 output.print("Cancelled.", emoji_code=":x:")
                 raise typer.Exit(0)
 
-        bench.remove_site(site, delete_db_from_global_db=delete_db_from_global_db)
+        bench.remove_site(
+            site, delete_db_from_global_db=delete_db_from_global_db, delete_backups=delete_backups
+        )
         return
 
     schemas = _site_schemas(bench_service, address)

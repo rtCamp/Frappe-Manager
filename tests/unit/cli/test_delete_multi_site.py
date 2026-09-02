@@ -454,7 +454,14 @@ def test_the_operator_is_told_the_rest_of_the_bench_survives(two_sites):
 
 def test_the_database_choice_reaches_a_single_site_removal(one_site):
     run = _run([f"{BENCH}/{SITE_A}", "--yes", "--no-delete-db-from-global-db"], root=one_site, sites=[SITE_A])
-    assert run.payload("remove_site")[1] == {"delete_db_from_global_db": False}
+    # `delete_backups` rides along on the same call: off unless asked, because dropping the site's
+    # deploy-history rows is what makes its dumps unreachable by prune, and a dump is a last copy.
+    assert run.payload("remove_site")[1] == {"delete_db_from_global_db": False, "delete_backups": False}
+
+
+def test_asking_for_the_dumps_reaches_the_single_site_removal(one_site):
+    run = _run([f"{BENCH}/{SITE_A}", "--yes", "--delete-backups"], root=one_site, sites=[SITE_A])
+    assert run.payload("remove_site")[1]["delete_backups"] is True
 
 
 def test_the_database_choice_stays_bench_wide_and_tri_state(one_site):

@@ -43,6 +43,7 @@ from frappe_manager.site_manager.modules.bench_site import BenchSiteManager
 from frappe_manager.site_manager.modules.bench_ssl import BenchSSL
 from frappe_manager.site_manager.modules.bench_supervisor import BenchSupervisor
 from frappe_manager.site_manager.modules.bench_workers import BenchWorkerCoordinator, BenchWorkers
+from frappe_manager.site_manager.modules.db_tls import remove_site_tls
 from frappe_manager.site_manager.modules.upload_limit_manager import UploadLimitManager
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkManager
@@ -1289,7 +1290,9 @@ class Bench:
             cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE
         )
 
-    def remove_site(self, site: str, delete_db_from_global_db: bool | None = None) -> bool:
+    def remove_site(
+        self, site: str, delete_db_from_global_db: bool | None = None, delete_backups: bool = False
+    ) -> bool:
         """Remove ONE site. The bench, its containers and its other sites keep running.
 
         The order is the reverse question to the one `fm create BENCH/SITE` answers. There, routing
@@ -1327,6 +1330,18 @@ class Bench:
         if site_dir.exists():
             shutil.rmtree(site_dir)
 
+        # Everything below is cleanup AFTER the dangerous part, so each piece warns and continues:
+        # the schema and the directory are gone by now, and refusing to finish would leave the site
+        # half-removed and still recorded. `site_domains` was captured above, before the `[sites]`
+        # entry is popped, because the map is the only thing that says which hostnames were this
+        # site's.
+        self._remove_proxy_upload_limits(site_domains)
+        self._forget_site_backups(site, delete_backups=delete_backups)
+        try:
+            remove_site_tls(self.path, site)
+        except Exception as e:
+            self.output.warning(f"Could not remove the database TLS material for {site}: {e}")
+
         self.bench_config.sites.pop(site, None)
         # Its own domains, so a certificate covering another site's hostname survives. The bench's
         # aliases map to the primary site, so removing the primary takes its aliases with it.
@@ -1338,6 +1353,63 @@ class Bench:
         self.republish_site_map()
         self.logger.info(f"Site removed: {site} from {self.name}", extra_fields=extra)
         return True
+
+    def _remove_proxy_upload_limits(self, domains: set[str]) -> None:
+        """Drop the removed site's `vhost.d/<domain>` upload-limit directives.
+
+        `apply_upload_limit` writes one file per served domain, and nothing used to take them away:
+        the files outlived the site, so a domain later pointed at another bench inherited a stale
+        `client_max_body_size` from a site that no longer exists. The manager only unlinks the file
+        when removing the directive empties it, so a hand-written vhost entry survives.
+        """
+        vhostd_dir = self.services.path / "nginx-proxy" / "vhostd"
+        if not vhostd_dir.exists():
+            return
+        manager = UploadLimitManager(vhostd_dir)
+        for domain in sorted(domains):
+            try:
+                manager.remove_upload_limit(domain)
+            except Exception as e:
+                self.output.warning(f"Could not clear the proxy upload limit for {domain}: {e}")
+
+    def _forget_site_backups(self, site: str, *, delete_backups: bool) -> None:
+        """Drop the removed site's rows from every deploy-history `backups` map.
+
+        Rollback iterates that map per site, so a row naming a site the bench no longer serves aims
+        a restore at a schema that is gone, and `fm prune` keeps its dump alive forever.
+
+        The dump FILES are kept unless asked for, because a backup is the last copy of something and
+        deleting one is not undoable. Kept files are named on the way out: dropping the rows means
+        `fm prune` can no longer see them, so an unnamed leftover would be permanent invisible
+        garbage. When asked, a dump is deleted only if no REMAINING row references it, which is the
+        same rule prune uses, so a dump shared with another release survives.
+        """
+        state = self.bench_config.deploy_state
+        if state is None or not state.history:
+            return
+
+        orphaned = [row.backups.pop(site) for row in state.history if site in row.backups]
+        if not orphaned:
+            return
+
+        still_referenced = {path for row in state.history for path in row.backups.values()}
+        unreferenced = [path for path in dict.fromkeys(orphaned) if path not in still_referenced]
+        if not unreferenced:
+            return
+
+        if not delete_backups:
+            self.output.warning(
+                f"Kept {len(unreferenced)} database dump(s) for the removed site; nothing references "
+                f"them now, so delete them by hand or pass --delete-backups next time: "
+                f"{', '.join(unreferenced)}"
+            )
+            return
+
+        for path in unreferenced:
+            try:
+                Path(path).unlink(missing_ok=True)
+            except Exception as e:
+                self.output.warning(f"Could not delete the database dump {path}: {e}")
 
     def _require_every_schema_resolved(self, outstanding: "list[tuple[SiteSchema, str]]") -> None:
         """The gate. Nothing may destroy the bench directory while a schema is unaccounted for."""

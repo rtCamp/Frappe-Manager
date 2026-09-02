@@ -12,11 +12,11 @@ the forced (image-runtime) external invocation, and the commands that follow `ne
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from frappe_manager.site_manager.bench_config import BenchConfig
+from frappe_manager.site_manager.bench_config import BenchConfig, DeployState, DeployStateEntry
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.modules.bench_site import BenchSiteManager
 from frappe_manager.site_manager.site import Bench
@@ -432,3 +432,131 @@ def test_an_unreadable_site_still_blocks(tmp_path):
 
     assert why is not None
     assert "could not be read" in why
+
+
+# --------------------------------------------------------------- what removal leaves behind
+
+
+"""Removing a site used to leave three pieces of its state on disk and in the config.
+
+Each was invisible until something else tripped over it: a `vhost.d/<domain>` upload-limit file
+outlived the site and a domain later pointed at another bench inherited a stale
+`client_max_body_size`; a `deploy_state.history[*].backups` row kept naming the site, and rollback
+iterates that map per site, so a restore aimed at a schema that no longer exists; and the external
+database's `config/tls/<site>` material simply stayed.
+"""
+
+
+def _removable(tmp_path: Path, sites: dict[str, str]):
+    """A bench whose removal reaches the cleanup, with the destructive steps stubbed."""
+    config = _config(tmp_path, name="shop.localhost", external_site="b.example.com")
+    bench = _bench(tmp_path, config, "shop", sites)
+    bench.ssl = MagicMock()
+    bench.services = MagicMock()
+    bench.services.path = tmp_path / "services"
+    bench.save_bench_config = MagicMock()  # type: ignore[method-assign]
+    bench.republish_site_map = MagicMock()  # type: ignore[method-assign]
+    (bench.services.path / "nginx-proxy" / "vhostd").mkdir(parents=True)
+    return bench
+
+
+def _vhostd(bench) -> Path:
+    return bench.services.path / "nginx-proxy" / "vhostd"
+
+
+def test_the_removed_sites_proxy_upload_limit_files_go(tmp_path):
+    bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
+    for domain in ("shop.localhost", "b.example.com"):
+        (_vhostd(bench) / domain).write_text("client_max_body_size 50m;\n")
+
+    bench.remove_site("b.example.com", delete_db_from_global_db=True)
+
+    assert not (_vhostd(bench) / "b.example.com").exists()
+
+
+def test_a_surviving_sites_proxy_file_is_untouched(tmp_path):
+    """The bench keeps serving its other sites, so their limits must survive."""
+    bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
+    for domain in ("shop.localhost", "b.example.com"):
+        (_vhostd(bench) / domain).write_text("client_max_body_size 50m;\n")
+
+    bench.remove_site("b.example.com", delete_db_from_global_db=True)
+
+    assert (_vhostd(bench) / "shop.localhost").read_text() == "client_max_body_size 50m;\n"
+
+
+def test_the_removed_sites_backup_rows_are_dropped_but_the_dumps_are_kept(tmp_path):
+    """Default: the row goes so rollback cannot aim at it, the file stays because a dump is the
+    last copy of something. The path is printed, since prune can no longer see it."""
+    bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
+    dump = tmp_path / "b.sql"
+    dump.write_text("dump")
+    bench.bench_config.deploy_state = DeployState(
+        history=[DeployStateEntry(tag="v1", deployed_at="now", migrate_status="migrated",
+                                  backups={"shop.localhost": str(tmp_path / "s.sql"), "b.example.com": str(dump)})]
+    )
+
+    bench.remove_site("b.example.com", delete_db_from_global_db=True)
+
+    assert bench.bench_config.deploy_state.history[0].backups == {"shop.localhost": str(tmp_path / "s.sql")}
+    assert dump.exists()
+    warned = "\n".join(str(c.args[0]) for c in bench.output.warning.call_args_list if c.args)
+    assert str(dump) in warned
+
+
+def test_the_dumps_go_when_asked(tmp_path):
+    bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
+    dump = tmp_path / "b.sql"
+    dump.write_text("dump")
+    bench.bench_config.deploy_state = DeployState(
+        history=[DeployStateEntry(tag="v1", deployed_at="now", migrate_status="migrated",
+                                  backups={"b.example.com": str(dump)})]
+    )
+
+    bench.remove_site("b.example.com", delete_db_from_global_db=True, delete_backups=True)
+
+    assert not dump.exists()
+
+
+def test_a_dump_another_release_still_names_survives_being_asked(tmp_path):
+    """Same rule prune uses. Two history rows can name one file, and deleting it for the removed
+    site would break the release that still holds it."""
+    bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
+    shared = tmp_path / "shared.sql"
+    shared.write_text("dump")
+    bench.bench_config.deploy_state = DeployState(
+        history=[
+            DeployStateEntry(tag="v1", deployed_at="now", migrate_status="migrated",
+                             backups={"b.example.com": str(shared)}),
+            DeployStateEntry(tag="v2", deployed_at="now", migrate_status="migrated",
+                             backups={"shop.localhost": str(shared)}),
+        ]
+    )
+
+    bench.remove_site("b.example.com", delete_db_from_global_db=True, delete_backups=True)
+
+    assert shared.exists()
+
+
+def test_the_removed_sites_database_tls_material_goes(tmp_path):
+    bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
+    # The real location, per db_tls.tls_host_root: inside the mounted workspace, not beside it.
+    tls = bench.path / "workspace" / "frappe-bench" / "config" / "tls" / "b.example.com"
+    tls.mkdir(parents=True)
+    (tls / "db-ca.pem").write_text("cert")
+
+    bench.remove_site("b.example.com", delete_db_from_global_db=True)
+
+    assert not tls.exists()
+
+
+def test_cleanup_that_fails_warns_and_still_finishes_the_removal(tmp_path):
+    """The schema and the directory are already gone by then, so aborting would leave the site
+    half-removed AND still recorded, which is worse than a leftover file."""
+    bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
+    with patch("frappe_manager.site_manager.site.remove_site_tls", side_effect=RuntimeError("permission denied")):
+        assert bench.remove_site("b.example.com", delete_db_from_global_db=True) is True
+
+    assert "b.example.com" not in bench.bench_config.sites
+    warned = "\n".join(str(c.args[0]) for c in bench.output.warning.call_args_list if c.args)
+    assert "permission denied" in warned
