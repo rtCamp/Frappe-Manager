@@ -574,8 +574,10 @@ class Bench:
     def get_common_bench_config(self):
         return self.info_display.get_common_config()
 
-    def get_bench_site_config(self):
-        return self.info_display.get_site_config()
+    def get_bench_site_config(self, site: str | None = None):
+        """One site's ``site_config.json``. None means the bench's own, which is not the same thing
+        on a bench serving several: a caller acting on a named site has to pass it."""
+        return self.info_display.get_site_config(site)
 
     def generate_compose(self, inputs: dict) -> None:
         """
@@ -1593,7 +1595,7 @@ class Bench:
             admin_pass = admin_password
         else:
             if not admin_pass:
-                site_config = self.get_bench_site_config()
+                site_config = self.get_bench_site_config(target)
                 if "admin_password" in site_config:
                     admin_pass = site_config["admin_password"]
                     self.output.print("Using admin_password defined in site_config.json")
@@ -1613,7 +1615,11 @@ class Bench:
         self.output.change_head(f"Resetting bench site {target}")
 
         self.site_manager.reset_bench_site(admin_pass, site=target)
-        self.set_bench_site_config(self.site_name, {"admin_password": admin_pass})
+        # `target`, not the bench's own site. Resetting a named site used to read the PRIMARY site's
+        # recorded password as the fallback and then record the new one against the primary too, so
+        # `fm reset shop/b.example.com` reset b with shop.localhost's password and overwrote
+        # shop.localhost's record with it. Two wrong sites in one command, both silent.
+        self.set_bench_site_config(target, {"admin_password": admin_pass})
 
         self.output.print(f"Reset bench site {target}")
 

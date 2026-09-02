@@ -1724,6 +1724,25 @@ class TestReset:
         printed = [str(c) for c in bench.output.print.call_args_list]
         assert any("b.example.com" in line for line in printed)
 
+    def test_the_named_site_is_the_one_whose_password_is_read_and_recorded(self, harness):
+        """Both halves used to reach for the bench's own site while resetting another.
+
+        `fm reset shop/b.example.com` read shop.localhost's recorded `admin_password` as its
+        fallback, reset b.example.com with it, then wrote it back over shop.localhost's record. The
+        operator ended up with b reset to a password they were never shown and shop's stored
+        password replaced, both silently.
+        """
+        bench = self._resettable(harness)
+        bench.get_bench_site_config.return_value = {"admin_password": "b-own-password"}
+
+        bench.reset(site="b.example.com")
+
+        bench.get_bench_site_config.assert_called_once_with("b.example.com")
+        bench.site_manager.reset_bench_site.assert_called_once_with("b-own-password", site="b.example.com")
+        bench.set_bench_site_config.assert_called_once_with(
+            "b.example.com", {"admin_password": "b-own-password"}
+        )
+
 
 class TestRestarts:
     def test_web_restart_defaults_to_cycling_supervisor_processes(self, harness):
@@ -2070,8 +2089,14 @@ class TestThinDelegations:
         bench.get_common_bench_config()
         bench.info_display.get_common_config.assert_called_once_with()
 
+        # Forwards the site now, so a caller acting on a named site of a multisite bench reads that
+        # site's file. None keeps the bench's own, which is what every existing caller wanted.
         bench.get_bench_site_config()
-        bench.info_display.get_site_config.assert_called_once_with()
+        bench.info_display.get_site_config.assert_called_once_with(None)
+
+        bench.info_display.get_site_config.reset_mock()
+        bench.get_bench_site_config("second.example.com")
+        bench.info_display.get_site_config.assert_called_once_with("second.example.com")
 
         bench.get_log_file_paths()
         bench.info_display.get_log_file_paths.assert_called_once_with()

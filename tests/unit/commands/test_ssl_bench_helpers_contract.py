@@ -117,6 +117,11 @@ class SSLHarness:
         self.bench.bench_config.domains = [
             domain for name, config in configs.items() for domain in (name, *config.alias_domains)
         ]
+        # domain -> site, which is what decides whose `host_name` a certificate rewrites. Derived
+        # from the same table as `domains` so a harness with two sites cannot disagree with itself.
+        self.bench.bench_config.get_site_mappings.return_value = {
+            domain: name for name, config in configs.items() for domain in (name, *config.alias_domains)
+        }
 
     # -- convenience readers -----------------------------------------------------------
 
@@ -1299,3 +1304,59 @@ def test_is_running_swallows_a_docker_failure_and_reports_not_running(t):
     t.docker.compose.get_all_services_status.side_effect = _docker_failure()
 
     assert t.tools.is_running() is False
+
+
+# ------------------- host_name belongs to the site the domain serves, not the bench's own
+
+
+@pytest.mark.timeout(15)
+def test_add_writes_host_name_to_the_site_the_domain_serves(h):
+    """A certificate for a SIBLING site used to rewrite the primary site's `host_name`.
+
+    Frappe builds absolute URLs from `host_name`, so the primary began issuing links, password
+    resets and emails pointing at the sibling's domain, while the sibling that actually gained the
+    certificate kept its old value. Both sites wrong from one command, and nothing said so.
+    """
+    h.set_sites({DOMAIN: [], "second.example.com": []})
+
+    _add(h, domain="second.example.com", dry_run=False)
+
+    assert h.site_config_writes() == [
+        ("second.example.com", {"host_name": "https://second.example.com"})
+    ]
+
+
+@pytest.mark.timeout(15)
+def test_remove_writes_host_name_to_the_site_the_domain_serves(h):
+    h.set_sites({DOMAIN: [], "second.example.com": []})
+    h.cert_manager.list_certificates.return_value = []
+
+    _remove(h, domain="second.example.com", yes=True)
+
+    assert h.site_config_writes() == [
+        ("second.example.com", {"host_name": "http://second.example.com"})
+    ]
+
+
+@pytest.mark.timeout(15)
+def test_an_alias_certificate_writes_the_site_that_owns_the_alias(h):
+    """An alias is a hostname OF a site, so a certificate for it moves that site's host_name."""
+    h.set_sites({DOMAIN: [], "second.example.com": ["www.second.example.com"]})
+
+    _add(h, domain="www.second.example.com", dry_run=False)
+
+    assert h.site_config_writes() == [
+        ("second.example.com", {"host_name": "https://www.second.example.com"})
+    ]
+
+
+@pytest.mark.timeout(15)
+def test_an_unmapped_domain_leaves_every_host_name_alone(h):
+    """Rather than fall back to the bench's own site, which is the bug. No site owns it, so no
+    site's `host_name` is the right one to move."""
+    h.set_sites({DOMAIN: []})
+    h.bench.bench_config.get_site_mappings.return_value = {}
+
+    _add(h, dry_run=False)
+
+    assert h.site_config_writes() == []

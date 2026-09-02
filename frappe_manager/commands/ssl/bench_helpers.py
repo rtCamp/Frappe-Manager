@@ -23,6 +23,21 @@ if TYPE_CHECKING:
     from frappe_manager.site_manager.bench_config import BenchConfig
 
 
+def _site_serving(bench: Bench, domain: str) -> str | None:
+    """The site `domain` is a hostname for, or None when the bench does not map it.
+
+    `host_name` is per-site data: Frappe builds absolute URLs from it, so the site whose
+    certificate changed is the only one whose value should move. Writing `bench.site_name` instead
+    meant a certificate issued for a SIBLING site rewrote the primary site's `host_name` to the
+    sibling's domain and left the sibling untouched, so the primary began generating links, password
+    resets and emails pointing at another site.
+
+    None rather than a fallback: writing the wrong site's config is the bug being fixed, and the
+    caller treats a missing value as "leave host_name alone".
+    """
+    return bench.bench_config.get_site_mappings().get(domain)
+
+
 def _add_bench_certificate(
     ctx: typer.Context,
     benchname: str,
@@ -88,10 +103,14 @@ def _add_bench_certificate(
         bench.certificate_manager.add_certificate(cert, dry_run=dry_run)
 
     if not dry_run:
-        # Update host_name to HTTPS since SSL is now active
+        # The site this domain serves, not the bench's own: see _site_serving.
+        served = _site_serving(bench, domain)
         try:
-            bench.set_bench_site_config(bench.site_name, {"host_name": f"https://{domain}"})
-            output.debug(f"Updated host_name to https://{domain}")
+            if served:
+                bench.set_bench_site_config(served, {"host_name": f"https://{domain}"})
+                output.debug(f"Updated host_name to https://{domain} on {served}")
+            else:
+                output.debug(f"No site maps {domain}; leaving host_name alone")
         except Exception as e:
             # Non-fatal -- site config may not exist yet if site isn't created
             output.debug(f"Could not update host_name to https://{domain}: {e}")
@@ -129,10 +148,14 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
         with spinner(output, f"Removing SSL certificate for {domain}"):
             bench.certificate_manager.remove_certificate_by_domain(domain)
 
-        # Revert host_name to HTTP since SSL was removed
+        # The site this domain serves, not the bench's own: see _site_serving.
+        served = _site_serving(bench, domain)
         try:
-            bench.set_bench_site_config(bench.site_name, {"host_name": f"http://{domain}"})
-            output.debug(f"Updated host_name to http://{domain}")
+            if served:
+                bench.set_bench_site_config(served, {"host_name": f"http://{domain}"})
+                output.debug(f"Updated host_name to http://{domain} on {served}")
+            else:
+                output.debug(f"No site maps {domain}; leaving host_name alone")
         except Exception as e:
             output.debug(f"Could not update host_name to http://{domain}: {e}")
 
