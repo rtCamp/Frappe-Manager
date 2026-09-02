@@ -50,3 +50,57 @@ def test_the_example_is_inert(relative):
 
     live = [line for line in lines if line.strip() and not line.lstrip().startswith("#")]
     assert live == [], f"{relative} has uncommented lines: {live}"
+
+
+# ------------------------- the hand-written examples in configuration.md
+
+
+"""The TOML in `docs/reference/configuration.md` has to be loadable, and honoured.
+
+`bench_config.example.toml` is generated from the models, so it cannot drift. The examples in
+the prose are hand-written and did: they showed `alias_domains` at the TOP LEVEL long after the
+key moved under `[sites."<site>"]`. The failure mode is the worst kind, because the file still
+loads: fm reads only the new spelling, so the documented key is silently ignored and the operator
+gets no alias, no certificate and no error.
+
+Loading is therefore not enough. These assert the documented keys actually take EFFECT.
+"""
+
+import tempfile
+
+from frappe_manager.site_manager.bench_config import BenchConfig
+
+DOC = Path(__file__).resolve().parents[3] / "docs" / "reference" / "configuration.md"
+
+
+def _documented_bench_config() -> str:
+    after = DOC.read_text().split("### Bench Config (`bench_config.toml`)", 1)[1]
+    return after.split("```toml", 1)[1].split("```", 1)[0]
+
+
+def test_the_documented_bench_config_loads():
+    path = Path(tempfile.mkdtemp()) / "bench_config.toml"
+    path.write_text(_documented_bench_config())
+
+    config = BenchConfig.import_from_toml(path)
+
+    assert config.name == "mybench.localhost"
+
+
+def test_the_documented_alias_actually_reaches_the_domain_list():
+    # The regression this exists for: a top-level `alias_domains` loads and does nothing.
+    path = Path(tempfile.mkdtemp()) / "bench_config.toml"
+    path.write_text(_documented_bench_config())
+
+    config = BenchConfig.import_from_toml(path)
+
+    assert "www.mybench.com" in config.domains
+
+
+def test_the_documented_site_is_the_resolved_primary():
+    path = Path(tempfile.mkdtemp()) / "bench_config.toml"
+    path.write_text(_documented_bench_config())
+
+    config = BenchConfig.import_from_toml(path)
+
+    assert config.primary_site == "mybench.localhost"

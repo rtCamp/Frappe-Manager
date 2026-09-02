@@ -135,3 +135,23 @@ fm ssl add mybench/example.com
 The default HTTP-01 challenge needs the domain's A record pointing at this server and port 80 reachable from the internet. If you cannot open port 80, use `--challenge dns01` with saved provider credentials. For a local bench that needs no public DNS at all, `--dev` issues from fm's own CA.
 
 Renewal is not automatic: run `fm ssl renew all` from a daily cron. The [SSL guide](guides/ssl.md) has step-by-step instructions for all of it.
+
+### `fm info` says a site is `missing` or `unmanaged`. What do they mean?
+
+They are the two ways `bench_config.toml` and the disk can disagree, and they are opposites.
+
+`unmanaged` is a site directory fm has no record of, which is what `bench new-site` inside `fm shell` leaves behind. fm reports it and never touches it: it does not drop a schema it did not create, so `fm delete BENCHNAME --all-sites` will not take that database with it. Adopt it by recording it yourself, or remove the directory and its schema by hand.
+
+`missing` is the reverse: a site recorded in `[sites]` with no `sites/<site>/site_config.json`. Frappe cannot open such a site, so it can be listed and routed while no command can act on it, and it is skipped when fm decides which site is the bench's [primary](reference/configuration.md#primary-site). Clear the record with:
+
+```bash
+fm delete mybench/ghost.localhost --yes
+```
+
+fm will say it found no schema name to drop. That is the point of the message rather than an error: a schema is minted as `fm_<site>_<hex>` and the name is written only into the site config that is gone, so if a database was ever created for that site it is still on `global-db` under a name only a listing can reveal.
+
+### `fm shell mybench` lands on the wrong site. Why?
+
+A command that names a bench without naming a site acts on the bench's primary, and the first thing that decides it is Frappe's own `default_site` in `common_site_config.json`. So `bench use other.localhost`, run inside a shell at any point in the past, moves it.
+
+`fm info mybench` shows which site fm resolves to, marked `● primary`. To act on a different one, address it: `fm shell mybench/other.localhost`. The [full resolution order](reference/configuration.md#primary-site) is in the configuration reference.

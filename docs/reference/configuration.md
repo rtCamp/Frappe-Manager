@@ -57,11 +57,13 @@ environment = "prod"
 runtime = "mount"
 upload_limit = "50M"
 restart_policy = "unless-stopped"
-alias_domains = ["www.mybench.com"]
 db_name = "fm_mybench_localhost_9f4c1a77d0e35b62"
 
 python_version = "3.13"
 node_version = "20"
+
+[sites."mybench.localhost"]
+alias_domains = ["www.mybench.com"]
 
 [auth]
 user = "admin"
@@ -362,21 +364,87 @@ restart_policy = "unless-stopped"
 
 ---
 
-### `alias_domains` {#alias-domains}
+### `[sites."<site>"]` {#sites}
+
+**Default:** one entry, the site created with the bench  
+**Type:** `table per site name`  
+**File key:** `[sites."<site>"]`
+
+The sites this bench serves. One table per site, keyed by the site's own name, which is not
+necessarily the bench's: `fm create shop` makes a bench called `shop` serving a site called
+`shop.localhost`.
+
+This table is the record of which sites exist. fm acts on what is written here and never on what
+it merely finds on disk, which is why a site created by hand with `bench new-site` is reported
+rather than adopted.
+
+```toml
+[sites."mybench.localhost"]
+alias_domains = ["www.mybench.com", "alt.mybench.com"]
+
+[sites."shop.example.com"]
+```
+
+An entry with no keys is a complete record: it says the bench serves that site on the fm-managed
+`global-db` container with no aliases.
+
+**Change via:** `fm create BENCHNAME/SITE` to add one, `fm delete BENCHNAME/SITE` to remove one.
+
+---
+
+### `[sites."<site>"].alias_domains` {#alias-domains}
 
 **Default:** `[]`  
 **Type:** `array of strings`  
-**File key:** `alias_domains`
+**File key:** `alias_domains`, inside that site's table
 
-Additional hostnames served by this bench. Each alias can have its own SSL certificate.
+Additional hostnames this SITE answers on. Each alias can have its own SSL certificate.
 
 ```toml
+[sites."mybench.localhost"]
 alias_domains = ["www.mybench.com", "alt.mybench.com"]
 ```
 
-**Change via:** `fm update BENCHNAME --add-alias www.example.com,alt.example.com` / `--remove-alias www.example.com`
+!!! warning "Per site, not per bench"
+    This key belongs to a site's table. A bench serving several sites has to say which one an
+    alias reaches, because a hostname routes to exactly one schema. Written at the TOP LEVEL of
+    `bench_config.toml` it is silently ignored: the file loads, and the alias simply does not
+    exist. `fm migrate` moves a top-level list from an older bench under its primary site.
+
+**Change via:** `fm update BENCHNAME/SITE --add-alias www.example.com,alt.example.com` / `--remove-alias www.example.com`
 
 **See also:** [fm ssl add command](../commands/ssl.md)
+
+---
+
+### Which site a bench-scoped command means {#primary-site}
+
+`fm shell BENCH`, `fm switch BENCH`, `fm ssl add BENCH/DOMAIN` and every other command that names
+a bench without naming a site has to pick one. That site is called the bench's PRIMARY, and it is
+not stored in `bench_config.toml`: it is resolved, in this order.
+
+1. **`default_site` from `common_site_config.json`**, when it names a site the bench records.
+   This is Frappe's own answer to the same question, the one `bench use <site>` writes and the one
+   a bare `bench` command inside the container obeys. fm writes it when it creates a bench's first
+   site, and `fm migrate` fills it in for a bench that predates that.
+2. **The site named after the bench**, in either spelling: `shop` for a bench called `shop`, or
+   `shop.localhost` for one whose name is not already a hostname. This is the relationship
+   `fm create shop` establishes.
+3. **The only site there is**, when the bench serves exactly one.
+4. Otherwise **no primary**, and a bench-scoped command refuses rather than guess. Address the
+   site explicitly: `fm shell BENCH/SITE`.
+
+A site whose `sites/<site>/site_config.json` is missing is skipped by every rule above, including
+the first. Frappe cannot open such a site, so choosing it would give fm a primary that no command
+could act on. `fm info` lists those entries under `missing`.
+
+!!! info "`bench use` moves it"
+    Because rule 1 reads Frappe's file, running `bench use other.localhost` inside `fm shell`
+    changes which site fm's bench-scoped commands mean, too. That is deliberate: one question, one
+    answer, one place to write it. Run `fm info BENCHNAME` to see which site fm currently resolves
+    to, marked `● primary`.
+
+**See also:** [`[sites."<site>"]`](#sites)
 
 ---
 
