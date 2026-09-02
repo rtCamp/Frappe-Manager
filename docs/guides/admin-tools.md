@@ -47,6 +47,8 @@ The address says the scope, and the mechanism follows from it:
 | `mybench` | the bench | starts or stops the one Adminer and Mailpit pair. Off for the bench can stop the containers because nothing is left needing them. |
 | `mybench/b.example.com` | one site | adds or removes the `/adminer/` and `/mailpit/` routes from that site's server block. The containers keep running, because the bench's other sites still reach them. |
 
+`mybench/all` sets the route on every site the bench serves, which is how you clear several opt-outs in one call. It is not the bench form: the containers keep running, so a bench-wide `disable` and `all disable` differ in whether Adminer is up at all.
+
 The bench form is a floor: `fm update mybench/b.example.com --admin-tools enable` is refused while the bench's tools are off, since routing a hostname at a stopped container is a 502 rather than an enable.
 
 ### Why this and not a per-site password

@@ -305,16 +305,6 @@ def update(
             )
             raise typer.Exit(1)
 
-        if admin_tools:
-            # Not the message above: dropping the site part from `--admin-tools` addresses the
-            # BENCH, which is already what "every site" means here -- it starts or stops the one
-            # container pair they all reach.
-            output.display_error(
-                "--admin-tools cannot take 'all'. Name one site as BENCH/SITE to change just its "
-                "routes, or drop the site part to start or stop the tools for the whole bench."
-            )
-            raise typer.Exit(1)
-
     bench = Bench.get_object(address, services_manager, output_handler=output)
 
     demoting_to_mount = runtime == BenchRuntime.mount
@@ -617,22 +607,33 @@ def update(
                 # mechanism the scope implies. Off for the bench means stop the one container pair,
                 # because nothing is left needing it; off for one site can only mean drop that
                 # site's routes, because the bench's other sites still reach the same containers.
+                #
+                # `all` fans out like `--apps` does, and unlike the alias and CA flags above: a
+                # route is a boolean per site, so "every site" is well defined. It is NOT the same
+                # as the bare bench form -- that stops the containers, this leaves them running -- and
+                # the enable direction is the only way to clear several sites' opt-outs at once.
                 recorded = bench.bench_config.sites or {}
-                if apps_site not in recorded:
+                fanning = apps_site == RESERVED_BENCH_NAME
+                targets = list(bench.bench_config.site_names) if fanning else [apps_site]
+
+                missing = [site for site in targets if site not in recorded]
+                if missing:
                     output.display_error(
-                        f"Bench '{bench.name}' records no entry for site '{apps_site}', so there is nowhere to store its tool routing."
+                        f"Bench '{bench.name}' records no entry for site {', '.join(repr(s) for s in missing)}, so there is nowhere to store tool routing."
                     )
                     raise typer.Exit(1)
 
+                label = "every site" if fanning else apps_site
                 if wanted and not bench.bench_config.admin_tools:
                     # Nothing to route to: routing a hostname at a stopped container is a 502.
                     output.display_error(
-                        f"Admin tools are disabled on {bench.name}, so there is nothing to route from '{apps_site}'. Start them for the bench first with 'fm update {bench.name} --admin-tools enable'."
+                        f"Admin tools are disabled on {bench.name}, so there is nothing to route from {label}. Start them for the bench first with 'fm update {bench.name} --admin-tools enable'."
                     )
                     raise typer.Exit(1)
 
-                output.change_head(f"{'Routing' if wanted else 'Unrouting'} admin tools for {apps_site}")
-                recorded[apps_site].serve_admin_tools = wanted
+                output.change_head(f"{'Routing' if wanted else 'Unrouting'} admin tools for {label}")
+                for site in targets:
+                    recorded[site].serve_admin_tools = wanted
                 bench_config_save = True
 
                 # Creating and removing the location files is the command's job; ensure_fm_nginx_confs
@@ -643,8 +644,14 @@ def update(
                 except Exception as e:
                     output.warning(f"Config written but nginx did not reload, so it applies on next start: {e}")
                 output.print(
-                    f"/adminer/ and /mailpit/ {'now answer' if wanted else 'no longer answer'} on {apps_site} and its aliases"
+                    f"/adminer/ and /mailpit/ {'now answer' if wanted else 'no longer answer'} on {label} and {'their' if fanning else 'its'} aliases"
                 )
+                if fanning and not wanted:
+                    # Otherwise this reads as `--admin-tools disable` on the bench, and the running
+                    # containers look like the command failing to do what it said.
+                    output.print(
+                        f"The Adminer and Mailpit containers are still running; stop them with 'fm update {bench.name} --admin-tools disable'"
+                    )
 
             elif wanted:
                 output.change_head("Enabling Admin-tools")

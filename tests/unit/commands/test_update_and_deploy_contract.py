@@ -1536,13 +1536,34 @@ class TestSiteScopedAdminTools:
         assert world.bench.bench_config.sites["shop.localhost"].serve_admin_tools is None
         assert world.bench.bench_config.sites["b.example.com"].serve_admin_tools is None
 
-    def test_all_is_refused_because_the_bare_bench_form_already_means_that(self, world):
+    def test_all_fans_the_routes_out_over_every_site(self, world):
         self._sites(world)
+        world.run(site=RESERVED_BENCH_NAME, admin_tools=EnableDisableOptionsEnum.disable)
 
-        with pytest.raises(typer.Exit):
-            world.run(site=RESERVED_BENCH_NAME, admin_tools=EnableDisableOptionsEnum.disable)
+        # A route is a boolean per site, so "every site" is well defined -- unlike an alias or a CA
+        # path, which is why those refuse `all` and this does not.
+        assert world.bench.bench_config.sites["shop.localhost"].serve_admin_tools is False
+        assert world.bench.bench_config.sites["b.example.com"].serve_admin_tools is False
 
-        assert "--admin-tools cannot take 'all'" in " ".join(world.errors)
+    def test_all_is_not_the_bench_form_and_says_so(self, world):
+        self._sites(world)
+        world.run(site=RESERVED_BENCH_NAME, admin_tools=EnableDisableOptionsEnum.disable)
+
+        # The containers keep running, which is the whole difference from `fm update BENCH
+        # --admin-tools disable`. Unsaid, the running containers read as the command failing.
+        assert world.bench.bench_config.admin_tools is True
+        world.bench.admin_tools.disable.assert_not_called()
+        assert any("still running" in line for line in world.prints)
+
+    def test_all_enable_clears_several_sites_opt_outs_at_once(self, world):
+        self._sites(world, serve_admin_tools=False)
+        world.bench.bench_config.sites["shop.localhost"].serve_admin_tools = False
+        world.run(site=RESERVED_BENCH_NAME, admin_tools=EnableDisableOptionsEnum.enable)
+
+        # The reason refusing `all` was wrong: without it, restoring N opted-out sites means naming
+        # each one, and the bench form does NOT do it (a site's own false survives it).
+        assert world.bench.bench_config.sites["shop.localhost"].serve_admin_tools is True
+        assert world.bench.bench_config.sites["b.example.com"].serve_admin_tools is True
 
     def test_an_unrecorded_site_is_refused(self, world):
         self._sites(world)
