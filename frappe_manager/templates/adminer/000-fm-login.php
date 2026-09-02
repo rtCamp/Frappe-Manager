@@ -35,12 +35,48 @@ class FMLoginServers extends AdminerLoginServers {
         foreach (glob('/fm-sites/*/site_config.json') as $file) {
             $site = basename(dirname($file));
             $cfg = json_decode((string) file_get_contents($file), true) ?: array();
+            // db_socket silently overrides db_host/db_port for Frappe itself, and Adminer in this
+            // container can never reach a unix socket living in another one. With db_host also set
+            // the operator named a TCP endpoint explicitly — plausibly the same server, and a path
+            // that works — so that card stays. Without it the fallback below would aim the card at
+            // the shared global-db: a different, real, writable database than the one the site
+            // actually uses, and a button to the wrong database is worse than no button.
+            if (!empty($cfg['db_socket']) && empty($cfg['db_host'])) {
+                continue;
+            }
+            // Per site, not bench-wide: the DB endpoint moved into each site's own file when a
+            // bench could serve several, so fm no longer writes db_host/db_port to common at all.
+            $host = (string) ($cfg['db_host'] ?? $common['db_host'] ?? 'global-db');
+            $port = (int) ($cfg['db_port'] ?? $common['db_port'] ?? 0);
+            // Adminer splits the server string with `^(\[(.+)]|([^:]+)):([^:]+)$` (host_port() in
+            // upstream include/functions.inc.php): a port is only recognised after a plain name or
+            // a bracketed `[ipv6]`, so a bare IPv6 literal must gain brackets before a port can be
+            // appended — a colon check alone dropped the port for every IPv6 host. The port is only
+            // appended when set and non-default, so the shared global-db cards read exactly as they
+            // always did; a host already carrying a port Adminer can parse is left alone, and no
+            // brackets are added when no port is appended (`[ipv6]` bare fails that regex too).
+            $endpoint = $host;
+            if ($port && $port !== 3306 && !preg_match('~^(\[.+]|[^:]+):[^:]+$~', $host)) {
+                $bare_ipv6 = strpos($host, ':') !== false && $host[0] !== '[';
+                $endpoint = ($bare_ipv6 ? '[' . $host . ']' : $host) . ':' . $port;
+            }
             $servers[$site] = array(
-                'server' => (string) ($cfg['db_host'] ?? $common['db_host'] ?? 'global-db'),
+                'server' => $endpoint,
                 'driver' => 'server',
             );
             $creds[$site] = array((string) ($cfg['db_name'] ?? ''), (string) ($cfg['db_password'] ?? ''));
-            $meta[$site] = array('title' => $site, 'sub' => 'MariaDB · site database', 'icon' => '🗄');
+            $sub = ($endpoint === $host) ? 'MariaDB · site database' : 'MariaDB · site database · ' . $endpoint;
+            // fm pins this site's DB TLS via db_ssl_ca, but the CA lives under the bench's
+            // config/tls/ directory, outside the sole sites -> /fm-sites mount, and Adminer only
+            // applies TLS through a connectSsl() override this plugin does not implement. The
+            // click therefore fails against a server that enforces TLS, or silently connects
+            // unencrypted and unverified where TLS is optional. Say so on the card instead of
+            // pretending; honouring the pin needs a compose change to mount the CA plus a
+            // connectSsl() implementation, not a quiet downgrade here.
+            if (!empty($cfg['db_ssl_ca'])) {
+                $sub .= ' · TLS not applied by Adminer';
+            }
+            $meta[$site] = array('title' => $site, 'sub' => $sub, 'icon' => '🗄');
         }
         foreach (array('redis_cache' => array('redis-cache', 'Redis Cache', '⚡'), 'redis_queue' => array('redis-queue', 'Redis Queue', '📬')) as $key => $info) {
             if (empty($common[$key])) {
@@ -65,7 +101,10 @@ class FMLoginServers extends AdminerLoginServers {
             $_POST["auth"]["driver"] = $this->servers[$fmKey]["driver"];
             $_POST["auth"]["username"] = '';
             $_POST["auth"]["password"] = '';
-        } elseif ($_POST["auth"] && isset($this->servers[$_POST["auth"]["server"]])) {
+        } elseif (isset($_POST["auth"]["server"]) && isset($this->servers[$_POST["auth"]["server"]])) {
+            // `isset` on the nested key rather than a truth test on `$_POST["auth"]`: on a plain
+            // GET there is no POST at all, and PHP 8 emits "Undefined array key" for that read on
+            // every page load. Warnings land in the response body, ahead of Adminer's own output.
             $_POST["auth"]["driver"] = $this->servers[$_POST["auth"]["server"]]["driver"];
         }
     }
