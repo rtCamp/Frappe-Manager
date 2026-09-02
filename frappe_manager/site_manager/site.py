@@ -1906,9 +1906,12 @@ class Bench:
             build_auth_map_conf,
             build_server_auth_conf,
             container_htpasswd_path,
+            container_site_htpasswd_path,
             generate_password,
             htpasswd_name,
             is_fm_auth_conf,
+            site_htpasswd_name,
+            site_var_suffix,
             write_htpasswd,
         )
         from frappe_manager.site_manager.modules.realip import build_bench_realip_conf
@@ -1928,39 +1931,113 @@ class Bench:
         )
 
         auth = self.bench_config.auth or AuthConfig()
-        needs_auth = auth.web or (auth.tools and bool(self.bench_config.admin_tools))
 
-        if needs_auth and auth.password is None:
+        # One scope per DISTINCT auth in play: the bench's, shared by every site that has none of
+        # its own, plus one per site that overrides it.
+        #
+        # The web surface renders per-site (`custom/<site>/auth.conf`) for EVERY site, including
+        # the ones inheriting the bench's, and nothing bench-wide gates it any more. That is forced,
+        # not stylistic: `custom/*.conf` is included in every site's server block, `auth_basic` may
+        # not appear twice in one context, so a bench-wide conf beside an overriding site's own
+        # would be a config nginx refuses to load at all. Rendering every site from its effective
+        # auth keeps exactly one `auth_basic` per block whatever the mix.
+        scopes: list[tuple[str, AuthConfig]] = []
+        seen_bench = False
+        for site in self.bench_config.site_names:
+            entry = (self.bench_config.sites or {}).get(site)
+            if entry is not None and entry.auth is not None:
+                scopes.append((site, entry.auth))
+            elif not seen_bench:
+                seen_bench = True
+                scopes.append(("", auth))
+
+        # `tools` is bench-wide by design (one Adminer and one Mailpit per bench), so it reads the
+        # bench's auth and is backed by the bench's htpasswd whatever the sites do.
+        tools_wanted = bool(auth.tools and self.bench_config.admin_tools)
+        bench_web = any(key == "" and sauth.web for key, sauth in scopes)
+        needs_bench_htpasswd = tools_wanted or bench_web
+
+        minted = False
+        for _key, sauth in scopes:
+            if sauth.web and sauth.password is None:
+                sauth.password = generate_password()
+                minted = True
+        if tools_wanted and auth.password is None:
             auth.password = generate_password()
+            minted = True
+        if minted:
             self.bench_config.auth = auth
             self.save_bench_config(print_message=False)
 
-        htpasswd_path = conf_dir / "http_auth" / htpasswd_name(self.name)
-        server_conf_path = conf_dir / "custom" / SERVER_CONF_NAME
+        bench_htpasswd = conf_dir / "http_auth" / htpasswd_name(self.name)
         map_conf_path = conf_dir / "conf.d" / MAP_CONF_NAME
+        legacy_server_conf = conf_dir / "custom" / SERVER_CONF_NAME
 
-        if auth.web:
-            wanted[server_conf_path] = build_server_auth_conf(
-                container_htpasswd_path(self.name), auth.allow_ips, auth.allow_paths
+        # Every scope's `geo`/`map` blocks share ONE file: they are http context, so they cannot
+        # live in a server block, and one file per scope would be four files nginx reads as one
+        # anyway. The suffixed variable names are what keep them apart.
+        map_blocks: list[str] = []
+        htpasswds: dict[Path, tuple[str, str]] = {}
+        by_scope: dict[str, tuple[AuthConfig, str, str]] = {}
+
+        for key, sauth in scopes:
+            suffix = site_var_suffix(key) if key else ""
+            if key:
+                htpasswd_file = conf_dir / "http_auth" / site_htpasswd_name(self.name, key)
+                container_path = container_site_htpasswd_path(self.name, key)
+            else:
+                htpasswd_file = bench_htpasswd
+                container_path = container_htpasswd_path(self.name)
+            by_scope[key] = (sauth, suffix, container_path)
+            if sauth.web:
+                if sauth.allow_paths:
+                    map_blocks.append(build_auth_map_conf(sauth.allow_paths, sauth.allow_ips, suffix=suffix))
+                if sauth.password:
+                    htpasswds[htpasswd_file] = (sauth.user, sauth.password)
+
+        if needs_bench_htpasswd and auth.password:
+            htpasswds[bench_htpasswd] = (auth.user, auth.password)
+
+        for site in self.bench_config.site_names:
+            entry = (self.bench_config.sites or {}).get(site)
+            key = site if (entry is not None and entry.auth is not None) else ""
+            scope = by_scope.get(key)
+            if scope is None or not scope[0].web:
+                continue
+            sauth, suffix, container_path = scope
+            wanted[conf_dir / "custom" / site / SERVER_CONF_NAME] = build_server_auth_conf(
+                container_path, sauth.allow_ips, sauth.allow_paths, suffix=suffix
             )
-            if auth.allow_paths:
-                wanted[map_conf_path] = build_auth_map_conf(auth.allow_paths, auth.allow_ips)
+
+        if map_blocks:
+            wanted[map_conf_path] = "".join(map_blocks)
 
         changed = False
 
-        if needs_auth and auth.password:
-            changed |= write_htpasswd(htpasswd_path, auth.user, auth.password)
-        elif htpasswd_path.exists():
-            htpasswd_path.unlink()
-            changed = True
+        for path, (user, password) in htpasswds.items():
+            changed |= write_htpasswd(path, user, password)
 
-        for path in (server_conf_path, map_conf_path):
+        # Sweep what no scope wants any more: the per-site confs, the pre-per-site bench-wide conf
+        # every existing bench has on disk, the map, and each stale htpasswd. All fm-owned, so all
+        # removable -- but only when fm wrote them, which the marker says.
+        stale: list[Path] = [legacy_server_conf, map_conf_path]
+        custom_dir = conf_dir / "custom"
+        if custom_dir.is_dir():
+            stale += [d / SERVER_CONF_NAME for d in custom_dir.iterdir() if d.is_dir()]
+        for path in stale:
             if path in wanted or not path.exists():
                 continue
             if not is_fm_auth_conf(path.read_text()):
                 continue
             path.unlink()
             changed = True
+
+        http_auth_dir = conf_dir / "http_auth"
+        if http_auth_dir.is_dir():
+            for path in http_auth_dir.iterdir():
+                if path.is_file() and path not in htpasswds:
+                    path.unlink()
+                    changed = True
 
         for path, content in wanted.items():
             if path.exists() and path.read_text() == content:

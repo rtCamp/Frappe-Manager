@@ -126,19 +126,19 @@
 
 # HTTP basic auth configuration ([auth]).
 # [auth]
-# Basic auth username, shared by both surfaces. [default: 'admin']
+# Basic auth username for this scope. [default: 'admin']
 # user = ...
 # Basic auth password; generated on first enable when unset. [optional, unset by default]
 # password = ...
 # Prompt on the frappe + socketio surface (every path bar the admin tools). [default: False]
 # web = ...
-# Prompt on the admin tools paths (/adminer/, /mailpit/). [default: True]
-# tools = ...
 # Addresses/CIDRs that skip the prompt wherever auth applies (satisfy any). [optional, empty by
 # default]
 # allow_ips = ...
 # Path prefixes served without a prompt; applies to the web surface. [optional, empty by default]
 # allow_paths = ...
+# Prompt on the admin tools paths (/adminer/, /mailpit/). [default: True]
+# tools = ...
 
 # ---- [build] -------------------------------------------------------------------------------
 
@@ -190,6 +190,20 @@
 # Extra hostnames this site is served on, besides its own name. A site's name IS its canonical
 # domain; these are alternates for the same site. [optional, empty by default]
 # alias_domains = ...
+#
+# The basic auth of ONE web scope: a bench's whole web surface, or a single site's.
+# [sites.<key>.auth]
+# Basic auth username for this scope. [default: 'admin']
+# user = ...
+# Basic auth password; generated on first enable when unset. [optional, unset by default]
+# password = ...
+# Prompt on the frappe + socketio surface (every path bar the admin tools). [default: False]
+# web = ...
+# Addresses/CIDRs that skip the prompt wherever auth applies (satisfy any). [optional, empty by
+# default]
+# allow_ips = ...
+# Path prefixes served without a prompt; applies to the web surface. [optional, empty by default]
+# allow_paths = ...
 
 # ---- [redis] -------------------------------------------------------------------------------
 

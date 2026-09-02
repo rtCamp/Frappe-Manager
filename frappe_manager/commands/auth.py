@@ -6,13 +6,13 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
-from frappe_manager.commands.arguments import BenchNameArgument
 from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime
+from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime, WebAuthConfig
 from frappe_manager.site_manager.modules.auth import generate_password, validate_credentials
 from frappe_manager.site_manager.modules.realip import validate_cidrs
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+from frappe_manager.utils.callbacks import bench_site_autocompletion_callback, bench_site_callback
 
 # Rich help panels for `fm auth --help`, grouped by concern.
 _PANEL_SURFACES = "Surfaces (what asks for a password)"
@@ -28,10 +28,13 @@ class AuthSurface(str, Enum):
     tools = "tools"
 
 
-def _surface_summary(web: bool, tools: bool) -> str:
-    protected = [name for name, on in (("web", web), ("tools", tools)) if on]
+def _surface_summary(web: bool, tools: bool | None) -> str:
+    """`tools` is None for a site scope, which has no tools surface to report: there is one
+    Adminer and one Mailpit per bench, so the tools state belongs to the bench line, not a site's."""
+    surfaces = [("web", web)] if tools is None else [("web", web), ("tools", tools)]
+    protected = [name for name, on in surfaces if on]
     if not protected:
-        return "off on both surfaces (web, tools)"
+        return "off on the web surface" if tools is None else "off on both surfaces (web, tools)"
     return f"on for: {', '.join(protected)}"
 
 
@@ -43,13 +46,14 @@ def _read_password_from_stdin() -> str:
     return sys.stdin.readline().rstrip("\r\n")
 
 
-def _print_state(output, config: AuthConfig, hint_when_off: bool) -> None:
+def _print_state(output, config: WebAuthConfig, hint_when_off: bool) -> None:
     """Surfaces first, then the detail that only means something while a surface
     is protected: on the all-off state credentials and exemptions are inert, and
     printing them reads as if something were still enforced. They stay in the
     config and reappear as soon as a surface is protected again."""
-    output.print(f"Basic auth {_surface_summary(config.web, config.tools)}")
-    if not (config.web or config.tools):
+    tools = config.tools if isinstance(config, AuthConfig) else None
+    output.print(f"Basic auth {_surface_summary(config.web, tools)}")
+    if not (config.web or tools):
         if hint_when_off and (config.password or config.allow_ips or config.allow_paths):
             output.print("  credentials and exemptions stay stored and apply again when a surface is protected")
         return
@@ -75,6 +79,12 @@ def _print_state(output, config: AuthConfig, hint_when_off: bool) -> None:
     benchname="mybench",
 )
 @example(
+    "Protect one site of a bench",
+    "{benchname}/b.example.com --protect web",
+    detail="That site's hostnames prompt with credentials of its own; the bench's other sites keep serving exactly as before. A site with no auth of its own follows the bench, so a plain 'fm auth mybench --protect web' still covers every site.",
+    benchname="mybench",
+)
+@example(
     "Set your own credentials",
     "{benchname} --protect web --protect tools --user alice --password -",
     detail="Reads the password from stdin, so it never lands in the shell history.",
@@ -94,7 +104,18 @@ def _print_state(output, config: AuthConfig, hint_when_off: bool) -> None:
 )
 def auth(
     ctx: typer.Context,
-    benchname: BenchNameArgument = None,
+    address: Annotated[
+        str | None,
+        typer.Argument(
+            metavar="BENCH(/SITE)",
+            # NOT the shared `BenchSiteArgument` help. There a bare bench means the bench's primary
+            # site; here it means the WHOLE bench, and an operator who read "primary site is used"
+            # would think `fm auth shop --protect web` left the other sites open.
+            help="Bench, or BENCH/SITE for one of its sites. Without a site part the whole bench is addressed: every site that has no auth of its own follows it.",
+            autocompletion=bench_site_autocompletion_callback,
+            callback=bench_site_callback,
+        ),
+    ] = None,
     protect: Annotated[
         list[AuthSurface],
         typer.Option(
@@ -123,7 +144,7 @@ def auth(
         str | None,
         typer.Option(
             "--user",
-            help="Basic auth username, shared by both surfaces. Defaults to 'admin'.",
+            help="Basic auth username for the scope you named: both surfaces of the bench, or that one site. Defaults to 'admin'.",
             show_default=False,
             rich_help_panel=_PANEL_CREDENTIALS,
         ),
@@ -185,7 +206,9 @@ def auth(
 
     --protect is declarative: the surfaces you pass become the resulting state, and a bench starts with the admin tools prompting and the site open, so --protect web alone also turns the tools prompt off; name both surfaces to keep both. Credentials and allow lists are kept when a surface goes off, so re-enabling asks for nothing. A bare fm auth BENCH reports the state.
 
-    Basic auth sends credentials base64-encoded, not encrypted, so on a bench without TLS they are effectively cleartext: protecting the web surface there needs --insecure.
+    BENCH/SITE protects the web surface of one site, with credentials of its own, and leaves the bench's other sites serving as before. A site with no auth of its own follows the bench, so fm auth BENCH still covers every site. --protect tools takes no site part: one Adminer and one Mailpit serve the whole bench, on every hostname it has.
+
+    Basic auth sends credentials base64-encoded, not encrypted, so on a bench without TLS they are effectively cleartext: protecting the web surface there needs --insecure. The certificate checked is the one for the hostname you named.
     """
 
     output = get_global_output_handler()
@@ -245,45 +268,87 @@ def auth(
     if password == "-":
         password = _read_password_from_stdin()
 
-    check_bench_migration_required(benchname)
+    check_bench_migration_required(address)
 
     services_manager = ctx.obj["services"]
-    bench = Bench.get_object(benchname, services_manager, output_handler=output)
+    bench = Bench.get_object(address, services_manager, output_handler=output)
+    site = ctx.obj.get("site")
 
-    stored = bench.bench_config.auth
+    # A site part cannot narrow the tools surface. There is one Adminer and one Mailpit per bench
+    # and both answer on every hostname it serves, so protecting them for one site would leave the
+    # SAME tools reachable unprotected on its neighbours: one of two doors into the same room.
+    # Refused rather than quietly applied bench-wide, which is the version an operator finds out
+    # about only when it matters.
+    if site and AuthSurface.tools in protect:
+        output.error(
+            f"--protect tools cannot take a site part: one Adminer and one Mailpit serve the whole bench, on every hostname '{bench.name}' has, so protecting them for '{site}' alone would leave the same tools open on the others. Run 'fm auth {bench.name} --protect tools' to protect them for the bench.",
+            exception=typer.Exit(code=1),
+        )
+
+    entry = (bench.bench_config.sites or {}).get(site) if site else None
+    if site and entry is None:
+        output.error(
+            f"Bench '{bench.name}' records no entry for site '{site}', so its own auth has nowhere to live. Run 'fm auth {bench.name}' to set the auth every site of the bench follows.",
+            exception=typer.Exit(code=1),
+        )
+
+    scope = f"{bench.name}/{site}" if site else bench.name
+    stored = entry.auth if entry is not None else bench.bench_config.auth
 
     if not writes:
-        # Bare `fm auth BENCH` and `--status` both land here: report only.
+        # Bare `fm auth BENCH`, `fm auth BENCH/SITE` and `--status` all land here: report only.
         if stored is None:
+            if site:
+                # Not "unconfigured": the site IS protected or not, by the bench's setting. Report
+                # what it actually serves, and say where the answer came from.
+                output.print(f"Basic auth for {site}: inherited from bench '{bench.name}'")
+                _print_state(output, bench.bench_config.auth_for(site), hint_when_off=True)
+                output.print(f"  give this site its own with 'fm auth {scope} --protect web'")
+                return
             output.print("Basic auth: not configured; bench defaults apply (tools protected, web open)")
             output.print(f"Protect a surface with 'fm auth {bench.name} --protect web' to mint credentials")
             return
+        if site:
+            output.print(f"Basic auth for {site}: its own, overriding bench '{bench.name}'")
         _print_state(output, stored, hint_when_off=True)
         return
 
-    # Effective current state: an absent [auth] table means the model defaults
-    # are what the bench serves today (admin tools protected, site open).
-    current = stored or AuthConfig()
+    # Effective current state. For the bench, an absent [auth] table means the model defaults are
+    # what it serves today (admin tools protected, site open). For a site with no auth of its own,
+    # the starting point is what it currently serves -- the bench's -- so `--allow-path` alone on an
+    # already-protected site does not silently turn its prompt off.
+    current = stored or (bench.bench_config.auth_for(site) if site else AuthConfig())
 
-    web_on, tools_on = current.web, current.tools
+    web_on = current.web
+    tools_on = bench.bench_config.auth.tools if bench.bench_config.auth else AuthConfig().tools
+    if not site:
+        tools_on = current.tools if isinstance(current, AuthConfig) else tools_on
     if off:
-        web_on = tools_on = False
+        web_on = False
+        if not site:
+            tools_on = False
     elif protect:
         wanted = {surface.value for surface in protect}
         web_on = AuthSurface.web.value in wanted
-        tools_on = AuthSurface.tools.value in wanted
+        if not site:
+            tools_on = AuthSurface.tools.value in wanted
 
     if allow_path and not web_on:
         output.error(
-            "--allow-path exempts paths on the web surface only, which this bench does not protect (add --protect web)",
+            f"--allow-path exempts paths on the web surface only, which {scope} does not protect (add --protect web)",
             exception=typer.Exit(code=1),
         )
 
     # Only turning a surface ON adds exposure, so an idempotent re-run never gates.
     enabling_web = web_on and not current.web
-    enabling_tools = tools_on and not current.tools
+    bench_tools = bench.bench_config.auth.tools if bench.bench_config.auth else AuthConfig().tools
+    enabling_tools = tools_on and not bench_tools
     if (enabling_web or enabling_tools) and not insecure:
-        certificate = bench.bench_config.get_primary_certificate()
+        # The hostname whose credentials are at stake: the named site's own, or the bench's primary.
+        # Certificates are per hostname, so asking the primary about a named site would answer for
+        # the wrong name and could clear a site that has no TLS at all.
+        guarded_domain = site or bench.primary_domain
+        certificate = bench.bench_config.certificate_for(guarded_domain) if site else bench.bench_config.get_primary_certificate()
         if certificate.ssl_type == SUPPORTED_SSL_TYPES.none:
             # The web surface is the new capability and gates every path including
             # /api, so plain http is refused outright. The tools surface has served
@@ -295,11 +360,11 @@ def auth(
                     # Two roles in one sentence: the certificate is keyed by DOMAIN (that is what a
                     # browser validates and what `SSLCertificate.domain` holds), while `fm ssl add`
                     # takes the BENCH as its first positional and the hostname separately.
-                    f"Domain '{bench.primary_domain}' has no TLS certificate: basic auth sends the credentials base64-encoded on every request, so on the web surface they would travel in the clear in front of every path including /api. Add HTTPS with 'fm ssl add {bench.name}', or pass --insecure to accept that.",
+                    f"Domain '{guarded_domain}' has no TLS certificate: basic auth sends the credentials base64-encoded on every request, so on the web surface they would travel in the clear in front of every path including /api. Add HTTPS with 'fm ssl add {bench.name} {guarded_domain}', or pass --insecure to accept that.",
                     exception=typer.Exit(code=1),
                 )
             output.warning(
-                f"Domain '{bench.primary_domain}' has no TLS certificate: basic auth sends the credentials base64-encoded on every request, so the admin tools credentials are effectively cleartext (--insecure silences this)"
+                f"Domain '{guarded_domain}' has no TLS certificate: basic auth sends the credentials base64-encoded on every request, so the admin tools credentials are effectively cleartext (--insecure silences this)"
             )
 
     # Capability gate for the web surface only. nginx forwards the Authorization
@@ -325,8 +390,14 @@ def auth(
 
     credentials_touched = user is not None or password is not None or rotate
 
-    new_user = user if user is not None else current.user
-    new_password = current.password
+    # A site taking auth of its OWN starts from no credentials of its own, even though `current`
+    # holds the bench's while it was still inheriting: carrying that password over would mean the
+    # bench password opens the site, which is the one thing per-site credentials exist to prevent.
+    # An explicit --user/--password still wins, and a site that already has an entry keeps its own.
+    baseline = WebAuthConfig() if (site and stored is None) else current
+
+    new_user = user if user is not None else baseline.user
+    new_password = baseline.password
     if password is not None:
         new_password = password
     elif rotate:
@@ -340,30 +411,43 @@ def auth(
         except ValueError as e:
             output.error(f"Invalid credentials: {e}", exception=typer.Exit(code=1))
 
-    bench.bench_config.auth = AuthConfig(
-        user=new_user,
-        password=new_password,
-        web=web_on,
-        tools=tools_on,
-        allow_ips=allow_ips if allow_ip else ([] if clear_exemptions else current.allow_ips),
-        allow_paths=allow_path if allow_path else ([] if clear_exemptions else current.allow_paths),
-    )
+    if site:
+        # The site's own entry, so its credentials are its own: a password handed out for one site
+        # is not a password to another. `tools` is absent from the model on purpose (WebAuthConfig),
+        # which is why the bench's value above was never folded in here.
+        entry.auth = WebAuthConfig(
+            user=new_user,
+            password=new_password,
+            web=web_on,
+            allow_ips=allow_ips if allow_ip else ([] if clear_exemptions else current.allow_ips),
+            allow_paths=allow_path if allow_path else ([] if clear_exemptions else current.allow_paths),
+        )
+    else:
+        bench.bench_config.auth = AuthConfig(
+            user=new_user,
+            password=new_password,
+            web=web_on,
+            tools=tools_on,
+            allow_ips=allow_ips if allow_ip else ([] if clear_exemptions else current.allow_ips),
+            allow_paths=allow_path if allow_path else ([] if clear_exemptions else current.allow_paths),
+        )
     bench.save_bench_config(print_message=False)
 
-    # Single owner of the htpasswd file and the nginx auth confs; reloads once.
+    # Single owner of the htpasswd files and the nginx auth confs; reloads once.
     bench.ensure_fm_nginx_confs()
 
-    applied = bench.bench_config.auth
+    applied = entry.auth if site else bench.bench_config.auth
+    if site:
+        output.print(f"Basic auth for {site} (its own, overriding bench '{bench.name}')")
 
-    if credentials_touched and not (web_on or tools_on):
-        output.warning(
-            "Credentials saved but nothing enforces them: no surface is protected, pass --protect web and/or --protect tools"
-        )
+    if credentials_touched and not web_on and (site or not tools_on):
+        surfaces = "--protect web" if site else "--protect web and/or --protect tools"
+        output.warning(f"Credentials saved but nothing enforces them: no surface is protected, pass {surfaces}")
 
     # ensure_fm_nginx_confs writes nothing for the tools surface on a bench whose
     # admin tools are off (there are no /adminer/ and /mailpit/ locations to gate), so
     # reporting it as protected without this would be a lie.
-    if applied.tools and not bench.bench_config.admin_tools:
+    if not site and applied.tools and not bench.bench_config.admin_tools:
         output.warning(
             f"Admin tools are disabled on {bench.name}, so nothing enforces the tools surface yet; it applies once you run 'fm update {bench.name} --admin-tools enable'"
         )

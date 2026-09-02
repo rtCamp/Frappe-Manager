@@ -61,7 +61,7 @@ from frappe_manager.commands.shell import (
 )
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime
+from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime, SiteConfig
 from frappe_manager.site_manager.exceptions import BenchNotFoundError
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 
@@ -136,6 +136,7 @@ def _auth_bench(
     runtime=BenchRuntime.mount,
     nginx_conf: str | None = "map $remote_user $fm_upstream_auth { }",
     name="mybench",
+    site_auth=None,
 ):
     bench = MagicMock()
     bench.name = name
@@ -149,15 +150,22 @@ def _auth_bench(
     bench.bench_config.auth = stored
     bench.bench_config.runtime = runtime
     bench.bench_config.get_primary_certificate.return_value = SimpleNamespace(ssl_type=ssl_type)
+    bench.bench_config.certificate_for.return_value = SimpleNamespace(ssl_type=ssl_type)
+    # A real `[sites]` table, because the site path writes into the entry it finds there and
+    # refuses when there is none.
+    bench.bench_config.sites = {name: SiteConfig(), "b.example.com": SiteConfig(auth=site_auth)}
+    bench.bench_config.auth_for = lambda s: (bench.bench_config.sites[s].auth or stored or AuthConfig())
     return bench
 
 
 def _run_auth(bench=None, **kwargs):
     """Call the real `auth` body with the bench lookup and migration gate mocked."""
     ctx = MagicMock()
-    ctx.obj = {"services": MagicMock()}
+    # `site` is the SITE half of the address, which `bench_site_callback` stashes here. None means
+    # the whole bench, which is what a bare `fm auth BENCH` does.
+    ctx.obj = {"services": MagicMock(), "site": kwargs.pop("site", None)}
     params = {
-        "benchname": "mybench",
+        "address": "mybench",
         "protect": [],
         "off": False,
         "status": False,
@@ -1967,3 +1975,73 @@ def test_the_bypass_url_and_the_page_path_carry_the_token_and_bench_name():
     assert "location = /fm-bypass/" + "9" * 32 + " {" in conf
     assert "try_files /fm-maintenance-mybench.html =502;" in conf
     assert "root /usr/share/nginx/html;" in conf
+
+
+# --- the site half of the address ------------------------------------------ #
+def test_protect_tools_with_a_site_part_is_refused(out, tmp_path):
+    """One Adminer and one Mailpit serve the whole bench, on every hostname it has.
+
+    Protecting them for one site would leave the SAME tools reachable unprotected on its
+    neighbours: one of two doors into the same room. Refused rather than silently applied
+    bench-wide, which is the version an operator only finds out about when it matters."""
+    bench = _auth_bench(tmp_path)
+    r = _run_auth(bench=bench, site="b.example.com", protect=[AuthSurface.tools])
+    assert r.exit.exit_code == 1
+    assert "--protect tools cannot take a site part" in joined(out.display_error)
+    bench.save_bench_config.assert_not_called()
+
+
+def test_protect_web_with_a_site_part_writes_the_sites_entry_not_the_benchs(out, tmp_path):
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=True, password="benchpass"))
+    r = _run_auth(bench=bench, site="b.example.com", protect=[AuthSurface.web])
+    assert r.exit is None
+    # The bench's own table is untouched: its other sites keep serving exactly as before.
+    assert bench.bench_config.auth.web is False
+    assert bench.bench_config.sites["b.example.com"].auth.web is True
+
+
+def test_a_site_gets_its_own_password_not_the_benchs(out, tmp_path):
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, password="benchpass"))
+    _run_auth(bench=bench, site="b.example.com", protect=[AuthSurface.web])
+    # Per-site credentials are the point: a password handed out for one site must not open another.
+    assert bench.bench_config.sites["b.example.com"].auth.password != "benchpass"
+
+
+def test_an_unrecorded_site_is_refused_rather_than_stored_nowhere(out, tmp_path):
+    bench = _auth_bench(tmp_path)
+    bench.bench_config.sites = {"mybench": SiteConfig()}
+    r = _run_auth(bench=bench, site="b.example.com", protect=[AuthSurface.web])
+    assert r.exit.exit_code == 1
+    assert "records no entry for site" in joined(out.display_error)
+    bench.save_bench_config.assert_not_called()
+
+
+def test_the_tls_gate_asks_about_the_named_site_not_the_primary(out, tmp_path):
+    """Certificates are per hostname, so the primary having one says nothing about a neighbour.
+
+    Answering from the primary would hand out a site's credentials in cleartext."""
+    bench = _auth_bench(tmp_path, ssl_type=SUPPORTED_SSL_TYPES.le)
+    bench.bench_config.certificate_for.return_value = SimpleNamespace(ssl_type=SUPPORTED_SSL_TYPES.none)
+    r = _run_auth(bench=bench, site="b.example.com", protect=[AuthSurface.web])
+    assert r.exit.exit_code == 1
+    assert "b.example.com' has no TLS certificate" in joined(out.display_error)
+    bench.bench_config.certificate_for.assert_called_once_with("b.example.com")
+
+
+def test_off_with_a_site_part_leaves_the_benchs_tools_alone(out, tmp_path):
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, tools=True, password="benchpass"))
+    _run_auth(bench=bench, site="b.example.com", off=True)
+    # `--off` on a site turns that site's prompt off. The tools surface is bench-wide, so it is not
+    # a thing a site-scoped call may switch off.
+    assert bench.bench_config.auth.tools is True
+    assert bench.bench_config.sites["b.example.com"].auth.web is False
+
+
+def test_a_bare_site_address_reports_that_it_inherits(out, tmp_path):
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, password="benchpass"))
+    r = _run_auth(bench=bench, site="b.example.com")
+    assert r.exit is None
+    # Not "unconfigured": the site IS protected, by the bench's setting. Saying where the answer
+    # came from is what stops an operator turning it on twice.
+    assert "inherited from bench" in joined(out.print)
+    bench.save_bench_config.assert_not_called()

@@ -911,20 +911,21 @@ class SwitchHooks(SwitchHookScripts):
     host: SwitchHookScripts | None = Field(None, description="Host-side switch hooks.")
 
 
-class AuthConfig(BaseModel):
-    """HTTP basic auth configuration (``[auth]``): which of the bench's two nginx
-    surfaces prompt for a password, and the single credential pair both use.
+class WebAuthConfig(BaseModel):
+    """The basic auth of ONE web scope: a bench's whole web surface, or a single site's.
 
-    Both are enforced by the bench nginx, the only route into the bench (it publishes
-    no host ports), against one host-side htpasswd file.
+    Everything here is expressible per site, which is why it is separate from
+    :class:`AuthConfig`: a site's `[sites."<name>".auth]` uses THIS model, so `tools` is not a key
+    it can carry. That is a correctness boundary, not tidiness. There is one Adminer and one
+    Mailpit per bench, so a per-site `tools` value could only ever be ignored, and a config able to
+    state an ignored value is a config that lies to whoever reads it.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    user: str = Field("admin", description="Basic auth username, shared by both surfaces.")
+    user: str = Field("admin", description="Basic auth username for this scope.")
     password: str | None = Field(None, description="Basic auth password; generated on first enable when unset.")
     web: bool = Field(False, description="Prompt on the frappe + socketio surface (every path bar the admin tools).")
-    tools: bool = Field(True, description="Prompt on the admin tools paths (/adminer/, /mailpit/).")
     allow_ips: list[str] = Field(
         default_factory=list,
         description="Addresses/CIDRs that skip the prompt wherever auth applies (satisfy any).",
@@ -933,6 +934,19 @@ class AuthConfig(BaseModel):
         default_factory=list,
         description="Path prefixes served without a prompt; applies to the web surface.",
     )
+
+
+class AuthConfig(WebAuthConfig):
+    """The bench's basic auth (``[auth]``): its web surface plus the admin tools, and the
+    credentials both use.
+
+    Both are enforced by the bench nginx, the only route into the bench (it publishes
+    no host ports), against one host-side htpasswd file. A site that carries its own
+    `[sites."<name>".auth]` overrides the web half of this for its own hostnames; the tools half is
+    bench-wide and cannot be overridden.
+    """
+
+    tools: bool = Field(True, description="Prompt on the admin tools paths (/adminer/, /mailpit/).")
 
 
 class WorkersConfig(BaseModel):
@@ -1290,6 +1304,14 @@ class SiteConfig(BaseModel):
     in a comment that this was the one place an alias could reach a site the operator did not
     intend. A site's name is its canonical domain, so an alias belongs to the site it is an
     alternate FOR.
+
+    `auth` is here for the third time the same argument applies, and it could not be before: basic
+    auth is a server-context directive, so with ONE nginx server block covering every hostname there
+    was no way to prompt on one site and not another. One block per site made a per-site value
+    expressible, and the bench-level `[auth]` stays the default a site inherits when it has none of
+    its own. `tools` is deliberately NOT per-site even so: there is one Adminer and one Mailpit per
+    bench, so protecting the path on one hostname while another serves it unprotected locks one of
+    two doors into the same room.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1303,6 +1325,12 @@ class SiteConfig(BaseModel):
         default=[],
         description="Extra hostnames this site is served on, besides its own name. A site's name "
         "IS its canonical domain; these are alternates for the same site.",
+    )
+    auth: WebAuthConfig | None = Field(
+        None,
+        description="Basic auth for THIS site's hostnames, overriding the bench's `[auth]`. Absent "
+        "means the site inherits the bench setting, which is what every bench did before per-site "
+        "server blocks existed.",
     )
 
 
@@ -1579,6 +1607,19 @@ class BenchConfig(BaseModel):
         # Return default disabled certificate
         return SSLCertificate(domain=self.name, ssl_type=SUPPORTED_SSL_TYPES.none)
 
+    def certificate_for(self, domain: str) -> SSLCertificate:
+        """The certificate covering `domain`, or a disabled one when nothing does.
+
+        Certificates are per hostname, so a caller asking "is THIS name on TLS" cannot use
+        :meth:`get_primary_certificate`: on a bench serving several sites the primary having a
+        certificate says nothing about the others. `fm auth BENCH/SITE` is exactly that caller --
+        answering from the primary would hand out a site's credentials in cleartext.
+        """
+        for cert in self.ssl_certificates:
+            if cert.domain == domain and cert.ssl_type != SUPPORTED_SSL_TYPES.none:
+                return cert
+        return SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none)
+
     def set_primary_certificate(self, certificate: SSLCertificate):
         """
         Set the primary SSL certificate (certificate for the bench's primary domain).
@@ -1755,6 +1796,7 @@ class BenchConfig(BaseModel):
                     # Named explicitly rather than splatting the table, so a stray key in a
                     # hand-written file is refused by `extra="forbid"` instead of silently kept.
                     alias_domains=[str(alias) for alias in (site.get("alias_domains") or [])],
+                    auth=WebAuthConfig(**dict(site["auth"])) if site.get("auth") else None,
                 )
                 for name, site in data["sites"].items()
             }
@@ -1916,6 +1958,23 @@ class BenchConfig(BaseModel):
             if entry is not None:
                 ordered.extend(entry.alias_domains)
         return ordered
+
+    def auth_for(self, site: str) -> "WebAuthConfig":
+        """The basic auth that applies to `site`: its own if it has one, else the bench's.
+
+        One place answers this, because two would disagree. `fm auth BENCH` writes the bench-level
+        `[auth]` and every site without an entry of its own follows it, which is what every bench
+        did before a per-site value could be expressed at all. `fm auth BENCH/SITE` writes
+        `[sites."<site>".auth]`, and from then on that site stops following the bench.
+
+        Never None, so a caller rendering nginx does not have to decide what absent means: an
+        `AuthConfig()` with `web=False` is "no prompt on the web surface", which is the default a
+        bench with no auth at all has always had.
+        """
+        entry = (self.sites or {}).get(site)
+        if entry is not None and entry.auth is not None:
+            return entry.auth
+        return self.auth or AuthConfig()
 
     def get_site_mappings(self) -> dict[str, str]:
         """domain -> site, for the nginx entrypoint's `SITE_MAPPINGS`.

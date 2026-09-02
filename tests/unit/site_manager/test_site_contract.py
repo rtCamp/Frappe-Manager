@@ -744,7 +744,7 @@ class TestEnsureFmNginxConfs:
     def test_web_auth_writes_the_server_conf_and_the_shared_htpasswd(self, tmp_path):
         h = self._auth_bench(tmp_path, web=True, password="s3cret")
         h.bench.ensure_fm_nginx_confs()
-        server_conf = h.conf_dir / "custom" / SERVER_CONF_NAME
+        server_conf = h.conf_dir / "custom" / SITE / SERVER_CONF_NAME
         assert server_conf.read_text() == build_server_auth_conf(container_htpasswd_path(SITE), [], [])
         assert (h.conf_dir / "http_auth" / htpasswd_name(SITE)).exists()
 
@@ -767,7 +767,7 @@ class TestEnsureFmNginxConfs:
             allow_paths=["/api/method/payment_webhook"],
         )
         h.bench.ensure_fm_nginx_confs()
-        assert "deny all;" not in (h.conf_dir / "custom" / SERVER_CONF_NAME).read_text()
+        assert "deny all;" not in (h.conf_dir / "custom" / SITE / SERVER_CONF_NAME).read_text()
         map_text = (h.conf_dir / "conf.d" / MAP_CONF_NAME).read_text()
         assert "geo $fm_auth_ip_exempt {" in map_text
         assert "    203.0.113.0/24 1;" in map_text
@@ -783,7 +783,7 @@ class TestEnsureFmNginxConfs:
         h.bench.ensure_fm_nginx_confs()
         # The tools surface carries its own directives inside admin-tools.conf; a
         # server-context include would gate the whole site.
-        assert not (h.conf_dir / "custom" / SERVER_CONF_NAME).exists()
+        assert not (h.conf_dir / "custom" / SITE / SERVER_CONF_NAME).exists()
         assert (h.conf_dir / "http_auth" / htpasswd_name(SITE)).exists()
 
     def test_tools_auth_needs_admin_tools_enabled_to_mint_credentials(self, tmp_path):
@@ -829,7 +829,7 @@ class TestEnsureFmNginxConfs:
         enabled = self._auth_bench(tmp_path, web=True, password="s3cret", allow_paths=["/ping"])
         enabled.bench.ensure_fm_nginx_confs()
         htpasswd = enabled.conf_dir / "http_auth" / htpasswd_name(SITE)
-        server_conf = enabled.conf_dir / "custom" / SERVER_CONF_NAME
+        server_conf = enabled.conf_dir / "custom" / SITE / SERVER_CONF_NAME
         map_conf = enabled.conf_dir / "conf.d" / MAP_CONF_NAME
         assert htpasswd.exists()
         assert server_conf.exists()
@@ -857,7 +857,7 @@ class TestEnsureFmNginxConfs:
 
     def test_a_stale_fm_conf_is_rewritten_when_its_content_drifts(self, tmp_path):
         h = self._auth_bench(tmp_path, web=True, password="s3cret")
-        server_conf = h.conf_dir / "custom" / SERVER_CONF_NAME
+        server_conf = h.conf_dir / "custom" / SITE / SERVER_CONF_NAME
         server_conf.parent.mkdir(parents=True, exist_ok=True)
         server_conf.write_text("# fm:auth stale\n")
 

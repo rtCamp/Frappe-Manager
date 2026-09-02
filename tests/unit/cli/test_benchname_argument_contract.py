@@ -85,7 +85,6 @@ CANONICAL = BenchnameSpec(
 # live app, so adding a 13th canonical command does not break this file.
 KNOWN_CANONICAL = frozenset(
     {
-        "fm auth",
         "fm code",
         "fm info",
         "fm logs",
@@ -124,6 +123,18 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         type_name="text",
         autocompletion=None,
         callback=callbacks.create_command_sitename_callback,
+    ),
+    # `auth` takes a site part because basic auth is a server-context directive and there is one
+    # server block per site now, so one site can prompt while its neighbours do not. `--protect
+    # tools` is refused with a site part: one Adminer and one Mailpit serve the whole bench.
+    "fm auth": BenchnameSpec(
+        help="Bench, or BENCH/SITE for one of its sites. Without a site part the whole bench is addressed: every site that has no auth of its own follows it.",
+        metavar="BENCH(/SITE)",
+        default=None,
+        required=False,
+        type_name="text",
+        autocompletion=bench_site_autocompletion_callback,
+        callback=callbacks.bench_site_callback,
     ),
     # `maintenance --status` may run bench-less, so it swaps in a wrapper that
     # lets `None` through for that one flag and otherwise delegates. It delegates to
@@ -477,6 +488,7 @@ def test_shared_callables_are_the_same_object_everywhere():
     for name, param in BENCHNAME_ARGUMENTS.items():
         by_completer.setdefault(spec_of(param).autocompletion, set()).add(name)
     assert by_completer[bench_site_autocompletion_callback] == {
+        "fm auth",
         "fm shell",
         "fm delete",
         "fm reset",

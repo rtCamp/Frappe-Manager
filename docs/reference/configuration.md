@@ -527,6 +527,8 @@ node_version = "20"
 
 HTTP basic auth for the bench's two nginx surfaces: `web` (frappe and socketio, every path bar the admin tools) and `tools` (`/adminer/` and `/mailpit/`). One credential pair serves both, and the bench nginx enforces both.
 
+This table is what every site of the bench follows. A single site can override the web half with a `[sites."<name>".auth]` table of its own, described below.
+
 | Key | Default | Meaning |
 |---|---|---|
 | `user` | `admin` | basic auth username shared by both surfaces |
@@ -547,6 +549,25 @@ allow_paths = ["/api/method/payment_webhook"]
 ```
 
 **Change via:** `fm auth BENCH --protect web --protect tools`; `fm auth BENCH --status` reports the current state.
+
+#### Per-site auth {#site-auth}
+
+`[sites."<name>".auth]` gives one site its own prompt and its own credentials, and leaves the bench's other sites serving exactly as before. It carries the same keys as `[auth]` except `tools`, which is bench-wide: there is one Adminer and one Mailpit per bench and both answer on every hostname it serves, so protecting them for one site would leave the same tools reachable unprotected on its neighbours. A site with no `auth` table of its own follows the bench's.
+
+```toml
+[auth]
+web = true
+password = "bench-secret"
+
+[sites."b.example.com".auth]
+web = true
+user = "customer"
+password = "site-secret"
+```
+
+**Change via:** `fm auth BENCH/SITE --protect web`; `fm auth BENCH/SITE` reports whether that site has its own auth or inherits the bench's.
+
+On disk each site's directives land in `configs/nginx/conf/custom/<site>/auth.conf`, which the bench nginx includes from that site's server block only. Basic auth is a server-context directive, so this is what makes a per-site prompt possible at all.
 
 !!! warning "Stored in plaintext"
     The password is stored unencrypted in the TOML file, and basic auth sends it base64-encoded on every request. Restrict file permissions and only enable a surface on a bench with TLS:

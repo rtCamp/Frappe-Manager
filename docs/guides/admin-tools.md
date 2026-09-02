@@ -53,7 +53,7 @@ If you need the SMTP endpoint manually (inside the Docker network): host `fm__<b
 `--protect` is declarative: the surfaces you name become the resulting state. `--protect tools` alone therefore turns `web` back off, and protecting both takes both flags.
 
 ```bash
-# Password-protect the whole bench, admin tools included
+# Password-protect every site of the bench, admin tools included
 fm auth mybench --protect web --protect tools
 
 # Back to the default: tools prompt, site open
@@ -65,9 +65,25 @@ fm auth mybench --status
 
 Credentials and allow lists are kept when a surface goes off, so re-enabling asks for nothing. `--off` is the shorthand for turning both surfaces off while keeping them, and a bare `fm auth mybench` reports the state without writing.
 
+### One site at a time
+
+`fm auth BENCH` sets what every site of the bench follows. On a bench serving several sites, one of them can have a prompt of its own instead:
+
+```bash
+# This site's hostnames prompt, with credentials of its own. The bench's other sites are untouched.
+fm auth mybench/b.example.com --protect web
+
+# Whether that site has its own auth or follows the bench
+fm auth mybench/b.example.com
+```
+
+A site with no auth of its own follows the bench's, so `fm auth mybench --protect web` still covers every site. Giving a site its own is a clean break: it stops following the bench, including the bench's password, and `fm auth mybench/b.example.com --off` turns that one site's prompt off while its neighbours keep theirs.
+
+`--protect tools` takes no site part. There is one Adminer and one Mailpit per bench and both answer on every hostname it serves, so protecting them for one site would leave the same tools reachable unprotected on its neighbours: one of two doors into the same room. fm refuses rather than applying it bench-wide behind your back.
+
 ### Credentials
 
-One username and password serve both surfaces. `--user` sets the name (default `admin`), and a random password is minted the first time a surface goes on. To set your own without leaving it in the shell history, read it from stdin:
+One username and password serve both surfaces of the bench, and a site with its own auth has its own pair. `--user` sets the name (default `admin`), and a random password is minted the first time a surface goes on. To set your own without leaving it in the shell history, read it from stdin:
 
 ```bash
 fm auth mybench --protect web --protect tools --user alice --password -
