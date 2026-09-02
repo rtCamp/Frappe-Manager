@@ -56,6 +56,7 @@ import tomlkit
 from ruamel.yaml import YAML
 
 from frappe_manager import CLI_FM_CONFIG_PATH, GLOBAL_DB_IMAGE
+from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.migration_manager.migration_helpers import MigrationBench
 from frappe_manager.migration_manager.version import Version
@@ -200,14 +201,74 @@ class MigrationV0200(MigrationBase):
         with compose_path.open("w") as f:
             yaml.dump(compose_data, f)
 
-        self._place_adminer_plugin(bench)
+        self._heal_adminer_mount(bench, compose_path)
         self.output.print(f"Updated admin tools (Adminer 5 + login plugin) for {bench.name}")
 
-    def _place_adminer_plugin(self, bench: MigrationBench):
+    def _heal_adminer_mount(self, bench: MigrationBench, compose_path: Path) -> None:
+        """Place the login plugin, and recreate the container if that just recreated its directory.
+
+        Only when THIS call had to recreate the directory, and only while the tools it feeds are
+        actually turned on: docker resolves the bind mount to an inode at container start (see
+        docker-compose.admin-tools.tmpl), so a directory that came back from nothing under a
+        container that is still running the OLD inode leaves the login plugin invisible to it --
+        the exact gap `undo_bench_migrate` used to leave open by rmtree-ing this directory out from
+        under a running container. Recreating unconditionally would instead bounce a healthy
+        adminer on every dev-build rerun, since 0.20.0.dev0 sorts below 0.20.0.
+        """
+        if self._place_adminer_plugin(bench) and self._admin_tools_enabled(bench):
+            self._recreate_adminer_container(bench, compose_path)
+
+    def _place_adminer_plugin(self, bench: MigrationBench) -> bool:
+        """Write the login plugin, and report whether its directory had to be created fresh.
+
+        That directory is a bind-mount SOURCE (docker-compose.admin-tools.tmpl): docker resolves
+        it to an inode once, when the adminer container starts, and keeps that inode for the
+        container's whole life. Reporting "created fresh" is what lets `migrate_bench` tell a
+        directory that was already there -- whatever container is running still has the right
+        inode -- from one that just came back from nothing, which a running container has to be
+        told about or it keeps serving the vanished one and the login plugin silently disappears.
+        """
         adminer_config_dir = bench.path / "configs" / "adminer"
+        created = not adminer_config_dir.exists()
         adminer_config_dir.mkdir(parents=True, exist_ok=True)
         plugin_template = get_template_path("adminer/000-fm-login.php")
         (adminer_config_dir / "000-fm-login.php").write_bytes(plugin_template.read_bytes())
+        return created
+
+    def _admin_tools_enabled(self, bench: MigrationBench) -> bool:
+        """Raw TOML, like the other per-bench reads here: a migration runs against whatever is on
+        disk, which `BenchConfig` may not parse yet."""
+        config_path = bench.path / "bench_config.toml"
+        if not config_path.exists():
+            return False
+        try:
+            return bool(tomlkit.parse(config_path.read_text()).get("admin_tools", False))
+        except Exception:
+            return False
+
+    def _recreate_adminer_container(self, bench: MigrationBench, compose_path: Path) -> None:
+        """Re-resolve the adminer bind mount after its source directory came back from nothing.
+
+        `force_recreate` is the same lever `BenchAdminTools.enable(force_recreate_container=True)`
+        pulls for this exact reason (site.py, bench_orchestrator.py, update.py); only `adminer` is
+        named because mailpit does not bind-mount this directory and has nothing stale to
+        re-resolve. Best-effort: a schema migration failing outright because docker happened to be
+        unreachable during this heal would roll back changes that have nothing to do with the
+        container, which is worse than leaving the mount stale for the operator to restart by hand.
+        """
+        try:
+            DockerClient(compose_file_path=compose_path, output=self.output).compose.up(
+                services=["adminer"],
+                detach=True,
+                pull="never",
+                force_recreate=True,
+            )
+        except DockerException as e:
+            self.output.warning(
+                f"Recreated the adminer plugin directory for {bench.name} but could not recreate "
+                f"its container ({e}); its login cards will stay stale until it is restarted "
+                f"(`docker compose -f {compose_path} up -d --force-recreate adminer`)."
+            )
 
     def _place_realip_conf(self, bench: MigrationBench):
         from frappe_manager import CLI_SERVICES_DIRECTORY
@@ -876,6 +937,15 @@ class MigrationV0200(MigrationBase):
                 self.output.print(f"Restored admin tools compose for {bench.name}")
                 break
 
-        adminer_config_dir = bench.path / "configs" / "adminer"
-        if adminer_config_dir.exists():
-            shutil.rmtree(adminer_config_dir)
+        # Only the FILE this migration placed, never the directory: docker resolves that
+        # directory as a bind-mount SOURCE to an inode when the adminer container starts
+        # (docker-compose.admin-tools.tmpl) and keeps that inode for its whole life. rmtree-ing
+        # it here, while a real container may still be running against it, strands that inode --
+        # the container keeps serving a directory that no longer exists on disk, the login
+        # plugin vanishes from its view, and Adminer falls back to its stock form with nothing to
+        # warn the operator. That is exactly what a rolled-back `--rerun` did to a live bench.
+        # The directory itself belongs to `BenchAdminTools`, not to this migration step, so there
+        # is nothing here that needs a docker call, and nothing that can fail because docker is
+        # unreachable.
+        adminer_plugin = bench.path / "configs" / "adminer" / "000-fm-login.php"
+        adminer_plugin.unlink(missing_ok=True)

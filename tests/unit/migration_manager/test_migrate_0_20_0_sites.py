@@ -29,6 +29,7 @@ import pytest
 import tomlkit
 
 from frappe_manager import GLOBAL_DB_IMAGE
+from frappe_manager.docker import DockerException
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.migrations import migrate_0_20_0 as migrate_mod
 from frappe_manager.migration_manager.migrations.migrate_0_20_0 import MigrationV0200
@@ -1048,6 +1049,143 @@ def test_re_placing_the_plugin_overwrites_a_stale_copy(step, tmp_path):
     step._place_adminer_plugin(bench)
 
     assert stale.read_bytes() == get_template_path("adminer/000-fm-login.php").read_bytes()
+
+
+# ------------------------------------ the stale adminer mount (the live-bench defect)
+#
+# Docker resolves a bind-mount SOURCE to an inode when the container it feeds STARTS, and keeps
+# that inode for the container's whole life. `configs/adminer` is exactly such a source (see
+# docker-compose.admin-tools.tmpl); a container that is still running when this directory is
+# destroyed and recreated keeps serving the vanished inode, and the login plugin silently
+# disappears from its view. `_heal_adminer_mount` is what notices this migration just recreated
+# that directory from nothing and recreates the container to match, but only while admin tools are
+# actually turned on for the bench -- otherwise there is no container to strand in the first place.
+
+
+def test_a_freshly_created_plugin_directory_recreates_the_container(step, tmp_path, monkeypatch):
+    bench, _ = _bench(tmp_path, BASE.replace("admin_tools = false", "admin_tools = true"))
+    compose_path = tmp_path / "docker-compose.admin-tools.yml"
+    docker_cls = MagicMock()
+    monkeypatch.setattr(migrate_mod, "DockerClient", docker_cls)
+
+    step._heal_adminer_mount(bench, compose_path)
+
+    docker_cls.assert_called_once_with(compose_file_path=compose_path, output=step.output)
+    docker_cls.return_value.compose.up.assert_called_once_with(
+        services=["adminer"], detach=True, pull="never", force_recreate=True
+    )
+
+
+def test_an_already_present_plugin_directory_does_not_recreate_the_container(step, tmp_path, monkeypatch):
+    """The directory already existing means whatever container is running still holds the right
+    inode: nothing stale to re-resolve, so recreating it here would only bounce a healthy
+    adminer -- which is also what proves the second pass of an idempotent re-run stays quiet."""
+    bench, _ = _bench(tmp_path, BASE.replace("admin_tools = false", "admin_tools = true"))
+    (tmp_path / "configs" / "adminer").mkdir(parents=True)
+    compose_path = tmp_path / "docker-compose.admin-tools.yml"
+    docker_cls = MagicMock()
+    monkeypatch.setattr(migrate_mod, "DockerClient", docker_cls)
+
+    step._heal_adminer_mount(bench, compose_path)
+
+    docker_cls.assert_not_called()
+
+
+def test_admin_tools_disabled_means_no_recreate_even_for_a_fresh_directory(step, tmp_path, monkeypatch):
+    """No container is running for this bench's admin tools, so there is nothing for a stale
+    mount to strand; recreating it would start a container the operator turned off."""
+    bench, _ = _bench(tmp_path, BASE)  # admin_tools = false
+    compose_path = tmp_path / "docker-compose.admin-tools.yml"
+    docker_cls = MagicMock()
+    monkeypatch.setattr(migrate_mod, "DockerClient", docker_cls)
+
+    step._heal_adminer_mount(bench, compose_path)
+
+    docker_cls.assert_not_called()
+
+
+def test_a_second_run_does_not_bounce_the_container_it_already_healed(step, tmp_path, monkeypatch):
+    """0.20.0.dev0 sorts below 0.20.0, so this heal runs on every migrate call on a dev-build
+    bench; the first pass's own directory must not look "fresh" to the second."""
+    bench, _ = _bench(tmp_path, BASE.replace("admin_tools = false", "admin_tools = true"))
+    compose_path = tmp_path / "docker-compose.admin-tools.yml"
+    docker_cls = MagicMock()
+    monkeypatch.setattr(migrate_mod, "DockerClient", docker_cls)
+
+    step._heal_adminer_mount(bench, compose_path)
+    docker_cls.reset_mock()
+    step._heal_adminer_mount(bench, compose_path)
+
+    docker_cls.assert_not_called()
+
+
+def test_a_docker_failure_while_healing_is_reported_not_raised(step, tmp_path, monkeypatch):
+    """A schema migration that raises because docker happened to be unreachable during this
+    best-effort heal would roll back changes that have nothing to do with the container."""
+    bench, _ = _bench(tmp_path, BASE.replace("admin_tools = false", "admin_tools = true"))
+    compose_path = tmp_path / "docker-compose.admin-tools.yml"
+    docker_cls = MagicMock()
+    docker_cls.return_value.compose.up.side_effect = DockerException(
+        ["docker", "compose", "up"], MagicMock(exit_code=1, stdout=[], stderr=["daemon unreachable"])
+    )
+    monkeypatch.setattr(migrate_mod, "DockerClient", docker_cls)
+
+    step._heal_adminer_mount(bench, compose_path)  # must not raise
+
+    step.output.warning.assert_called_once()
+
+
+def test_admin_tools_enabled_reads_the_bench_config_flag(step, tmp_path):
+    enabled, _ = _bench(tmp_path, BASE.replace("admin_tools = false", "admin_tools = true"))
+    assert step._admin_tools_enabled(enabled) is True
+
+    disabled, _ = _bench(tmp_path, BASE)
+    assert step._admin_tools_enabled(disabled) is False
+
+
+def test_admin_tools_enabled_is_false_without_a_bench_config(step, tmp_path):
+    bench = MagicMock()
+    bench.path = tmp_path
+    assert step._admin_tools_enabled(bench) is False
+
+
+# --------------------------------------------- the rollback path (undo_bench_migrate)
+
+
+def _rollback_bench(step, tmp_path):
+    bench = MagicMock()
+    bench.path = tmp_path
+    bench.name = SITE
+    step.backup_manager = MagicMock()
+    step.backup_manager.backups = []
+    return bench
+
+
+def test_the_rollback_removes_only_the_file_it_placed(step, tmp_path):
+    """Removing the whole directory here -- the OLD behaviour -- is what stranded the live bench:
+    a running adminer container has this exact directory bind-mounted as its plugin source, and
+    docker resolved that mount to an inode when the container started. rmtree-ing it out from
+    under that container leaves the plugin invisible with no warning. The directory belongs to
+    `BenchAdminTools`, not to this migration step, so only the file fm placed comes back out."""
+    bench = _rollback_bench(step, tmp_path)
+    adminer_dir = tmp_path / "configs" / "adminer"
+    adminer_dir.mkdir(parents=True)
+    plugin = adminer_dir / "000-fm-login.php"
+    plugin.write_bytes(get_template_path("adminer/000-fm-login.php").read_bytes())
+    neighbour = adminer_dir / "not-fms.php"
+    neighbour.write_text("<?php // pre-existing, not fm's to remove")
+
+    step.undo_bench_migrate(bench)
+
+    assert not plugin.exists()
+    assert adminer_dir.exists(), "the bind-mount SOURCE must survive a container attached to it"
+    assert neighbour.read_text() == "<?php // pre-existing, not fm's to remove"
+
+
+def test_the_rollback_is_harmless_when_the_plugin_is_already_gone(step, tmp_path):
+    bench = _rollback_bench(step, tmp_path)
+
+    step.undo_bench_migrate(bench)  # must not raise with nothing on disk
 
 
 # ------------------------------- the engine upgrade itself (wiring + order)

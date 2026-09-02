@@ -1442,18 +1442,24 @@ def test_undoing_the_services_migration_restores_only_the_services_compose(v0200
     assert "NOT rolled back" in output.warning.call_args.args[0]
 
 
-def test_undoing_a_bench_restores_the_admin_tools_compose_and_drops_the_plugin(v0200, v0200_bench):
+def test_undoing_a_bench_restores_the_admin_tools_compose_and_drops_only_the_plugin_file(v0200, v0200_bench):
+    """The directory is a bind-mount SOURCE for a container migrate does not stop here; rmtree-ing
+    it would strand that container on the inode docker already resolved, which is the defect this
+    step exists to not reintroduce. Only the file this migration placed comes back out."""
     compose_path = _admin_tools(v0200_bench)
     v0200.backup_manager.backup(compose_path, bench_name="alpha")
     compose_path.write_text("migrated\n")
     plugin_dir = v0200_bench.path / "configs" / "adminer"
     plugin_dir.mkdir(parents=True)
     (plugin_dir / "000-fm-login.php").write_text("<?php")
+    (plugin_dir / "other-plugin.php").write_text("<?php // not fm's to remove")
 
     v0200.undo_bench_migrate(v0200_bench)
 
     assert compose_path.read_text() == _ADMIN_TOOLS_COMPOSE
-    assert not plugin_dir.exists()
+    assert not (plugin_dir / "000-fm-login.php").exists()
+    assert plugin_dir.exists()
+    assert (plugin_dir / "other-plugin.php").read_text() == "<?php // not fm's to remove"
 
 
 def test_undoing_a_bench_that_was_never_backed_up_is_harmless(v0200, v0200_bench):
