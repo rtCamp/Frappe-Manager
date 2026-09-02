@@ -60,6 +60,7 @@ from frappe_manager.utils.callbacks import (
     bench_all_callback,
     bench_domain_autocompletion_callback,
     bench_domain_callback,
+    bench_served_domain_callback,
     bench_site_all_callback,
     bench_site_autocompletion_callback,
     bench_site_callback,
@@ -148,6 +149,23 @@ BenchDomainArgument = Annotated[
 The `ssl` commands use it: a certificate is keyed by domain, and a bench serves its sites' names
 AND their aliases, so the population is wider than `BenchSiteArgument`'s. It does no must-exist
 check, because `--standalone` puts an external domain in this same position."""
+
+BenchServedDomainArgument = Annotated[
+    str | None,
+    typer.Argument(
+        metavar="BENCH(/DOMAIN)",
+        help="Bench, or BENCH/DOMAIN to reach one hostname it serves. Without a domain part, the bench's primary site is used.",
+        autocompletion=bench_domain_autocompletion_callback,
+        callback=bench_served_domain_callback,
+    ),
+]
+"""The same second segment as :data:`BenchDomainArgument`, but the bench must EXIST.
+
+Same metavar, different callback. The `ssl` commands accept a domain belonging to no bench under
+`--standalone`, so theirs cannot require one; a command without that mode keeps the CWD fallback,
+the picker and the missing-bench refusal that every other bench argument has. `fm ngrok` uses it:
+the tunnel rewrites the `Host:` header, and a host can be an alias, so the population is domains
+rather than sites."""
 
 BenchDomainAllArgument = Annotated[
     str | None,

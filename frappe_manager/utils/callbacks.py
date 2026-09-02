@@ -509,6 +509,33 @@ def bench_domain_callback(ctx: typer.Context, value: str | None) -> str | None:
     return address.bench
 
 
+def bench_served_domain_callback(ctx: typer.Context, value: str | None) -> str | None:
+    """`BENCH[/DOMAIN]` where the bench MUST exist, unlike :func:`bench_domain_callback`.
+
+    The `ssl` commands can take a domain belonging to no bench at all under `--standalone`, which is
+    why their callback resolves nothing and checks nothing. A command with no such mode still wants
+    what every bench argument gives: the CWD fallback, the picker when the name is omitted, the
+    legacy `<name>.localhost` directory form, and a refusal naming the bench that is missing.
+
+    The DOMAIN half is stashed unvalidated, on the same `ctx.obj["domain"]` key the ssl commands
+    use. Checking it here would mean loading the bench config twice to say the same thing worse: the
+    body has the bench in hand and can name the domains it serves.
+    """
+    domain = None
+
+    if value:
+        address = _parse_or_refuse(value)
+        value = address.bench
+        domain = address.site
+
+    bench = _resolve_bench(value)
+
+    if domain is not None and ctx.obj is not None:
+        ctx.obj["domain"] = domain
+
+    return bench
+
+
 def get_cache_file() -> Path:
     """Returns the path to the cache file for recently used sites"""
     CLI_CACHE_PATH.mkdir(parents=True, exist_ok=True)

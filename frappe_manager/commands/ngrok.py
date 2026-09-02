@@ -4,7 +4,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
-from frappe_manager.commands.arguments import BenchNameArgument
+from frappe_manager.commands.arguments import BenchServedDomainArgument
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.ngrok import create_tunnel
 from frappe_manager.output_manager import get_global_output_handler
@@ -25,7 +25,7 @@ from frappe_manager.site_manager.site import Bench
 )
 def ngrok(
     ctx: typer.Context,
-    benchname: BenchNameArgument = None,
+    address: BenchServedDomainArgument = None,
     auth_token: Annotated[
         str | None,
         typer.Option(
@@ -46,18 +46,31 @@ def ngrok(
     """
     Expose a running bench on a public ngrok URL.
 
+    The tunnel rewrites the Host header on every request, so it reaches exactly one of the bench's hostnames: fm ngrok BENCH/DOMAIN reaches that one, and a bare fm ngrok BENCH reaches the bench's primary site. A bench serving several sites needs the domain named, because one tunnel cannot answer for all of them.
+
     Needs an ngrok auth token: pass --auth-token, set NGROK_AUTHTOKEN, or save one in fm's config.
     """
-    check_bench_migration_required(benchname)
+    check_bench_migration_required(address)
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj["verbose"]
 
     output = get_global_output_handler()
-    bench = Bench.get_object(benchname, services_manager, output_handler=output)
+    bench = Bench.get_object(address, services_manager, output_handler=output)
 
     if not bench.running:
         raise BenchNotRunning(bench_name=bench.name)
+
+    # The one hostname this tunnel answers for. Checked here rather than in the callback because the
+    # refusal can name what the bench actually serves only with the config loaded.
+    requested = ctx.obj.get("domain") if ctx.obj else None
+    served = list(bench.bench_config.domains)
+    if requested and requested not in served:
+        output.display_error(
+            f"bench '{bench.name}' does not serve '{requested}'. It serves {', '.join(repr(d) for d in served)}."
+        )
+        raise typer.Exit(1)
+    tunnel_host = requested or bench.primary_domain
 
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
 
@@ -95,10 +108,10 @@ def ngrok(
                 fm_config_manager.export_to_toml()
                 output.print("Saved ngrok auth token to config", emoji_code=":white_check_mark:")
 
-        output.print(f"Creating ngrok tunnel for {bench.primary_domain}", emoji_code=":link:")
+        output.print(f"Creating ngrok tunnel for {tunnel_host}", emoji_code=":link:")
 
         try:
-            create_tunnel(bench.primary_domain, auth_token)
+            create_tunnel(tunnel_host, auth_token)
         except Exception as e:
             output.display_error(f"Failed to create tunnel: {e!s}")
             raise

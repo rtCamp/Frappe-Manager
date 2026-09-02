@@ -40,6 +40,7 @@ from frappe_manager.utils.callbacks import (
     bench_all_callback,
     bench_domain_autocompletion_callback,
     bench_domain_callback,
+    bench_served_domain_callback,
     bench_site_all_callback,
     bench_site_autocompletion_callback,
     bench_site_callback,
@@ -88,7 +89,6 @@ KNOWN_CANONICAL = frozenset(
         "fm code",
         "fm info",
         "fm logs",
-        "fm ngrok",
         "fm restart",
         "fm start",
         "fm stop",
@@ -270,6 +270,20 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         type_name="text",
         autocompletion=bench_site_autocompletion_callback,
         callback=bench_site_all_callback,
+    ),
+    # `fm ngrok` left the canonical block when the tunnel learned which hostname it answers for. One
+    # tunnel rewrites the Host header to ONE name, so on a multi-site bench it reaches exactly one
+    # site; it used to always pick the primary whatever was asked. The population is DOMAINS because
+    # an alias is a legitimate thing to expose, and the bench must still exist, which is why this is
+    # `bench_served_domain_callback` and not the ssl commands' permissive one.
+    "fm ngrok": BenchnameSpec(
+        help="Bench, or BENCH/DOMAIN to reach one hostname it serves. Without a domain part, the bench's primary site is used.",
+        metavar="BENCH(/DOMAIN)",
+        default=None,
+        required=False,
+        type_name="text",
+        autocompletion=bench_domain_autocompletion_callback,
+        callback=bench_served_domain_callback,
     ),
     # dns-config credentials can be global, hence its own wording.
     "fm ssl dns-config cloudflare": BenchnameSpec(
@@ -462,6 +476,7 @@ def test_shared_callables_are_the_same_object_everywhere():
         by_completer.setdefault(spec_of(param).autocompletion, set()).add(name)
     assert by_completer[bench_site_autocompletion_callback] == {"fm shell", "fm delete", "fm reset", "fm update"}
     assert by_completer[bench_domain_autocompletion_callback] == {
+        "fm ngrok",
         "fm ssl add",
         "fm ssl list",
         "fm ssl remove",
@@ -487,19 +502,26 @@ def test_commands_that_skip_the_must_exist_check_are_only_the_documented_ones():
     require the bench to exist, because `--standalone` puts a domain belonging to no bench into that
     same position.
 
-    Four callbacks run the check, all of them through `_resolve_bench`: `sitename_callback`,
-    `bench_site_callback`, `bench_site_all_callback`, and `bench_all_callback`, which is
-    `sitename_callback` for every value except the `all` address. `fm migrate` is on this side of the
-    line now: the existence check that used to live in its body moved into the argument when
-    `--all-benches` became the `all` address, so a missing bench is refused as a usage error before
-    the command body runs. A command that silently moves off one of those loses the check and the
-    picker, which is what this pins.
+    Five callbacks run the check, all of them through `_resolve_bench`: `sitename_callback`,
+    `bench_site_callback`, `bench_site_all_callback`, `bench_served_domain_callback`, and
+    `bench_all_callback`, which is `sitename_callback` for every value except the `all` address.
+    `fm migrate` is on this side of the line now: the existence check that used to live in its body
+    moved into the argument when `--all-benches` became the `all` address, so a missing bench is
+    refused as a usage error before the command body runs. A command that silently moves off one of
+    those loses the check and the picker, which is what this pins.
 
     `bench_site_all_callback` is `bench_site_callback` with the reserved word `all` allowed as the
-    SITE half. The bench still has to exist either way; what differs is whether the site half may
-    name every site instead of one.
+    SITE half. `bench_served_domain_callback` takes a DOMAIN half instead of a site, for `fm ngrok`,
+    whose tunnel can point at an alias. The bench still has to exist for all of them; what differs
+    is what the second segment may name.
     """
-    must_exist = {sitename_callback, bench_site_callback, bench_site_all_callback, bench_all_callback}
+    must_exist = {
+        sitename_callback,
+        bench_site_callback,
+        bench_site_all_callback,
+        bench_served_domain_callback,
+        bench_all_callback,
+    }
     skipping = {name for name, param in BENCHNAME_ARGUMENTS.items() if unwrap_callback(param) not in must_exist}
     expected = {
         "fm bake",

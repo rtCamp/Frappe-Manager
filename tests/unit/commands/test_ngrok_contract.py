@@ -74,12 +74,12 @@ def _config(stored: str | None) -> SimpleNamespace:
     return SimpleNamespace(ngrok_auth_token=stored, export_to_toml=MagicMock(name="export_to_toml"))
 
 
-def _run_ngrok(config, answer: str = "no", gate=None, **kwargs):
+def _run_ngrok(config, answer: str = "no", gate=None, domain=None, served=None, **kwargs):
     handler = get_global_output_handler()
     ctx = MagicMock()
-    ctx.obj = {"services": MagicMock(), "verbose": False, "fm_config_manager": config}
+    ctx.obj = {"services": MagicMock(), "verbose": False, "fm_config_manager": config, "domain": domain}
 
-    params = {"benchname": BENCH, "auth_token": None, "save_token": None}
+    params = {"address": BENCH, "auth_token": None, "save_token": None}
     params.update(kwargs)
 
     bench = MagicMock(name="Bench")
@@ -89,6 +89,9 @@ def _run_ngrok(config, answer: str = "no", gate=None, **kwargs):
     bench.site_name = BENCH
     bench.primary_domain = BENCH
     bench.domains = [BENCH]
+    # `bench_config.domains` is what the tunnel host is validated against now: the same list, read
+    # from the config rather than the convenience property, so a two-site bench can be modelled.
+    bench.bench_config.domains = list(served if served is not None else [BENCH])
     bench.running = True
 
     with (
@@ -207,3 +210,55 @@ def test_a_bench_that_needs_migration_never_reaches_the_tunnel():
     assert result.exit.exit_code == 1
     result.bench_cls.get_object.assert_not_called()
     result.tunnel.assert_not_called()
+
+
+# ------------------------- which of the bench's hostnames the tunnel answers for
+
+
+"""One tunnel rewrites the Host header to ONE hostname, so on a bench serving several sites it
+reaches exactly one of them. It always reached the primary, whatever the operator asked for, while
+the command's help said it exposed "a running bench"."""
+
+
+def test_a_named_domain_is_the_host_the_tunnel_forwards_to():
+    world = _run_ngrok(
+        _config(OLD_TOKEN),
+        domain="b.example.com",
+        served=[BENCH, "b.example.com"],
+    )
+
+    assert world.exit is None
+    world.tunnel.assert_called_once_with("b.example.com", OLD_TOKEN)
+
+
+def test_a_bare_bench_still_tunnels_to_the_primary():
+    """Unchanged for the single-site case, which is most benches."""
+    world = _run_ngrok(_config(OLD_TOKEN), served=[BENCH, "b.example.com"])
+
+    world.tunnel.assert_called_once_with(BENCH, OLD_TOKEN)
+
+
+def test_a_domain_the_bench_does_not_serve_is_refused_by_name():
+    """Naming what it does serve, because the operator's next move is to pick one of those."""
+    world = _run_ngrok(
+        _config(OLD_TOKEN),
+        domain="elsewhere.example.com",
+        served=[BENCH, "b.example.com"],
+    )
+
+    assert world.exit is not None
+    assert world.exit.exit_code == 1
+    world.tunnel.assert_not_called()
+
+
+def test_an_alias_is_a_legal_tunnel_host():
+    """The population is DOMAINS, not sites: an alias is a hostname the bench answers on, and
+    exposing one is a legitimate thing to want."""
+    world = _run_ngrok(
+        _config(OLD_TOKEN),
+        domain="www.b.example.com",
+        served=[BENCH, "b.example.com", "www.b.example.com"],
+    )
+
+    assert world.exit is None
+    world.tunnel.assert_called_once_with("www.b.example.com", OLD_TOKEN)
