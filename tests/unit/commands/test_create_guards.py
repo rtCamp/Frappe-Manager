@@ -99,3 +99,89 @@ def test_a_free_bench_name_passes_the_guard_into_the_body(cli, benches):
     assert "already exists" not in _said(result)
     # The body's first act is constructing BenchService, so this proves the guard let the name past.
     assert bench_service_cls.called is True
+
+
+# ----------------------------------- site-scoped flags on a path that would discard them
+
+
+"""Three invocations used to exit 0 having thrown the operator's flag away.
+
+`--bench-only` skips `record_site`, so an entire external database was accepted and the bench came
+up on the global-db container instead: working, and pointed at the wrong server. `fm create
+BENCH/SITE` reaches `_add_site_to_bench`, which has no database parameters at all. And `--bench-only`
+beside a `BENCH/SITE` address is a contradiction that was resolved by ignoring the flag.
+
+Silence is the bug in each case. A refusal that names the flags is the fix, and it has to name them:
+"invalid combination" leaves the operator to guess which of eleven database flags was the problem.
+"""
+
+
+def test_bench_only_refuses_the_database_it_would_discard(cli, benches):
+    result, bench_service_cls = _invoke(cli, ["fresh", "--bench-only", "--db-host", "h", "--db-name", "n"])
+
+    assert result.exit_code != 0
+    said = _said(result)
+    assert "--db-host" in said
+    assert "--db-name" in said
+    assert "nothing to apply" in said
+    assert bench_service_cls.called is False
+
+
+def test_bench_only_refuses_aliases_it_would_discard(cli, benches):
+    result, _ = _invoke(cli, ["fresh", "--bench-only", "--alias-domains", "x.example.com"])
+
+    assert result.exit_code != 0
+    assert "--alias-domains" in _said(result)
+
+
+def test_bench_only_points_at_the_command_that_takes_those_flags(cli, benches):
+    """The flags are not wrong, the path is: they belong to the invocation that creates a site."""
+    result, _ = _invoke(cli, ["fresh", "--bench-only", "--db-host", "h"])
+
+    assert "fm create BENCH/SITE" in _said(result)
+
+
+def test_bench_only_alone_is_still_the_supported_way_to_make_an_empty_bench(cli, benches):
+    """The control. A guard that refuses `--bench-only` outright would break the documented flow."""
+    result, bench_service_cls = _invoke(cli, ["fresh", "--bench-only"])
+
+    assert "nothing to apply" not in _said(result)
+    assert bench_service_cls.called is True
+
+
+def test_a_default_valued_flag_does_not_trip_the_guard(cli, benches):
+    """`--db-port` defaults to 3306, so a source check rather than a truthiness check is required:
+    reading the VALUE would refuse every `--bench-only` create ever run."""
+    result, bench_service_cls = _invoke(cli, ["fresh", "--bench-only"])
+
+    assert "--db-port" not in _said(result)
+    assert bench_service_cls.called is True
+
+
+def test_naming_a_site_and_saying_no_site_is_refused(cli, benches):
+    """`--bench-only` used to win silently, so the site in the address was never created."""
+    result, _ = _invoke(cli, ["existing/second.example.com", "--bench-only"])
+
+    assert result.exit_code != 0
+    said = _said(result)
+    assert "names a site to create" in said
+    assert "--bench-only" in said
+
+
+def test_adding_a_site_refuses_the_database_flags_it_cannot_carry(cli, benches):
+    """`_add_site_to_bench` takes `apps` and `alias_domains` and nothing else, and `record_site` is
+    called with `None` for the database, so these were accepted and dropped."""
+    result, _ = _invoke(cli, ["existing/second.example.com", "--db-host", "h", "--db-name", "n"])
+
+    assert result.exit_code != 0
+    said = _said(result)
+    # The guard's own phrasing, not just the flag names: a help dump also lists every --db-* flag.
+    assert "does not take --db-host, --db-name" in said
+
+
+def test_adding_a_site_still_takes_the_aliases_it_does_forward(cli, benches):
+    """`--alias-domains` IS passed through to `_add_site_to_bench`, so refusing it would remove a
+    working feature. This is the line between the two halves of the guard."""
+    result, _ = _invoke(cli, ["existing/second.example.com", "--alias-domains", "x.example.com"])
+
+    assert "--alias-domains" not in _said(result)

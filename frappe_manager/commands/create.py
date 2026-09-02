@@ -278,6 +278,72 @@ _DB_PASSWORD_ALPHABET = string.ascii_letters + string.digits
 
 _EXPLICIT_SOURCES = (ParameterSource.COMMANDLINE, ParameterSource.ENVIRONMENT, ParameterSource.PROMPT)
 
+# The flags that describe a SITE rather than the bench: everything recorded under `[sites."<site>"]`
+# by `record_site`. Kept as a flag-name map because a refusal has to name what the operator typed.
+_SITE_SCOPED_FLAGS: dict[str, str] = {
+    "alias_domains": "--alias-domains",
+    "db_host": "--db-host",
+    "db_port": "--db-port",
+    "db_name": "--db-name",
+    "db_user": "--db-user",
+    "db_password": "--db-password",
+    "db_admin_user": "--db-admin-user",
+    "db_admin_password": "--db-admin-password",
+    "db_ca": "--db-ca",
+    "db_no_verify_hostname": "--db-no-verify-hostname",
+    "attach_existing_site": "--attach-existing-site",
+    "encryption_key": "--encryption-key",
+}
+
+# The subset `_add_site_to_bench` has no parameter for: adding a site to an existing bench records
+# it with no database wiring of its own (`record_site(..., None, ...)`), so these cannot be honoured
+# on that path. `--alias-domains` is absent because it IS forwarded there.
+_SITE_DB_FLAGS = frozenset(_SITE_SCOPED_FLAGS) - {"alias_domains"}
+
+
+def _refuse_unhonoured_site_flags(ctx: typer.Context, *, bench_only: bool, added_site: str | None) -> None:
+    """Refuse site-scoped flags on a path that would discard them.
+
+    All three of these used to exit 0 having thrown the flag away: `--bench-only` skips
+    `record_site` entirely, so `fm create shop --bench-only --db-host h --db-name n` accepted a
+    whole external database and created a bench on the global-db container instead; `fm create
+    BENCH/SITE` reaches `_add_site_to_bench`, which takes no database arguments; and `--bench-only`
+    beside a `BENCH/SITE` address is a straight contradiction that was resolved by ignoring the
+    flag. Silently dropping database wiring is the worst of the three, because the bench comes up
+    working and pointed at the wrong server.
+
+    Only flags the operator actually passed count, so a default like `--db-port 3306` never trips.
+    """
+    given = {
+        flag
+        for name, flag in _SITE_SCOPED_FLAGS.items()
+        if ctx.get_parameter_source(name) in _EXPLICIT_SOURCES
+    }
+    output = get_global_output_handler()
+
+    if bench_only and added_site:
+        output.display_error(
+            "BENCH/SITE names a site to create and --bench-only says to create none. Pass the bench "
+            "name alone for an empty bench, or drop --bench-only to create the site you named."
+        )
+        raise typer.Exit(1)
+
+    if bench_only and given:
+        output.display_error(
+            f"--bench-only creates no site, so {', '.join(sorted(given))} would have nothing to "
+            "apply to. Create the bench, then add the site with 'fm create BENCH/SITE' and pass them there."
+        )
+        raise typer.Exit(1)
+
+    unhonoured = sorted(given & {_SITE_SCOPED_FLAGS[n] for n in _SITE_DB_FLAGS})
+    if added_site and unhonoured:
+        output.display_error(
+            f"'fm create BENCH/SITE' does not take {', '.join(unhonoured)}: a site added to an "
+            "existing bench is recorded without database wiring of its own. Create the bench and its "
+            "first site together to point them at an external server."
+        )
+        raise typer.Exit(1)
+
 
 @dataclass(frozen=True)
 class _ExternalCredentials:
@@ -925,11 +991,13 @@ def create(
     verbose = ctx.obj["verbose"]
     fm_config: FMConfigManager = ctx.obj["fm_config_manager"]
 
+    added_site = ctx.obj.get("site") if ctx.obj else None
+    _refuse_unhonoured_site_flags(ctx, bench_only=bench_only, added_site=added_site)
+
     # `BENCH/SITE` adds a site to a bench that already exists. The callback resolved the bench and
     # put the new site here, so this branch has to come before ANY bench-creation work: phase 1
     # mkdirs and re-renders compose, which on a running bench would disturb the sites already
     # serving before the new one is known to work.
-    added_site = ctx.obj.get("site") if ctx.obj else None
     if added_site:
         _add_site_to_bench(
             address=address,
