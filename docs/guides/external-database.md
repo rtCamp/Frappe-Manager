@@ -79,6 +79,9 @@ Some rules the CLI enforces before it connects to anything:
 
 `--db-ca` takes a host path to the CA bundle that signed the server certificate. fm copies it into the bench, points Frappe's Python driver at it, and writes a client option file so the `mariadb` CLI (which Frappe shells out to for dumps, restores and `bench mariadb`) uses it too. Hostname verification is on unless you pass `--db-no-verify-hostname`, which requires `--db-ca`: without a CA there is no TLS at all, so there is no certificate whose hostname could be checked.
 
+!!! note "The Adminer one-click login card does not apply this CA"
+    `--db-ca` reaches Frappe's Python driver and the `mariadb` CLI, both running inside the bench container where the CA is mounted. Adminer runs in its own container, mounted only with the sites directory, and its one-click login cards ([Admin tools](admin-tools.md)) have no way to reach the CA or apply it. A site with a CA pinned still gets a card, subtitled `· TLS not applied by Adminer`, and clicking it connects without the CA: unencrypted and unverified where TLS is optional, refused outright where the server enforces it.
+
 Providers rotate CAs on a schedule. Refresh a rotated one with:
 
 ```bash

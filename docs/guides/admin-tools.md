@@ -23,6 +23,12 @@ Both sit behind an HTTP basic auth prompt by default. `fm info mybench` prints t
 
 Adminer opens on one-click login cards rather than a blank login form: one per site database, plus the bench's Redis cache and Redis queue. The cards are read from the mounted `sites` directory on every request, so a password change (a restore, a rotation) is picked up without regenerating anything.
 
+!!! warning "The one-click card does not apply a pinned CA"
+    A site whose external database has a CA pinned with `--db-ca` (see [External Database](external-database.md#tls)) gets a card whose subtitle ends in `· TLS not applied by Adminer`. The CA lives under the bench's `config/tls/<site>/` directory, outside the one directory the Adminer container mounts, and this plugin has no `connectSsl()` override to apply it even where it could reach the file. Clicking the card still connects: without the CA, that means unencrypted and unverified against a server where TLS is optional, and refused outright against one that enforces it. fm's own tooling is unaffected, since `bench`, dumps, restores and Frappe's own driver all run inside the bench container, where the CA is mounted.
+
+!!! note "A `db_socket` site with no `db_host` gets no card"
+    `db_socket` silently overrides `db_host` and `db_port` for Frappe, and the Adminer container can never reach a unix socket that belongs to a different container. Without `db_host` set too, the fallback the other cards use would point this one at the bench's shared `global-db`: a different, real, writable database, and a button aimed at the wrong one is worse than no button. Set `db_host` alongside `db_socket` to name a TCP endpoint Adminer can actually dial, and the card comes back.
+
 !!! warning
     Admin tools are enabled on `dev` benches and disabled on `prod` benches at create time. `fm update --environment` does not toggle them: disable explicitly before going live.
 
