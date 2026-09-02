@@ -89,8 +89,13 @@ def _bench(path: Path, docker_ops) -> Bench:
     # `domains` is what `Bench.domains` delegates to now that aliases hang off a site rather than
     # the bench, and it is what the vhostd half of the refresh iterates. One site, DOMAIN, with no
     # aliases of its own -- the same list a real BenchConfig with an empty `[sites]` table returns.
+    # `site_names` is the same story as `upload_limit` above, and it bit in the same way: the refresh
+    # now writes `max_file_size` into EVERY site's site_config.json rather than only the bench's own,
+    # so a stand-in without it raised AttributeError, start() warned, and the vhostd assertions below
+    # failed on a missing file instead of a wrong one. Empty, which is what a real BenchConfig with no
+    # `[sites]` table returns, so this bench falls back to its single `site_name` exactly as before.
     bench.bench_config = SimpleNamespace(
-        auth=None, admin_tools=False, upload_limit="50M", sites=None, domains=[DOMAIN]
+        auth=None, admin_tools=False, upload_limit="50M", sites=None, domains=[DOMAIN], site_names=[]
     )
     bench.bench_nginx_controller = MagicMock()
     # The overlay refresh reads the subnet from the services compose, which is the pinned
@@ -343,3 +348,53 @@ def test_a_failed_overlay_refresh_does_not_block_the_start_and_is_reported(tmp_p
     assert bench.orchestrator.start_bench.call_count == 1
     warnings = " ".join(str(call.args[0]) for call in bench.output.warning.call_args_list)
     assert "bench config unreadable" in warnings
+
+
+# ------------------------- every site of a multisite bench, not just the bench's own
+
+
+def test_the_upload_limit_reaches_every_site_not_only_the_benchs_own(tmp_path):
+    """`max_file_size` is per-site data in Frappe, and the refresh used to write one site's file.
+
+    On a bench serving several sites that left every site added later on Frappe's built-in default
+    while both nginx layers and `fm info` advertised the bench's limit. Proven on a real two-site
+    bench: an upload the bench allowed was accepted by nginx and then refused by the app, and the
+    second site's site_config.json had no `max_file_size` key at all.
+    """
+    _healthy_base(tmp_path)
+    (tmp_path / "services" / "nginx-proxy" / "vhostd").mkdir(parents=True)
+    sites = tmp_path / "workspace" / "frappe-bench" / "sites"
+    for site in (DOMAIN, "second.example.com"):
+        (sites / site).mkdir(parents=True)
+        (sites / site / "site_config.json").write_text("{}")
+
+    bench = _bench(tmp_path, _real_ops(tmp_path))
+    bench.services.path = tmp_path / "services"
+    bench.bench_config.site_names = [DOMAIN, "second.example.com"]
+    written: dict[str, dict] = {}
+    bench.set_bench_site_config = lambda site, values: written.setdefault(site, {}).update(values)
+
+    assert bench.apply_upload_limit() is True
+
+    assert set(written) == {DOMAIN, "second.example.com"}
+    assert written["second.example.com"]["max_file_size"] == 50 * 1024 * 1024
+
+
+def test_a_site_with_the_limit_already_set_is_not_rewritten(tmp_path):
+    """Idempotence has to survive per-site: rewriting an unchanged file would report a change and
+    reload the shared global proxy on every start of every bench."""
+    _healthy_base(tmp_path)
+    (tmp_path / "services" / "nginx-proxy" / "vhostd").mkdir(parents=True)
+    sites = tmp_path / "workspace" / "frappe-bench" / "sites"
+    (sites / DOMAIN).mkdir(parents=True)
+    (sites / DOMAIN / "site_config.json").write_text('{"max_file_size": 52428800}')
+
+    bench = _bench(tmp_path, _real_ops(tmp_path))
+    bench.services.path = tmp_path / "services"
+    bench.bench_config.site_names = [DOMAIN]
+    written: list[str] = []
+    bench.set_bench_site_config = lambda site, values: written.append(site)
+
+    bench.apply_upload_limit()
+
+    assert written == []

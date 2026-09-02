@@ -1696,6 +1696,11 @@ class Bench:
         Both steps are skipped when their target does not exist yet, which is what a bench with no
         sites in it (so no served domain) and a not-yet-provisioned services dir look like.
 
+        EVERY site, not just the one the bench is named after. ``max_file_size`` is per-site data in
+        Frappe, and writing only ``self.site_name`` left every site added later on Frappe's built-in
+        default while both nginx layers and ``fm info`` advertised the bench's limit: an upload under
+        the bench limit but over Frappe's was accepted by nginx and then refused by the app.
+
         Returns True when something on disk changed, so a caller can reload the global proxy only
         when it needs to. The proxy is shared by every bench, so reloading it on each ``fm start``
         would be a cost paid by benches that changed nothing.
@@ -1703,15 +1708,18 @@ class Bench:
         upload_limit = self.bench_config.upload_limit
         changed = False
 
-        site_config = self.path / "workspace" / "frappe-bench" / "sites" / self.site_name / "site_config.json"
-        if site_config.is_file():
-            wanted_bytes = self._parse_size_to_bytes(upload_limit)
+        sites_dir = self.path / "workspace" / "frappe-bench" / "sites"
+        wanted_bytes = self._parse_size_to_bytes(upload_limit)
+        for site in self.bench_config.site_names or [self.site_name]:
+            site_config = sites_dir / site / "site_config.json"
+            if not site_config.is_file():
+                continue
             try:
                 current = json.loads(site_config.read_text()).get("max_file_size")
             except (OSError, ValueError):
                 current = None
             if current != wanted_bytes:
-                self.set_bench_site_config(self.site_name, {"max_file_size": wanted_bytes})
+                self.set_bench_site_config(site, {"max_file_size": wanted_bytes})
                 changed = True
 
         # The global proxy caps the request before bench nginx ever sees it, so the bench conf alone
