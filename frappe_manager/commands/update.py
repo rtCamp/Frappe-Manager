@@ -101,7 +101,7 @@ def update(
         EnableDisableOptionsEnum | None,
         typer.Option(
             "--admin-tools",
-            help="Enable/disable admin tools (Adminer at /adminer, Mailpit at /mailpit).",
+            help="Enable/disable admin tools (Adminer at /adminer, Mailpit at /mailpit). BENCH starts or stops the one container pair the bench has; BENCH/SITE only adds or removes the routes from that site's hostnames, leaving the tools running for the bench's other sites.",
             show_default=False,
             rich_help_panel=_PANEL_BENCH,
         ),
@@ -283,19 +283,35 @@ def update(
     # can fan out, so it is the one that expands it against `bench_config.site_names`.
     apps_site = ctx.obj.get("site") if ctx.obj else None
 
-    # An alias and a database CA belong to ONE site: there is no sensible way to attach the same
-    # alternate hostname to every site, and a per-site CA path is per-site by construction. Refused
-    # rather than silently applied to the primary, which is what an unguarded `all` would do.
+    # An alias, a database CA and a tool route belong to ONE site: there is no sensible way to
+    # attach the same alternate hostname to every site, a per-site CA path is per-site by
+    # construction, and routing the tools from no site at all while their containers run is what
+    # `--admin-tools disable` is for. Refused rather than silently applied to the primary, which is
+    # what an unguarded `all` would do.
     if apps_site == RESERVED_BENCH_NAME:
         fanned = [
             name
-            for name, given in (("--add-alias", add_alias), ("--remove-alias", remove_alias), ("--db-ca", db_ca))
+            for name, given in (
+                ("--add-alias", add_alias),
+                ("--remove-alias", remove_alias),
+                ("--db-ca", db_ca),
+            )
             if given
         ]
         if fanned:
             output.display_error(
                 f"{', '.join(fanned)} names one site, so it cannot take 'all'. Name the site as "
                 "BENCH/SITE, or drop the site part to use the bench's primary."
+            )
+            raise typer.Exit(1)
+
+        if admin_tools:
+            # Not the message above: dropping the site part from `--admin-tools` addresses the
+            # BENCH, which is already what "every site" means here -- it starts or stops the one
+            # container pair they all reach.
+            output.display_error(
+                "--admin-tools cannot take 'all'. Name one site as BENCH/SITE to change just its "
+                "routes, or drop the site part to start or stop the tools for the whole bench."
             )
             raise typer.Exit(1)
 
@@ -593,7 +609,44 @@ def update(
                 output.print(f"Restart policy is already set to '{restart.value}'")
 
         if admin_tools:
-            if admin_tools == EnableDisableOptionsEnum.enable:
+            wanted = admin_tools == EnableDisableOptionsEnum.enable
+
+            if apps_site:
+                # The site half narrows the SAME flag, exactly as `fm auth BENCH/SITE` narrows
+                # `--protect web`: the address is what says the scope. What differs is only the
+                # mechanism the scope implies. Off for the bench means stop the one container pair,
+                # because nothing is left needing it; off for one site can only mean drop that
+                # site's routes, because the bench's other sites still reach the same containers.
+                recorded = bench.bench_config.sites or {}
+                if apps_site not in recorded:
+                    output.display_error(
+                        f"Bench '{bench.name}' records no entry for site '{apps_site}', so there is nowhere to store its tool routing."
+                    )
+                    raise typer.Exit(1)
+
+                if wanted and not bench.bench_config.admin_tools:
+                    # Nothing to route to: routing a hostname at a stopped container is a 502.
+                    output.display_error(
+                        f"Admin tools are disabled on {bench.name}, so there is nothing to route from '{apps_site}'. Start them for the bench first with 'fm update {bench.name} --admin-tools enable'."
+                    )
+                    raise typer.Exit(1)
+
+                output.change_head(f"{'Routing' if wanted else 'Unrouting'} admin tools for {apps_site}")
+                recorded[apps_site].serve_admin_tools = wanted
+                bench_config_save = True
+
+                # Creating and removing the location files is the command's job; ensure_fm_nginx_confs
+                # only REFRESHES ones already on disk, so a site getting its first one renders here.
+                bench.admin_tools.save_nginx_location_config()
+                try:
+                    bench.bench_nginx_controller.reload()
+                except Exception as e:
+                    output.warning(f"Config written but nginx did not reload, so it applies on next start: {e}")
+                output.print(
+                    f"/adminer/ and /mailpit/ {'now answer' if wanted else 'no longer answer'} on {apps_site} and its aliases"
+                )
+
+            elif wanted:
                 output.change_head("Enabling Admin-tools")
                 bench.bench_config.admin_tools = True
 
@@ -617,19 +670,19 @@ def update(
                 bench_config_save = True
                 output.print("Enabled Admin-tools")
 
-            elif admin_tools == EnableDisableOptionsEnum.disable:
-                if (
-                    not bench.admin_tools.compose_file_manager.compose_path.exists()
-                    or not bench.bench_config.admin_tools
-                ):
-                    # Report and fall through. An early `return` here would abort the WHOLE command,
-                    # silently dropping every other flag of the same invocation -- including work already
-                    # done (a --db-ca install awaiting the terminal save) and work still queued.
-                    output.print("Admin tools is already disabled")
-                else:
-                    bench.bench_config.admin_tools = False
-                    bench.admin_tools.disable()
-                    bench_config_save = True
+            elif (
+                not bench.admin_tools.compose_file_manager.compose_path.exists()
+                or not bench.bench_config.admin_tools
+            ):
+                # Report and fall through. An early `return` here would abort the WHOLE command,
+                # silently dropping every other flag of the same invocation -- including work already
+                # done (a --db-ca install awaiting the terminal save) and work still queued.
+                output.print("Admin tools is already disabled")
+
+            else:
+                bench.bench_config.admin_tools = False
+                bench.admin_tools.disable()
+                bench_config_save = True
 
         if add_alias or remove_alias:
             output.change_head("Updating alias domains")

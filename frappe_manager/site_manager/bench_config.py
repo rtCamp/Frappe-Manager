@@ -1332,6 +1332,12 @@ class SiteConfig(BaseModel):
         "means the site inherits the bench setting, which is what every bench did before per-site "
         "server blocks existed.",
     )
+    serve_admin_tools: bool | None = Field(
+        None,
+        description="Route /adminer/ and /mailpit/ from THIS site's hostnames. Absent means the "
+        "site follows the bench's top-level `admin_tools`. This is routing only: the containers "
+        "are one pair per bench and the bench-level key is what starts and stops them.",
+    )
 
 
 class RedisConfig(BaseModel):
@@ -1797,6 +1803,7 @@ class BenchConfig(BaseModel):
                     # hand-written file is refused by `extra="forbid"` instead of silently kept.
                     alias_domains=[str(alias) for alias in (site.get("alias_domains") or [])],
                     auth=WebAuthConfig(**dict(site["auth"])) if site.get("auth") else None,
+                    serve_admin_tools=site.get("serve_admin_tools"),
                 )
                 for name, site in data["sites"].items()
             }
@@ -1975,6 +1982,25 @@ class BenchConfig(BaseModel):
         if entry is not None and entry.auth is not None:
             return entry.auth
         return self.auth or AuthConfig()
+
+    def serves_admin_tools(self, site: str) -> bool:
+        """Whether `/adminer/` and `/mailpit/` are routed from `site`'s hostnames.
+
+        Two levels, and they are NOT the same question. The bench-level `admin_tools` starts and
+        stops the container pair, of which there is exactly one per bench; a site's value only
+        decides whether its server block carries the two `location` directives. So the bench level
+        is a hard floor: nothing can be routed to containers that are not running.
+
+        Removing the locations from a hostname is a real reduction, unlike protecting them per site:
+        that would put a different lock on a second door into the same room, while this leaves no
+        door at all. What remains reachable stays behind the bench's one password.
+        """
+        if not self.admin_tools:
+            return False
+        entry = (self.sites or {}).get(site)
+        if entry is not None and entry.serve_admin_tools is not None:
+            return entry.serve_admin_tools
+        return True
 
     def get_site_mappings(self) -> dict[str, str]:
         """domain -> site, for the nginx entrypoint's `SITE_MAPPINGS`.

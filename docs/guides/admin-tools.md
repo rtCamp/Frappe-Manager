@@ -26,6 +26,35 @@ Adminer opens on one-click login cards rather than a blank login form: one per s
 !!! warning
     Admin tools are enabled on `dev` benches and disabled on `prod` benches at create time. `fm update --environment` does not toggle them: disable explicitly before going live.
 
+## Serving them from some hostnames only
+
+On a bench serving several sites the tools answer on every hostname it has, because they are path-routed under the bench URL. Add a site part to take the route away from one site:
+
+```bash
+# /adminer/ and /mailpit/ stop answering on this site's hostnames and its aliases
+fm update mybench/b.example.com --admin-tools disable
+
+# and back
+fm update mybench/b.example.com --admin-tools enable
+```
+
+This is what to reach for when a bench serves an internal hostname you administer from and a customer-facing domain: the tools stay reachable on the first and stop existing on the second.
+
+The address says the scope, and the mechanism follows from it:
+
+| Address | Acts on | Effect |
+| --- | --- | --- |
+| `mybench` | the bench | starts or stops the one Adminer and Mailpit pair. Off for the bench can stop the containers because nothing is left needing them. |
+| `mybench/b.example.com` | one site | adds or removes the `/adminer/` and `/mailpit/` routes from that site's server block. The containers keep running, because the bench's other sites still reach them. |
+
+The bench form is a floor: `fm update mybench/b.example.com --admin-tools enable` is refused while the bench's tools are off, since routing a hostname at a stopped container is a 502 rather than an enable.
+
+### Why this and not a per-site password
+
+There is exactly one Adminer and one Mailpit per bench, and every hostname routes to the same pair. A per-site password would therefore be a bypass: an attacker who found the weaker hostname would reach the identical tool, with the identical reach into the databases. Two doors, one room.
+
+Removing the route is a real reduction instead. A hostname with no `location ^~ /adminer/` has no way in at all, and what stays reachable is still behind the bench's one password. That is also why `fm auth` refuses a site part for `--protect tools`.
+
 ## Mailpit as the site's mail server
 
 `--mailpit-as-default-mail-server` writes `mail_server`, `mail_port` and `disable_mail_smtp_authentication` into `common_site_config.json`. It is only read on the `--admin-tools enable` path, so pass both flags in the same call, whether or not the tools are already on:

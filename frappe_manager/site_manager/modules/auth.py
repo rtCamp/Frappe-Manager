@@ -224,16 +224,23 @@ def build_tools_auth_block(
 ) -> str:
     """Directives for each admin tools location, given the state of both surfaces.
 
-    tools only: the locations carry the gate themselves. web only: they opt out of the
-    inherited one -- of both halves of it: an inherited ``satisfy any; allow <ip>; deny
-    all;`` would otherwise still 403 every client outside the allow list, because
-    ``auth_basic off`` makes the auth handler DECLINE rather than clear the recorded
-    refusal. A location-level ``allow all`` replaces the inherited rules and returns
-    OK, which does clear it. both: nothing, they inherit it. neither: nothing.
+    ``tools`` on: the locations carry the bench's gate themselves, ALWAYS, even when the web
+    surface is gated too. Inheriting was sound only while one credential pair served both
+    surfaces; per-site web auth broke that, and a site with its own password would otherwise have
+    had that password open the bench-wide Adminer, which reaches every schema on the bench. A
+    location-level ``auth_basic`` overrides the server-level one, so naming the bench's file here
+    keeps the tools on bench credentials whatever a site does. It also stops a web-surface
+    ``allow_paths`` prefix exempting ``/adminer/``, which the key was never meant to reach.
+
+    ``web`` only: the locations opt out of the inherited gate -- of both halves of it: an inherited
+    ``satisfy any; allow <ip>; deny all;`` would otherwise still 403 every client outside the allow
+    list, because ``auth_basic off`` makes the auth handler DECLINE rather than clear the recorded
+    refusal. A location-level ``allow all`` replaces the inherited rules and returns OK, which does
+    clear it. Neither on: nothing.
     """
-    if tools and not web:
+    if tools:
         return build_auth_directives(auth_file, allow_ips or [], realm, indent)
-    if web and not tools:
+    if web:
         return f"{indent}auth_basic off;\n{indent}allow all;\n"
     return ""
 

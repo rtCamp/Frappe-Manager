@@ -53,6 +53,7 @@ from frappe_manager.site_manager.bench_config import (
     MonitoringConfig,
     NewRelicConfig,
     RestartPolicyEnum,
+    SiteConfig,
 )
 from frappe_manager.site_manager.domain_conflict import DomainConflict, DomainConflictError
 from frappe_manager.site_manager.exceptions import BenchNotRunning
@@ -1470,3 +1471,84 @@ class TestKeepFloor:
         ship.prune(keep=1)
 
         ship.orchestrator.prune_releases.assert_called_once_with(keep=1, dry_run=False)
+
+
+RESERVED_BENCH_NAME = "all"
+
+
+class TestSiteScopedAdminTools:
+    """`--admin-tools` is address-scoped: BENCH starts or stops the containers, BENCH/SITE only
+    changes whether that site's hostnames route to them.
+
+    One flag, because the address is what says the scope -- the same idiom as `fm auth BENCH` versus
+    `fm auth BENCH/SITE`. The mechanism differs only as the scope implies: off for the bench can
+    stop the one container pair because nothing is left needing it, off for one site cannot, because
+    its neighbours still reach the same pair.
+    """
+
+    def _sites(self, world, **overrides):
+        world.bench.bench_config.site_names = ["shop.localhost", "b.example.com"]
+        world.bench.bench_config.sites = {
+            "shop.localhost": SiteConfig(),
+            "b.example.com": SiteConfig(**overrides),
+        }
+        world.bench.bench_config.admin_tools = True
+
+    def test_disabling_records_it_against_the_named_site_only(self, world):
+        self._sites(world)
+        world.run(site="b.example.com", admin_tools=EnableDisableOptionsEnum.disable)
+
+        assert world.bench.bench_config.sites["b.example.com"].serve_admin_tools is False
+        # The bench keeps running the containers, and its other sites keep their route.
+        assert world.bench.bench_config.admin_tools is True
+        assert world.bench.bench_config.sites["shop.localhost"].serve_admin_tools is None
+
+    def test_it_re_renders_the_locations_and_reloads(self, world):
+        self._sites(world)
+        world.run(site="b.example.com", admin_tools=EnableDisableOptionsEnum.disable)
+
+        # Creation and removal of the location files is the command's job: ensure_fm_nginx_confs
+        # only refreshes ones already on disk, so enabling a site with none would render nothing.
+        world.bench.admin_tools.save_nginx_location_config.assert_called_once_with()
+        world.bench.bench_nginx_controller.reload.assert_called_once_with()
+
+    def test_enabling_on_a_bench_whose_tools_are_off_is_refused(self, world):
+        self._sites(world)
+        world.bench.bench_config.admin_tools = False
+
+        with pytest.raises(typer.Exit):
+            world.run(site="b.example.com", admin_tools=EnableDisableOptionsEnum.enable)
+
+        # There is one container pair per bench and it is not running: routing a hostname at it
+        # would be a 502, not an enable.
+        assert "nothing to route" in " ".join(world.errors)
+        world.bench.admin_tools.save_nginx_location_config.assert_not_called()
+
+    def test_a_bare_bench_address_stops_the_containers_and_touches_no_site(self, world):
+        self._sites(world)
+        world.run(admin_tools=EnableDisableOptionsEnum.disable)
+
+        # NOT "the primary site", which is what the other Site Options flags mean without a site
+        # part. This flag's bare form has always addressed the bench, and narrowing it to one site
+        # would silently leave the tools running on a bench an operator just told to stop them.
+        assert world.bench.bench_config.admin_tools is False
+        world.bench.admin_tools.disable.assert_called_once_with()
+        assert world.bench.bench_config.sites["shop.localhost"].serve_admin_tools is None
+        assert world.bench.bench_config.sites["b.example.com"].serve_admin_tools is None
+
+    def test_all_is_refused_because_the_bare_bench_form_already_means_that(self, world):
+        self._sites(world)
+
+        with pytest.raises(typer.Exit):
+            world.run(site=RESERVED_BENCH_NAME, admin_tools=EnableDisableOptionsEnum.disable)
+
+        assert "--admin-tools cannot take 'all'" in " ".join(world.errors)
+
+    def test_an_unrecorded_site_is_refused(self, world):
+        self._sites(world)
+        world.bench.bench_config.sites = {"shop.localhost": SiteConfig()}
+
+        with pytest.raises(typer.Exit):
+            world.run(site="b.example.com", admin_tools=EnableDisableOptionsEnum.disable)
+
+        assert "records no entry for site" in " ".join(world.errors)

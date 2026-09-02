@@ -569,6 +569,23 @@ password = "site-secret"
 
 On disk each site's directives land in `configs/nginx/conf/custom/<site>/auth.conf`, which the bench nginx includes from that site's server block only. Basic auth is a server-context directive, so this is what makes a per-site prompt possible at all.
 
+#### Per-site admin tools {#site-admin-tools}
+
+`[sites."<name>".serve_admin_tools]` decides whether `/adminer/` and `/mailpit/` are routed from that site's hostnames. Absent means the site follows the bench's top-level `admin_tools`.
+
+This is routing only. There is one Adminer and one Mailpit container per bench and the bench-level `admin_tools` is what starts and stops them, so it acts as a floor: nothing is routed while the containers are off.
+
+```toml
+admin_tools = true
+
+[sites."b.example.com"]
+serve_admin_tools = false
+```
+
+**Change via:** `fm update BENCH/SITE --admin-tools disable`. The same flag without a site part addresses the bench and starts or stops the containers instead.
+
+A site with no route carries no `location ^~ /adminer/` in its server block at all, so the request falls through to Frappe. That is a reduction rather than a second lock: every hostname reaches the same container pair, so a per-site password would be a bypass, which is why `fm auth` refuses a site part for `--protect tools`.
+
 !!! warning "Stored in plaintext"
     The password is stored unencrypted in the TOML file, and basic auth sends it base64-encoded on every request. Restrict file permissions and only enable a surface on a bench with TLS:
 

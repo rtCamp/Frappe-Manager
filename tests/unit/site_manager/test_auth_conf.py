@@ -140,10 +140,14 @@ def test_web_only_replaces_the_inherited_ip_allow_list_instead_of_inheriting_it(
     assert "deny" not in block
 
 
-def test_both_surfaces_on_inherits_and_emits_nothing():
-    # Re-declaring the gate here would be harmless but redundant; emitting
-    # `auth_basic off` would be a hole.
-    assert build_tools_auth_block(web=True, tools=True, auth_file=_AUTH_FILE) == ""
+def test_both_surfaces_on_still_names_the_benchs_file_rather_than_inheriting():
+    # This used to emit nothing, on the grounds that re-declaring the gate was redundant. It was,
+    # while one credential pair served both surfaces. Per-site web auth ended that: inheriting the
+    # server gate would let a site's own password open the bench-wide Adminer, which reaches every
+    # schema on the bench. A location-level `auth_basic` overrides the server-level one.
+    block = build_tools_auth_block(web=True, tools=True, auth_file=_AUTH_FILE)
+    assert f"auth_basic_user_file {_AUTH_FILE};" in block
+    assert "auth_basic off" not in block
 
 
 def test_both_surfaces_off_emits_nothing():

@@ -2046,12 +2046,17 @@ class Bench:
             path.write_text(content)
             changed = True
 
-        admin_tools_conf = conf_dir / "custom" / "admin-tools.conf"
-        if self.bench_config.admin_tools and admin_tools_conf.exists():
+        # The tool locations carry per-location auth that follows from BOTH surfaces, so an auth
+        # change has to re-render them. Keyed on any of them existing rather than the old single
+        # shared file: the locations are one file per routed site now.
+        tool_confs = [conf_dir / "custom" / s / "admin-tools.conf" for s in self.bench_config.site_names]
+        tool_confs.append(conf_dir / "custom" / "admin-tools.conf")
+        if self.bench_config.admin_tools and any(p.exists() for p in tool_confs):
             try:
-                before = admin_tools_conf.read_text()
+                before = {p: p.read_text() for p in tool_confs if p.exists()}
                 self.admin_tools.save_nginx_location_config()
-                changed = changed or admin_tools_conf.read_text() != before
+                after = {p: p.read_text() for p in tool_confs if p.exists()}
+                changed = changed or after != before
             except Exception:
                 pass
 

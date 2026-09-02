@@ -86,50 +86,69 @@ class BenchAdminTools:
         self.generate_compose()
         self.output.print("Generating admin tools configuration: Done")
 
+    def _site_location_path(self, site: str) -> Path:
+        """One site's tool locations: a drop-in inside that site's own directory."""
+        return self.nginx_proxy.dirs.conf.host / "custom" / site / "admin-tools.conf"
+
     def save_nginx_location_config(self):
-        """Render custom/admin-tools.conf.
+        """Render the tool locations into the directory of each site that routes them.
 
-        The htpasswd file and the server-level auth conf belong to
-        Bench.ensure_fm_nginx_confs(); this only renders the per-location auth
-        directives that follow from the state of both surfaces.
+        One file per routed site, not one shared `custom/admin-tools.conf`. That file was included
+        in EVERY site's server block, so `/adminer/` could only ever answer on every hostname the
+        bench serves. A site whose `admin_tools` is false now gets no file at all, so its block
+        carries no `location ^~ /adminer/` and the request falls through to Frappe. That removes
+        the route rather than putting a second lock on it, which is the only version of per-site
+        tool control that is not a bypass: both hostnames reach the same container.
+
+        The auth block is also per site, because it depends on whether THAT site's web surface is
+        gated. The credentials it names are always the bench's: the tools are one pair of
+        containers for the whole bench.
+
+        The htpasswd file and the server-level auth conf belong to Bench.ensure_fm_nginx_confs();
+        this only renders the per-location directives that follow from the state of both surfaces.
         """
-        from frappe_manager.site_manager.bench_config import AuthConfig
-        from frappe_manager.site_manager.modules.auth import build_tools_auth_block, container_htpasswd_path
-
-        auth = self.bench.bench_config.auth or AuthConfig()
-
-        data = {
-            "mailpit_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailpit",
-            "adminer_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}adminer",
-            "auth_block": build_tools_auth_block(
-                web=auth.web,
-                tools=auth.tools,
-                auth_file=container_htpasswd_path(self.bench_name),
-                allow_ips=auth.allow_ips,
-            ),
-        }
-
         from jinja2 import Template
 
-        template_path: Path = get_template_path("admin-tools-location.tmpl")
+        from frappe_manager.site_manager.modules.auth import build_tools_auth_block, container_htpasswd_path
 
-        template = Template(template_path.read_text())
-        output = template.render(data)
+        config = self.bench.bench_config
+        auth = config.auth
+        template = Template(get_template_path("admin-tools-location.tmpl").read_text())
 
-        if not self.nginx_config_location_path.parent.exists():
-            self.nginx_config_location_path.mkdir(exist_ok=True)
+        for site in config.site_names:
+            path = self._site_location_path(site)
+            if not config.serves_admin_tools(site):
+                path.unlink(missing_ok=True)
+                continue
+            output = template.render(
+                {
+                    "mailpit_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailpit",
+                    "adminer_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}adminer",
+                    "auth_block": build_tools_auth_block(
+                        web=config.auth_for(site).web,
+                        tools=bool(auth.tools) if auth else True,
+                        auth_file=container_htpasswd_path(self.bench_name),
+                        allow_ips=auth.allow_ips if auth else [],
+                    ),
+                }
+            )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(output)
 
-        self.nginx_config_location_path.write_text(output)
+        # Every bench that had admin tools before this carries the shared file, which would keep
+        # serving `/adminer/` from the hostnames a site just opted out of.
+        self.nginx_config_location_path.unlink(missing_ok=True)
 
     def remove_nginx_location_config(self):
-        """Drop the tool locations only.
+        """Drop the tool locations only, from every site and the shared path.
 
         The credentials and the htpasswd file are shared with the web surface, so
         disabling admin tools must not destroy them; ensure_fm_nginx_confs()
         removes the htpasswd when no surface is left wanting it.
         """
-        if self.nginx_config_location_path.exists():
-            self.nginx_config_location_path.unlink()
+        for site in self.bench.bench_config.site_names:
+            self._site_location_path(site).unlink(missing_ok=True)
+        self.nginx_config_location_path.unlink(missing_ok=True)
 
     def _get_common_site_config_path(self) -> Path:
         return self.compose_path.parent / "workspace/frappe-bench/sites/common_site_config.json"

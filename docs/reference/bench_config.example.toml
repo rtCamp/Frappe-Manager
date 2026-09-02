@@ -204,6 +204,10 @@
 # allow_ips = ...
 # Path prefixes served without a prompt; applies to the web surface. [optional, empty by default]
 # allow_paths = ...
+# Route /adminer/ and /mailpit/ from THIS site's hostnames. Absent means the site follows the
+# bench's top-level `admin_tools`. This is routing only: the containers are one pair per bench and
+# the bench-level key is what starts and stops them. [optional, unset by default]
+# serve_admin_tools = ...
 
 # ---- [redis] -------------------------------------------------------------------------------
 

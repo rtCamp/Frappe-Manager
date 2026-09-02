@@ -20,7 +20,7 @@ $ fm update BENCH(/SITE|all) [OPTIONS]
 
 **Options**:
 
-* `--admin-tools`: Enable/disable admin tools (Adminer at /adminer, Mailpit at /mailpit).
+* `--admin-tools`: Enable/disable admin tools (Adminer at /adminer, Mailpit at /mailpit). BENCH starts or stops the one container pair the bench has; BENCH/SITE only adds or removes the routes from that site's hostnames, leaving the tools running for the bench's other sites.
 * `-e, --environment`: Switch the bench between dev and prod serving (FRAPPE_ENV), recreating the frappe container. Admin tools and developer mode are left as they are; use --admin-tools or --developer-mode to change those.
 * `--runtime`: Convert the bench runtime. 'mount' extracts an editable workspace from the currently deployed image, stashing anything stale it finds; converting back is a deploy, so use fm switch.
 * `-a, --apps`: Replace or add an app on the running bench (repeatable; appname:ref or org/repo:ref). Replaced code is stashed, never deleted; assets rebuild and the site migrates.

@@ -55,7 +55,7 @@ from frappe_manager.commands.ssl.bench_helpers import (
 )
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.site_manager.bench_config import SiteConfig
+from frappe_manager.site_manager.bench_config import AuthConfig, SiteConfig
 from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, AdminToolsFailedToStop, BenchException
 from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
@@ -705,6 +705,14 @@ class ToolsHarness:
         self.bench.bench_config.auth = auth
         self.bench.bench_config.restart_policy.value = "always"
 
+        # A real `[sites]` shape, because the locations are rendered once per site now and each
+        # site decides whether it routes them at all.
+        self.site = f"{BENCH}.localhost"
+        self.bench.bench_config.site_names = [self.site]
+        self.bench.bench_config.admin_tools = True
+        self.bench.bench_config.serves_admin_tools = lambda s: True
+        self.bench.bench_config.auth_for = lambda s: auth or AuthConfig()
+
         # The nginx conf tree as ensure_fm_nginx_confs() leaves it: our location conf lives
         # in custom/ next to the server-level auth conf, and the htpasswd one level up.
         self.nginx_conf_host = tmp_path / "nginx" / "conf"
@@ -739,7 +747,9 @@ class ToolsHarness:
 
     @property
     def location_conf(self) -> Path:
-        return self.custom_dir / "admin-tools.conf"
+        """The tool locations of the harness's one site, which is where they live now: the shared
+        `custom/admin-tools.conf` reached every hostname the bench served."""
+        return self.custom_dir / self.site / "admin-tools.conf"
 
     @property
     def adminer_dir(self) -> Path:
@@ -902,18 +912,31 @@ def test_location_conf_opts_out_of_the_inherited_gate_when_only_web_auth_is_on(t
 
 
 @pytest.mark.timeout(15)
-@pytest.mark.parametrize(
-    ("web", "tools"),
-    [(True, True), (False, False)],
-)
-def test_location_conf_emits_no_auth_directives_when_both_surfaces_agree(tmp_path, web, tools):
-    """Both on: the locations inherit the server gate. Both off: there is nothing to inherit."""
+def test_location_conf_emits_no_auth_directives_when_neither_surface_is_on(tmp_path):
+    """Nothing to gate and nothing to inherit."""
     with ExitStack() as stack:
-        t = ToolsHarness(tmp_path, stack, auth=_auth(web=web, tools=tools))
+        t = ToolsHarness(tmp_path, stack, auth=_auth(web=False, tools=False))
+        t.tools.save_nginx_location_config()
+
+    assert "auth_basic" not in t.location_conf.read_text()
+
+
+@pytest.mark.timeout(15)
+def test_the_tools_gate_is_the_benchs_even_when_the_web_surface_is_gated_too(tmp_path):
+    """The locations used to inherit the server gate when both surfaces were on, which was sound
+    only while one credential pair served both.
+
+    Per-site web auth broke that: a site with its own password would have had that password open
+    the bench-wide Adminer, which reaches every schema on the bench. The location-level directive
+    overrides the server-level one, so naming the bench's htpasswd here keeps the tools on bench
+    credentials whatever a site does."""
+    with ExitStack() as stack:
+        t = ToolsHarness(tmp_path, stack, auth=_auth(web=True, tools=True))
         t.tools.save_nginx_location_config()
 
     conf = t.location_conf.read_text()
-    assert "auth_basic" not in conf
+    assert "auth_basic " in conf
+    assert f"auth_basic_user_file /etc/nginx/http_auth/{BENCH}.htpasswd;" in conf
 
 
 @pytest.mark.timeout(15)
@@ -939,18 +962,20 @@ def test_location_conf_defaults_to_a_fresh_auth_config_when_the_bench_has_none(t
 
 
 @pytest.mark.timeout(15)
-def test_location_conf_write_fails_when_the_custom_dir_does_not_exist(t):
-    """SUSPICION (pinned, not fixed): the "create the parent" branch calls ``mkdir`` on the
-    *conf file* path rather than on its parent, so it cannot create the missing directory and
-    raises instead."""
+def test_location_conf_creates_the_site_directory_it_needs(t):
+    """Was a pinned SUSPICION: the "create the parent" branch called ``mkdir`` on the conf FILE
+    path rather than its parent, so it could not create a missing directory and raised instead.
+
+    Rendering per site made the directory always one level deeper than anything else creates, so
+    the branch had to start working."""
     import shutil
 
     shutil.rmtree(t.custom_dir)
 
-    with pytest.raises(FileNotFoundError):
-        t.tools.save_nginx_location_config()
+    t.tools.save_nginx_location_config()
 
-    assert not t.location_conf.exists()
+    assert t.location_conf.is_file()
+    assert "/adminer/" in t.location_conf.read_text()
 
 
 @pytest.mark.timeout(15)
