@@ -18,6 +18,7 @@ This step must be idempotent, and not as a nicety: 0.20.0 is unreleased, so a be
 `0.20.0.dev0` sorts BELOW `0.20.0` and re-runs this migration whenever one is triggered at all.
 """
 
+import contextlib
 import gzip
 import json
 import stat
@@ -27,6 +28,7 @@ from unittest.mock import MagicMock
 import pytest
 import tomlkit
 
+from frappe_manager import GLOBAL_DB_IMAGE
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.migrations import migrate_0_20_0 as migrate_mod
 from frappe_manager.migration_manager.migrations.migrate_0_20_0 import MigrationV0200
@@ -1046,3 +1048,112 @@ def test_re_placing_the_plugin_overwrites_a_stale_copy(step, tmp_path):
     step._place_adminer_plugin(bench)
 
     assert stale.read_bytes() == get_template_path("adminer/000-fm-login.php").read_bytes()
+
+
+# ------------------------------- the engine upgrade itself (wiring + order)
+
+
+def _engine_step(step, tmp_path, monkeypatch, *, image="mariadb:10.6", exists=True, has_engine=True):
+    """`rewrite_global_db_service` is tested on its own; this covers the STEP that wires it to the
+    file and to the container lifecycle, which no test reached."""
+    events: list[str] = []
+
+    cfm = MagicMock()
+    cfm.exists.return_value = exists
+    services = {"global-db": {"image": image}} if has_engine else {}
+    cfm.yml = {"services": services}
+    cfm.write_to_file.side_effect = lambda *a, **k: events.append("write")
+
+    step.services_manager = MagicMock()
+    step.services_manager.compose_file_manager = cfm
+    step.services_manager.compose.stop.side_effect = lambda **k: events.append("stop")
+    step.services_manager.compose.up.side_effect = lambda **k: events.append("up")
+    step.logger = MagicMock()
+
+    monkeypatch.setattr(migrate_mod, "MariaDBManager", MagicMock())
+    monkeypatch.setattr(migrate_mod, "DatabaseServerServiceInfo", MagicMock())
+    monkeypatch.setattr(migrate_mod, "spinner", lambda *a, **k: contextlib.nullcontext())
+
+    def fake_dump(_db):
+        events.append("dump")
+        return tmp_path / "dump.sql.gz"
+
+    step._dump_whole_engine = fake_dump  # separately tested; this is about the wiring
+    return events, cfm
+
+
+def test_the_dump_is_taken_before_the_server_is_stopped(step, tmp_path, monkeypatch):
+    """`db_export_all` runs inside a LIVE server, so a dump after the stop is no dump at all -- and
+    this is the only route back from a one-way datadir upgrade."""
+    events, _ = _engine_step(step, tmp_path, monkeypatch)
+
+    step._upgrade_global_db_engine()
+
+    assert events.index("dump") < events.index("stop")
+
+
+def test_the_rewritten_compose_is_written_before_the_container_comes_back(step, tmp_path, monkeypatch):
+    """Starting first would recreate global-db on the OLD image and leave the file describing an
+    engine that is not running."""
+    events, _ = _engine_step(step, tmp_path, monkeypatch)
+
+    step._upgrade_global_db_engine()
+
+    assert events.index("write") < events.index("up")
+
+
+def test_the_engine_image_actually_reaches_the_file(step, tmp_path, monkeypatch):
+    """The helper's own tests prove the rewrite; nothing proved the step saved it."""
+    _, cfm = _engine_step(step, tmp_path, monkeypatch)
+
+    step._upgrade_global_db_engine()
+
+    assert cfm.yml["services"]["global-db"]["image"] == GLOBAL_DB_IMAGE
+    cfm.write_to_file.assert_called_once()
+
+
+def test_the_container_is_recreated_rather_than_restarted(step, tmp_path, monkeypatch):
+    """A restart keeps the container, and a container keeps the image it was created with."""
+    _engine_step(step, tmp_path, monkeypatch)
+
+    step._upgrade_global_db_engine()
+
+    assert step.services_manager.compose.up.call_args.kwargs["force_recreate"] is True
+
+
+def test_a_bench_already_on_the_target_engine_is_left_completely_alone(step, tmp_path, monkeypatch):
+    """`0.20.0.dev0` sorts below `0.20.0`, so this re-runs on every dev-build host. A second pass
+    that dumped and bounced the shared database would be an outage per migration."""
+    events, cfm = _engine_step(step, tmp_path, monkeypatch, image=GLOBAL_DB_IMAGE)
+
+    step._upgrade_global_db_engine()
+
+    assert events == []
+    cfm.write_to_file.assert_not_called()
+
+
+def test_no_services_compose_is_skipped(step, tmp_path, monkeypatch):
+    events, _ = _engine_step(step, tmp_path, monkeypatch, exists=False)
+
+    step._upgrade_global_db_engine()
+
+    assert events == []
+
+
+def test_a_compose_without_a_global_db_image_is_skipped(step, tmp_path, monkeypatch):
+    events, _ = _engine_step(step, tmp_path, monkeypatch, has_engine=False)
+
+    step._upgrade_global_db_engine()
+
+    assert events == []
+
+
+def test_the_operator_is_told_where_the_dump_is(step, tmp_path, monkeypatch):
+    """It is the entire rollback handle: `undo_services_migrate` names the directory and nothing
+    else can put the data back."""
+    _engine_step(step, tmp_path, monkeypatch)
+
+    step._upgrade_global_db_engine()
+
+    printed = " ".join(str(c.args[0]) for c in step.output.print.call_args_list if c.args)
+    assert "dump.sql.gz" in printed
