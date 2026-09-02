@@ -339,6 +339,12 @@ def test_a_failed_overlay_refresh_does_not_block_the_start_and_is_reported(tmp_p
             # too: leaving this off would make that read an AttributeError with another message.
             raise RuntimeError("bench config unreadable")
 
+        @property
+        def site_names(self):
+            # The refresh creates a per-site `custom/<site>/` drop-in directory for each site, so it
+            # reads this too. Same reason as `domains` above.
+            raise RuntimeError("bench config unreadable")
+
     _healthy_base(tmp_path)
     bench = _bench(tmp_path, _real_ops(tmp_path))
     bench.bench_config = _UnreadableConfig()
