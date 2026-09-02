@@ -18,6 +18,7 @@ This step must be idempotent, and not as a nicety: 0.20.0 is unreleased, so a be
 `0.20.0.dev0` sorts BELOW `0.20.0` and re-runs this migration whenever one is triggered at all.
 """
 
+import json
 import stat
 from unittest.mock import MagicMock
 
@@ -527,3 +528,110 @@ def test_a_bench_with_no_switch_table_is_untouched(step, tmp_path):
     step._rewrite_switch_migrate(bench)
 
     assert path.read_text() == before
+
+
+# ----------------------------------------------------- default_site backfill
+
+
+"""A bench with no recorded `default_site` gets one written, so the answer stops being a guess.
+
+`resolve_primary_site` now reads `default_site` ahead of its own name-shaped rules. Those rules
+reconstruct fm's creation convention from string shapes, and on a real bench they picked a phantom
+site over the one that could actually be opened. Recording the answer once converts every later
+read from a guess into a fact.
+
+Written host-side, because `default_site` is a key in a host-mounted JSON file and a migration
+cannot assume a running container.
+"""
+
+
+def _common(bench_dir, payload):
+    sites = bench_dir / "workspace" / "frappe-bench" / "sites"
+    sites.mkdir(parents=True, exist_ok=True)
+    (sites / "common_site_config.json").write_text(json.dumps(payload))
+    return sites / "common_site_config.json"
+
+
+def _sited_bench(tmp_path, *sites, name=SITE):
+    body = BASE.replace(f'name = "{SITE}"', f'name = "{name}"')
+    body += "".join(f'\n[sites."{s}"]\n' for s in sites)
+    bench, path = _bench(tmp_path, body)
+    bench.name = name
+    bench.site_names = list(sites)
+    return bench, path
+
+
+def test_a_bench_with_no_default_gets_one_recorded(step, tmp_path):
+    bench, _ = _sited_bench(tmp_path, SITE, name=BENCH_DIR)
+    common = _common(tmp_path, {"db_host": "global-db"})
+
+    step._backfill_default_site(bench)
+
+    assert json.loads(common.read_text())["default_site"] == SITE
+
+
+def test_an_existing_default_is_never_overwritten(step, tmp_path):
+    # It is the operator's answer, including one set by `bench use` after create. This step fills a
+    # gap; it does not take the decision back.
+    bench, _ = _sited_bench(tmp_path, SITE, "b.example.com", name=BENCH_DIR)
+    common = _common(tmp_path, {"default_site": "b.example.com"})
+
+    step._backfill_default_site(bench)
+
+    assert json.loads(common.read_text())["default_site"] == "b.example.com"
+
+
+def test_an_ambiguous_bench_records_nothing(step, tmp_path):
+    # Several sites, none named after the bench: the name rules give no answer, and writing a guess
+    # would put fm's choice beyond the operator's sight. The address form resolves it instead.
+    bench, _ = _sited_bench(tmp_path, "a.example.com", "b.example.com", name="acme")
+    common = _common(tmp_path, {"db_host": "global-db"})
+
+    step._backfill_default_site(bench)
+
+    assert "default_site" not in json.loads(common.read_text())
+
+
+def test_other_keys_survive_the_write(step, tmp_path):
+    # It merges into the file frappe owns; clobbering it would take the bench's db credentials out.
+    bench, _ = _sited_bench(tmp_path, SITE, name=BENCH_DIR)
+    common = _common(tmp_path, {"db_host": "global-db", "redis_cache": "redis://x:6379"})
+
+    step._backfill_default_site(bench)
+
+    data = json.loads(common.read_text())
+    assert data["db_host"] == "global-db"
+    assert data["redis_cache"] == "redis://x:6379"
+
+
+def test_a_missing_common_site_config_is_left_alone(step, tmp_path):
+    bench, _ = _sited_bench(tmp_path, SITE, name=BENCH_DIR)
+
+    step._backfill_default_site(bench)
+
+    assert not (tmp_path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json").exists()
+
+
+def test_an_unreadable_common_site_config_is_reported_not_clobbered(step, tmp_path):
+    bench, _ = _sited_bench(tmp_path, SITE, name=BENCH_DIR)
+    sites = tmp_path / "workspace" / "frappe-bench" / "sites"
+    sites.mkdir(parents=True, exist_ok=True)
+    broken = sites / "common_site_config.json"
+    broken.write_text("{not json")
+
+    step._backfill_default_site(bench)
+
+    assert broken.read_text() == "{not json"
+    step.output.warning.assert_called()
+
+
+def test_the_recorded_default_is_what_the_resolver_then_reads(step, tmp_path):
+    # The point of writing it: the next read is a fact rather than a re-derivation.
+    from frappe_manager.site_manager.bench_config import read_default_site
+
+    bench, _ = _sited_bench(tmp_path, SITE, name=BENCH_DIR)
+    _common(tmp_path, {})
+
+    step._backfill_default_site(bench)
+
+    assert read_default_site(tmp_path) == SITE

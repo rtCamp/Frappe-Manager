@@ -1148,7 +1148,38 @@ class DatabaseConfig(BaseModel):
         return self.user or self.name
 
 
-def resolve_primary_site(bench_name: str, sites: Mapping[str, Any] | None) -> str | None:
+def read_default_site(bench_root: Path | str | None) -> str | None:
+    """Frappe's own `default_site`, read from the bench's `common_site_config.json`.
+
+    ``bench_root`` is the bench DIRECTORY, the one holding `bench_config.toml`, not that file.
+    Callers holding the file path (`BenchConfig.root_path` IS the file, despite its name) pass
+    its parent.
+
+    This is the ONE place the answer is written down. `bench use <site>` writes it, fm writes it
+    when it creates a bench's first site, and frappe's CLI reads it to resolve a bare `bench`
+    command (`--site` beats `FRAPPE_SITE` beats this beats the deprecated `currentsite.txt`).
+    Nothing in frappe's HTTP path reads it, so it means exactly "which site is meant when none is
+    named", which is the same question `resolve_primary_site` answers for fm.
+
+    Silent about every failure. It is consulted from parameter callbacks, so a bench mid-create, a
+    file frappe has not written yet, or a config someone hand-edited into invalid JSON must fall
+    through to the name-shaped rules rather than take the command down before it starts.
+    """
+    if not bench_root:
+        return None
+    path = Path(bench_root) / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
+    try:
+        value = json.loads(path.read_text()).get("default_site")
+    except Exception:
+        return None
+    return value if isinstance(value, str) and value else None
+
+
+def resolve_primary_site(
+    bench_name: str,
+    sites: Mapping[str, Any] | None,
+    default_site: str | None = None,
+) -> str | None:
     """Which of a bench's recorded sites is its own, or None when none can be called "the" one.
 
     The one implementation of this rule. `BenchConfig.primary_site` and `Bench.site_name` both call
@@ -1156,8 +1187,14 @@ def resolve_primary_site(bench_name: str, sites: Mapping[str, Any] | None) -> st
     site named after the bench in its FQDN form, so a two-site bench resolved in one place and
     refused in the other.
 
-    Takes the bench name and the table rather than a config object, so a caller holding a duck-typed
-    stand-in can use it too, and so `Bench` can pass its own directory name.
+    `default_site` is frappe's own recorded answer and outranks everything below it. The rules
+    after it reconstruct fm's CREATION CONVENTION from string shapes, which is guessing; this is
+    reading. A bench that records a site named after itself AND carries a `default_site` naming a
+    different one used to resolve to the former, and on a real bench that meant fm's primary was a
+    site `bench --site` could not even open while frappe's default named the one that worked.
+
+    Taking it as a parameter rather than reading the file here keeps this pure and keeps the IO at
+    the callers, who already know the bench's directory.
 
     Enumeration must not depend on this: routing has to publish every site of a bench whose primary
     is ambiguous, and only a caller asking "which site does a bench-scoped command mean" needs to
@@ -1166,16 +1203,23 @@ def resolve_primary_site(bench_name: str, sites: Mapping[str, Any] | None) -> st
     if not sites:
         # Nothing recorded: mid-create, or a migration part-way through writing the table.
         return bench_name
-    if bench_name in sites:
-        return bench_name
-    if "." not in bench_name:
-        # The site named after the bench in its FQDN form, which is the relationship `fm create shop`
-        # establishes. Without this a bench called `shop` serving `shop.localhost` and
-        # `b.example.com` would have no primary and every bench-scoped command on it would refuse.
-        suffixed = f"{bench_name}.localhost"
-        if suffixed in sites:
-            return suffixed
+
+    # 0. What someone actually wrote down, as long as it names a site this bench serves. A
+    # `default_site` naming an unrecorded site is drift in the other direction, and falling
+    # through is what keeps fm from acting on a site it has no record of.
+    if default_site and default_site in sites:
+        return default_site
+
+    # Then the guesses, for a bench whose default was never recorded: one created before fm wrote
+    # it, or one whose common_site_config is missing or unreadable. Both spellings of "the site
+    # named after the bench", bare for a bench whose name is already an FQDN (`fm create
+    # shop.localhost`) and suffixed for one that is not (`fm create shop` serving shop.localhost).
+    for candidate in (bench_name, f"{bench_name}.localhost" if "." not in bench_name else None):
+        if candidate and candidate in sites:
+            return candidate
+
     if len(sites) == 1:
+        # No ambiguity to resolve: whatever it is, it is the one.
         return next(iter(sites))
     return None
 
@@ -1756,7 +1800,9 @@ class BenchConfig(BaseModel):
 
     def _primary_site_or_none(self) -> str | None:
         """The bench's own site, or None when nothing recorded can be called "the" one."""
-        return resolve_primary_site(self.name, self.sites)
+        # `.parent`: `root_path` is the bench_config.toml FILE, and `read_default_site` wants the
+        # bench DIRECTORY the sites tree hangs off.
+        return resolve_primary_site(self.name, self.sites, read_default_site(Path(self.root_path).parent))
 
     @property
     def primary_site(self) -> str:

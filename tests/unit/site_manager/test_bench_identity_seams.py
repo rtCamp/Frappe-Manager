@@ -585,3 +585,118 @@ def test_minting_replaces_the_previous_certificate_set(tmp_path):
     config.create_individual_certificates(_template())
 
     assert [c.domain for c in config.ssl_certificates] == [SITE]
+
+
+# ---------------------------------------------------- default_site outranks the guesses
+
+
+"""`default_site` is the recorded answer, and it beats every rule that guesses from a name.
+
+Frappe writes it (`bench use`), fm writes it when it creates a bench's first site, and frappe's
+CLI reads it to resolve a bare `bench` command. Nothing in frappe's HTTP path reads it, so it means
+exactly "which site is meant when none is named", which is the question `resolve_primary_site`
+answers for fm. Two answers to one question in two files is how they drift.
+
+The rules below it reconstruct fm's CREATION CONVENTION from string shapes. That is guessing, and
+on a real bench it guessed wrong: a bench named `shop` recording a phantom site also named `shop`
+resolved to it over `shop.localhost`, and `bench --site shop` could not open the result.
+"""
+
+
+def _write_default_site(bench_root, value):
+    sites_dir = bench_root / "workspace" / "frappe-bench" / "sites"
+    sites_dir.mkdir(parents=True, exist_ok=True)
+    (sites_dir / "common_site_config.json").write_text(json.dumps({"default_site": value}))
+
+
+def test_the_recorded_default_beats_a_site_named_after_the_bench(tmp_path):
+    # The exact live failure: bench `shop` recording BOTH a phantom `shop` and the real
+    # `shop.localhost`. Rule 1 matched the phantom; the recorded default names the one that works.
+    bench = _bench(site=None)
+    bench.path = tmp_path
+    bench.bench_config = SimpleNamespace(
+        name=BENCH,
+        domains=[SITE],
+        sites={
+            BENCH: SimpleNamespace(database=None, alias_domains=[]),
+            SITE: SimpleNamespace(database=None, alias_domains=[]),
+        },
+    )
+    _write_default_site(tmp_path, SITE)
+
+    assert bench.site_name == SITE
+
+
+def test_without_a_recorded_default_the_name_rule_still_answers(tmp_path):
+    # The fallback has to keep working: a bench created before fm wrote the key, or one whose
+    # common_site_config is missing, still resolves rather than refusing.
+    bench = _bench()
+    bench.path = tmp_path / "no-such-dir"
+
+    assert bench.site_name == SITE
+
+
+def test_a_default_naming_an_unrecorded_site_is_not_followed(tmp_path):
+    # Drift the other way: frappe names a site fm has no record of. Following it would act on a
+    # schema fm never provisioned, which is the rule `fm delete` already holds to.
+    bench = _bench()
+    bench.path = tmp_path
+    _write_default_site(tmp_path, "stranger.localhost")
+
+    assert bench.site_name == SITE
+
+
+def test_an_unreadable_common_site_config_falls_through_silently(tmp_path):
+    # Read from parameter callbacks, so a hand-mangled file must not take the command down before
+    # it starts.
+    bench = _bench()
+    bench.path = tmp_path
+    sites_dir = tmp_path / "workspace" / "frappe-bench" / "sites"
+    sites_dir.mkdir(parents=True)
+    (sites_dir / "common_site_config.json").write_text("{not json")
+
+    assert bench.site_name == SITE
+
+
+def test_the_default_resolves_a_bench_the_name_rules_would_refuse(tmp_path):
+    # Two sites, neither named after the bench: the name rules give None and every bench-scoped
+    # command refuses. A recorded default is exactly the operator saying which one they meant.
+    bench = _bench(site=None)
+    bench.path = tmp_path
+    bench.bench_config = SimpleNamespace(
+        name="acme",
+        domains=["a.example.com"],
+        sites={
+            "a.example.com": SimpleNamespace(database=None, alias_domains=[]),
+            "b.example.com": SimpleNamespace(database=None, alias_domains=[]),
+        },
+    )
+    bench.name = "acme"
+    with pytest.raises(BenchException):
+        _ = bench.site_name
+
+    _write_default_site(tmp_path, "b.example.com")
+    assert bench.site_name == "b.example.com"
+
+
+def test_the_config_reads_the_default_from_beside_its_own_file(tmp_path):
+    """`BenchConfig.primary_site` has to find `common_site_config.json` too, not just `Bench`.
+
+    `root_path` is the bench_config.toml FILE despite its name, so the config-side caller has to
+    pass its parent. Handing the file path straight through built a path under the .toml, silently
+    read nothing, and fell back to the name rules: the resolver looked wired and was not. Caught on
+    a real bench, not here, which is why this test exists.
+    """
+    bench_dir = tmp_path / BENCH
+    bench_dir.mkdir()
+    toml = bench_dir / "bench_config.toml"
+    toml.write_text(
+        f'name = "{BENCH}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
+        f'\n[sites."{BENCH}"]\n\n[sites."{SITE}"]\n',
+    )
+    _write_default_site(bench_dir, SITE)
+
+    config = BenchConfig.import_from_toml(toml)
+
+    # Without the fix this is BENCH: rule 1 matches the site named after the bench.
+    assert config.primary_site == SITE

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from frappe_manager.docker import DockerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime, resolve_primary_site
+from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime, read_default_site, resolve_primary_site
 from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -271,7 +271,7 @@ class BenchInfo:
         # below has to print instead. `resolve_primary_site` is that rule's one implementation,
         # shared with the model, so this cannot drift from what `fm shell` decides.
         sites = config.site_names if config.sites else []
-        primary = resolve_primary_site(config.name, config.sites) if sites else None
+        primary = resolve_primary_site(config.name, config.sites, read_default_site(Path(config.root_path).parent)) if sites else None
 
         # The host the card's link and the admin-tools URLs are built from: the primary when fm can
         # name it, otherwise the first recorded site, and the bench name when there is no site at

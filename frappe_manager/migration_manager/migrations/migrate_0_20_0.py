@@ -47,6 +47,7 @@ SSL configuration:
 """
 
 import gzip
+import json
 import shutil
 from collections.abc import MutableMapping, MutableSequence
 from pathlib import Path
@@ -60,7 +61,7 @@ from frappe_manager.migration_manager.migration_helpers import MigrationBench
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager.context_managers import spinner
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, MariaDBManager
-from frappe_manager.site_manager.bench_config import REMOVED_CONFIG_KEYS, REMOVED_CONFIG_TABLES
+from frappe_manager.site_manager.bench_config import REMOVED_CONFIG_KEYS, REMOVED_CONFIG_TABLES, resolve_primary_site
 from frappe_manager.ssl_manager.dns_provider import DNSProviderConfig
 from frappe_manager.utils import toml_document
 from frappe_manager.utils.helpers import get_template_path
@@ -164,6 +165,9 @@ class MigrationV0200(MigrationBase):
         # SITE, and the primary is the only site a pre-0.20 bench ever dumped.
         self._rewrite_deploy_history(bench)
         self._rewrite_switch_migrate(bench)
+        # Last of the config rewrites: it resolves through `resolve_primary_site`, so the sites
+        # table it reads has to be written already.
+        self._backfill_default_site(bench)
         self._drop_removed_config_keys(bench)
 
         compose_path = bench.path / "docker-compose.admin-tools.yml"
@@ -411,6 +415,54 @@ class MigrationV0200(MigrationBase):
             self.output.print(f"Dropped the empty \\[database] table for {bench.name}")
         if moved_aliases:
             self.output.print(f'Moved alias_domains under \\[sites."{bench.name}"]')
+
+    def _backfill_default_site(self, bench: MigrationBench):
+        """Write `default_site` when the bench has none, so the answer stops being a guess.
+
+        `default_site` in `common_site_config.json` is the one place "which site is meant when
+        none is named" is written down: `bench use` writes it, frappe's CLI reads it, and
+        `resolve_primary_site` now reads it ahead of its own name-shaped rules. Those rules
+        reconstruct fm's creation convention from string shapes, and on a bench recording a site
+        named after itself they picked a site `bench --site` could not open.
+
+        So resolve once by those rules and record the answer. A bench created before fm wrote the
+        key, or one whose file was lost, gets a fact instead of a guess that has to be re-derived
+        on every command.
+
+        Written host-side, not through `bench use`: this is a key in a host-mounted JSON file, so
+        it needs no running container, which a migration cannot assume it has.
+
+        Never overwrites. An existing value is the operator's or frappe's answer, including one set
+        by `bench use` after create, and this step exists to fill a gap rather than to take the
+        decision back.
+        """
+        common = bench.path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
+        if not common.exists():
+            return
+
+        try:
+            data = json.loads(common.read_text())
+        except Exception as e:
+            self.output.warning(f"{bench.name}: could not read common_site_config.json ({e}); leaving default_site alone.")
+            return
+
+        if data.get("default_site"):
+            return
+
+        # `site_names` falls back to the bench's own name, so this is never empty and
+        # `resolve_primary_site` therefore answers with a recorded site or with None. There is no
+        # third case to guard against: an earlier `resolved not in sites` arm here was unreachable.
+        sites = {name: {} for name in bench.site_names}
+        resolved = resolve_primary_site(bench.name, sites)
+        if not resolved:
+            # Genuinely ambiguous: several sites, none named after the bench. Recording a guess
+            # here would put fm's choice beyond the operator's sight, and the address form
+            # (`fm shell BENCH/SITE`) is what resolves it instead.
+            return
+
+        data["default_site"] = resolved
+        common.write_text(json.dumps(data, indent=1))
+        self.output.print(f"Recorded default_site = {resolved} for {bench.name}")
 
     def _rewrite_switch_migrate(self, bench: MigrationBench):
         """Turn a surviving `[switch].migrate = "auto"` into `true`.

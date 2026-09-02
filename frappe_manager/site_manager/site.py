@@ -23,6 +23,7 @@ from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     DatabaseConfig,
     FMBenchEnvType,
+    read_default_site,
     resolve_primary_site,
 )
 from frappe_manager.site_manager.exceptions import (
@@ -380,7 +381,10 @@ class Bench:
         """
         config = getattr(self, "bench_config", None)
         sites = getattr(config, "sites", None) if config is not None else None
-        resolved = resolve_primary_site(self.name, sites)
+        # `path` is read the same guarded way as the config above it, and for the same reason: a
+        # half-built `Bench` has neither, and this must answer rather than raise on the way to
+        # being one.
+        resolved = resolve_primary_site(self.name, sites, read_default_site(getattr(self, "path", None)))
         if resolved is not None:
             return resolved
         # A bench-scoped command cannot proceed without knowing its site, and guessing would

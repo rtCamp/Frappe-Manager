@@ -110,6 +110,10 @@ def _config(*, sites=None, aliases=None, **over):
             for site, database in recorded.items()
         }
         or None,
+        # No such directory: `read_default_site` is deliberately silent about a
+        # common_site_config.json it cannot read, so the card falls through to the name-shaped
+        # rules, which is what every assertion below is written against.
+        "root_path": "/nonexistent-bench-root",
         "name": BENCH,
         "site_names": list(recorded) or [BENCH],
         "primary_site": resolved,
