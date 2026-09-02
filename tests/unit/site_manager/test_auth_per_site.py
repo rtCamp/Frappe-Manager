@@ -269,3 +269,54 @@ class TestOlderNginxConf:
             f"server {{\n  include /etc/nginx/custom/*.conf;\n  include /etc/nginx/custom/{SITE}/*.conf;\n}}\n"
         )
         assert old.bench.nginx_conf_serves_per_site() is True
+
+
+class TestAuthForResolver:
+    """`auth_for` is the single place that answers "which auth applies to this site".
+
+    Nothing tested it directly: the render reads `entry.auth` itself, so the resolver's only
+    callers are the tool locations (for that site's web state) and `fm auth`'s reporting. Replacing
+    its override branch with a no-op left every test in this file passing while every site silently
+    followed the bench.
+    """
+
+    def _config(self, tmp_path, bench_auth, site_auth):
+        bench_path = tmp_path / SITE
+        bench_path.mkdir(parents=True, exist_ok=True)
+        return make_bench_config(
+            bench_path / "bench_config.toml",
+            auth=bench_auth,
+            sites={SITE: SiteConfig(), OTHER: SiteConfig(auth=site_auth)},
+        )
+
+    def test_a_site_without_its_own_follows_the_bench(self, tmp_path):
+        config = self._config(tmp_path, AuthConfig(web=True, user="benchuser"), None)
+        assert config.auth_for(SITE).user == "benchuser"
+        assert config.auth_for(OTHER).user == "benchuser"
+
+    def test_a_site_with_its_own_stops_following_the_bench(self, tmp_path):
+        config = self._config(
+            tmp_path, AuthConfig(web=True, user="benchuser"), WebAuthConfig(web=False, user="siteuser")
+        )
+        assert config.auth_for(SITE).user == "benchuser"
+        assert config.auth_for(OTHER).user == "siteuser"
+        # Including the web flag: an override is not a partial merge over the bench's.
+        assert config.auth_for(OTHER).web is False
+
+    def test_it_returns_the_sites_own_object_not_a_copy_of_the_benchs(self, tmp_path):
+        own = WebAuthConfig(web=True, password="site-pw")
+        config = self._config(tmp_path, AuthConfig(web=True, password="bench-pw"), own)
+        assert config.auth_for(OTHER) is own
+
+    def test_it_is_never_none_so_a_renderer_need_not_decide_what_absent_means(self, tmp_path):
+        config = self._config(tmp_path, None, None)
+        resolved = config.auth_for(SITE)
+        assert resolved is not None
+        # `web=False` is what a bench with no [auth] at all has always served.
+        assert resolved.web is False
+
+    def test_a_name_the_bench_does_not_serve_gets_the_bench_answer(self, tmp_path):
+        """`site_names` and the recorded table can disagree mid-create, and answering with a
+        harder-to-reason-about default there would be worse than answering with the bench's."""
+        config = self._config(tmp_path, AuthConfig(web=True, user="benchuser"), None)
+        assert config.auth_for("nosuch.example.com").user == "benchuser"
