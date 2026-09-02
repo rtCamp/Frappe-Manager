@@ -461,3 +461,72 @@ def test_ssl_add_does_not_advertise_a_bare_all_it_refuses():
     # Refused because a certificate per domain of every bench crosses Let's Encrypt's rate limit.
     usage = _usage(["ssl", "add"])
     assert "|all" not in usage
+
+
+# ------------------------- an alias is a name worth recognising, not just rejecting
+
+
+def _aliased_bench(tmp_path):
+    """A bench whose site `b.example.com` also answers on `www.b.example.com`."""
+    root = tmp_path / "sites"
+    (root / "multi").mkdir(parents=True)
+    (root / "multi" / "bench_config.toml").write_text(
+        'name = "multi"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
+        '\n[sites."a.example.com"]\n'
+        '\n[sites."b.example.com"]\nalias_domains = ["www.b.example.com"]\n'
+    )
+    return root
+
+
+def test_an_alias_is_refused_with_the_site_it_belongs_to(tmp_path):
+    """These commands act on a SITE, and an alias is another hostname for one, so it is a name an
+    operator may well reach for. Listing every site and leaving them to work out which owns the
+    alias is a dead end; naming it is a lesson.
+    """
+    root = _aliased_bench(tmp_path)
+    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
+        result = runner.invoke(_app("shell", shell), ["multi/www.b.example.com"])
+
+    assert result.exit_code == 2
+    said = _said(result)
+    assert "is an alias of 'b.example.com'" in said
+    assert "use 'multi/b.example.com'" in said
+
+
+def test_a_name_that_is_neither_site_nor_alias_still_lists_the_sites(tmp_path):
+    """The alias branch must not swallow the ordinary typo case."""
+    root = _aliased_bench(tmp_path)
+    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
+        result = runner.invoke(_app("shell", shell), ["multi/nope.example.com"])
+
+    said = _said(result)
+    assert "alias" not in said
+    assert "'a.example.com'" in said
+    assert "'b.example.com'" in said
+
+
+def test_the_alias_is_matched_as_typed_not_after_normalisation(tmp_path):
+    """`validate_sitename` appends `.localhost` to a bare label, which would turn a bare-label alias
+    into a name no config records and lose the match. The alias lookup sees what was typed."""
+    root = tmp_path / "sites"
+    (root / "multi").mkdir(parents=True)
+    (root / "multi" / "bench_config.toml").write_text(
+        'name = "multi"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
+        '\n[sites."b.example.com"]\nalias_domains = ["intranet"]\n'
+    )
+    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
+        result = runner.invoke(_app("shell", shell), ["multi/intranet"])
+
+    assert "is an alias of 'b.example.com'" in _said(result)
+
+
+def test_maintenance_gets_the_same_alias_pointer(tmp_path):
+    """The refusal lives in the shared address callback, so every command that acts on one site
+    gains it: `fm maintenance shop/www.b.example.com` is exactly the invocation that prompted it."""
+    from frappe_manager.commands.maintenance import maintenance
+
+    root = _aliased_bench(tmp_path)
+    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
+        result = runner.invoke(_app("maintenance", maintenance), ["multi/www.b.example.com"])
+
+    assert "is an alias of 'b.example.com'" in _said(result)

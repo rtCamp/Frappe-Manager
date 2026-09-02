@@ -418,6 +418,34 @@ def _recorded_sites(bench: str) -> list[str]:
     return list(recorded) if recorded else [bench]
 
 
+def _alias_owner(bench: str, name: str) -> str | None:
+    """The site recording `name` as one of its aliases, or None.
+
+    An alias is another hostname for a site, so it is a name an operator may reasonably type when
+    they mean the site: on a bench whose site is `b.example.com` and whose alias is
+    `www.b.example.com`, either is what you remember. These commands act on a SITE, so the address
+    has to name one, and refusing with the canonical name makes that a lesson rather than a dead
+    end.
+
+    Silent on a config that will not load, like :func:`_recorded_sites` above and for the same
+    reason: a parameter callback must not turn a broken config into a stack trace before the body
+    can report it properly.
+    """
+    # Deferred: bench_config pulls in the site_manager package, which imports this module.
+    from frappe_manager.site_manager.bench_config import BenchConfig
+
+    config_path = CLI_BENCHES_DIRECTORY / bench / CLI_BENCH_CONFIG_FILE_NAME
+    if not config_path.is_file():
+        return None
+    try:
+        sites = BenchConfig.import_from_toml(config_path).sites or {}
+    except Exception:
+        return None
+    for site_name, entry in sites.items():
+        if name in (getattr(entry, "alias_domains", None) or []):
+            return str(site_name)
+    return None
+
 def _resolve_bench_site(ctx: typer.Context, value: str | None, *, allow_all: bool) -> str | None:
     """`BENCH[/SITE]`, returning the BENCH and stashing the site half on `ctx.obj["site"]`.
 
@@ -454,9 +482,19 @@ def _resolve_bench_site(ctx: typer.Context, value: str | None, *, allow_all: boo
         # `fm delete shop/shop` resolved to `shop.localhost` and offered to drop ITS database.
         # fm never creates a bare-label site, so this only arises from a hand-written config or
         # old data, which is exactly when silently acting on the wrong schema is least excusable.
+        typed = site
         if site not in recorded:
             site = validate_sitename(site)
         if site not in recorded:
+            # An alias is a hostname OF a site, so it is a name worth recognising rather than just
+            # rejecting. Checked against what was TYPED, not the `.localhost` form: normalising
+            # first would turn a bare-label alias into a name no config records and lose the match.
+            owner = _alias_owner(bench, typed)
+            if owner:
+                raise typer.BadParameter(
+                    f"bench '{bench}' has no site '{typed}'. It is an alias of '{owner}', which is "
+                    f"the site these commands act on: use '{bench}/{owner}'."
+                )
             known = ", ".join(f"'{s}'" for s in sorted(recorded))
             hint = f" Use '{bench}/all' for every site." if allow_all else ""
             raise typer.BadParameter(f"bench '{bench}' has no site '{site}'. It serves {known}.{hint}")
