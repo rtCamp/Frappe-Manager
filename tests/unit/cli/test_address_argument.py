@@ -1,4 +1,4 @@
-"""The `BENCH[/SITE]` positional, black-box through the CLI.
+"""The `BENCH(/SITE)` positional, black-box through the CLI.
 
 A bench holds exactly one site today, so `fm shell` is the only command that can do
 anything with a site part and every other bench-scoped command refuses one. The `ssl`
@@ -310,8 +310,10 @@ def test_shell_has_no_site_option():
 
 
 def test_shell_help_documents_the_address():
+    """Case-insensitive on purpose: the help says `BENCH/SITE`, matching the usage line's metavar,
+    and what this defends is that the address is mentioned at all rather than its capitalisation."""
     result = runner.invoke(_app("shell", shell), ["--help"])
-    assert "bench/site" in _said(result)
+    assert "bench/site" in _said(result).lower()
 
 
 # ------------------------------- an exact site name is never retargeted
@@ -376,3 +378,86 @@ def test_an_fqdn_site_is_unaffected(benches):
 
     assert bench_site_callback(ctx, "shop/b.example.com") == "shop"
     assert ctx.obj["site"] == "b.example.com"
+
+
+# ------------------------------- the usage line states the grammar
+
+
+"""Every command that takes an address says WHICH address in its own usage line.
+
+The metavar defaulted to the parameter name, so `fm shell --help` read
+`Usage: fm shell [OPTIONS] [BENCHNAME]` and nothing in the help mentioned that `BENCH/SITE` was
+accepted at all. Worse, one shared alias would have made `fm ssl list` advertise `(/DOMAIN)`,
+which that command refuses, and `fm ssl add` advertise a bare `all`, which it also refuses.
+
+Pinned here because nothing else catches it: a metavar is not a flag, so `docs-lint` does not see
+it, and the commands keep working with the wrong one displayed.
+"""
+
+from frappe_manager.commands import app as fm_app
+
+
+def _usage(argv: list[str]) -> str:
+    """The one physical usage line, nothing else.
+
+    Scoped deliberately: `BENCHNAME` still appears in help PROSE, where it names the command's own
+    argument inside a sentence like "fm update BENCHNAME --runtime mount". What must not say it is
+    the interface itself, and the docstring sits between the usage line and the arguments panel.
+    """
+    result = runner.invoke(fm_app, [*argv, "--help"])
+    assert result.exit_code == 0, result.output
+    for line in result.output.splitlines():
+        if "Usage:" in line:
+            return " ".join(line.split())
+    raise AssertionError(f"no usage line in help for {argv}")
+
+
+ADDRESS_GRAMMAR = [
+    # bench only
+    (["start"], "[BENCH]"),
+    (["stop"], "[BENCH]"),
+    (["restart"], "[BENCH]"),
+    (["info"], "[BENCH]"),
+    (["logs"], "[BENCH]"),
+    (["bake"], "[BENCH]"),
+    (["prune"], "BENCH"),
+    # bench, or one of its sites
+    (["create"], "BENCH(/SITE)"),
+    (["shell"], "[BENCH(/SITE)]"),
+    (["delete"], "[BENCH(/SITE)]"),
+    (["reset"], "[BENCH(/SITE)]"),
+    (["update"], "[BENCH(/SITE)]"),
+    # bench, or every bench
+    (["migrate"], "[BENCH|all]"),
+    # bench, or one hostname it serves
+    (["ssl", "add"], "[BENCH(/DOMAIN)]"),
+    (["ssl", "remove"], "[BENCH(/DOMAIN)]"),
+    # the two that also take a bare `all`, and differ from each other
+    (["ssl", "renew"], "[BENCH(/DOMAIN)|all]"),
+    (["ssl", "list"], "[BENCH|all]"),
+]
+
+
+@pytest.mark.parametrize(("argv", "grammar"), ADDRESS_GRAMMAR, ids=lambda v: " ".join(v) if isinstance(v, list) else v)
+def test_the_usage_line_states_the_address_grammar(argv, grammar):
+    assert grammar in _usage(argv)
+
+
+def test_no_command_still_advertises_the_parameter_name(benches):
+    # `BENCHNAME` is the Python parameter leaking into the interface. It says "a bench name" and
+    # nothing else, which is what hid the address form for every one of these.
+    for argv, _ in ADDRESS_GRAMMAR:
+        assert "BENCHNAME" not in _usage(argv), argv
+
+
+def test_ssl_list_does_not_advertise_a_domain_it_refuses():
+    # It reports every certificate a bench holds; naming one domain is refused in its body. A
+    # usage line offering `/DOMAIN` would send the operator straight into that refusal.
+    usage = _usage(["ssl", "list"])
+    assert "/DOMAIN" not in usage
+
+
+def test_ssl_add_does_not_advertise_a_bare_all_it_refuses():
+    # Refused because a certificate per domain of every bench crosses Let's Encrypt's rate limit.
+    usage = _usage(["ssl", "add"])
+    assert "|all" not in usage

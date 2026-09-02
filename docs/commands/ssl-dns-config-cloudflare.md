@@ -5,7 +5,7 @@ Configure Cloudflare credentials for DNS-01 certificate challenges. This is requ
 Usage:
 
 ```console
-$ fm ssl dns-config cloudflare [BENCHNAME] [OPTIONS]
+$ fm ssl dns-config cloudflare [BENCH] [OPTIONS]
 ```
 
 Options:
@@ -21,9 +21,9 @@ Options:
 
 ## Credential scope
 
-Two independent choices: `BENCHNAME` picks the **file**, `--name` picks the **table** inside it.
+Two independent choices: `BENCH` picks the **file**, `--name` picks the **table** inside it.
 
-| `BENCHNAME` | `--name` | Written to |
+| `BENCH` | `--name` | Written to |
 |---|---|---|
 | omitted | omitted | `[ssl.dns_providers.cloudflare]` in `~/frappe/fm_config.toml` |
 | omitted | given | `[ssl.dns_providers.<name>]` in `~/frappe/fm_config.toml` |

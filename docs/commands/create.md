@@ -2,17 +2,17 @@
 
 Create a new bench and install apps into it.
 
-Image runtime (--runtime image) refuses --apps, --python, --node and developer mode, which the image already carries; 'fm update BENCHNAME --runtime mount' converts a bench to an editable workspace.
+Image runtime (--runtime image) refuses --apps, --python, --node and developer mode, which the image already carries; 'fm update BENCH --runtime mount' converts a bench to an editable workspace.
 
 **Usage**:
 
 ```console
-$ fm create BENCHNAME [OPTIONS]
+$ fm create BENCH(/SITE) [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Bench to create, or BENCH/SITE to add a site to a bench that already exists. A bench name is just a name: 'shop' creates a bench 'shop' serving a site 'shop.localhost', and a name that is already a domain serves that domain.  [required]
+* `BENCH(/SITE)`: Bench to create, or BENCH/SITE to add a site to a bench that already exists. A bench name is just a name: 'shop' creates a bench 'shop' serving a site 'shop.localhost', and a name that is already a domain serves that domain.  [required]
 
 **Options**:
 

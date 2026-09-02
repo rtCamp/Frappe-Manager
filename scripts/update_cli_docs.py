@@ -79,6 +79,7 @@ def extract_param_info(param_name: str, param: inspect.Parameter) -> dict[str, A
         "help": "",
         "is_option": False,
         "is_argument": False,
+        "metavar": None,
         "option_names": [],
     }
 
@@ -133,6 +134,12 @@ def extract_param_info(param_name: str, param: inspect.Parameter) -> dict[str, A
                 info["is_argument"] = True
                 if hasattr(typer_info, "help"):
                     info["help"] = typer_info.help or ""
+                # The metavar, when the command sets one, is what the CLI's own usage line shows.
+                # Falling back to the parameter name printed `BENCHNAME` for arguments that accept
+                # `BENCH/SITE`, so the generated page contradicted `--help` on the one thing a
+                # reader goes there to learn: the shape of the argument.
+                if getattr(typer_info, "metavar", None):
+                    info["metavar"] = typer_info.metavar
 
     if not info["is_option"] and not info["is_argument"]:
         if default_val != inspect.Parameter.empty:
@@ -275,7 +282,7 @@ def generate_command_markdown(cmd_info: dict, examples_data: dict, level: int = 
 
     arguments = [p for p in cmd_info["params"] if p["is_argument"]]
     for arg in arguments:
-        md += f" {arg['name'].upper()}"
+        md += f" {arg.get('metavar') or arg['name'].upper()}"
 
     if any(p["is_option"] for p in cmd_info["params"]):
         md += " [OPTIONS]"
@@ -285,7 +292,7 @@ def generate_command_markdown(cmd_info: dict, examples_data: dict, level: int = 
     if arguments:
         md += "**Arguments**:\n\n"
         for arg in arguments:
-            arg_text = f"* `{arg['name'].upper()}`"
+            arg_text = f"* `{arg.get('metavar') or arg['name'].upper()}`"
             if arg["help"]:
                 arg_text += f": {arg['help']}"
             if arg["required"]:

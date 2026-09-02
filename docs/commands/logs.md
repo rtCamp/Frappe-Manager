@@ -7,12 +7,12 @@ Without --service this reads the bench's log files on the host, so it works whet
 **Usage**:
 
 ```console
-$ fm logs BENCHNAME [OPTIONS]
+$ fm logs BENCH [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench.
+* `BENCH`: Bench to act on. Omit to pick from the benches you have.
 
 **Options**:
 

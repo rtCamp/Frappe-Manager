@@ -637,6 +637,7 @@ def create(
     benchname: Annotated[
         str,
         typer.Argument(
+            metavar="BENCH(/SITE)",
             help="Bench to create, or BENCH/SITE to add a site to a bench that already exists. A bench name is just a name: 'shop' creates a bench 'shop' serving a site 'shop.localhost', and a name that is already a domain serves that domain.",
             callback=create_command_sitename_callback,
         ),
@@ -896,7 +897,7 @@ def create(
     """
     Create a new bench and install apps into it.
 
-    Image runtime (--runtime image) refuses --apps, --python, --node and developer mode, which the image already carries; 'fm update BENCHNAME --runtime mount' converts a bench to an editable workspace.
+    Image runtime (--runtime image) refuses --apps, --python, --node and developer mode, which the image already carries; 'fm update BENCH --runtime mount' converts a bench to an editable workspace.
     """
 
     services_manager: ServicesManager = ctx.obj["services"]

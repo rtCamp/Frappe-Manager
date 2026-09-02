@@ -10,12 +10,12 @@ Two modes:
 **Usage**:
 
 ```console
-$ fm bake BENCHNAME [OPTIONS]
+$ fm bake BENCH [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Bench to bake. Omit for a standalone bake driven by --apps/--config.
+* `BENCH`: Bench to bake. Omit for a standalone bake driven by --apps/--config.
 
 **Options**:
 

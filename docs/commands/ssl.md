@@ -32,12 +32,12 @@ A certificate that is not yet due is reported and left alone, unless you pass --
 **Usage**:
 
 ```console
-$ fm ssl renew BENCHNAME [OPTIONS]
+$ fm ssl renew BENCH(/DOMAIN)|all [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Bench, bench/domain, or all.
+* `BENCH(/DOMAIN)|all`: Bench, BENCH/DOMAIN for one hostname, 'BENCH/all' for every domain of that bench, or 'all' for every bench. A bare domain is for --standalone.
 
 **Options**:
 
@@ -100,12 +100,12 @@ The DNS Provider column names the \[ssl.dns_providers] credential set each DNS-0
 **Usage**:
 
 ```console
-$ fm ssl list BENCHNAME [OPTIONS]
+$ fm ssl list BENCH|all [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Bench, bench/domain, or all.
+* `BENCH|all`: Bench, or 'all' for every bench and the external domains together. Naming a single domain is refused: this reports every certificate the bench holds.
 
 **Options**:
 
@@ -144,12 +144,12 @@ Bench mode takes a bench name and one of its configured domains (add new ones wi
 **Usage**:
 
 ```console
-$ fm ssl add BENCHNAME [OPTIONS]
+$ fm ssl add BENCH(/DOMAIN) [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Bench, bench/domain, or all.
+* `BENCH(/DOMAIN)`: Bench, or BENCH/DOMAIN to act on one hostname it serves. 'BENCH/all' means every domain of that bench; a bare domain is for --standalone.
 
 **Options**:
 
@@ -225,12 +225,12 @@ Asks for confirmation unless you pass --yes. --standalone deletes an external Do
 **Usage**:
 
 ```console
-$ fm ssl remove BENCHNAME [OPTIONS]
+$ fm ssl remove BENCH(/DOMAIN) [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Bench, bench/domain, or all.
+* `BENCH(/DOMAIN)`: Bench, or BENCH/DOMAIN to act on one hostname it serves. 'BENCH/all' means every domain of that bench; a bare domain is for --standalone.
 
 **Options**:
 
@@ -341,12 +341,12 @@ A --name stores the credentials as a labelled set, so one host or bench can hold
 **Usage**:
 
 ```console
-$ fm ssl dns-config cloudflare BENCHNAME [OPTIONS]
+$ fm ssl dns-config cloudflare BENCH [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Bench to configure. Omit for global credentials.
+* `BENCH`: Bench to configure. Omit for global credentials.
 
 **Options**:
 

@@ -5,7 +5,7 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
-from frappe_manager.commands.arguments import BenchDomainArgument
+from frappe_manager.commands.arguments import BenchDomainAllArgument
 from frappe_manager.output_manager import spinner, temporary_stop
 from frappe_manager.site_manager.exceptions import BenchSSLCertificateNotIssued
 from frappe_manager.site_manager.site import Bench
@@ -48,7 +48,7 @@ from .helpers import get_output_handler
 )
 def renew(
     ctx: typer.Context,
-    benchname: BenchDomainArgument = None,
+    benchname: BenchDomainAllArgument = None,
     standalone: Annotated[bool, typer.Option("--standalone", help="Renew an external (non-bench) domain.")] = False,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Rehearse against Let's Encrypt staging.")] = False,
     force: Annotated[bool, typer.Option("--force", help="Renew even when the certificate is not due.")] = False,

@@ -11,12 +11,12 @@ The database is decided separately. fm can drop a site's schema and user from th
 **Usage**:
 
 ```console
-$ fm delete BENCHNAME [OPTIONS]
+$ fm delete BENCH(/SITE) [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Bench, or bench/site.
+* `BENCH(/SITE)`: Bench, or BENCH/SITE to act on one of its sites. Without a site part, the bench's primary site is used.
 
 **Options**:
 

@@ -2,19 +2,19 @@
 
 Put an HTTP basic auth prompt in front of a bench: the site, the admin tools, or both.
 
---protect is declarative: the surfaces you pass become the resulting state, so --protect tools alone turns web off again. Credentials and allow lists are kept when a surface goes off, so re-enabling asks for nothing. A bare fm auth BENCHNAME reports the state.
+--protect is declarative: the surfaces you pass become the resulting state, so --protect tools alone turns web off again. Credentials and allow lists are kept when a surface goes off, so re-enabling asks for nothing. A bare fm auth BENCH reports the state.
 
 Basic auth sends credentials base64-encoded, not encrypted, so on a bench without TLS they are effectively cleartext: protecting the web surface there needs --insecure.
 
 **Usage**:
 
 ```console
-$ fm auth BENCHNAME [OPTIONS]
+$ fm auth BENCH [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench.
+* `BENCH`: Bench to act on. Omit to pick from the benches you have.
 
 **Options**:
 

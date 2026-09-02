@@ -183,7 +183,7 @@ def auth(
     """
     Put an HTTP basic auth prompt in front of a bench: the site, the admin tools, or both.
 
-    --protect is declarative: the surfaces you pass become the resulting state, so --protect tools alone turns web off again. Credentials and allow lists are kept when a surface goes off, so re-enabling asks for nothing. A bare fm auth BENCHNAME reports the state.
+    --protect is declarative: the surfaces you pass become the resulting state, so --protect tools alone turns web off again. Credentials and allow lists are kept when a surface goes off, so re-enabling asks for nothing. A bare fm auth BENCH reports the state.
 
     Basic auth sends credentials base64-encoded, not encrypted, so on a bench without TLS they are effectively cleartext: protecting the web surface there needs --insecure.
     """
@@ -253,7 +253,7 @@ def auth(
     stored = bench.bench_config.auth
 
     if not writes:
-        # Bare `fm auth BENCHNAME` and `--status` both land here: report only.
+        # Bare `fm auth BENCH` and `--status` both land here: report only.
         if stored is None:
             output.print("Basic auth: not configured; bench defaults apply (tools protected, web open)")
             output.print(f"Protect a surface with 'fm auth {bench.name} --protect web' to mint credentials")

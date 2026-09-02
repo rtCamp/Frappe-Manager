@@ -7,12 +7,12 @@ Needs an ngrok auth token: pass --auth-token, set NGROK_AUTHTOKEN, or save one i
 **Usage**:
 
 ```console
-$ fm ngrok BENCHNAME [OPTIONS]
+$ fm ngrok BENCH [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench.
+* `BENCH`: Bench to act on. Omit to pick from the benches you have.
 
 **Options**:
 

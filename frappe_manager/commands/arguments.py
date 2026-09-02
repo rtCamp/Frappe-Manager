@@ -66,10 +66,16 @@ from frappe_manager.utils.callbacks import (
     sites_autocompletion_callback,
 )
 
+# Metavars use `BENCH(/SITE)` rather than the conventional `BENCH[/SITE]`, and not by preference.
+# Rich reads `[/SITE]` as a CLOSING markup tag and raises MarkupError, which takes down any path
+# that prints a usage line through fm's output handler. `[SITE]` without the slash survives but
+# reads as a second argument rather than an optional suffix, so parentheses carry the optionality
+# and the slash carries the grammar. See tests/unit/output_manager/test_markup_escaping.py.
 BenchNameArgument = Annotated[
     str | None,
     typer.Argument(
-        help="Name of the bench.",
+        metavar="BENCH",
+        help="Bench to act on. Omit to pick from the benches you have.",
         autocompletion=sites_autocompletion_callback,
         callback=sitename_callback,
     ),
@@ -79,7 +85,8 @@ BenchNameArgument = Annotated[
 BenchAllArgument = Annotated[
     str | None,
     typer.Argument(
-        help="Name of the bench, or all.",
+        metavar="BENCH|all",
+        help="Bench to act on, or 'all' for every bench fm manages. Omit to act on nothing but fm itself.",
         autocompletion=bench_all_autocompletion_callback,
         callback=bench_all_callback,
     ),
@@ -89,7 +96,8 @@ BenchAllArgument = Annotated[
 RequiredBenchNameArgument = Annotated[
     str,
     typer.Argument(
-        help="Name of the bench.",
+        metavar="BENCH",
+        help="Bench to act on.",
         autocompletion=sites_autocompletion_callback,
         callback=sitename_callback,
     ),
@@ -99,7 +107,8 @@ RequiredBenchNameArgument = Annotated[
 BenchSiteArgument = Annotated[
     str | None,
     typer.Argument(
-        help="Bench, or bench/site.",
+        metavar="BENCH(/SITE)",
+        help="Bench, or BENCH/SITE to act on one of its sites. Without a site part, the bench's primary site is used.",
         autocompletion=bench_site_autocompletion_callback,
         callback=bench_site_callback,
     ),
@@ -109,7 +118,8 @@ BenchSiteArgument = Annotated[
 BenchDomainArgument = Annotated[
     str | None,
     typer.Argument(
-        help="Bench, bench/domain, or all.",
+        metavar="BENCH(/DOMAIN)",
+        help="Bench, or BENCH/DOMAIN to act on one hostname it serves. 'BENCH/all' means every domain of that bench; a bare domain is for --standalone.",
         autocompletion=bench_domain_autocompletion_callback,
         callback=bench_domain_callback,
     ),
@@ -117,6 +127,37 @@ BenchDomainArgument = Annotated[
 """Optional address whose second segment is a served DOMAIN, not a site.
 
 The `ssl` commands use it: a certificate is keyed by domain, and a bench serves its sites' names
-AND their aliases, so the population is wider than `BenchSiteArgument`'s. Like the standalone
-alias it does no must-exist check, because `--standalone` puts an external domain in this same
-position."""
+AND their aliases, so the population is wider than `BenchSiteArgument`'s. It does no must-exist
+check, because `--standalone` puts an external domain in this same position."""
+
+BenchDomainAllArgument = Annotated[
+    str | None,
+    typer.Argument(
+        metavar="BENCH(/DOMAIN)|all",
+        help="Bench, BENCH/DOMAIN for one hostname, 'BENCH/all' for every domain of that bench, or 'all' for every bench. A bare domain is for --standalone.",
+        autocompletion=bench_domain_autocompletion_callback,
+        callback=bench_domain_callback,
+    ),
+]
+"""The same address as :data:`BenchDomainArgument`, for the `ssl` commands that also accept a bare
+`all`.
+
+Same callback and same completion: the difference is only which forms the command will act on, and
+that is enforced in each body. It is a separate alias so the USAGE LINE cannot claim a form the
+command refuses. `fm ssl add all` and `fm ssl remove all` are refused (a certificate per domain of
+every bench crosses Let's Encrypt's rate limit, and dropping every certificate is a fleet-wide move
+to plain HTTP), while `fm ssl renew all` is the whole point of having it."""
+
+BenchOnlyAllArgument = Annotated[
+    str | None,
+    typer.Argument(
+        metavar="BENCH|all",
+        help="Bench, or 'all' for every bench and the external domains together. Naming a single domain is refused: this reports every certificate the bench holds.",
+        autocompletion=bench_domain_autocompletion_callback,
+        callback=bench_domain_callback,
+    ),
+]
+"""`BENCH|all` for `fm ssl list`, which reports per BENCH and refuses a domain part.
+
+Carries the domain callback so a slashed value is still parsed and reported by the command rather
+than dying in the parser, but the metavar does not offer a form the command will not act on."""

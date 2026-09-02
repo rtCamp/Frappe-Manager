@@ -7,12 +7,12 @@ Nothing is deleted; fm start brings the bench back.
 **Usage**:
 
 ```console
-$ fm stop BENCHNAME
+$ fm stop BENCH
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench.
+* `BENCH`: Bench to act on. Omit to pick from the benches you have.
 
 
 ## Examples

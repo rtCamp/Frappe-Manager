@@ -7,12 +7,12 @@ Needs the bench up (--force-start starts it) and the VSCode 'code' CLI on PATH. 
 **Usage**:
 
 ```console
-$ fm code BENCHNAME [OPTIONS]
+$ fm code BENCH [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench.
+* `BENCH`: Bench to act on. Omit to pick from the benches you have.
 
 **Options**:
 

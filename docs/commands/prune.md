@@ -7,12 +7,12 @@ Keeps the newest keep_releases from the bench config (7 by default) or --keep. N
 **Usage**:
 
 ```console
-$ fm prune BENCHNAME [OPTIONS]
+$ fm prune BENCH [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench.  [required]
+* `BENCH`: Bench to act on.  [required]
 
 **Options**:
 

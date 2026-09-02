@@ -7,12 +7,12 @@ Not `bench update`: app code ships with fm bake then fm switch. The bench must b
 **Usage**:
 
 ```console
-$ fm update BENCHNAME [OPTIONS]
+$ fm update BENCH(/SITE) [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Bench, or bench/site.
+* `BENCH(/SITE)`: Bench, or BENCH/SITE to act on one of its sites. Without a site part, the bench's primary site is used.
 
 **Options**:
 

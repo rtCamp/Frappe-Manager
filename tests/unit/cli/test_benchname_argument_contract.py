@@ -54,6 +54,9 @@ class BenchnameSpec:
     """Everything about a `benchname` argument that a user or shell can observe."""
 
     help: str
+    metavar: str | None
+    """The token the USAGE LINE shows. Observable, and the thing that told an operator `fm shell`
+    took a bench name when it takes `BENCH/SITE`, so it belongs in this spec like the help does."""
     default: object
     required: bool
     type_name: str
@@ -63,7 +66,8 @@ class BenchnameSpec:
 
 # The block repeated verbatim across 12 command modules -- the dedup target.
 CANONICAL = BenchnameSpec(
-    help="Name of the bench.",
+    help="Bench to act on. Omit to pick from the benches you have.",
+    metavar="BENCH",
     default=None,
     required=False,
     type_name="text",
@@ -109,6 +113,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
             "a name: 'shop' creates a bench 'shop' serving a site 'shop.localhost', and a name that is already "
             "a domain serves that domain."
         ),
+        metavar="BENCH(/SITE)",
         default=None,
         required=True,
         type_name="text",
@@ -118,7 +123,8 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     # `maintenance --status` may run bench-less, so it swaps in a wrapper that
     # lets `None` through for that one flag and otherwise delegates.
     "fm maintenance": BenchnameSpec(
-        help="Name of the bench. Optional with --status, which then lists every domain in maintenance.",
+        help="Bench to act on. Optional with --status, which then lists every domain in maintenance.",
+        metavar="BENCH",
         default=None,
         required=False,
         type_name="text",
@@ -131,7 +137,8 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     # address, which names no directory. It used to have neither completion nor validation, because
     # acting on every bench lived in a `--all-benches` flag and the body did its own existence check.
     "fm migrate": BenchnameSpec(
-        help="Name of the bench, or all.",
+        help="Bench to act on, or 'all' for every bench fm manages. Omit to act on nothing but fm itself.",
+        metavar="BENCH|all",
         default=None,
         required=False,
         type_name="text",
@@ -142,6 +149,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     # completion but drops the must-exist callback.
     "fm bake": BenchnameSpec(
         help="Bench to bake. Omit for a standalone bake driven by --apps/--config.",
+        metavar="BENCH",
         default=None,
         required=False,
         type_name="text",
@@ -153,7 +161,8 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     # dedup that reuses the canonical alias here would make the argument optional
     # and silently trigger the interactive bench picker.
     "fm switch": BenchnameSpec(
-        help="Name of the bench.",
+        help="Bench to act on.",
+        metavar="BENCH",
         default=None,
         required=True,
         type_name="text",
@@ -161,7 +170,8 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         callback=sitename_callback,
     ),
     "fm prune": BenchnameSpec(
-        help="Name of the bench.",
+        help="Bench to act on.",
+        metavar="BENCH",
         default=None,
         required=True,
         type_name="text",
@@ -170,32 +180,55 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     ),
     # `self compose` is a maintenance escape hatch: required, no completion, no callback.
     "fm self compose": BenchnameSpec(
-        help="Name of the bench.",
+        help="Bench to act on.",
+        metavar="BENCH",
         default=None,
         required=True,
         type_name="text",
         autocompletion=None,
         callback=None,
     ),
-    # The four `ssl` subcommands address a DOMAIN, so they share `BenchDomainArgument` rather than
-    # either bench-only alias. A certificate is keyed by hostname and a bench serves its sites' names
-    # AND their aliases, so the population is wider than `BenchSiteArgument`'s.
-    # `bench_domain_callback` parses `BENCH[/DOMAIN]` and hands the domain half on through
-    # `ctx.obj["domain"]`. It deliberately does NOT require the bench to exist: `--standalone` puts an
-    # external domain, belonging to no bench, in this same position. `all` reaches the body as itself,
-    # which is how `ssl list all` and `ssl renew all` span every bench and how `ssl add` and
-    # `ssl remove` refuse it on blast radius.
+    # The four `ssl` subcommands address a DOMAIN rather than a site: a certificate is keyed by
+    # hostname and a bench serves its sites' names AND their aliases, so the population is wider
+    # than `BenchSiteArgument`'s. `bench_domain_callback` parses `BENCH/DOMAIN` and hands the
+    # domain half on through `ctx.obj["domain"]`. It deliberately does NOT require the bench to
+    # exist: `--standalone` puts an external domain, belonging to no bench, in this position.
+    #
+    # They share the callback and the completer and SPLIT on the metavar, because the forms each
+    # one will act on differ and a usage line must not advertise a refusal. `add` and `remove`
+    # reject a bare `all` on blast radius (a certificate per domain of every bench crosses Let's
+    # Encrypt's rate limit; dropping every certificate is a fleet-wide move to plain HTTP), while
+    # `renew all` is the reason the form exists. `list` reports per BENCH and rejects a domain.
     **{
         f"fm ssl {sub}": BenchnameSpec(
-            help="Bench, bench/domain, or all.",
+            help="Bench, or BENCH/DOMAIN to act on one hostname it serves. 'BENCH/all' means every domain of that bench; a bare domain is for --standalone.",
+            metavar="BENCH(/DOMAIN)",
             default=None,
             required=False,
             type_name="text",
             autocompletion=bench_domain_autocompletion_callback,
             callback=bench_domain_callback,
         )
-        for sub in ("add", "list", "remove", "renew")
+        for sub in ("add", "remove")
     },
+    "fm ssl renew": BenchnameSpec(
+        help="Bench, BENCH/DOMAIN for one hostname, 'BENCH/all' for every domain of that bench, or 'all' for every bench. A bare domain is for --standalone.",
+        metavar="BENCH(/DOMAIN)|all",
+        default=None,
+        required=False,
+        type_name="text",
+        autocompletion=bench_domain_autocompletion_callback,
+        callback=bench_domain_callback,
+    ),
+    "fm ssl list": BenchnameSpec(
+        help="Bench, or 'all' for every bench and the external domains together. Naming a single domain is refused: this reports every certificate the bench holds.",
+        metavar="BENCH|all",
+        default=None,
+        required=False,
+        type_name="text",
+        autocompletion=bench_domain_autocompletion_callback,
+        callback=bench_domain_callback,
+    ),
     # Four commands address a SITE, for three different reasons, and all four share the one
     # alias `BenchSiteArgument`: same help text, same callback, `bench_site_callback`, the only
     # one that accepts a site part, and the only completer that offers sites.
@@ -214,7 +247,8 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     # entry is that decision, not drift.
     **{
         f"fm {command}": BenchnameSpec(
-            help="Bench, or bench/site.",
+            help="Bench, or BENCH/SITE to act on one of its sites. Without a site part, the bench's primary site is used.",
+            metavar="BENCH(/SITE)",
             default=None,
             required=False,
             type_name="text",
@@ -226,6 +260,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     # dns-config credentials can be global, hence its own wording.
     "fm ssl dns-config cloudflare": BenchnameSpec(
         help="Bench to configure. Omit for global credentials.",
+        metavar="BENCH",
         default=None,
         required=False,
         type_name="text",
@@ -266,6 +301,7 @@ def unwrap_callback(param: click.Parameter):
 def spec_of(param: click.Parameter) -> BenchnameSpec:
     return BenchnameSpec(
         help=getattr(param, "help", None),
+        metavar=param.metavar,
         default=param.default,
         required=param.required,
         type_name=param.type.name,

@@ -9,12 +9,12 @@ Only a site whose database is on the server fm owns can be reset. A site with it
 **Usage**:
 
 ```console
-$ fm reset BENCHNAME [OPTIONS]
+$ fm reset BENCH(/SITE) [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Bench, or bench/site.
+* `BENCH(/SITE)`: Bench, or BENCH/SITE to act on one of its sites. Without a site part, the bench's primary site is used.
 
 **Options**:
 

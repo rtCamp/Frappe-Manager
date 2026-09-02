@@ -7,12 +7,12 @@ The administrator and database passwords are printed in cleartext.
 **Usage**:
 
 ```console
-$ fm info BENCHNAME
+$ fm info BENCH
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench.
+* `BENCH`: Bench to act on. Omit to pick from the benches you have.
 
 
 ## Examples

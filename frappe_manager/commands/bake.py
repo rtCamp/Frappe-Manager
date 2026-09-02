@@ -150,6 +150,7 @@ def bake(
     benchname: Annotated[
         str | None,
         typer.Argument(
+            metavar="BENCH",
             help="Bench to bake. Omit for a standalone bake driven by --apps/--config.",
             autocompletion=sites_autocompletion_callback,
         ),

@@ -30,6 +30,7 @@ import re
 from pathlib import Path
 
 import pytest
+import typer
 from rich.console import Console
 
 PACKAGE = Path("frappe_manager")
@@ -183,3 +184,71 @@ def test_every_declared_table_is_a_word_rich_would_eat(table: str):
     """TABLES is only meaningful if these names really are style-shaped. If rich stops
     treating a bare word as a tag, this check is obsolete rather than silently passing."""
     assert f"[{table}]" not in render(f"see [{table}] here")
+
+
+# ------------------------------- metavars are user-facing strings too
+
+
+r"""A metavar reaches rich, so it obeys the same rules as help text.
+
+`BENCH[/SITE]` is the conventional way to write an optional suffix and it is UNUSABLE here: the
+leading slash makes rich read `[/SITE]` as a CLOSING tag, which does not silently drop like an
+unknown style but RAISES MarkupError, taking down whichever path was printing the usage line.
+
+`[SITE]` without the slash survives, because it is merely an unknown style tag, and is therefore
+worse in a different way: it renders as nothing, so the usage line reads `Usage: fm shell [BENCH]`
+and the address form disappears exactly as `[build]` did from `fm bake --base-image`.
+
+Escaping is not the answer for a metavar. It goes through both a rich path and click's own
+non-markup path, so a `\[` that fixes one leaks a visible backslash into the other. Parentheses
+carry the optionality instead, which is why the metavars read `BENCH(/SITE)`.
+"""
+
+import re
+
+from frappe_manager.commands import app as metavar_app
+
+
+def _every_metavar() -> list[tuple[str, str]]:
+    """`(command path, metavar)` for every argument fm declares one on."""
+    import click
+
+    found: list[tuple[str, str]] = []
+
+    def walk(cmd, path):
+        if isinstance(cmd, click.Group):
+            for name, sub in cmd.commands.items():
+                walk(sub, [*path, name])
+            return
+        for param in cmd.params:
+            if isinstance(param, click.Argument) and param.metavar:
+                found.append((" ".join(path), param.metavar))
+
+    walk(click.Group("fm", commands=typer.main.get_group(metavar_app).commands), [])
+    return found
+
+
+def test_fm_declares_metavars_at_all():
+    # A zero-length list would make every assertion below vacuously true.
+    assert _every_metavar()
+
+
+def test_no_metavar_looks_like_a_closing_markup_tag():
+    # `[/SITE]` raises MarkupError rather than rendering, so this is a crash and not a typo.
+    offenders = [(cmd, mv) for cmd, mv in _every_metavar() if re.search(r"\[/", mv)]
+    assert offenders == []
+
+
+def test_no_metavar_looks_like_a_style_tag():
+    # `[SITE]` renders as nothing, which is how a documented form disappears from a usage line.
+    offenders = [(cmd, mv) for cmd, mv in _every_metavar() if re.search(r"\[[^\]]+\]", mv)]
+    assert offenders == []
+
+
+def test_every_metavar_survives_rich_intact():
+    # The property both rules above exist to protect, asserted directly.
+    for cmd, metavar in _every_metavar():
+        console = Console(file=io.StringIO(), width=200)
+        console.print(f"Usage: fm {cmd} [OPTIONS] [{metavar}]")
+        rendered = console.file.getvalue()
+        assert metavar in rendered, f"{cmd}: {metavar!r} did not survive rich"

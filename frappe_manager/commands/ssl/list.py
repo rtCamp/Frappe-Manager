@@ -5,7 +5,7 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
-from frappe_manager.commands.arguments import BenchDomainArgument
+from frappe_manager.commands.arguments import BenchOnlyAllArgument
 from frappe_manager.output_manager import temporary_stop
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, prompt_for_bench_selection, resolve_bench_targets
 
@@ -30,7 +30,7 @@ from .helpers import get_output_handler
 )
 def list_certificates(
     ctx: typer.Context,
-    benchname: BenchDomainArgument = None,
+    benchname: BenchOnlyAllArgument = None,
     standalone: Annotated[
         bool,
         typer.Option("--standalone", help="List external (non-bench) domains instead of a bench."),

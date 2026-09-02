@@ -5,12 +5,12 @@ Start a bench's containers, admin tools and workers.
 **Usage**:
 
 ```console
-$ fm start BENCHNAME [OPTIONS]
+$ fm start BENCH [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench.
+* `BENCH`: Bench to act on. Omit to pick from the benches you have.
 
 **Options**:
 

@@ -7,12 +7,12 @@ A command can come from -c, from the arguments after --, or from stdin when stdi
 **Usage**:
 
 ```console
-$ fm shell BENCHNAME [OPTIONS]
+$ fm shell BENCH(/SITE) [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Bench, or bench/site.
+* `BENCH(/SITE)`: Bench, or BENCH/SITE to act on one of its sites. Without a site part, the bench's primary site is used.
 
 **Options**:
 

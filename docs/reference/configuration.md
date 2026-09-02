@@ -263,9 +263,9 @@ developer_mode = true
 ```
 
 !!! warning "Refused on image runtime"
-    `developer_mode = true` cannot be combined with `runtime = "image"`. DocType authoring writes app *source* files, and standard doctypes only sync files into the database, never back, so those writes would land in the container's ephemeral layer and be lost on the next deploy. `fm create` rejects both the flag and a config overlay that sets it; demote with `fm update BENCHNAME --runtime mount` first.
+    `developer_mode = true` cannot be combined with `runtime = "image"`. DocType authoring writes app *source* files, and standard doctypes only sync files into the database, never back, so those writes would land in the container's ephemeral layer and be lost on the next deploy. `fm create` rejects both the flag and a config overlay that sets it; demote with `fm update BENCH --runtime mount` first.
 
-**Change via:** `fm update BENCHNAME --developer-mode enable|disable` (needs an editable workspace: mount runtime)
+**Change via:** `fm update BENCH --developer-mode enable|disable` (needs an editable workspace: mount runtime)
 
 **See also:** [Environments guide](../guides/environments.md), [fm update command](../commands/update.md)
 
@@ -288,7 +288,7 @@ admin_tools = true
 - Mailpit: `http://<benchname>/mailpit/`
 - Adminer: `http://<benchname>/adminer/`
 
-**Change via:** `fm update BENCHNAME --admin-tools enable|disable`
+**Change via:** `fm update BENCH --admin-tools enable|disable`
 
 **See also:** [`[auth]`](#auth), which puts a password prompt in front of these tools
 
@@ -317,7 +317,7 @@ environment = "prod"
 !!! warning "Switching recreates only the frappe container"
     `fm update -e` recreates the frappe web container alone: workers, nginx, Redis and MariaDB keep running. `developer_mode` and `admin_tools` are left exactly as they are, so the defaults in the table above apply at create time only; change them afterwards with `--developer-mode` or `--admin-tools`.
 
-**Change via:** `fm update BENCHNAME --environment dev|prod`
+**Change via:** `fm update BENCH --environment dev|prod`
 
 **See also:** [Environments guide](../guides/environments.md)
 
@@ -337,7 +337,7 @@ upload_limit = "500M"
 
 **Valid formats:** digits followed by `M` or `G`, case-insensitive (`50M`, `500M`, `1G`), stored uppercased. Bare byte counts and a `K` suffix are rejected even though nginx itself accepts them.
 
-**Change via:** `fm update BENCHNAME --upload-limit 500M`
+**Change via:** `fm update BENCH --upload-limit 500M`
 
 ---
 
@@ -360,7 +360,7 @@ restart_policy = "unless-stopped"
 | `on-failure` | Restart only on crash (exit code ≠ 0) |
 | `unless-stopped` | Restart unless manually stopped (**recommended for prod**) |
 
-**Change via:** `fm update BENCHNAME --restart unless-stopped`
+**Change via:** `fm update BENCH --restart unless-stopped`
 
 ---
 
@@ -388,7 +388,7 @@ alias_domains = ["www.mybench.com", "alt.mybench.com"]
 An entry with no keys is a complete record: it says the bench serves that site on the fm-managed
 `global-db` container with no aliases.
 
-**Change via:** `fm create BENCHNAME/SITE` to add one, `fm delete BENCHNAME/SITE` to remove one.
+**Change via:** `fm create BENCH/SITE` to add one, `fm delete BENCH/SITE` to remove one.
 
 ---
 
@@ -411,7 +411,7 @@ alias_domains = ["www.mybench.com", "alt.mybench.com"]
     `bench_config.toml` it is silently ignored: the file loads, and the alias simply does not
     exist. `fm migrate` moves a top-level list from an older bench under its primary site.
 
-**Change via:** `fm update BENCHNAME/SITE --add-alias www.example.com,alt.example.com` / `--remove-alias www.example.com`
+**Change via:** `fm update BENCH/SITE --add-alias www.example.com,alt.example.com` / `--remove-alias www.example.com`
 
 **See also:** [fm ssl add command](../commands/ssl.md)
 
@@ -441,7 +441,7 @@ could act on. `fm info` lists those entries under `missing`.
 !!! info "`bench use` moves it"
     Because rule 1 reads Frappe's file, running `bench use other.localhost` inside `fm shell`
     changes which site fm's bench-scoped commands mean, too. That is deliberate: one question, one
-    answer, one place to write it. Run `fm info BENCHNAME` to see which site fm currently resolves
+    answer, one place to write it. Run `fm info BENCH` to see which site fm currently resolves
     to, marked `● primary`.
 
 **See also:** [`[sites."<site>"]`](#sites)
@@ -482,7 +482,7 @@ github_token = "ghp_..."
 
 **Required permissions:** `repo` (full control of private repositories)
 
-**Set via:** `fm create BENCHNAME --github-token ghp_...` or the `GITHUB_TOKEN` environment variable
+**Set via:** `fm create BENCH --github-token ghp_...` or the `GITHUB_TOKEN` environment variable
 
 **See also:** [fm create command](../commands/create.md)
 
@@ -500,7 +500,7 @@ Python version override. Auto-detected on creation from the frappe app's `pyproj
 python_version = "3.13"
 ```
 
-**Set via:** `fm create BENCHNAME --python 3.13` or `fm update BENCHNAME --python 3.13`
+**Set via:** `fm create BENCH --python 3.13` or `fm update BENCH --python 3.13`
 
 ---
 
@@ -516,7 +516,7 @@ Node.js version override. Auto-detected on creation from the frappe app's `packa
 node_version = "20"
 ```
 
-**Set via:** `fm create BENCHNAME --node 20` or `fm update BENCHNAME --node 20`
+**Set via:** `fm create BENCH --node 20` or `fm update BENCH --node 20`
 
 ---
 
@@ -546,7 +546,7 @@ allow_ips = ["203.0.113.0/24"]
 allow_paths = ["/api/method/payment_webhook"]
 ```
 
-**Change via:** `fm auth BENCHNAME --protect web --protect tools`; `fm auth BENCHNAME --status` reports the current state.
+**Change via:** `fm auth BENCH --protect web --protect tools`; `fm auth BENCH --status` reports the current state.
 
 !!! warning "Stored in plaintext"
     The password is stored unencrypted in the TOML file, and basic auth sends it base64-encoded on every request. Restrict file permissions and only enable a surface on a bench with TLS:
@@ -655,7 +655,7 @@ There is no third tier. A machine set up before 0.20.0 kept its default Cloudfla
 
 A named label is never quietly substituted. If a certificate sets `dns_provider = "client-zones"` and no `client-zones` entry exists at either scope, issuance and renewal fail. Falling back would authenticate against whichever account happened to be configured and report success, which is the one outcome worth failing over.
 
-**Set via:** `fm ssl dns-config cloudflare BENCHNAME --name client-zones --api-token TOKEN`, or the same command without `BENCHNAME` to store the label globally. Drop `--name` to write the `cloudflare` label instead. The [command reference](../commands/ssl-dns-config-cloudflare.md) has the full scope matrix.
+**Set via:** `fm ssl dns-config cloudflare BENCH --name client-zones --api-token TOKEN`, or the same command without `BENCH` to store the label globally. Drop `--name` to write the `cloudflare` label instead. The [command reference](../commands/ssl-dns-config-cloudflare.md) has the full scope matrix.
 
 **See also:** [`ssl.dns_providers` in the global file](#global-dns-providers), [SSL guide](../guides/ssl.md)
 
@@ -674,7 +674,7 @@ Bench runtime model:
 | `mount` | App code lives in `workspace/frappe-bench/` on the host and is live-mounted into the containers. Editable; the default for development. |
 | `image` | App code is baked into an immutable image (built by `fm bake`); the workspace holds only sites/config. Deploys happen by switching image tags. |
 
-**Change via:** `fm update BENCHNAME --runtime mount` (image → mount). Going mount → image is done with `fm switch` onto a baked image.
+**Change via:** `fm update BENCH --runtime mount` (image → mount). Going mount → image is done with `fm switch` onto a baked image.
 
 **See also:** [Deployment](../deploy/index.md)
 
@@ -787,7 +787,7 @@ ca = "/etc/ssl/certs/db-ca.pem"
 
 Passwords never live here: the site's database password goes into `site_config.json`.
 
-**Set via:** `fm create BENCHNAME --db-host ... --db-name ...`; `fm update BENCHNAME --db-ca` reinstalls the CA after a rotation.
+**Set via:** `fm create BENCH --db-host ... --db-name ...`; `fm update BENCH --db-ca` reinstalls the CA after a rotation.
 
 **See also:** [External database guide](../guides/external-database.md)
 
@@ -814,7 +814,7 @@ queue = "redis://r.example:6379/1"
 !!! danger "Cache and queue need different logical databases"
     Loading the config fails when they share one. A restore calls `frappe.cache.delete_keys("")`, a mass delete, so a shared index would wipe the queue along with the cache.
 
-**Set via:** `fm create BENCHNAME --redis-cache URL --redis-queue URL`
+**Set via:** `fm create BENCH --redis-cache URL --redis-queue URL`
 
 ---
 
@@ -908,7 +908,7 @@ With both keys set, FM writes `workspace/frappe-bench/config/newrelic.ini` (app 
 !!! warning "Enabling without a license key is refused"
     `fm create --newrelic` and `fm update --newrelic` both fail with a parameter error when no key is passed and none is already stored. There is no half-enabled state: the compose env vars and `newrelic.ini` are written only when `enabled` and `license_key` are both set, and the wrapper falls back to plain Gunicorn otherwise.
 
-**Set via:** `fm create BENCHNAME --newrelic --newrelic-license-key KEY`; `fm update BENCHNAME --newrelic --newrelic-license-key KEY` / `--no-newrelic`. `fm update` force-recreates the frappe container to apply the change.
+**Set via:** `fm create BENCH --newrelic --newrelic-license-key KEY`; `fm update BENCH --newrelic --newrelic-license-key KEY` / `--no-newrelic`. `fm update` force-recreates the frappe container to apply the change.
 
 **See also:** [Monitoring (New Relic)](../guides/environments.md#monitoring-new-relic)
 

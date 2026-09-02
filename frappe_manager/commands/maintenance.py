@@ -236,7 +236,8 @@ def maintenance(
     benchname: Annotated[
         str | None,
         typer.Argument(
-            help="Name of the bench. Optional with --status, which then lists every domain in maintenance.",
+            metavar="BENCH",
+            help="Bench to act on. Optional with --status, which then lists every domain in maintenance.",
             autocompletion=sites_autocompletion_callback,
             callback=_maintenance_sitename_callback,
         ),

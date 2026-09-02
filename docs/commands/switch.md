@@ -7,12 +7,12 @@ Every switch records the tag you left, so --previous returns to it; run it twice
 **Usage**:
 
 ```console
-$ fm switch BENCHNAME TAG [OPTIONS]
+$ fm switch BENCH TAG [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench.  [required]
+* `BENCH`: Bench to act on.  [required]
 * `TAG`: Image tag to switch to. Omit when using --previous.
 
 **Options**:

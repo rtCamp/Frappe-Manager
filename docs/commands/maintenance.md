@@ -9,12 +9,12 @@ Each enable rewrites the settings from the flags you pass, so repeat the ones yo
 **Usage**:
 
 ```console
-$ fm maintenance BENCHNAME [OPTIONS]
+$ fm maintenance BENCH [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench. Optional with --status, which then lists every domain in maintenance.
+* `BENCH`: Bench to act on. Optional with --status, which then lists every domain in maintenance.
 
 **Options**:
 

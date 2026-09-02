@@ -9,12 +9,12 @@ Every other bench command refuses to run against a bench that is behind, so migr
 **Usage**:
 
 ```console
-$ fm migrate BENCHNAME [OPTIONS]
+$ fm migrate BENCH|all [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench, or all.
+* `BENCH|all`: Bench to act on, or 'all' for every bench fm manages. Omit to act on nothing but fm itself.
 
 **Options**:
 

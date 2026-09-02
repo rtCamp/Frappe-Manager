@@ -32,7 +32,7 @@ _COMPOSE_ORDER = {"docker-compose.yml": 0, "docker-compose.workers.yml": 1, "doc
 )
 def compose(
     ctx: typer.Context,
-    benchname: str = typer.Argument(..., help="Name of the bench."),
+    benchname: str = typer.Argument(..., metavar="BENCH", help="Bench to act on."),
 ):
     """
     Run docker compose against a bench with all of its compose files already wired up.

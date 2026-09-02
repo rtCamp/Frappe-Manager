@@ -50,6 +50,7 @@ def dns_config_cloudflare(
     benchname: Annotated[
         str | None,
         typer.Argument(
+            metavar="BENCH",
             help="Bench to configure. Omit for global credentials.",
             autocompletion=sites_autocompletion_callback,
         ),

@@ -140,7 +140,7 @@ Renewal is not automatic: run `fm ssl renew all` from a daily cron. The [SSL gui
 
 They are the two ways `bench_config.toml` and the disk can disagree, and they are opposites.
 
-`unmanaged` is a site directory fm has no record of, which is what `bench new-site` inside `fm shell` leaves behind. fm reports it and never touches it: it does not drop a schema it did not create, so `fm delete BENCHNAME --all-sites` will not take that database with it. Adopt it by recording it yourself, or remove the directory and its schema by hand.
+`unmanaged` is a site directory fm has no record of, which is what `bench new-site` inside `fm shell` leaves behind. fm reports it and never touches it: it does not drop a schema it did not create, so `fm delete BENCH --all-sites` will not take that database with it. Adopt it by recording it yourself, or remove the directory and its schema by hand.
 
 `missing` is the reverse: a site recorded in `[sites]` with no `sites/<site>/site_config.json`. Frappe cannot open such a site, so it can be listed and routed while no command can act on it, and it is skipped when fm decides which site is the bench's [primary](reference/configuration.md#primary-site). Clear the record with:
 

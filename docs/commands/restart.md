@@ -9,12 +9,12 @@ Supervisor restarts need a running bench. For a stopped one use fm start, or --c
 **Usage**:
 
 ```console
-$ fm restart BENCHNAME [OPTIONS]
+$ fm restart BENCH [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench.
+* `BENCH`: Bench to act on. Omit to pick from the benches you have.
 
 **Options**:
 
