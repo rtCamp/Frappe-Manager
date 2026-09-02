@@ -1290,3 +1290,85 @@ def test_display_info_has_no_missing_row_when_every_recorded_site_exists(tmp_pat
 
     (card,) = card_spy.made
     assert "missing" not in card.facts
+
+
+# ---------------- credentials belong to a site, and a multi-site bench has more than one
+
+
+def test_a_single_site_bench_prints_the_credential_rows_it_always_did(tmp_path, card_spy):
+    """The same call the `sites` rows make: with one site there is nothing to disambiguate, `url`
+    has already named it, and the common bench's card should not change shape."""
+    info = _displayable(tmp_path, site_config={"admin_password": "from-site-config"})
+    info.display_info()
+
+    (card,) = card_spy.made
+    assert card.facts["frappe"] == "administrator [fm.muted]/[/fm.muted] from-site-config"
+    assert SITE not in card.facts["frappe"]
+
+
+def test_every_site_gets_its_own_administrator_row(tmp_path, card_spy):
+    """One `frappe` row read as bench-wide while carrying the primary's password, and the other
+    sites' were not reachable from any fm command."""
+    # The primary's file goes through the harness, which writes it itself; the sibling's is ours.
+    second = _sites_dir(tmp_path) / SECOND_SITE
+    second.mkdir(exist_ok=True)
+    (second / "site_config.json").write_text(json.dumps({"admin_password": f"pw-{SECOND_SITE}"}))
+    info = _displayable(
+        tmp_path,
+        site_config={"admin_password": f"pw-{SITE}"},
+        bench_config=_config(sites={SITE: None, SECOND_SITE: None}),
+    )
+    info.display_info()
+
+    (card,) = card_spy.made
+    assert card.labelled("frappe") == [
+        f"[fm.muted]{SITE}[/fm.muted]  administrator [fm.muted]/[/fm.muted] pw-{SITE}",
+        f"[fm.muted]{SECOND_SITE}[/fm.muted]  administrator [fm.muted]/[/fm.muted] pw-{SECOND_SITE}",
+    ]
+
+
+def test_every_site_gets_its_own_database_row_read_from_that_site(tmp_path, card_spy):
+    """Each row is that site's schema and password, not the primary's repeated."""
+    per_site = {
+        SITE: {"name": "schema_one", "password": "pw-one"},
+        SECOND_SITE: {"name": "schema_two", "password": "pw-two"},
+    }
+    info = _displayable(
+        tmp_path,
+        bench_config=_config(sites={SITE: None, SECOND_SITE: None}),
+        get_db_connection_info_fn=MagicMock(side_effect=lambda site=None: per_site.get(site, {})),
+    )
+    info.display_info()
+
+    (card,) = card_spy.made
+    assert card.labelled("db") == [
+        f"[fm.muted]{SITE}[/fm.muted]  schema_one [fm.muted]/[/fm.muted] [fm.secret]pw-one[/fm.secret]",
+        f"[fm.muted]{SECOND_SITE}[/fm.muted]  schema_two [fm.muted]/[/fm.muted] [fm.secret]pw-two[/fm.secret]",
+    ]
+
+
+def test_the_credential_rows_keep_one_label_and_the_fourteen_char_column(tmp_path, card_spy):
+    """Same constraint the alias rows are under: a site name in the label overruns 14 characters and
+    knocks the whole card out of alignment, which is why the site goes in the value."""
+    info = _displayable(tmp_path, bench_config=_config(sites={SITE: None, SECOND_SITE: None}))
+    info.display_info()
+
+    (card,) = card_spy.made
+    labels = [label for kind, label, _ in card.rows if kind == "fact"]
+    assert labels.count("frappe") == 1
+    assert labels.count("db") == 1
+    assert all(len(label) <= 14 for label in labels)
+
+
+def test_a_site_with_no_recorded_password_reads_as_the_bench_default(tmp_path, card_spy):
+    """`fm create BENCH/SITE` records no `admin_password`, so the added site legitimately shows the
+    bench's value. Labelling it "(default)" is honest: it is what the site was created with, not a
+    password fm watched work."""
+    d = _sites_dir(tmp_path) / SECOND_SITE
+    d.mkdir(exist_ok=True)
+    (d / "site_config.json").write_text(json.dumps({}))
+    info = _displayable(tmp_path, bench_config=_config(sites={SITE: None, SECOND_SITE: None}))
+    info.display_info()
+
+    (card,) = card_spy.made
+    assert card.labelled("frappe")[1].endswith("admin-pass (default)")

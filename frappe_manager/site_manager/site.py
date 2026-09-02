@@ -901,8 +901,14 @@ class Bench:
         return self.info_display.get_bench_apps()
 
     # this can be plugable
-    def get_db_connection_info(self):
-        return self.database.get_connection_info()
+    def get_db_connection_info(self, site: str | None = None):
+        """One site's database credentials. None means the bench's own.
+
+        `BenchDatabase.get_connection_info` always took a site; this did not forward one, so every
+        caller got the primary's schema and password. The card printed them under a bare `db` label,
+        which on a bench serving several sites read as bench-wide.
+        """
+        return self.database.get_connection_info(site)
 
     def create_certificate(self):
         extra = {"operation": "ssl_create_certificate", "bench_name": self.name}

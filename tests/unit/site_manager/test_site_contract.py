@@ -2101,8 +2101,14 @@ class TestThinDelegations:
         bench.get_log_file_paths()
         bench.info_display.get_log_file_paths.assert_called_once_with()
 
+        # Forwards the site now: the card reads one row per site, and every caller used to get the
+        # primary's schema and password whatever it asked for.
         bench.get_db_connection_info()
-        bench.database.get_connection_info.assert_called_once_with()
+        bench.database.get_connection_info.assert_called_once_with(None)
+
+        bench.database.get_connection_info.reset_mock()
+        bench.get_db_connection_info("b.example.com")
+        bench.database.get_connection_info.assert_called_once_with("b.example.com")
 
         # The site travels through: None means the bench's primary, which the module resolves.
         bench.remove_database_and_user()

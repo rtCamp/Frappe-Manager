@@ -185,3 +185,50 @@ def test_adding_a_site_still_takes_the_aliases_it_does_forward(cli, benches):
     result, _ = _invoke(cli, ["existing/second.example.com", "--alias-domains", "x.example.com"])
 
     assert "--alias-domains" not in _said(result)
+
+
+# ----------------------------------- the BENCH/SITE dispatch itself
+
+
+def test_an_address_with_a_site_part_reaches_the_add_site_path(cli, benches):
+    """The dispatch, not just the guards around it.
+
+    `fm create BENCH/SITE` raised `TypeError: _add_site_to_bench() got an unexpected keyword
+    argument 'address'` for real, on a real bench, and 4618 tests did not notice: every test that
+    touched this path stopped at a guard that refuses BEFORE the call, so the call itself was never
+    made. The command's parameter was renamed to `address` and the rename swept this keyword with
+    it, while the helper's own parameter stayed `benchname`.
+
+    Asserting the keyword the helper actually declares is what makes a rename fail here rather than
+    at the operator's terminal.
+    """
+    with patch("frappe_manager.commands.create._add_site_to_bench") as add_site:
+        result = runner.invoke(
+            cli,
+            ["existing/second.example.com"],
+            obj={"services": MagicMock(), "verbose": False, "fm_config_manager": MagicMock()},
+        )
+
+    assert result.exit_code == 0, _said(result)
+    add_site.assert_called_once()
+    # `existing` resolves to the bench DIRECTORY, which the legacy `.localhost` fallback finds.
+    assert add_site.call_args.kwargs["benchname"] == "existing.localhost"
+    assert add_site.call_args.kwargs["site"] == "second.example.com"
+
+
+def test_the_add_site_call_matches_the_helpers_signature(cli, benches):
+    """A rename that leaves the call and the definition disagreeing is invisible to a mock that
+    accepts anything, so the recorded call is bound against the REAL signature."""
+    import inspect
+
+    from frappe_manager.commands.create import _add_site_to_bench
+
+    with patch("frappe_manager.commands.create._add_site_to_bench") as add_site:
+        runner.invoke(
+            cli,
+            ["existing/second.example.com"],
+            obj={"services": MagicMock(), "verbose": False, "fm_config_manager": MagicMock()},
+        )
+
+    # Raises TypeError if the keywords the caller passes are not the ones the helper declares.
+    inspect.signature(_add_site_to_bench).bind(**add_site.call_args.kwargs)

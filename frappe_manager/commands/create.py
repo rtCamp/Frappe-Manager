@@ -1012,7 +1012,11 @@ def create(
     # serving before the new one is known to work.
     if added_site:
         _add_site_to_bench(
-            address=address,
+            # `benchname`, not `address`: this helper takes a bench DIRECTORY name, and the site it
+            # adds arrives separately. The keyword broke when the command's own parameter was renamed
+            # to `address` and the rename swept this call with it, so `fm create BENCH/SITE` raised
+            # TypeError before doing anything. No test reached here, which is why it went unseen.
+            benchname=address,
             site=added_site,
             services_manager=services_manager,
             verbose=verbose,

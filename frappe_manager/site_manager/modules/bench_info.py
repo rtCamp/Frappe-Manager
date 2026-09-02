@@ -255,6 +255,26 @@ class BenchInfo:
         bench_prod_server_log_path_stderr = base_log_dir / "web.error.log"
         return [p for p in [bench_prod_server_log_path_stderr, bench_prod_server_log_path_stdout] if p.exists()]
 
+    def _admin_password_for(self, site: str | None, config) -> str:
+        """One site's recorded Administrator password, or the bench default labelled as such.
+
+        No site means no config to read: a bench with no `[sites]` entry, or one whose primary
+        cannot be named. A recorded site can also have no directory yet. The bench's `admin_pass` is
+        then all fm has, and calling it "(default)" is the honest label because it is what the next
+        site created will get rather than a password known to work.
+
+        Sites added by `fm create BENCH/SITE` currently record nothing, so they read as the default
+        too. That is accurate: `_add_site_to_bench` never writes `admin_password`, and the site was
+        created with the bench's value.
+        """
+        default = config.admin_pass + " (default)"
+        if not site:
+            return default
+        try:
+            return self.get_site_config(site).get("admin_password", default)
+        except BenchException:
+            return default
+
     def display_info(self) -> None:
         """Render the bench detail card.
 
@@ -291,15 +311,7 @@ class BenchInfo:
         # those three cases, so the URL names a host nginx actually answers on.
         domain = primary or (sites[0] if sites else self.bench_name)
 
-        admin_pass = config.admin_pass + " (default)"
-        # No primary means no single site whose config could be read, and a recorded site can have no
-        # directory yet; the bench config's password is then all fm has, and it is labelled default.
-        try:
-            site_config = self.get_site_config(primary) if primary else {}
-        except BenchException:
-            site_config = {}
-        if "admin_password" in site_config:
-            admin_pass = site_config["admin_password"]
+        admin_pass = self._admin_password_for(primary, config)
 
         # The bench NAME titles the card, because that is what every command takes. Every URL below
         # is a site's DOMAIN, because that is what nginx routes and what a browser can open: a bench
@@ -436,10 +448,32 @@ class BenchInfo:
 
         # ---- access
         card.section("access")
-        card.fact("frappe", f"administrator [fm.muted]/[/fm.muted] {admin_pass}")
-        db_name = bench_db_info.get("name", "N/A")
-        db_pass = bench_db_info.get("password", "N/A")
-        card.fact("db", f"{db_name} [fm.muted]/[/fm.muted] [fm.secret]{db_pass}[/fm.secret]")
+        # `frappe` and `db` describe ONE site's credentials. They used to be read from the primary and
+        # printed under bare labels, so on a bench serving several sites they looked bench-wide while
+        # naming one site's schema and password, and the other sites' were not reachable from any fm
+        # command. One row per site now, with the site in the VALUE rather than the label: same
+        # treatment as the `aliases` rows above, and for the same reason, that the label column is 14
+        # characters and a site name overruns it.
+        #
+        # A single-site bench keeps exactly the rows it always printed. Same call the `sites` rows
+        # above make: there is nothing to disambiguate, and `url` has already named the site.
+        credentialled = sites or [None]
+        multi = len(credentialled) > 1
+        for i, site in enumerate(credentialled):
+            named = f"[fm.muted]{site}[/fm.muted]  " if multi else ""
+            card.fact(
+                "frappe" if i == 0 else "",
+                f"{named}administrator [fm.muted]/[/fm.muted] {self._admin_password_for(site, config)}",
+            )
+        for i, site in enumerate(credentialled):
+            info = self.get_db_connection_info(site) if multi else bench_db_info
+            named = f"[fm.muted]{site}[/fm.muted]  " if multi else ""
+            db_name = info.get("name", "N/A")
+            db_pass = info.get("password", "N/A")
+            card.fact(
+                "db" if i == 0 else "",
+                f"{named}{db_name} [fm.muted]/[/fm.muted] [fm.secret]{db_pass}[/fm.secret]",
+            )
         card.fact(
             "root db",
             f"{services_db_info.user} [fm.muted]/[/fm.muted] [fm.secret]{services_db_info.password}[/fm.secret] "
