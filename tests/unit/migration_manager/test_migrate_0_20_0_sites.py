@@ -18,15 +18,20 @@ This step must be idempotent, and not as a nicety: 0.20.0 is unreleased, so a be
 `0.20.0.dev0` sorts BELOW `0.20.0` and re-runs this migration whenever one is triggered at all.
 """
 
+import gzip
 import json
 import stat
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 import tomlkit
 
+from frappe_manager.metadata_manager import FMConfigManager
+from frappe_manager.migration_manager.migrations import migrate_0_20_0 as migrate_mod
 from frappe_manager.migration_manager.migrations.migrate_0_20_0 import MigrationV0200
 from frappe_manager.site_manager.bench_config import BenchConfig
+from frappe_manager.utils.helpers import get_template_path
 
 SITE = "shop.localhost"
 
@@ -817,3 +822,227 @@ def test_re_running_the_ssl_rewrite_changes_nothing(step, tmp_path):
     step._rewrite_ssl_table(bench)
 
     assert path.read_text() == once
+
+
+# ------------------------------- the global Cloudflare credential
+
+
+LEGACY_FM_CONFIG = """version = "0.19.0"
+
+[cloudflare]
+email = "ops@example.com"
+api_token = "tok"
+"""
+
+
+def _fm_config(step, tmp_path, text: str):
+    """`_relocate_global_dns_credentials` reads the module-level CLI_FM_CONFIG_PATH."""
+    path = tmp_path / "fm_config.toml"
+    path.write_text(text)
+    step.backup_manager = MagicMock()
+    step.logger = MagicMock()
+    return path
+
+
+def _loaded_providers(path):
+    """What FMConfigManager ends up with. The model can no longer represent the OLD table, so a
+    file left unconverted loses its credential the next time fm writes the file."""
+    return FMConfigManager.import_from_toml(path).dns_providers or {}
+
+
+def test_the_global_cloudflare_credential_moves_under_ssl(step, tmp_path, monkeypatch):
+    path = _fm_config(step, tmp_path, LEGACY_FM_CONFIG)
+    monkeypatch.setattr(migrate_mod, "CLI_FM_CONFIG_PATH", path)
+
+    step._relocate_global_dns_credentials()
+
+    text = path.read_text()
+    assert "[cloudflare]" not in text
+    assert "[ssl.dns_providers.cloudflare]" in text
+    provider = _loaded_providers(path)["cloudflare"]
+    assert provider.api_token == "tok"
+    assert provider.email == "ops@example.com"
+    step.backup_manager.backup.assert_called_once_with(path)
+
+
+def test_the_legacy_api_key_form_is_carried_too(step, tmp_path, monkeypatch):
+    """The pre-token Cloudflare auth. Dropping it silently would break renewal on the accounts
+    still using it, and the model cannot read the old table to tell anyone."""
+    path = _fm_config(step, tmp_path, 'version = "0.19.0"\n\n[cloudflare]\napi_key = "legacy"\nemail = "a@b.c"\n')
+    monkeypatch.setattr(migrate_mod, "CLI_FM_CONFIG_PATH", path)
+
+    step._relocate_global_dns_credentials()
+
+    provider = _loaded_providers(path)["cloudflare"]
+    assert provider.api_key == "legacy"
+
+
+def test_an_existing_labelled_set_wins_over_the_legacy_table(step, tmp_path, monkeypatch):
+    path = _fm_config(
+        step,
+        tmp_path,
+        'version = "0.19.0"\n\n[cloudflare]\napi_token = "old"\n\n'
+        '[ssl.dns_providers.cloudflare]\nprovider = "cloudflare"\napi_token = "current"\n',
+    )
+    monkeypatch.setattr(migrate_mod, "CLI_FM_CONFIG_PATH", path)
+
+    step._relocate_global_dns_credentials()
+
+    # The labelled set is the one every version since has been reading.
+    assert _loaded_providers(path)["cloudflare"].api_token == "current"
+    assert "[cloudflare]" not in path.read_text()
+
+
+def test_a_credential_less_legacy_table_leaves_no_empty_scaffolding(step, tmp_path, monkeypatch):
+    """A set with no credential is dropped by the config writer anyway and reads as absent to the
+    resolver, so writing `[ssl.dns_providers.cloudflare]` here would be noise that looks configured."""
+    path = _fm_config(step, tmp_path, 'version = "0.19.0"\n\n[cloudflare]\nemail = "a@b.c"\n')
+    monkeypatch.setattr(migrate_mod, "CLI_FM_CONFIG_PATH", path)
+
+    step._relocate_global_dns_credentials()
+
+    text = path.read_text()
+    assert "[cloudflare]" not in text
+    assert "dns_providers" not in text
+    assert "[ssl]" not in text
+
+
+def test_a_file_with_no_legacy_table_is_not_even_backed_up(step, tmp_path, monkeypatch):
+    path = _fm_config(step, tmp_path, 'version = "0.20.0"\n')
+    monkeypatch.setattr(migrate_mod, "CLI_FM_CONFIG_PATH", path)
+
+    step._relocate_global_dns_credentials()
+
+    step.backup_manager.backup.assert_not_called()
+
+
+def test_an_ssl_key_that_is_not_a_table_is_skipped(step, tmp_path, monkeypatch):
+    path = _fm_config(step, tmp_path, 'version = "0.19.0"\nssl = ["nonsense"]\n\n[cloudflare]\napi_token = "tok"\n')
+    monkeypatch.setattr(migrate_mod, "CLI_FM_CONFIG_PATH", path)
+
+    step._relocate_global_dns_credentials()
+
+    # Nothing merges into that shape, and replacing it would throw away whatever it holds.
+    assert "[cloudflare]" in path.read_text()
+    step.backup_manager.backup.assert_not_called()
+
+
+def test_an_absent_fm_config_is_a_no_op(step, tmp_path, monkeypatch):
+    monkeypatch.setattr(migrate_mod, "CLI_FM_CONFIG_PATH", tmp_path / "nothing.toml")
+    step.backup_manager = MagicMock()
+
+    step._relocate_global_dns_credentials()
+
+    step.backup_manager.backup.assert_not_called()
+
+
+def test_re_running_the_credential_move_changes_nothing(step, tmp_path, monkeypatch):
+    path = _fm_config(step, tmp_path, LEGACY_FM_CONFIG)
+    monkeypatch.setattr(migrate_mod, "CLI_FM_CONFIG_PATH", path)
+
+    step._relocate_global_dns_credentials()
+    once = path.read_text()
+    step._relocate_global_dns_credentials()
+
+    assert path.read_text() == once
+
+
+# --------------------------------- the pre-upgrade dump (the rollback path)
+
+
+def _dump_step(step, tmp_path, *, timestamp="20260903120000"):
+    """`_dump_whole_engine` is I/O at three seams: the export inside the container, the copy out,
+    and the compression on the host. Only the container calls are mocked."""
+    step.backup_manager = MagicMock()
+    step.backup_manager.migration_timestamp = timestamp
+    step.backup_manager.backup_dir = tmp_path / "backups"
+    step.backup_manager.backup_dir.mkdir(parents=True, exist_ok=True)
+
+    db = MagicMock()
+    step.services_manager = MagicMock()
+
+    def fake_cp(src, dest, stream=False):
+        # What `compose cp` does: the plain dump lands on the host.
+        Path(dest).write_text("-- every database\n")
+
+    step.services_manager.compose.cp.side_effect = fake_cp
+    return db
+
+
+def test_the_dump_is_compressed_and_the_plain_copy_is_not_left_behind(step, tmp_path):
+    """This is the ONLY route back: the datadir upgrade is one way, so `undo_services_migrate` can
+    do nothing but point the operator at this file."""
+    db = _dump_step(step, tmp_path)
+
+    result = step._dump_whole_engine(db)
+
+    assert result.name.endswith(".sql.gz")
+    assert result.is_file()
+    with gzip.open(result, "rt") as fh:
+        assert fh.read() == "-- every database\n"
+    assert not result.with_suffix("").exists()  # the uncompressed copy
+
+
+def test_the_dump_name_carries_the_migration_timestamp(step, tmp_path):
+    """One run's artifacts group together instead of drifting by a second, which is what lets
+    `undo_services_migrate` name a directory and have the operator find the right dump in it."""
+    db = _dump_step(step, tmp_path, timestamp="20260101010101")
+
+    result = step._dump_whole_engine(db)
+
+    assert result.name == "global-db-all-databases-20260101010101.sql.gz"
+
+
+def test_it_exports_every_database_then_copies_that_exact_path_out(step, tmp_path):
+    db = _dump_step(step, tmp_path)
+
+    step._dump_whole_engine(db)
+
+    exported = db.db_export_all.call_args.args[0]
+    src, dest = step.services_manager.compose.cp.call_args.args
+    # Exporting one path and copying another out is a silent empty backup.
+    assert src == f"global-db:{exported}"
+    assert Path(dest).name == exported.name
+
+
+def test_an_export_that_never_lands_does_not_yield_a_dump(step, tmp_path):
+    """A failure has to leave NO dump rather than a valid-looking empty one.
+
+    `undo_services_migrate` can only name the backup directory and tell the operator to restore
+    what is in it, so a file that is present and correctly named but useless is worse than an
+    absent one: it reads as a rollback that exists."""
+    db = _dump_step(step, tmp_path)
+    step.services_manager.compose.cp.side_effect = FileNotFoundError("no such file in container")
+
+    with pytest.raises(FileNotFoundError):
+        step._dump_whole_engine(db)
+
+    assert list(step.backup_manager.backup_dir.glob("*.sql.gz")) == []
+
+
+# ------------------------------------------- the adminer login plugin
+
+
+def test_the_adminer_plugin_lands_byte_identical(step, tmp_path):
+    """It is PHP that Adminer loads on every request, so a truncated or re-encoded copy is a broken
+    login page rather than a missing feature."""
+    bench, _ = _bench(tmp_path, BASE)
+
+    step._place_adminer_plugin(bench)
+
+    placed = tmp_path / "configs" / "adminer" / "000-fm-login.php"
+    assert placed.is_file()
+    assert placed.read_bytes() == get_template_path("adminer/000-fm-login.php").read_bytes()
+
+
+def test_re_placing_the_plugin_overwrites_a_stale_copy(step, tmp_path):
+    """0.20.0.dev0 sorts below 0.20.0, so this re-runs; a bench that got an older plugin from an
+    earlier dev build has to end up with the current one."""
+    bench, _ = _bench(tmp_path, BASE)
+    stale = tmp_path / "configs" / "adminer" / "000-fm-login.php"
+    stale.parent.mkdir(parents=True, exist_ok=True)
+    stale.write_text("<?php // an older build\n")
+
+    step._place_adminer_plugin(bench)
+
+    assert stale.read_bytes() == get_template_path("adminer/000-fm-login.php").read_bytes()
