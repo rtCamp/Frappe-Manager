@@ -181,3 +181,20 @@ class TestOlderNginxConf:
         assert not _routed(h, SITE)
         assert not _routed(h, OTHER)
         assert obj.nginx_config_location_path.is_file()
+
+    def test_the_fallback_creates_the_custom_directory_it_needs(self, tools):
+        """A bench can reach the fallback before anything has created `custom/`: the tools are
+        enabled, the conf on disk is an older one, and no per-site or bench-wide drop-in exists yet.
+        The one file that keeps `/adminer/` reachable has to be written anyway."""
+        import shutil
+
+        h, obj = tools()
+        conf_d = h.bench.path / "configs" / "nginx" / "conf" / "conf.d"
+        conf_d.mkdir(parents=True, exist_ok=True)
+        (conf_d / "default.conf").write_text("server {\n  include /etc/nginx/custom/*.conf;\n}\n")
+        shutil.rmtree(h.conf_dir / "custom", ignore_errors=True)
+
+        obj.save_nginx_location_config()
+
+        assert obj.nginx_config_location_path.is_file()
+        assert "/adminer/" in obj.nginx_config_location_path.read_text()

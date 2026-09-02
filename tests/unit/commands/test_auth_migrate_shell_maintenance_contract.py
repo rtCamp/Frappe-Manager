@@ -2071,3 +2071,45 @@ def test_reading_a_site_is_still_allowed_on_an_older_conf(out, tmp_path):
     r = _run_auth(bench=bench, site="b.example.com")
     assert r.exit is None
     assert "inherited from bench" in joined(out.print)
+
+
+# --- what the report says about credentials nothing is enforcing ------------ #
+# Three mutants survived here: `credentials_touched`'s `or` chain and both `hint_when_off`
+# arguments. All three decide whether the operator is told that stored credentials are inert,
+# which is the one thing separating "saved" from "in effect".
+
+
+def test_setting_only_a_username_with_both_surfaces_off_says_nothing_enforces_it(out, tmp_path):
+    """`credentials_touched` is an OR of three flags, so ANY one of them alone has to reach the
+    warning. Collapsing it to AND kept the warning for `--user alice --password - --rotate` and
+    silently dropped it for each flag on its own."""
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password="stored"))
+    r = _run_auth(bench=bench, user="alice")
+    assert r.exit is None
+    assert "nothing enforces them" in joined(out.warning)
+
+
+def test_rotating_alone_with_both_surfaces_off_says_the_same(out, tmp_path):
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password="stored"))
+    _run_auth(bench=bench, rotate=True)
+    assert "nothing enforces them" in joined(out.warning)
+
+
+def test_a_write_does_not_repeat_the_stored_credentials_hint(out, tmp_path):
+    """The hint belongs to a REPORT: it tells you the credentials survive an --off. Printing it
+    again on the way out of the write that just turned them off is the command explaining its own
+    input back."""
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, tools=True, password="stored"))
+    _run_auth(bench=bench, off=True)
+    assert "stay stored" not in joined(out.print)
+
+
+def test_a_bare_site_address_says_the_inherited_credentials_are_inert(out, tmp_path):
+    """The site inherits a bench whose surfaces are both off, so it serves no prompt. Without the
+    hint the report reads as if the password shown were doing something."""
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password="stored"))
+    r = _run_auth(bench=bench, site="b.example.com")
+    assert r.exit is None
+    printed = joined(out.print)
+    assert "inherited from bench" in printed
+    assert "stay stored" in printed
