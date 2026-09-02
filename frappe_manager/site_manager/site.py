@@ -1919,13 +1919,6 @@ class Bench:
         if subnet:
             wanted[conf_dir / "custom" / "real-ip.conf"] = build_bench_realip_conf(subnet)
 
-        # One drop-in directory per site, so the per-site include the template renders has a visible
-        # home. nginx treats a glob matching nothing as zero files, so an empty directory costs
-        # nothing; creating it is what makes the feature findable, since a `custom/` holding only
-        # flat files gives no hint that a site can have config of its own.
-        for site in self.bench_config.site_names:
-            (conf_dir / "custom" / site).mkdir(parents=True, exist_ok=True)
-
         # The bench's own client_max_body_size. Unconditional, because `upload_limit` always has a
         # value (default 50M) and nothing else ever wrote this file at create: a bench came up on
         # nginx's built-in 1M default while its config advertised 50M, so uploads over 1M were
