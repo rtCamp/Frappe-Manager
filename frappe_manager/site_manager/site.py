@@ -1879,15 +1879,25 @@ class Bench:
     def nginx_conf_serves_per_site(self) -> bool:
         """Whether this bench's rendered nginx conf includes each site's OWN drop-in directory.
 
-        The conf is rendered once, at the nginx container's first boot, and then persists, so it
-        reflects whatever image created it rather than the image running now. One server block per
-        site (and the `custom/<site>/*.conf` include that comes with it) arrived in a LATER image
-        than the Authorization-header fix that `fm auth` already gates on, so there is a real window
-        where a bench passes that gate and still has a conf including only `custom/*.conf`.
+        MIGRATION is the mechanism that fixes this, not this probe. `migrate_0_20_0` deletes the
+        generated `conf.d/default.conf` so the entrypoint re-renders it from the new image's
+        template, and the per-site include ships in that same template. That covers the upgrade
+        paths, dev builds included: `0.20.0.dev0` sorts below `0.20.0`, so a bench on a dev build
+        re-runs the step rather than being stranded by it. Commands also refuse outright on an
+        unmigrated bench (`check_bench_migration_required`).
 
-        Writing per-site confs there would be silent: nginx includes none of them, the site serves
-        unprotected, and `fm auth --status` still reports the prompt as on. Callers fall back to the
-        bench-wide conf, which every version of the template includes.
+        What is left is narrow, and it is why this exists. The conf is rendered once, at the nginx
+        container's first boot, and then persists on a host mount: it belongs to the bench directory,
+        not to the image. Restoring a `configs/` directory from a backup taken before the per-site
+        template carries an old conf into a bench whose version is current, so no migration will
+        touch it again. A hand-edited conf does the same.
+
+        Worth the branch only because the failure is both SILENT and unsafe: per-site confs written
+        against such a conf are included by nothing, the bench-wide conf that WAS gating the site is
+        swept, the site serves unprotected, and `fm auth --status` still reports the prompt as on.
+        Callers fall back to the bench-wide conf, which every version of the template includes. Same
+        trade `fm auth` already makes with its `$fm_upstream_auth` probe of this file, whose remedy
+        is also `fm migrate`.
 
         An absent conf counts as NOT supporting it: nothing is being served yet, and the bench-wide
         fallback is correct under either template, so the safe answer is the compatible one.
@@ -1975,7 +1985,7 @@ class Bench:
             overriding = [s for s in self.bench_config.site_names if (self.bench_config.sites or {}).get(s) and self.bench_config.sites[s].auth is not None]
             if overriding and auth.web is not None:
                 self.output.warning(
-                    rf"Per-site auth on {', '.join(overriding)} is recorded but not enforced yet: this bench's nginx conf predates one server block per site, so the whole bench follows \[auth]. Update the bench's nginx image to apply it."
+                    rf"Per-site auth on {', '.join(overriding)} is recorded but not enforced yet: this bench's nginx conf predates one server block per site, so the whole bench follows \[auth]. Run 'fm migrate' to re-render the conf and apply it."
                 )
         else:
             seen_bench = False

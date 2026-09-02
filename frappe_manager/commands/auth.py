@@ -291,7 +291,7 @@ def auth(
     # site keeps following the bench, and --status would report a prompt nobody serves.
     if site and writes and not bench.nginx_conf_serves_per_site():
         output.error(
-            f"Bench '{bench.name}' nginx conf predates one server block per site, so '{site}' cannot carry auth of its own yet: nginx would include none of it and the site would keep following the bench. Update the bench's nginx image (then 'fm restart {bench.name} --nginx --container'), or run 'fm auth {bench.name}' for the auth every site follows.",
+            f"Bench '{bench.name}' nginx conf predates one server block per site, so '{site}' cannot carry auth of its own yet: nginx would include none of it and the site would keep following the bench. Run 'fm migrate' to re-render it, or recreate the nginx container with 'fm restart {bench.name} --nginx --container'. 'fm auth {bench.name}' for the whole bench works today.",
             exception=typer.Exit(code=1),
         )
 

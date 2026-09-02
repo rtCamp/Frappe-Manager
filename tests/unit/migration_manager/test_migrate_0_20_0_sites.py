@@ -635,3 +635,64 @@ def test_the_recorded_default_is_what_the_resolver_then_reads(step, tmp_path):
     step._backfill_default_site(bench)
 
     assert read_default_site(tmp_path) == SITE
+
+
+# --------------------------------------------- the generated nginx conf
+
+
+def _nginx_conf(tmp_path, text: str):
+    conf = tmp_path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+    conf.parent.mkdir(parents=True, exist_ok=True)
+    conf.write_text(text)
+    return conf
+
+
+def test_the_generated_nginx_conf_is_removed_so_the_entrypoint_rebuilds_it(step, tmp_path):
+    """This is what gives an upgraded bench one server block per site, and with it the
+    `custom/<site>/*.conf` include that per-site auth and per-site tool routing are written into.
+
+    The conf is rendered once, at the nginx container's first boot, and then persists on a host
+    mount, so nothing else in an upgrade would replace it. Untested until now, while two features
+    came to depend on the shape it produces."""
+    bench, _ = _bench(tmp_path, BASE)
+    conf = _nginx_conf(tmp_path, "server {\n  include /etc/nginx/custom/*.conf;\n}\n")
+    step.backup_manager = MagicMock()
+
+    step._refresh_nginx_default_conf(bench)
+
+    assert not conf.exists()
+    step.backup_manager.backup.assert_called_once()
+
+
+def test_the_removal_is_reported(step, tmp_path):
+    bench, _ = _bench(tmp_path, BASE)
+    _nginx_conf(tmp_path, "server { }\n")
+    step.backup_manager = MagicMock()
+
+    step._refresh_nginx_default_conf(bench)
+
+    assert any(SITE in str(c.args[0]) for c in step.output.print.call_args_list if c.args)
+
+
+def test_a_bench_with_no_generated_conf_is_left_alone(step, tmp_path):
+    """A bench mid-create has none, and taking a backup of a file that does not exist would fail
+    the whole migration for nothing."""
+    bench, _ = _bench(tmp_path, BASE)
+    step.backup_manager = MagicMock()
+
+    step._refresh_nginx_default_conf(bench)
+
+    step.backup_manager.backup.assert_not_called()
+
+
+def test_re_running_the_refresh_changes_nothing(step, tmp_path):
+    """`0.20.0.dev0` sorts below `0.20.0`, so a bench on a dev build re-runs every step of this
+    migration whenever one is triggered at all."""
+    bench, _ = _bench(tmp_path, BASE)
+    _nginx_conf(tmp_path, "server { }\n")
+    step.backup_manager = MagicMock()
+
+    step._refresh_nginx_default_conf(bench)
+    step._refresh_nginx_default_conf(bench)
+
+    step.backup_manager.backup.assert_called_once()

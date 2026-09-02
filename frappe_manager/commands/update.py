@@ -625,7 +625,7 @@ def update(
 
                 if not bench.nginx_conf_serves_per_site():
                     output.display_error(
-                        f"Bench '{bench.name}' nginx conf predates one server block per site, so tool routing cannot be set per site yet: nginx would include none of it and the tools would answer on no hostname at all. Update the bench's nginx image (then 'fm restart {bench.name} --nginx --container'), or use 'fm update {bench.name} --admin-tools' for the whole bench."
+                        f"Bench '{bench.name}' nginx conf predates one server block per site, so tool routing cannot be set per site yet: nginx would include none of it and the tools would answer on no hostname at all. Run 'fm migrate' to re-render it, or recreate the nginx container with 'fm restart {bench.name} --nginx --container'. 'fm update {bench.name} --admin-tools' for the whole bench works today."
                     )
                     raise typer.Exit(1)
 
