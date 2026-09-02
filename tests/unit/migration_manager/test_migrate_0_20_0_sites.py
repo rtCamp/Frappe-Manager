@@ -696,3 +696,124 @@ def test_re_running_the_refresh_changes_nothing(step, tmp_path):
     step._refresh_nginx_default_conf(bench)
 
     step.backup_manager.backup.assert_called_once()
+
+
+# ------------------------------------------------- the [ssl] table
+
+
+PRE_020_TOP_LEVEL_SSL = f"""
+[[ssl_certificates]]
+domain = "{SITE}"
+ssl_type = "letsencrypt"
+challenge_type = "dns01"
+hsts = "off"
+
+[dns_providers.cloudflare]
+api_token = "tok"
+"""
+
+
+def _certs(path):
+    """What the loader actually ends up with, which is the only thing that matters here."""
+    return BenchConfig.import_from_toml(path).ssl_certificates
+
+
+def test_a_top_level_certificate_array_moves_under_ssl(step, tmp_path):
+    """0.19 wrote both keys at the TOP LEVEL and no later migration moved them.
+
+    `import_from_toml` reads `[ssl]` only, so such a bench loads with ZERO certificates and the
+    next save deletes the orphaned top-level keys outright: the whole TLS configuration gone,
+    silently. This step is the only thing standing between a bench and that."""
+    bench, path = _bench(tmp_path, BASE + PRE_020_TOP_LEVEL_SSL)
+    assert _certs(path) == []  # the bug, before the step runs
+
+    step._rewrite_ssl_table(bench)
+
+    text = path.read_text()
+    assert "[[ssl.certificates]]" in text or "[ssl]" in text
+    assert "[[ssl_certificates]]" not in text
+    loaded = _certs(path)
+    assert [c.domain for c in loaded] == [SITE]
+    assert loaded[0].ssl_type.value == "letsencrypt"
+
+
+def test_the_moved_certificate_is_what_the_tls_gate_reads(step, tmp_path):
+    """`fm auth BENCH/SITE --protect web` refuses when the named site has no certificate, and it
+    asks `certificate_for`, which reads exactly this array. Left unmoved, the gate would refuse web
+    auth on a site that HAS TLS."""
+    bench, path = _bench(tmp_path, BASE + PRE_020_TOP_LEVEL_SSL)
+
+    step._rewrite_ssl_table(bench)
+
+    config = BenchConfig.import_from_toml(path)
+    assert config.certificate_for(SITE).ssl_type.value == "letsencrypt"
+
+
+def test_a_top_level_credential_table_moves_under_ssl(step, tmp_path):
+    bench, path = _bench(tmp_path, BASE + PRE_020_TOP_LEVEL_SSL)
+
+    step._rewrite_ssl_table(bench)
+
+    config = BenchConfig.import_from_toml(path)
+    assert "cloudflare" in (config.dns_providers or {})
+    assert "[dns_providers.cloudflare]" not in path.read_text().split("[ssl]")[0]
+
+
+def test_an_orphan_is_dropped_rather_than_merged_over_the_loaded_copy(step, tmp_path):
+    """`[ssl]` already holding the array means the loader has been reading THAT one, so the
+    top-level copy has never been loaded by any version and holds nothing worth keeping."""
+    already = f"""
+[[ssl.certificates]]
+domain = "{SITE}"
+ssl_type = "letsencrypt"
+challenge_type = "dns01"
+hsts = "on"
+
+[[ssl_certificates]]
+domain = "stale.localhost"
+ssl_type = "letsencrypt"
+challenge_type = "dns01"
+hsts = "off"
+"""
+    bench, path = _bench(tmp_path, BASE + already)
+
+    step._rewrite_ssl_table(bench)
+
+    loaded = _certs(path)
+    assert [c.domain for c in loaded] == [SITE]
+    assert loaded[0].hsts == "on"
+
+
+def test_the_old_credential_key_spelling_is_renamed(step, tmp_path):
+    bench, path = _bench(
+        tmp_path,
+        BASE + '\n[ssl.dns_challenge_providers.cloudflare]\napi_token = "tok"\n',
+    )
+
+    step._rewrite_ssl_table(bench)
+
+    config = BenchConfig.import_from_toml(path)
+    assert "cloudflare" in (config.dns_providers or {})
+    assert "dns_challenge_providers" not in path.read_text()
+
+
+def test_an_ssl_key_that_is_not_a_table_is_left_for_a_human(step, tmp_path):
+    """0.19 tolerated an `ssl` that was an array. Nothing merges into that, and replacing it would
+    throw away whatever it holds."""
+    bench, path = _bench(tmp_path, BASE + '\nssl = ["nonsense"]\n')
+    step.logger = MagicMock()
+
+    step._rewrite_ssl_table(bench)
+
+    assert 'ssl = ["nonsense"]' in path.read_text()
+
+
+def test_re_running_the_ssl_rewrite_changes_nothing(step, tmp_path):
+    """`0.20.0.dev0` sorts below `0.20.0`, so every step here re-runs on a dev-build bench."""
+    bench, path = _bench(tmp_path, BASE + PRE_020_TOP_LEVEL_SSL)
+
+    step._rewrite_ssl_table(bench)
+    once = path.read_text()
+    step._rewrite_ssl_table(bench)
+
+    assert path.read_text() == once
