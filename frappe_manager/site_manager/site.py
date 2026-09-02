@@ -75,6 +75,14 @@ class SiteSchema:
     external_host: str | None
     """None means fm's own `global-db` container, which fm may drop. A host means a server fm does
     not own, whose schema is never dropped and never asked about."""
+    absent: bool = False
+    """True when `sites/<site>/site_config.json` does not exist at all.
+
+    Different from :attr:`unreadable`, and the difference decides whether removal may proceed. A
+    file that exists and cannot be parsed may name a schema still sitting in global-db, so fm must
+    not destroy it. A file that does not exist names nothing: there is no record to preserve and no
+    directory to keep, so blocking buys nothing and only makes a `[sites]` entry with no site
+    permanently unremovable."""
 
     @property
     def droppable(self) -> bool:
@@ -83,12 +91,13 @@ class SiteSchema:
 
     @property
     def unreadable(self) -> bool:
-        """True when fm cannot tell what schema this site uses.
+        """True when fm cannot tell what schema this site uses AND a file might have said.
 
         Neither dropped nor deliberately left, so it BLOCKS removal of the bench directory: that
-        directory may hold the only record of a schema still present in global-db.
+        directory may hold the only record of a schema still present in global-db. An ABSENT site
+        config is excluded, because there is no such record to lose.
         """
-        return self.schema is None
+        return self.schema is None and not self.absent
 
 
 def orphaned_database_error(bench: "Bench", outstanding: "list[tuple[SiteSchema, str]]") -> BenchException:
@@ -1176,13 +1185,23 @@ class Bench:
         schemas: list[SiteSchema] = []
         for site in sorted(self.bench_config.sites or {}):
             schema: str | None = None
-            # Unreadable rather than absent, which `SiteSchema.unreadable` treats as blocking.
+            config = self.sites_dir / site / "site_config.json"
+            # ABSENT is not the same as unreadable. A file that exists and will not parse may hold
+            # the only record of a live schema, and blocks removal. A file that is not there holds
+            # no record, so the entry can be cleared: see `SiteSchema.absent`.
+            absent = not config.is_file()
             with contextlib.suppress(OSError, ValueError):
-                config = self.sites_dir / site / "site_config.json"
                 schema = json.loads(config.read_text()).get("db_name") or None
 
             external = self.bench_config.get_database_config(site)
-            schemas.append(SiteSchema(site=site, schema=schema, external_host=external.host if external else None))
+            schemas.append(
+                SiteSchema(
+                    site=site,
+                    schema=schema,
+                    external_host=external.host if external else None,
+                    absent=absent,
+                ),
+            )
 
         return schemas
 
@@ -1394,6 +1413,19 @@ class Bench:
         Resolved means dropped, deliberately left because it is external, or declined. Declining is
         a resolution: the operator chose to keep the schema, so nothing is orphaned by surprise.
         """
+        if entry.absent:
+            # Nothing on disk to account for, so nothing to block on: the record is all that is
+            # left of this site and clearing it is the only remedy for a `[sites]` entry `fm info`
+            # reports as missing. Said out loud rather than done quietly, because fm mints a
+            # schema as `fm_<site>_<hex>` and writes the name ONLY into the site config that is
+            # gone, so if a schema was ever created for this site its name is no longer knowable.
+            self.output.warning(
+                f"{entry.site}: no site_config.json, so there is no schema name to drop. Clearing "
+                f"the record. If a schema was created for it, it is still on global-db under a name "
+                f"beginning 'fm_' that only a listing can now reveal.",
+            )
+            return None
+
         if entry.unreadable:
             # Not resolvable: fm cannot say whether a schema is out there, so it must not destroy
             # the directory that would answer the question.

@@ -427,8 +427,15 @@ def bench_site_callback(ctx: typer.Context, value: str | None) -> str | None:
     bench = _resolve_bench(value)
 
     if site is not None:
-        site = validate_sitename(site)
         recorded = _recorded_sites(bench)
+        # EXACT match first, and only then the `<name>.localhost` convenience form. Normalising
+        # up front made a bare-label site unaddressable AND silently retargeted the command at a
+        # different recorded site: on a bench serving both `shop` and `shop.localhost`,
+        # `fm delete shop/shop` resolved to `shop.localhost` and offered to drop ITS database.
+        # fm never creates a bare-label site, so this only arises from a hand-written config or
+        # old data, which is exactly when silently acting on the wrong schema is least excusable.
+        if site not in recorded:
+            site = validate_sitename(site)
         if site not in recorded:
             known = ", ".join(f"'{s}'" for s in sorted(recorded))
             raise typer.BadParameter(

@@ -327,3 +327,108 @@ def test_external_create_pairs_no_setup_db_with_force_even_when_forced(tmp_path)
     assert "--force" in new_site_command
     assert "--no-setup-db" in new_site_command
     assert new_site_command.count("--force") == 1  # the external branch must not force twice over
+
+
+# ------------------------------- a recorded site with no site config
+
+
+"""ABSENT is not UNREADABLE, and the difference decides whether the record can ever be cleared.
+
+`unreadable` blocks removal because the file that will not parse may hold the only record of a
+schema still sitting in global-db, and destroying it makes that schema findable only by hand. That
+reasoning does not survive the file being gone: there is no record to lose and no directory to
+keep, so blocking bought nothing and made a `[sites]` entry with no site permanently unremovable.
+`fm info` reports that entry as missing; without this, nothing could act on the report.
+
+fm mints a schema as `fm_<site>_<hex>` and writes the name ONLY into the site config, so when it
+is gone the name is no longer knowable. Hence a warning rather than silence.
+"""
+
+
+def _phantom_config(tmp_path, bench, *extra_sites):
+    """A config recording the bench's own site plus `extra_sites`, none of them external."""
+    toml = f'name = "{bench}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
+    for site in extra_sites:
+        toml += f'\n[sites."{site}"]\n'
+    path = tmp_path / f"{bench}.toml"
+    path.write_text(toml)
+    return BenchConfig.import_from_toml(path)
+
+
+def test_site_schemas_marks_a_recorded_site_with_no_config_as_absent(tmp_path):
+    config = _phantom_config(tmp_path, "shop", "real.localhost", "ghost.localhost")
+    bench = _bench(tmp_path, config, "shop", {"real.localhost": "fm_real_a1"})
+
+    by_site = {e.site: e for e in bench.site_schemas()}
+
+    assert by_site["ghost.localhost"].absent is True
+    assert by_site["real.localhost"].absent is False
+    # ABSENT does not report as unreadable, which is what used to block removal.
+    assert by_site["ghost.localhost"].unreadable is False
+
+
+def test_a_config_present_but_unparseable_is_unreadable_not_absent(tmp_path):
+    config = _phantom_config(tmp_path, "shop", "broken.localhost")
+    bench = _bench(tmp_path, config, "shop", {})
+    site_dir = bench.path / "workspace" / "frappe-bench" / "sites" / "broken.localhost"
+    site_dir.mkdir(parents=True, exist_ok=True)
+    (site_dir / "site_config.json").write_text("{not json")
+
+    entry = {e.site: e for e in bench.site_schemas()}["broken.localhost"]
+
+    assert entry.absent is False
+    assert entry.unreadable is True
+
+
+def test_a_config_present_with_no_db_name_is_unreadable_not_absent(tmp_path):
+    config = _phantom_config(tmp_path, "shop", "nodb.localhost")
+    bench = _bench(tmp_path, config, "shop", {})
+    site_dir = bench.path / "workspace" / "frappe-bench" / "sites" / "nodb.localhost"
+    site_dir.mkdir(parents=True, exist_ok=True)
+    (site_dir / "site_config.json").write_text("{}")
+
+    entry = {e.site: e for e in bench.site_schemas()}["nodb.localhost"]
+
+    assert entry.absent is False
+    assert entry.unreadable is True
+
+
+def test_an_absent_site_resolves_instead_of_blocking(tmp_path):
+    config = _phantom_config(tmp_path, "shop", "ghost.localhost")
+    bench = _bench(tmp_path, config, "shop", {})
+    entry = {e.site: e for e in bench.site_schemas()}["ghost.localhost"]
+
+    # None means resolved: nothing outstanding, so removal may proceed.
+    assert bench._resolve_site_schema(entry, delete_db_from_global_db=True) is None
+    assert _dropped(bench) == []
+
+
+def test_the_absent_warning_says_the_schema_may_still_be_there(tmp_path):
+    # The operator has to be told, because fm writes the minted name ONLY into the site config,
+    # so once that is gone the name is no longer recoverable from disk.
+    config = _phantom_config(tmp_path, "shop", "ghost.localhost")
+    bench = _bench(tmp_path, config, "shop", {})
+    entry = {e.site: e for e in bench.site_schemas()}["ghost.localhost"]
+
+    bench._resolve_site_schema(entry, delete_db_from_global_db=True)
+
+    warned = "\n".join(str(c.args[0]) for c in bench.output.warning.call_args_list if c.args)
+    assert "ghost.localhost" in warned
+    assert "no site_config.json" in warned
+    assert "global-db" in warned
+    assert "fm_" in warned
+
+
+def test_an_unreadable_site_still_blocks(tmp_path):
+    # The half this must NOT relax: the file is there, so it is the record, and it does not answer.
+    config = _phantom_config(tmp_path, "shop", "broken.localhost")
+    bench = _bench(tmp_path, config, "shop", {})
+    site_dir = bench.path / "workspace" / "frappe-bench" / "sites" / "broken.localhost"
+    site_dir.mkdir(parents=True, exist_ok=True)
+    (site_dir / "site_config.json").write_text("{not json")
+    entry = {e.site: e for e in bench.site_schemas()}["broken.localhost"]
+
+    why = bench._resolve_site_schema(entry, delete_db_from_global_db=True)
+
+    assert why is not None
+    assert "could not be read" in why

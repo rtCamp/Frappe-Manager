@@ -312,3 +312,67 @@ def test_shell_has_no_site_option():
 def test_shell_help_documents_the_address():
     result = runner.invoke(_app("shell", shell), ["--help"])
     assert "bench/site" in _said(result)
+
+
+# ------------------------------- an exact site name is never retargeted
+
+
+"""`BENCH/SITE` resolves the site the operator TYPED, before the `.localhost` convenience form.
+
+`validate_sitename` appends `.localhost` to a bare label, which is what makes `fm create
+shop/analytics` produce `analytics.localhost`. Applying it before the lookup meant a bench serving
+BOTH `shop` and `shop.localhost` resolved `shop/shop` to `shop.localhost`: the recorded-site check
+then passed, because that site does exist, and the command acted on a schema the operator had not
+named. On `fm delete` that offered to drop the wrong database.
+
+fm never creates a bare-label site, so this shape comes from a hand-written config or old data,
+which is precisely when silently acting on a different schema is least excusable.
+"""
+
+
+def _recorded(root, bench, *sites):
+    body = f'name = "{bench}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
+    body += "".join(f'\n[sites."{s}"]\n' for s in sites)
+    (root / bench).mkdir(parents=True, exist_ok=True)
+    (root / bench / "bench_config.toml").write_text(body)
+
+
+def test_a_bare_label_site_resolves_to_itself_not_to_the_fqdn_form(benches):
+    from frappe_manager.utils.callbacks import bench_site_callback
+
+    _recorded(benches, "shop", "shop", "shop.localhost")
+    ctx = _ctx()
+
+    assert bench_site_callback(ctx, "shop/shop") == "shop"
+    assert ctx.obj["site"] == "shop"
+
+
+def test_a_bare_label_still_gets_the_fqdn_form_when_only_that_is_recorded(benches):
+    # The convenience that made `fm create shop/analytics` mean analytics.localhost survives.
+    from frappe_manager.utils.callbacks import bench_site_callback
+
+    _recorded(benches, "shop", "shop.localhost")
+    ctx = _ctx()
+
+    assert bench_site_callback(ctx, "shop/shop") == "shop"
+    assert ctx.obj["site"] == "shop.localhost"
+
+
+def test_a_site_recorded_under_neither_spelling_is_refused(benches):
+    from frappe_manager.utils.callbacks import bench_site_callback
+
+    _recorded(benches, "shop", "shop.localhost")
+    ctx = _ctx()
+
+    with pytest.raises(typer.BadParameter, match="has no site"):
+        bench_site_callback(ctx, "shop/ghost.example.com")
+
+
+def test_an_fqdn_site_is_unaffected(benches):
+    from frappe_manager.utils.callbacks import bench_site_callback
+
+    _recorded(benches, "shop", "shop.localhost", "b.example.com")
+    ctx = _ctx()
+
+    assert bench_site_callback(ctx, "shop/b.example.com") == "shop"
+    assert ctx.obj["site"] == "b.example.com"
