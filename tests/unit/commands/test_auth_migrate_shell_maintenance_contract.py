@@ -1503,34 +1503,41 @@ def test_bench_console_is_reached_before_any_plain_shell_branch(tmp_path):
 # =========================================================================== #
 # maintenance.py
 # =========================================================================== #
-def test_the_sitename_callback_lets_status_through_without_a_bench(monkeypatch):
+def test_the_address_callback_lets_status_through_without_a_bench(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["fm", "maintenance", "--status"])
-    with patch.object(maintenance_mod, "sitename_callback") as delegate:
-        assert _maintenance_sitename_callback(None) is None
+    ctx = MagicMock()
+    with patch.object(maintenance_mod, "bench_site_callback") as delegate:
+        assert _maintenance_sitename_callback(ctx, None) is None
     delegate.assert_not_called()
 
 
-def test_the_sitename_callback_still_validates_when_status_is_absent(monkeypatch):
+def test_the_address_callback_still_validates_when_status_is_absent(monkeypatch):
+    """It delegates to `bench_site_callback` now, not `sitename_callback`: the argument grew a SITE
+    half so `fm maintenance BENCH/SITE` can put one site behind the page. The delegate is what
+    refuses a site the bench does not record."""
     monkeypatch.setattr(sys, "argv", ["fm", "maintenance"])
-    with patch.object(maintenance_mod, "sitename_callback", return_value="cwd.localhost") as delegate:
-        assert _maintenance_sitename_callback(None) == "cwd.localhost"
-    delegate.assert_called_once_with(None)
+    ctx = MagicMock()
+    with patch.object(maintenance_mod, "bench_site_callback", return_value="cwd.localhost") as delegate:
+        assert _maintenance_sitename_callback(ctx, None) == "cwd.localhost"
+    delegate.assert_called_once_with(ctx, None)
 
 
-def test_the_sitename_callback_always_validates_an_explicit_bench(monkeypatch):
+def test_the_address_callback_always_validates_an_explicit_bench(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["fm", "maintenance", "mybench", "--status"])
-    with patch.object(maintenance_mod, "sitename_callback", return_value="mybench") as delegate:
-        assert _maintenance_sitename_callback("mybench") == "mybench"
-    delegate.assert_called_once_with("mybench")
+    ctx = MagicMock()
+    with patch.object(maintenance_mod, "bench_site_callback", return_value="mybench") as delegate:
+        assert _maintenance_sitename_callback(ctx, "mybench") == "mybench"
+    delegate.assert_called_once_with(ctx, "mybench")
 
 
-def test_the_sitename_callback_only_sniffs_the_exact_status_token(monkeypatch):
+def test_the_address_callback_only_sniffs_the_exact_status_token(monkeypatch):
     # Abbreviated/attached forms typer would still accept are NOT recognised, so
     # they fall through to the normal validation. Pinned, not endorsed.
     monkeypatch.setattr(sys, "argv", ["fm", "maintenance", "--stat"])
-    with patch.object(maintenance_mod, "sitename_callback", return_value="cwd.localhost") as delegate:
-        assert _maintenance_sitename_callback(None) == "cwd.localhost"
-    delegate.assert_called_once_with(None)
+    ctx = MagicMock()
+    with patch.object(maintenance_mod, "bench_site_callback", return_value="cwd.localhost") as delegate:
+        assert _maintenance_sitename_callback(ctx, None) == "cwd.localhost"
+    delegate.assert_called_once_with(ctx, None)
 
 
 def _maint_services(tmp_path):
@@ -1549,11 +1556,13 @@ def _write_bench_config(benches_dir, benchname: str, body: str = "") -> None:
     (bench_dir / "bench_config.toml").write_text(f'name = "{benchname}"\n{body}')
 
 
-def _run_maintenance(services, benches_dir, **kwargs):
+def _run_maintenance(services, benches_dir, site=None, **kwargs):
     ctx = MagicMock()
-    ctx.obj = {"services": services}
+    # `site` is the SITE half of the address, which `bench_site_callback` stashes here. None means
+    # the whole bench, which is what a bare `fm maintenance BENCH` does.
+    ctx.obj = {"services": services, "site": site}
     params = {
-        "benchname": "mybench",
+        "address": "mybench",
         "off": False,
         "status": False,
         "response_code": 503,
@@ -1583,7 +1592,7 @@ def test_no_bench_lists_every_domain_in_maintenance(out, tmp_path):
     )
     (vhostd / "b.localhost").write_text("client_max_body_size 50m;\n")
     (vhostd / "sub").mkdir()
-    r = _run_maintenance(services, tmp_path / "benches", benchname=None, status=True)
+    r = _run_maintenance(services, tmp_path / "benches", address=None, status=True)
     assert r.exit is None
     body = joined(out.print)
     assert "a.localhost: maintenance ON (bench bench-a, code 404, bypass token " + "a" * 32 + ")" in body
@@ -1593,14 +1602,14 @@ def test_no_bench_lists_every_domain_in_maintenance(out, tmp_path):
 def test_no_bench_and_nothing_in_maintenance_says_so(out, tmp_path):
     services, vhostd, _ = _maint_services(tmp_path)
     vhostd.mkdir(parents=True)
-    r = _run_maintenance(services, tmp_path / "benches", benchname=None, status=True)
+    r = _run_maintenance(services, tmp_path / "benches", address=None, status=True)
     assert r.exit is None
     assert texts(out.print) == ["No domain is in maintenance"]
 
 
 def test_no_bench_with_a_missing_vhostd_directory_still_reports_cleanly(out, tmp_path):
     services, _, _ = _maint_services(tmp_path)
-    r = _run_maintenance(services, tmp_path / "benches", benchname=None, status=True)
+    r = _run_maintenance(services, tmp_path / "benches", address=None, status=True)
     assert r.exit is None
     assert texts(out.print) == ["No domain is in maintenance"]
 
@@ -1612,7 +1621,7 @@ def test_the_bench_less_listing_precedes_every_flag_guard(out, tmp_path):
     # silently treated as a listing request.
     services, vhostd, _ = _maint_services(tmp_path)
     vhostd.mkdir(parents=True)
-    r = _run_maintenance(services, tmp_path / "benches", benchname=None, off=True, status=True, response_code=999)
+    r = _run_maintenance(services, tmp_path / "benches", address=None, off=True, status=True, response_code=999)
     assert r.exit is None
     assert texts(out.print) == ["No domain is in maintenance"]
     out.display_error.assert_not_called()

@@ -13,7 +13,10 @@ from typer_examples import example
 from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
+from frappe_manager.utils.callbacks import (
+    bench_site_autocompletion_callback,
+    bench_site_callback,
+)
 
 # Maintenance owns a marked BLOCK inside vhost.d/<domain>, not the whole file:
 # other fm features (upload limits) and hand-written directives share the same
@@ -140,15 +143,19 @@ location = /fm-bypass/off {{
 """
 
 
-def _bench_domains(benchname: str) -> tuple[list[str], dict[str, bool]]:
-    """(primary + alias domains, per-domain TLS state) read straight from
-    bench_config.toml, so maintenance works even when the bench itself is stopped
-    or broken.
+def _bench_domains(benchname: str, site: str | None = None) -> tuple[list[str], dict[str, bool], list[str]]:
+    """(acting domains, per-domain TLS state, every domain the bench serves), read straight from
+    bench_config.toml, so maintenance works even when the bench itself is stopped or broken.
 
     Certificates are per domain: every ``[[ssl.certificates]]`` entry carries its
     own ``ssl_type``, so a bench can serve its primary domain over TLS and an alias
     over plain http. A top-level ``ssl.ssl_type`` would always read as absent,
     because export_to_toml never writes that key.
+
+    ``site`` narrows the ACTING domains to that site's own name and its aliases. The third value is
+    always every domain of the bench, and the `--off` orphan sweep needs it rather than the narrowed
+    list: the sweep disables any block naming this bench on a domain it no longer serves, so given a
+    narrowed list it would read a SIBLING site's live maintenance as an orphan and take it down.
     """
     config_path = CLI_BENCHES_DIRECTORY / benchname / "bench_config.toml"
     data = tomlkit.parse(config_path.read_text())
@@ -157,16 +164,19 @@ def _bench_domains(benchname: str) -> tuple[list[str], dict[str, bool]]:
     # the raw-TOML read rather than loading BenchConfig is deliberate, so maintenance still works on
     # a bench whose config the model would refuse.
     sites = data.get("sites") or {}
-    domains = []
+    by_site: dict[str, list[str]] = {}
     for site_name, entry in sites.items():
-        domains.append(str(site_name))
-        domains.extend(str(alias) for alias in ((entry or {}).get("alias_domains") or []))
-    if not domains:
+        name = str(site_name)
+        by_site[name] = [name, *(str(alias) for alias in ((entry or {}).get("alias_domains") or []))]
+    all_domains = [domain for hostnames in by_site.values() for domain in hostnames]
+    if not all_domains:
         # No `[sites]` recorded: a bench that has not been migrated, whose one site is its own name.
-        domains = [benchname]
+        all_domains = [benchname]
+        by_site = {benchname: [benchname]}
+    domains = by_site.get(site, []) if site else all_domains
     certificates = (data.get("ssl") or {}).get("certificates") or []
     secured = {str(cert.get("domain")) for cert in certificates if str(cert.get("ssl_type", "none")) != "none"}
-    return domains, {domain: domain in secured for domain in domains}
+    return domains, {domain: domain in secured for domain in all_domains}, all_domains
 
 
 def _extract_token(conf_text: str) -> str | None:
@@ -198,12 +208,17 @@ def _resolve_page_html(benchname: str, page: Path | None, message: str | None) -
     return _PAGE_TEMPLATE.format(message=_DEFAULT_MESSAGE)
 
 
-def _maintenance_sitename_callback(sitename: str | None):
+def _maintenance_sitename_callback(ctx: typer.Context, value: str | None):
     """Allow `fm maintenance --status` without a bench (lists every domain in
-    maintenance); every other invocation gets the standard prompt/validation."""
-    if sitename is None and "--status" in sys.argv:
+    maintenance); every other invocation gets the standard prompt/validation.
+
+    A `BENCH/SITE` address narrows the command to the hostnames of that one site. It goes through
+    `bench_site_callback`, so the site must be one the bench records and the refusal names the ones
+    it does serve; the site half arrives on `ctx.obj["site"]` as it does everywhere else.
+    """
+    if value is None and "--status" in sys.argv:
         return None
-    return sitename_callback(sitename)
+    return bench_site_callback(ctx, value)
 
 
 @example(
@@ -233,18 +248,18 @@ def _maintenance_sitename_callback(sitename: str | None):
 )
 def maintenance(
     ctx: typer.Context,
-    benchname: Annotated[
+    address: Annotated[
         str | None,
         typer.Argument(
-            metavar="BENCH",
-            help="Bench to act on. Optional with --status, which then lists every domain in maintenance.",
-            autocompletion=sites_autocompletion_callback,
+            metavar="BENCH(/SITE)",
+            help="Bench, or BENCH/SITE for one site's hostnames only. Optional with --status, which then lists every domain in maintenance.",
+            autocompletion=bench_site_autocompletion_callback,
             callback=_maintenance_sitename_callback,
         ),
     ] = None,
     off: Annotated[
         bool,
-        typer.Option("--off", help="Take every domain out of maintenance and serve the bench again."),
+        typer.Option("--off", help="Take the addressed domains out of maintenance and serve them again. A bare bench name covers every domain it serves."),
     ] = False,
     status: Annotated[
         bool,
@@ -305,12 +320,18 @@ def maintenance(
     ] = False,
 ):
     """
-    Put every domain of a bench, aliases included, behind a maintenance page.
+    Put a bench's domains, aliases included, behind a maintenance page.
+
+    fm maintenance BENCH covers every hostname the bench serves. fm maintenance BENCH/SITE covers that one site's own name and its aliases, leaving the bench's other sites serving: the page is written per domain in the shared proxy, so one site can be down while its neighbours are up.
 
     Enabling prints a secret bypass URL: open it once and a cookie lets you through to the real site for a day while everyone else gets the page (visit /fm-bypass/off to drop it sooner).
 
     Each enable rewrites the settings from the flags you pass, so repeat the ones you still want; only the bypass token carries over, unless you ask for --rotate-token.
     """
+
+    # The callback returns the BENCH half of the address, so the rest of this body still works with a
+    # plain bench-directory name. Bound once rather than renamed at 24 call sites.
+    benchname = address
 
     output = get_global_output_handler()
 
@@ -378,7 +399,10 @@ def maintenance(
                 exception=typer.Exit(code=1),
             )
 
-    domains, domain_ssl = _bench_domains(benchname)
+    # Narrowed to the named site when the address carries one; `all_domains` is every hostname the
+    # bench serves and is what the orphan sweep below must compare against.
+    site = ctx.obj.get("site") if ctx.obj else None
+    domains, domain_ssl, all_domains = _bench_domains(benchname, site)
 
     def scheme_for(domain: str) -> str:
         return "https" if domain_ssl.get(domain) else "http"
@@ -431,7 +455,10 @@ def maintenance(
         orphans: list[str] = []
         if vhostd_dir.exists():
             for conf in sorted(vhostd_dir.iterdir()):
-                if conf.name in domains or not conf.is_file():
+                # `all_domains`, not `domains`: with a site named, a sibling site's live block is
+                # not an orphan, and disabling it would take a site the operator never mentioned
+                # out of maintenance.
+                if conf.name in all_domains or not conf.is_file():
                     continue
                 text = conf.read_text()
                 if not _has_fm_block(text) or _extract_bench(text) != benchname:

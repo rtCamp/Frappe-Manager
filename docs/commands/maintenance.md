@@ -1,6 +1,8 @@
 ## `fm maintenance`
 
-Put every domain of a bench, aliases included, behind a maintenance page.
+Put a bench's domains, aliases included, behind a maintenance page.
+
+fm maintenance BENCH covers every hostname the bench serves. fm maintenance BENCH/SITE covers that one site's own name and its aliases, leaving the bench's other sites serving: the page is written per domain in the shared proxy, so one site can be down while its neighbours are up.
 
 Enabling prints a secret bypass URL: open it once and a cookie lets you through to the real site for a day while everyone else gets the page (visit /fm-bypass/off to drop it sooner).
 
@@ -9,16 +11,16 @@ Each enable rewrites the settings from the flags you pass, so repeat the ones yo
 **Usage**:
 
 ```console
-$ fm maintenance BENCH [OPTIONS]
+$ fm maintenance BENCH(/SITE) [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCH`: Bench to act on. Optional with --status, which then lists every domain in maintenance.
+* `BENCH(/SITE)`: Bench, or BENCH/SITE for one site's hostnames only. Optional with --status, which then lists every domain in maintenance.
 
 **Options**:
 
-* `--off`: Take every domain out of maintenance and serve the bench again.
+* `--off`: Take the addressed domains out of maintenance and serve them again. A bare bench name covers every domain it serves.
 * `--status`: Report maintenance state per domain, with the bypass URL.
 * `--response-code`: HTTP status code served while maintenance is on (400-599).
 * `--retry-after`: Retry-After header in seconds; 0 omits it.

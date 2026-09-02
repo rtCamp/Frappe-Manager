@@ -70,7 +70,7 @@ def test_tls_is_read_from_the_per_certificate_ssl_type(tmp_path, monkeypatch):
         '\n[[ssl.certificates]]\ndomain = "mybench.localhost"\nssl_type = "letsencrypt"\n',
     )
 
-    domains, domain_ssl = _bench_domains("mybench.localhost")
+    domains, domain_ssl, _ = _bench_domains("mybench.localhost")
 
     assert domains == ["mybench.localhost"]
     assert domain_ssl == {"mybench.localhost": True}
@@ -88,7 +88,7 @@ def test_tls_state_is_tracked_per_domain_not_per_bench(tmp_path, monkeypatch):
         '\n[[ssl.certificates]]\ndomain = "secure.example.com"\nssl_type = "letsencrypt"\n',
     )
 
-    domains, domain_ssl = _bench_domains("mybench.localhost")
+    domains, domain_ssl, _ = _bench_domains("mybench.localhost")
 
     assert domains == ["mybench.localhost", "secure.example.com", "plain.example.com"]
     assert domain_ssl == {
@@ -106,7 +106,7 @@ def test_a_disabled_certificate_entry_is_not_tls(tmp_path, monkeypatch):
         '\n[[ssl.certificates]]\ndomain = "mybench.localhost"\nssl_type = "none"\n',
     )
 
-    _, domain_ssl = _bench_domains("mybench.localhost")
+    _, domain_ssl, _ = _bench_domains("mybench.localhost")
 
     assert domain_ssl == {"mybench.localhost": False}
 
@@ -115,7 +115,7 @@ def test_no_ssl_table_at_all_is_not_tls(tmp_path, monkeypatch):
     monkeypatch.setattr(maintenance_cmd, "CLI_BENCHES_DIRECTORY", tmp_path)
     _write_bench_config(tmp_path, "mybench.localhost", "admin_tools = true\n")
 
-    _, domain_ssl = _bench_domains("mybench.localhost")
+    _, domain_ssl, _ = _bench_domains("mybench.localhost")
 
     assert domain_ssl == {"mybench.localhost": False}
 
@@ -165,7 +165,7 @@ def _run_off(services, benches):
     ):
         maintenance_cmd.maintenance(
             ctx,
-            benchname="mybench",
+            address="mybench",
             off=True,
             status=False,
             response_code=503,
@@ -231,3 +231,80 @@ def test_off_never_touches_a_domain_another_bench_put_into_maintenance(tmp_path)
     _run_off(services, benches)
 
     assert _has_fm_block((vhostd / "other.example.com").read_text())
+
+
+# ------------------------- one site of a multi-site bench, not the whole bench
+
+
+TWO_SITES = (
+    '[sites."shop.localhost"]\nalias_domains = ["www.shop.example.com"]\n'
+    '\n[sites."b.example.com"]\nalias_domains = ["www.b.example.com"]\n'
+)
+
+
+def test_a_named_site_narrows_the_acting_domains_to_its_own_hostnames(tmp_path, monkeypatch):
+    """The page is written per domain in the shared proxy, so one site can be down while its
+    neighbours serve. Its aliases come with it: an alias reaches the same schema."""
+    monkeypatch.setattr(maintenance_cmd, "CLI_BENCHES_DIRECTORY", tmp_path)
+    _write_bench_config(tmp_path, "shop", TWO_SITES)
+
+    domains, _, all_domains = _bench_domains("shop", "b.example.com")
+
+    assert domains == ["b.example.com", "www.b.example.com"]
+    assert all_domains == [
+        "shop.localhost",
+        "www.shop.example.com",
+        "b.example.com",
+        "www.b.example.com",
+    ]
+
+
+def test_no_site_named_still_means_every_domain_of_the_bench(tmp_path, monkeypatch):
+    monkeypatch.setattr(maintenance_cmd, "CLI_BENCHES_DIRECTORY", tmp_path)
+    _write_bench_config(tmp_path, "shop", TWO_SITES)
+
+    domains, _, all_domains = _bench_domains("shop")
+
+    assert domains == all_domains
+
+
+def test_the_full_domain_list_is_returned_even_when_narrowed(tmp_path, monkeypatch):
+    """The `--off` orphan sweep disables any block naming this bench on a domain it no longer
+    serves. Given the NARROWED list it would read a sibling site's live maintenance as an orphan
+    and take down a site the operator never mentioned, which is why the third value exists.
+    """
+    monkeypatch.setattr(maintenance_cmd, "CLI_BENCHES_DIRECTORY", tmp_path)
+    _write_bench_config(tmp_path, "shop", TWO_SITES)
+
+    domains, _, all_domains = _bench_domains("shop", "b.example.com")
+
+    assert "shop.localhost" not in domains
+    assert "shop.localhost" in all_domains
+
+
+def test_tls_state_still_covers_every_domain_when_narrowed(tmp_path, monkeypatch):
+    """The scheme for a bypass URL is read from this map. Narrowing it would hand a sibling's
+    domain an http link on a TLS site, or drop the Secure flag."""
+    monkeypatch.setattr(maintenance_cmd, "CLI_BENCHES_DIRECTORY", tmp_path)
+    _write_bench_config(
+        tmp_path,
+        "shop",
+        TWO_SITES + '\n[[ssl.certificates]]\ndomain = "shop.localhost"\nssl_type = "letsencrypt"\n',
+    )
+
+    _, domain_ssl, _ = _bench_domains("shop", "b.example.com")
+
+    assert domain_ssl["shop.localhost"] is True
+    assert domain_ssl["b.example.com"] is False
+
+
+def test_a_site_the_bench_does_not_record_acts_on_nothing(tmp_path, monkeypatch):
+    """The parser refuses an unknown site before this is reached, so this is the belt to that
+    braces: an empty acting list must never silently fall back to every domain."""
+    monkeypatch.setattr(maintenance_cmd, "CLI_BENCHES_DIRECTORY", tmp_path)
+    _write_bench_config(tmp_path, "shop", TWO_SITES)
+
+    domains, _, all_domains = _bench_domains("shop", "nosuch.example.com")
+
+    assert domains == []
+    assert len(all_domains) == 4

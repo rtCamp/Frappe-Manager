@@ -126,14 +126,16 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         callback=callbacks.create_command_sitename_callback,
     ),
     # `maintenance --status` may run bench-less, so it swaps in a wrapper that
-    # lets `None` through for that one flag and otherwise delegates.
+    # lets `None` through for that one flag and otherwise delegates. It delegates to
+    # `bench_site_callback` now: the page is written per DOMAIN in the shared proxy, so
+    # `fm maintenance BENCH/SITE` can take one site down while its neighbours keep serving.
     "fm maintenance": BenchnameSpec(
-        help="Bench to act on. Optional with --status, which then lists every domain in maintenance.",
-        metavar="BENCH",
+        help="Bench, or BENCH/SITE for one site's hostnames only. Optional with --status, which then lists every domain in maintenance.",
+        metavar="BENCH(/SITE)",
         default=None,
         required=False,
         type_name="text",
-        autocompletion=sites_autocompletion_callback,
+        autocompletion=bench_site_autocompletion_callback,
         callback=_maintenance_sitename_callback,
     ),
     # `migrate` is the one bench-scoped command that can also run over every bench in a single run,
@@ -474,7 +476,13 @@ def test_shared_callables_are_the_same_object_everywhere():
     by_completer: dict[object, set[str]] = {}
     for name, param in BENCHNAME_ARGUMENTS.items():
         by_completer.setdefault(spec_of(param).autocompletion, set()).add(name)
-    assert by_completer[bench_site_autocompletion_callback] == {"fm shell", "fm delete", "fm reset", "fm update"}
+    assert by_completer[bench_site_autocompletion_callback] == {
+        "fm shell",
+        "fm delete",
+        "fm reset",
+        "fm update",
+        "fm maintenance",
+    }
     assert by_completer[bench_domain_autocompletion_callback] == {
         "fm ngrok",
         "fm ssl add",
