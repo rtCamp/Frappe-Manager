@@ -2,7 +2,7 @@ import json
 import os
 import re
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import Enum
@@ -1175,10 +1175,33 @@ def read_default_site(bench_root: Path | str | None) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def read_sites_on_disk(bench_root: Path | str | None) -> set[str]:
+    """The recorded sites that actually EXIST: a directory holding a `site_config.json`.
+
+    ``bench_root`` is the bench DIRECTORY, same as :func:`read_default_site`.
+
+    A site is real when Frappe can open it, and `sites/<name>/site_config.json` is what Frappe
+    looks for. A `[sites]` entry without one is a record of a site that was never created, or was
+    created and removed by hand, and `bench --site <name>` answers "does not exist" for it.
+
+    Empty on any failure, and an empty result means "cannot tell", NOT "nothing exists": a bench
+    mid-create has its sites recorded before any directory is made, so a caller must never read
+    emptiness as grounds to refuse.
+    """
+    if not bench_root:
+        return set()
+    sites_dir = Path(bench_root) / "workspace" / "frappe-bench" / "sites"
+    try:
+        return {entry.name for entry in sites_dir.iterdir() if (entry / "site_config.json").is_file()}
+    except OSError:
+        return set()
+
+
 def resolve_primary_site(
     bench_name: str,
     sites: Mapping[str, Any] | None,
     default_site: str | None = None,
+    on_disk: Collection[str] | None = None,
 ) -> str | None:
     """Which of a bench's recorded sites is its own, or None when none can be called "the" one.
 
@@ -1189,11 +1212,21 @@ def resolve_primary_site(
 
     `default_site` is frappe's own recorded answer and outranks everything below it. The rules
     after it reconstruct fm's CREATION CONVENTION from string shapes, which is guessing; this is
-    reading. A bench that records a site named after itself AND carries a `default_site` naming a
-    different one used to resolve to the former, and on a real bench that meant fm's primary was a
-    site `bench --site` could not even open while frappe's default named the one that worked.
+    reading.
 
-    Taking it as a parameter rather than reading the file here keeps this pure and keeps the IO at
+    `on_disk` names the recorded sites that actually exist (see :func:`read_sites_on_disk`), and
+    every rule below picks from those in preference to the full table. A `[sites]` entry with no
+    `site_config.json` is a site `bench --site` answers "does not exist" for, and choosing one
+    made fm's primary a site no command could act on while a real site sat beside it. This
+    outranks `default_site` too: a recorded default pointing at a site that was removed by hand is
+    just as unusable as a name-rule guess at one.
+
+    PREFERENCE, not a requirement: when none of the recorded sites exist yet the full table is
+    used instead. That is the mid-create state, where the sites are recorded before any directory
+    is made, and `fm create` itself reads this while building the very site it is about to create.
+    Requiring existence there would make creating a bench impossible.
+
+    Taking both as parameters rather than reading the disk here keeps this pure and keeps the IO at
     the callers, who already know the bench's directory.
 
     Enumeration must not depend on this: routing has to publish every site of a bench whose primary
@@ -1204,10 +1237,12 @@ def resolve_primary_site(
         # Nothing recorded: mid-create, or a migration part-way through writing the table.
         return bench_name
 
+    selectable = {name: value for name, value in sites.items() if name in (on_disk or ())} or sites
+
     # 0. What someone actually wrote down, as long as it names a site this bench serves. A
     # `default_site` naming an unrecorded site is drift in the other direction, and falling
     # through is what keeps fm from acting on a site it has no record of.
-    if default_site and default_site in sites:
+    if default_site and default_site in selectable:
         return default_site
 
     # Then the guesses, for a bench whose default was never recorded: one created before fm wrote
@@ -1215,12 +1250,12 @@ def resolve_primary_site(
     # named after the bench", bare for a bench whose name is already an FQDN (`fm create
     # shop.localhost`) and suffixed for one that is not (`fm create shop` serving shop.localhost).
     for candidate in (bench_name, f"{bench_name}.localhost" if "." not in bench_name else None):
-        if candidate and candidate in sites:
+        if candidate and candidate in selectable:
             return candidate
 
-    if len(sites) == 1:
+    if len(selectable) == 1:
         # No ambiguity to resolve: whatever it is, it is the one.
-        return next(iter(sites))
+        return next(iter(selectable))
     return None
 
 
@@ -1798,11 +1833,18 @@ class BenchConfig(BaseModel):
             data["encryption_key"] = self.encryption_key
         return data
 
-    def _primary_site_or_none(self) -> str | None:
-        """The bench's own site, or None when nothing recorded can be called "the" one."""
+    def primary_site_or_none(self) -> str | None:
+        """The bench's own site, or None when nothing recorded can be called "the" one.
+
+        Public because callers outside this class legitimately need the non-raising form: `fm
+        create` seeds `default_site` from it and must record nothing rather than fail on a bench
+        whose primary is ambiguous. `primary_site` raises, which is right for a command that has
+        to act on one site and wrong for a caller deciding whether there is one to name.
+        """
         # `.parent`: `root_path` is the bench_config.toml FILE, and `read_default_site` wants the
         # bench DIRECTORY the sites tree hangs off.
-        return resolve_primary_site(self.name, self.sites, read_default_site(Path(self.root_path).parent))
+        root = Path(self.root_path).parent
+        return resolve_primary_site(self.name, self.sites, read_default_site(root), read_sites_on_disk(root))
 
     @property
     def primary_site(self) -> str:
@@ -1816,7 +1858,7 @@ class BenchConfig(BaseModel):
         Falls back to `name` only when nothing is recorded, which is the mid-create state and a
         migration part-way through writing the table, not an old file shape.
         """
-        resolved = self._primary_site_or_none()
+        resolved = self.primary_site_or_none()
         if resolved is not None:
             return resolved
         # Several recorded, none named after the bench. Nothing here can choose, and guessing would
@@ -1850,7 +1892,7 @@ class BenchConfig(BaseModel):
             return [self.name]
         # Enumeration, not selection: a bench whose primary is ambiguous still has to route all of
         # its sites, so the order falls back to the recorded one rather than failing.
-        primary = self._primary_site_or_none()
+        primary = self.primary_site_or_none()
         if primary is None or primary not in self.sites:
             return list(self.sites)
         return [primary, *(s for s in self.sites if s != primary)]

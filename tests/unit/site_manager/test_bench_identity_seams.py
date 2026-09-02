@@ -700,3 +700,92 @@ def test_the_config_reads_the_default_from_beside_its_own_file(tmp_path):
 
     # Without the fix this is BENCH: rule 1 matches the site named after the bench.
     assert config.primary_site == SITE
+
+
+# --------------------------------------------- a site that does not exist cannot be the primary
+
+
+"""A `[sites]` entry with no directory is not eligible to be the bench's own site.
+
+`bench --site <name>` answers "does not exist" for a recorded site with no `site_config.json`, so
+choosing one makes fm's primary a site no command can act on. That is not hypothetical: a real
+bench recorded a phantom `shop` beside a working `shop.localhost`, and the name rule picked the
+phantom.
+
+PREFERENCE, not requirement. `fm create` reads `site_name` while building the very site it is
+about to create, so when NONE of the recorded sites exist yet the full table is used. Requiring
+existence would make creating a bench impossible.
+"""
+
+
+def _put_site_on_disk(bench_root, site):
+    d = bench_root / "workspace" / "frappe-bench" / "sites" / site
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "site_config.json").write_text("{}")
+
+
+def _two_site_bench(tmp_path, name=BENCH):
+    bench = _bench(site=None)
+    bench.name = name
+    bench.path = tmp_path
+    bench.bench_config = SimpleNamespace(
+        name=name,
+        domains=[SITE],
+        sites={
+            name: SimpleNamespace(database=None, alias_domains=[]),
+            SITE: SimpleNamespace(database=None, alias_domains=[]),
+        },
+    )
+    return bench
+
+
+def test_a_recorded_site_with_no_directory_loses_to_one_that_exists(tmp_path):
+    # The live bug, with no default_site recorded: rule 1 matches the phantom named after the
+    # bench, and the real site sits beside it.
+    bench = _two_site_bench(tmp_path)
+    _put_site_on_disk(tmp_path, SITE)
+
+    assert bench.site_name == SITE
+
+
+def test_a_default_site_pointing_at_a_phantom_is_not_followed(tmp_path):
+    # Rule 0 is subject to the same check: a recorded default naming a site someone deleted by
+    # hand is exactly as unusable as a guess at one.
+    bench = _two_site_bench(tmp_path)
+    _put_site_on_disk(tmp_path, SITE)
+    _write_default_site(tmp_path, BENCH)
+
+    assert bench.site_name == SITE
+
+
+def test_when_no_recorded_site_exists_yet_the_table_still_answers(tmp_path):
+    # Mid-create: sites recorded, no directory made. `fm create` itself reads this.
+    bench = _two_site_bench(tmp_path)
+
+    assert bench.site_name == BENCH
+
+
+def test_the_only_site_that_exists_wins_even_without_a_name_match(tmp_path):
+    # Two recorded sites, neither named after the bench, one real: no ambiguity left to refuse on.
+    bench = _bench(site=None)
+    bench.name = "acme"
+    bench.path = tmp_path
+    bench.bench_config = SimpleNamespace(
+        name="acme",
+        domains=["a.example.com"],
+        sites={
+            "a.example.com": SimpleNamespace(database=None, alias_domains=[]),
+            "b.example.com": SimpleNamespace(database=None, alias_domains=[]),
+        },
+    )
+    _put_site_on_disk(tmp_path, "b.example.com")
+
+    assert bench.site_name == "b.example.com"
+
+
+def test_a_directory_without_a_site_config_does_not_count(tmp_path):
+    # Frappe opens a site by its `site_config.json`. A bare directory is not a site.
+    bench = _two_site_bench(tmp_path)
+    (tmp_path / "workspace" / "frappe-bench" / "sites" / SITE).mkdir(parents=True)
+
+    assert bench.site_name == BENCH

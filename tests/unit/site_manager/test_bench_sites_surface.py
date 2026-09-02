@@ -15,7 +15,7 @@ both had to learn four things at once:
   fm owns" and "on a server fm does not own", whose host the card has to name.
 - a site directory on disk that `[sites]` does not record is REPORTED and never acted on.
 
-The configs here are REAL `BenchConfig` objects, so `site_names`, `_primary_site_or_none` and
+The configs here are REAL `BenchConfig` objects, so `site_names`, `primary_site_or_none` and
 `get_database_config` answer the way the model does rather than the way a stand-in was told to.
 The bench name and the site name are never the same string: a fixture that gives one string to
 both roles cannot catch code that reaches for a site under the bench's name.
@@ -192,7 +192,7 @@ def test_a_bench_whose_primary_is_ambiguous_is_still_listed_with_every_site(tmp_
     see what is wrong with it."""
     config = _config(tmp_path, sites={FOREIGN_A: None, FOREIGN_B: None})
 
-    assert config._primary_site_or_none() is None  # the state under test really is ambiguous
+    assert config.primary_site_or_none() is None  # the state under test really is ambiguous
     assert _rows(tmp_path, config)[BENCH]["sites"] == [FOREIGN_A, FOREIGN_B]
     assert _list_card(tmp_path, config).facts["sites"] == f"{FOREIGN_A}, {FOREIGN_B}"
 

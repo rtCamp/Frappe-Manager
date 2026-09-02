@@ -16,7 +16,13 @@ from typing import TYPE_CHECKING
 from frappe_manager.docker import DockerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime, read_default_site, resolve_primary_site
+from frappe_manager.site_manager.bench_config import (
+    AuthConfig,
+    BenchRuntime,
+    read_default_site,
+    read_sites_on_disk,
+    resolve_primary_site,
+)
 from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -33,6 +39,12 @@ if TYPE_CHECKING:
     from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
     from frappe_manager.site_manager.modules.bench_workers import BenchWorkers
     from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
+
+
+
+def _root(config) -> Path:
+    """The bench DIRECTORY. `root_path` is the bench_config.toml file despite its name."""
+    return Path(config.root_path).parent
 
 
 class BenchInfo:
@@ -271,7 +283,7 @@ class BenchInfo:
         # below has to print instead. `resolve_primary_site` is that rule's one implementation,
         # shared with the model, so this cannot drift from what `fm shell` decides.
         sites = config.site_names if config.sites else []
-        primary = resolve_primary_site(config.name, config.sites, read_default_site(Path(config.root_path).parent)) if sites else None
+        primary = resolve_primary_site(config.name, config.sites, read_default_site(_root(config)), read_sites_on_disk(_root(config))) if sites else None
 
         # The host the card's link and the admin-tools URLs are built from: the primary when fm can
         # name it, otherwise the first recorded site, and the bench name when there is no site at
@@ -350,6 +362,21 @@ class BenchInfo:
         if unmanaged:
             card.fact("unmanaged", " [fm.muted]·[/fm.muted] ".join(f"sites/{name}/" for name in unmanaged))
             card.fact("", "[fm.muted]not in bench_config.toml; fm will not touch their schemas[/fm.muted]")
+
+        # The MIRROR of the row above: `[sites]` records a site that has no directory. Someone
+        # removed it by hand, or a create failed part-way. It matters more than it looks: a
+        # recorded site with no `site_config.json` is one `bench --site` answers "does not exist"
+        # for, so it can be enumerated, published to nginx and named as a target while no command
+        # can actually act on it. It is also no longer eligible to be the primary, which is why
+        # this card can end up showing a recorded site that is neither primary nor usable.
+        #
+        # Same two-row shape and the same reason: this is a summary, and one sentence per site
+        # does not fit 80 columns.
+        if config.sites:
+            missing = [site for site in config.sites if site not in read_sites_on_disk(_root(config))]
+            if missing:
+                card.fact("missing", " [fm.muted]·[/fm.muted] ".join(f"sites/{name}/" for name in missing))
+                card.fact("", "[fm.muted]recorded in bench_config.toml but absent on disk[/fm.muted]")
         # One row per site that has aliases, because a flat list cannot say which hostname reaches
         # which schema. The site goes in the VALUE, not the label: the label column is 14 characters
         # and `aliases of <site>` overruns it, which knocks this card's alignment out. Continuation

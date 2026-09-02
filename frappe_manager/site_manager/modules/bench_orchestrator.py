@@ -1,3 +1,5 @@
+import contextlib
+
 """
 BenchOrchestrator - Complex workflow orchestration for bench operations
 
@@ -295,6 +297,23 @@ class BenchOrchestrator:
         compose_inputs["environment"]["frappe"]["FRAPPE_ENV"] = bench.bench_config.environment_type.value
 
         bench.generate_compose(compose_inputs)
+
+        # `default_site` as soon as the file exists, which `generate_compose` above just made.
+        # `bench use` writes it too, but not until `create_bench_site` runs, and `bench.site_name`
+        # is read before that (the head line for "Creating bench site <x>"). In that window the
+        # sites table is already recorded while the key is absent, so the resolver had to fall back
+        # to guessing from the bench's name for the one bench where the answer was never in doubt.
+        # Writing it here means a fm-created bench carries the recorded answer from the start, and
+        # an absent key comes to mean only "created before fm wrote it", which the migration fills.
+        #
+        # `primary_site_or_none`, not `primary_site`: a bench whose primary is genuinely ambiguous
+        # must not have a guess recorded for it, and must not fail here either.
+        seed_default = bench.bench_config.primary_site_or_none()
+        if seed_default:
+            with contextlib.suppress(Exception):
+                # Best effort by design. The site does not exist yet, so nothing downstream depends
+                # on this having landed; `bench use` writes it again a few steps later.
+                bench.set_common_bench_config({"default_site": seed_default})
 
         base_image = bench.bench_config.base_image
         if base_image:

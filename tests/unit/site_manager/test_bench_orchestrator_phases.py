@@ -2289,3 +2289,50 @@ def test_a_full_service_restart_regenerates_the_compose_between_stop_and_up(tmp_
     harness.events.before("compose_up", "admin_tools_enable(force_recreate_container=True)")
     harness.events.before("admin_tools_enable", "wait_for_services")
     harness.events.before("wait_for_services", "workers_up")
+
+
+def test_phase_one_records_the_default_site_after_the_compose_file_exists(tmp_path):
+    """`default_site` is seeded here, and the ORDER is the whole point.
+
+    `bench use` writes it too, but not until `create_bench_site` runs, and `bench.site_name` is
+    read before that for the "Creating bench site <x>" head line. In that window the sites table
+    is recorded while the key is absent, so the resolver fell back to guessing from the bench name
+    for the one bench whose answer was never in doubt.
+
+    It has to land AFTER `generate_compose`, which is what creates `common_site_config.json`;
+    writing earlier has nothing to write into.
+    """
+    harness = _Harness(_config(tmp_path), tmp_path)
+
+    harness.reraising_orchestrator(real=("_phase1_prepare_structure",)).create_bench()
+
+    (call,) = [c for c in harness.bench.set_common_bench_config.call_args_list if "default_site" in c[0][0]]
+    assert call[0][0]["default_site"] == SITE
+    harness.events.before("generate_compose(bench_dir_exists=True)", "create_compose_dirs")
+
+
+def test_phase_one_records_no_default_site_when_the_primary_is_ambiguous(tmp_path):
+    """Two sites, neither named after the bench: recording a guess would put fm's choice beyond
+    the operator's sight, and `fm shell BENCH/SITE` is what resolves it instead."""
+    config = _config(tmp_path)
+    config.sites = {
+        "a.example.com": SiteConfig(),
+        "b.example.com": SiteConfig(),
+    }
+    config.name = "acme"
+    harness = _Harness(config, tmp_path)
+
+    harness.reraising_orchestrator(real=("_phase1_prepare_structure",)).create_bench()
+
+    assert not [c for c in harness.bench.set_common_bench_config.call_args_list if "default_site" in c[0][0]]
+
+
+def test_phase_one_survives_an_unwritable_common_site_config(tmp_path):
+    """Best effort by design: the site does not exist yet, nothing downstream depends on this
+    having landed, and `bench use` writes it again a few steps later. A create must not fail here."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+    harness.bench.set_common_bench_config.side_effect = OSError("read-only")
+
+    harness.reraising_orchestrator(real=("_phase1_prepare_structure",)).create_bench()
+
+    assert harness.root.is_dir()

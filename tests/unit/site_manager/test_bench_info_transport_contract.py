@@ -1262,3 +1262,31 @@ def test_list_benches_view_adds_image_and_alias_facts_only_when_set(tmp_path, mo
     assert card.facts["base"] == "ghcr.io/acme/base:1"
     assert card.facts["seeded"] == "ghcr.io/acme/seed:1"
     assert card.facts["domains"] == "alias.localhost, b.localhost"
+
+
+def test_display_info_reports_a_recorded_site_that_is_absent_on_disk(tmp_path, card_spy):
+    """The mirror of the `unmanaged` row, and it matters for the same reason in reverse.
+
+    `unmanaged` names a directory `[sites]` does not record. This names a `[sites]` entry with no
+    directory: `bench --site <name>` answers "does not exist" for it, so it gets enumerated,
+    published to nginx and offered as a target while no command can act on it. It is also no
+    longer eligible to be the primary, so this row is how an operator finds out why.
+    """
+    info = _displayable(
+        tmp_path,
+        bench_config=_config(sites={SITE: None, "ghost.localhost": None}, root_path=str(tmp_path / "bench_config.toml")),
+    )
+    info.display_info()
+
+    (card,) = card_spy.made
+    assert "sites/ghost.localhost/" in card.facts["missing"]
+    # The site that IS on disk is not accused of being absent.
+    assert SITE not in card.facts["missing"]
+
+
+def test_display_info_has_no_missing_row_when_every_recorded_site_exists(tmp_path, card_spy):
+    info = _displayable(tmp_path, bench_config=_config(root_path=str(tmp_path / "bench_config.toml")))
+    info.display_info()
+
+    (card,) = card_spy.made
+    assert "missing" not in card.facts

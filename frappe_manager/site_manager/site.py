@@ -24,6 +24,7 @@ from frappe_manager.site_manager.bench_config import (
     DatabaseConfig,
     FMBenchEnvType,
     read_default_site,
+    read_sites_on_disk,
     resolve_primary_site,
 )
 from frappe_manager.site_manager.exceptions import (
@@ -384,7 +385,8 @@ class Bench:
         # `path` is read the same guarded way as the config above it, and for the same reason: a
         # half-built `Bench` has neither, and this must answer rather than raise on the way to
         # being one.
-        resolved = resolve_primary_site(self.name, sites, read_default_site(getattr(self, "path", None)))
+        root = getattr(self, "path", None)
+        resolved = resolve_primary_site(self.name, sites, read_default_site(root), read_sites_on_disk(root))
         if resolved is not None:
             return resolved
         # A bench-scoped command cannot proceed without knowing its site, and guessing would
