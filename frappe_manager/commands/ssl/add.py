@@ -10,7 +10,7 @@ from frappe_manager.output_manager import temporary_stop
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, prompt_for_bench_selection
 
-from .bench_helpers import _add_bench_certificate, _resolve_domains
+from .bench_helpers import _add_bench_certificate, _prompt_for_domain, _resolve_domains
 from .external_helpers import _add_external_certificate
 from .helpers import get_output_handler
 
@@ -110,7 +110,7 @@ def add_certificate(
     """
     Issue an SSL certificate for a domain and point nginx at it.
 
-    Bench mode takes a bench name and one of its configured domains (add new ones with fm update --add-alias). --standalone issues for an external Docker project instead.
+    Bench mode takes a bench name and one of its configured domains (add new ones with fm update --add-alias). Naming just the bench offers its domains to pick from. --standalone issues for an external Docker project instead.
     """
 
     if dev and standalone:
@@ -176,6 +176,9 @@ def add_certificate(
         return
 
     address = prompt_for_bench_selection(address)
+
+    if address:
+        domain = _prompt_for_domain(ctx, address, domain)
 
     if not address or not domain:
         output = get_output_handler(ctx)

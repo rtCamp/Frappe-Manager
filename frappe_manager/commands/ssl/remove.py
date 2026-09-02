@@ -9,7 +9,7 @@ from frappe_manager.commands.arguments import BenchDomainArgument
 from frappe_manager.output_manager import temporary_stop
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, prompt_for_bench_selection
 
-from .bench_helpers import _remove_bench_certificate, _resolve_domains
+from .bench_helpers import _prompt_for_domain, _remove_bench_certificate, _resolve_domains
 from .external_helpers import _remove_external_certificate
 from .helpers import get_output_handler
 
@@ -49,7 +49,7 @@ def remove_certificate(
     """
     Delete an SSL certificate and go back to serving the domain over plain HTTP.
 
-    Asks for confirmation unless you pass --yes. --standalone deletes an external Docker project's certificate and nginx config instead of a bench's.
+    Naming just the bench offers the domains it serves to pick from. Asks for confirmation unless you pass --yes. --standalone deletes an external Docker project's certificate and nginx config instead of a bench's.
     """
 
     # The address's second segment, put there by `bench_domain_callback`.
@@ -84,6 +84,9 @@ def remove_certificate(
         return
 
     address = prompt_for_bench_selection(address)
+
+    if address:
+        domain = _prompt_for_domain(ctx, address, domain)
 
     if not address or not domain:
         output = get_output_handler(ctx)

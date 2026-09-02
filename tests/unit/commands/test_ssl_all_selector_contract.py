@@ -410,12 +410,19 @@ def test_renew_all_standalone_renews_every_external_domain(renewing):
 
 @pytest.fixture
 def bench_domains():
-    """`_resolve_domains` runs for real; only the bench it loads is a mock."""
+    """`_resolve_domains` runs for real; only the bench it loads is a mock.
+
+    The output handler refuses to prompt, which is what a test process, a script and cron all are.
+    `add` and `remove` offer the bench's domains when there IS a terminal, so without one their
+    refusal is the behaviour under test rather than an accident of a mock answering for them.
+    """
     with ExitStack() as stack:
         bench = MagicMock(name="bench")
         bench.bench_config.domains = list(DOMAINS)
+        handler = MagicMock()
+        handler.prompt_fuzzy.side_effect = EOFError("not a terminal")
         stack.enter_context(patch(f"{BENCH_HELPERS}.Bench")).get_object.return_value = bench
-        stack.enter_context(patch(f"{BENCH_HELPERS}.get_output_handler", return_value=MagicMock()))
+        stack.enter_context(patch(f"{BENCH_HELPERS}.get_output_handler", return_value=handler))
         yield bench
 
 
@@ -525,3 +532,43 @@ def test_remove_without_a_domain_refuses_rather_than_guessing(removing):
     assert exc.value.exit_code == 1
     assert "BENCH/DOMAIN" in removing.errors()
     removing.delete.assert_not_called()
+
+
+# ----------------------------------------------- the missing domain, offered when there is a terminal
+
+
+@pytest.fixture
+def picks_domain(bench_domains):
+    """The same benches, with a terminal that answers the domain prompt with the first domain."""
+    with patch(f"{BENCH_HELPERS}.get_output_handler") as handler:
+        handler.return_value.prompt_fuzzy.return_value = f"{BENCH}/{DOMAINS[0]}"
+        yield handler.return_value.prompt_fuzzy
+
+
+def test_add_offers_the_benchs_domains_instead_of_refusing(adding, picks_domain):
+    """The refusal above is for a script. Interactively the bench picker used to run and then the
+    command declined the bench it produced, so the operator answered a menu to be handed an error."""
+    add_certificate(adding.ctx, address=BENCH)
+
+    assert picks_domain.called
+    offered = list(picks_domain.call_args.kwargs["choices"])
+    assert offered == [f"{BENCH}/{d}" for d in sorted(DOMAINS)] + [f"{BENCH}/{RESERVED_BENCH_NAME}"]
+    assert [c.args[2] for c in adding.issue.call_args_list] == [DOMAINS[0]]
+
+
+def test_remove_offers_the_benchs_domains_instead_of_refusing(removing, picks_domain):
+    remove_certificate(removing.ctx, address=BENCH)
+
+    assert picks_domain.called
+    assert [c.args[2] for c in removing.delete.call_args_list] == [DOMAINS[0]]
+
+
+def test_the_offer_never_widens_the_blast_radius_to_every_bench(adding, picks_domain):
+    """A bare `all` stays refused with a terminal present: the picker fills in the DOMAIN half of one
+    named bench, and never turns an address the operator did not give into a fleet-wide operation."""
+    with pytest.raises(typer.Exit) as exc:
+        add_certificate(adding.ctx, address=RESERVED_BENCH_NAME)
+
+    assert exc.value.exit_code == 1
+    assert not picks_domain.called
+    adding.issue.assert_not_called()

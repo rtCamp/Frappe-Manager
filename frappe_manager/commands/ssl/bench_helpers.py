@@ -240,3 +240,56 @@ def _resolve_domains(ctx: typer.Context, benchname: str, domain: str) -> list[st
     output = get_output_handler(ctx)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
     return list(bench.bench_config.domains)
+
+
+def _prompt_for_domain(ctx: typer.Context, benchname: str, domain: str | None) -> str | None:
+    """The domain half of a `BENCH/DOMAIN` address, picked from what the bench actually serves.
+
+    `add` and `remove` are the only two `ssl` subcommands where omitting the second segment has no
+    meaning: `list` and `renew` cover every certificate the bench holds, but a certificate can only
+    be issued or deleted for one named hostname. They used to run the bench picker and then refuse
+    the answer it produced, so the pick list is `bench_config.domains` plus `all`: exactly what
+    :func:`_resolve_domains` expands and what the callers verify a domain against, which is why
+    picking here cannot produce a value the command then rejects.
+
+    The rows are whole addresses, `shop/b.example.com` rather than `b.example.com`, because the
+    argument's grammar is `BENCH/DOMAIN` and a menu of bare hostnames is the one place an operator
+    reads the parts without ever seeing the form they compose into. Only the domain half is
+    returned: the callers already hold the bench and check the domain against its own list.
+
+    Returns None when there is nothing to offer or no terminal to offer it on, leaving the caller's
+    own error to say what the address should have looked like.
+    """
+    if domain:
+        return domain
+
+    output = get_output_handler(ctx)
+    try:
+        bench = Bench.get_object(benchname, ctx.obj["services"], output_handler=output)
+        domains = sorted(bench.bench_config.domains)
+    except Exception:
+        # An unreadable or half-built bench has no list to pick from; the caller reports the address.
+        return None
+
+    if not domains:
+        return None
+
+    # NOT short-circuited when the bench serves one domain. Issuing and deleting a certificate are
+    # a rate limit and a blast radius, which is why `add` and `remove` refuse a bare `all` where the
+    # other subcommands take it: answering an incomplete address on the operator's behalf is the
+    # same inference wearing a smaller number. A one-option prompt is a confirmation, not friction.
+
+    try:
+        selected = output.prompt_fuzzy(
+            prompt="Select address (↑↓ navigate, type to search)",
+            choices=[f"{benchname}/{part}" for part in (*domains, RESERVED_BENCH_NAME)],
+            vi_mode=True,
+            mandatory=True,
+            qmark="🤔",
+            amark="🤔",
+        )
+    except Exception:
+        return None
+
+    # A domain never contains `/` and neither does a bench name, so the first one is the separator.
+    return selected.split("/", 1)[1] if selected else None

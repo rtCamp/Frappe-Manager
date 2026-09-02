@@ -139,7 +139,7 @@ fm ssl list all
 
 Issue an SSL certificate for a domain and point nginx at it.
 
-Bench mode takes a bench name and one of its configured domains (add new ones with fm update --add-alias). --standalone issues for an external Docker project instead.
+Bench mode takes a bench name and one of its configured domains (add new ones with fm update --add-alias). Naming just the bench offers its domains to pick from. --standalone issues for an external Docker project instead.
 
 **Usage**:
 
@@ -220,7 +220,7 @@ fm ssl add mybench/example.com --challenge dns01 --dns-provider acct-b
 
 Delete an SSL certificate and go back to serving the domain over plain HTTP.
 
-Asks for confirmation unless you pass --yes. --standalone deletes an external Docker project's certificate and nginx config instead of a bench's.
+Naming just the bench offers the domains it serves to pick from. Asks for confirmation unless you pass --yes. --standalone deletes an external Docker project's certificate and nginx config instead of a bench's.
 
 **Usage**:
 
