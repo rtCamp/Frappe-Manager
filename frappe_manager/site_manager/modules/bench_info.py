@@ -19,6 +19,7 @@ from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.bench_config import (
     AuthConfig,
     BenchRuntime,
+    WebAuthConfig,
     read_default_site,
     read_sites_on_disk,
     resolve_primary_site,
@@ -185,14 +186,20 @@ class BenchInfo:
         return f"{label} {shown}" + (f" +{extra}" if extra > 0 else "")
 
     @classmethod
-    def _auth_fact(cls, auth: AuthConfig | None) -> str:
+    def _auth_fact(cls, auth: AuthConfig | WebAuthConfig | None) -> str:
         """Basic auth summary: which nginx surfaces prompt, the credentials, the allow lists.
 
         ``None`` is a config written before ``[auth]`` existed, so the model defaults
         apply (tools prompt, web does not, password minted on the next start).
+
+        A site's own auth is a :class:`WebAuthConfig`, which has no ``tools``: there is one Adminer
+        and one Mailpit per bench, so that surface is only ever the bench's and is reported on the
+        bench's row.
         """
         auth = auth or AuthConfig()
-        surfaces = [name for name, enabled in (("web", auth.web), ("tools", auth.tools)) if enabled]
+        tools = auth.tools if isinstance(auth, AuthConfig) else None
+        pairs = (("web", auth.web),) if tools is None else (("web", auth.web), ("tools", tools))
+        surfaces = [name for name, enabled in pairs if enabled]
         if not surfaces:
             return "[fm.muted]off[/fm.muted]"
         if auth.password:
@@ -479,14 +486,36 @@ class BenchInfo:
             f"{services_db_info.user} [fm.muted]/[/fm.muted] [fm.secret]{services_db_info.password}[/fm.secret] "
             f"[fm.muted]@[/fm.muted] {services_db_info.host}",
         )
-        if config.admin_tools:
-            card.fact(
-                "tools",
-                f"{protocol}://{domain}/mailpit [fm.muted]·[/fm.muted] {protocol}://{domain}/adminer",
-            )
-        else:
+        # ---- tools: reachable only on the hostnames that route them
+        unrouted = [site for site in sites if not config.serves_admin_tools(site)]
+        routed = [site for site in sites if config.serves_admin_tools(site)]
+
+        def _tools_url(host: str) -> str:
+            return f"{protocol}://{host}/mailpit [fm.muted]·[/fm.muted] {protocol}://{host}/adminer"
+
+        if not config.admin_tools:
             card.fact("tools", "[fm.muted]not enabled[/fm.muted]")
-        card.fact("auth", self._auth_fact(config.auth))
+        elif not unrouted:
+            # Every site routes them, so one URL is the whole truth and the card reads as it always
+            # did on the benches that never touched per-site routing.
+            card.fact("tools", _tools_url(domain))
+        elif not routed:
+            card.fact("tools", "[fm.muted]running, but no site routes them[/fm.muted]")
+        else:
+            # Printing one URL here would name a hostname that answers 404 for half the bench.
+            for i, site in enumerate(routed):
+                card.fact("tools" if i == 0 else "", f"[fm.muted]{site}[/fm.muted]  {_tools_url(site)}")
+            card.fact("", f"[fm.muted]not served on {', '.join(unrouted)}[/fm.muted]")
+
+        # ---- auth: the web surface is per site, the tools surface is the bench's
+        own_auth = [site for site in sites if (config.sites or {}).get(site) and config.sites[site].auth is not None]
+        if not own_auth:
+            card.fact("auth", self._auth_fact(config.auth))
+        else:
+            # A single row would report one site's password as if it opened the others.
+            card.fact("auth", f"[fm.muted]bench[/fm.muted]  {self._auth_fact(config.auth)}")
+            for site in own_auth:
+                card.fact("", f"[fm.muted]{site}[/fm.muted]  {self._auth_fact(config.sites[site].auth)}")
 
         # ---- services (live container state)
         def dots(statuses: dict) -> str:

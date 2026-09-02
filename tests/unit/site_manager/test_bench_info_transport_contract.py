@@ -34,8 +34,10 @@ from frappe_manager.output_manager import railcard
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.bench_config import (
     AuthConfig,
+    BenchConfig,
     BenchRuntime,
     FMBenchEnvType,
+    WebAuthConfig,
     resolve_primary_site,
 )
 from frappe_manager.site_manager.bench_service import BenchService
@@ -106,7 +108,14 @@ def _config(*, sites=None, aliases=None, **over):
         # BENCH name there: enumeration has to read `sites` to tell those two apart. Each entry is
         # a site record, which is what carries that site's own aliases.
         "sites": {
-            site: SimpleNamespace(database=database, alias_domains=list(alias_lists.get(site, [])))
+            site: SimpleNamespace(
+                database=database,
+                alias_domains=list(alias_lists.get(site, [])),
+                # Both per-site overrides the card reads. Absent means "follow the bench", which is
+                # what every bench that never touched them has.
+                auth=None,
+                serve_admin_tools=None,
+            )
             for site, database in recorded.items()
         }
         or None,
@@ -120,7 +129,12 @@ def _config(*, sites=None, aliases=None, **over):
         "get_database_config": lambda site=None: recorded.get(site or resolved),
     }
     base.update(over)
-    return SimpleNamespace(**base)
+    config = SimpleNamespace(**base)
+    # The REAL resolver, bound to the stand-in rather than reimplemented here: whether a site routes
+    # the tools is a two-level rule (bench floor, then the site's own value) and a second copy of it
+    # in the fixture would drift from the one the card actually calls.
+    config.serves_admin_tools = lambda site: BenchConfig.serves_admin_tools(config, site)
+    return config
 
 
 def _kwargs(tmp_path, **over) -> dict:
@@ -1372,3 +1386,76 @@ def test_a_site_with_no_recorded_password_reads_as_the_bench_default(tmp_path, c
 
     (card,) = card_spy.made
     assert card.labelled("frappe")[1].endswith("admin-pass (default)")
+
+
+# ------------------------- per-site tool routing and auth on the card
+
+
+def test_the_tools_row_is_unchanged_when_every_site_routes_them(tmp_path, card_spy):
+    """The common bench never touched per-site routing, so its card must read exactly as before."""
+    info = _displayable(
+        tmp_path,
+        bench_config=_config(sites={SITE: None, SECOND_SITE: None}, admin_tools=True),
+    )
+    info.display_info()
+
+    (card,) = card_spy.made
+    assert card.labelled("tools") == [
+        f"http://{SITE}/mailpit [fm.muted]·[/fm.muted] http://{SITE}/adminer"
+    ]
+
+
+def test_the_tools_row_names_only_the_hostnames_that_serve_them(tmp_path, card_spy):
+    """One URL against the primary would name a hostname that answers 404 for half the bench, and
+    would say nothing at all about the site that stopped serving them."""
+    config = _config(sites={SITE: None, SECOND_SITE: None}, admin_tools=True)
+    config.sites[SECOND_SITE].serve_admin_tools = False
+    info = _displayable(tmp_path, bench_config=config)
+    info.display_info()
+
+    (card,) = card_spy.made
+    rows = card.labelled("tools")
+    assert rows[0] == f"[fm.muted]{SITE}[/fm.muted]  http://{SITE}/mailpit [fm.muted]·[/fm.muted] http://{SITE}/adminer"
+    assert rows[1] == f"[fm.muted]not served on {SECOND_SITE}[/fm.muted]"
+
+
+def test_the_tools_row_says_so_when_no_site_routes_them(tmp_path, card_spy):
+    """Containers running and unreachable is a real state, reachable with `BENCH/all --admin-tools
+    disable`. Printing a URL there would be a lie, and printing 'not enabled' a different one."""
+    config = _config(sites={SITE: None}, admin_tools=True)
+    config.sites[SITE].serve_admin_tools = False
+    info = _displayable(tmp_path, bench_config=config)
+    info.display_info()
+
+    (card,) = card_spy.made
+    assert card.facts["tools"] == "[fm.muted]running, but no site routes them[/fm.muted]"
+
+
+def test_the_auth_row_is_unchanged_when_no_site_has_its_own(tmp_path, card_spy):
+    info = _displayable(
+        tmp_path,
+        bench_config=_config(sites={SITE: None, SECOND_SITE: None}, auth=AuthConfig(web=True, password="bp")),
+    )
+    info.display_info()
+
+    (card,) = card_spy.made
+    assert card.labelled("auth") == ["[fm.ok]web + tools[/fm.ok]  [fm.muted]·[/fm.muted] admin [fm.muted]/[/fm.muted] [fm.secret]bp[/fm.secret]"]
+
+
+def test_a_site_with_its_own_auth_gets_its_own_row(tmp_path, card_spy):
+    """A single row would report one site's password as if it opened the others, which is the exact
+    thing per-site credentials exist to prevent."""
+    config = _config(sites={SITE: None, SECOND_SITE: None}, auth=AuthConfig(web=True, password="bench-pw"))
+    config.sites[SECOND_SITE].auth = WebAuthConfig(web=True, user="customer", password="site-pw")
+    info = _displayable(tmp_path, bench_config=config)
+    info.display_info()
+
+    (card,) = card_spy.made
+    rows = card.labelled("auth")
+    assert rows[0].startswith("[fm.muted]bench[/fm.muted]  ")
+    assert "bench-pw" in rows[0]
+    assert rows[1].startswith(f"[fm.muted]{SECOND_SITE}[/fm.muted]  ")
+    assert "site-pw" in rows[1]
+    # `tools` is bench-wide, so it is reported on the bench's row and NOT on a site's.
+    assert "tools" in rows[0]
+    assert "tools" not in rows[1]
