@@ -3,8 +3,11 @@
 Rich renders docstring newlines verbatim: a paragraph wrapped at the source's
 120-char style displays frozen at that width instead of reflowing to the
 terminal. Contract: every paragraph in every registered command's docstring
-(incl. sub-apps and the top-level callback) is ONE line; structured lines
-(lists, tables, pipelines, prompts) keep their newlines.
+(incl. sub-apps and the top-level callback) is ONE line, and so is every
+paragraph in an `@example` `detail=` -- it renders through the same frozen
+`rich.text.Text` (`.venv/lib/python3.13/site-packages/typer_examples/_renderer.py:46,50-51`),
+not a reflowing one. Structured lines (lists, tables, pipelines, prompts) keep
+their newlines.
 
 Internal helpers are exempt by construction -- we walk the live typer app
 tree, so only text that actually renders in --help is checked.
@@ -13,6 +16,7 @@ tree, so only text that actually renders in --help is checked.
 import inspect
 
 import typer
+from typer_examples import get_all_examples
 
 from frappe_manager.commands import app
 
@@ -67,5 +71,24 @@ def test_no_command_help_text_is_hard_wrapped():
     assert not violations, (
         "Hard-wrapped help paragraphs found -- rich renders these frozen at the source "
         "wrap width instead of reflowing. Write each paragraph as ONE source line "
+        ":\n  " + "\n  ".join(violations)
+    )
+
+
+def test_no_example_detail_is_hard_wrapped():
+    """`AGENTS.md`'s Gotchas section extends the docstring rule to `@example` `detail=`, but
+    nothing enforced that half until now -- every existing `detail=` happens to already comply,
+    which is exactly the kind of convention that silently rots without a test."""
+    violations = []
+    for path, examples in get_all_examples(app).items():
+        for ex in examples:
+            if not ex.detail:
+                continue
+            for para in wrapped_paragraphs(ex.detail):
+                violations.append(f"fm {' '.join(path)} ({ex.desc!r}): {para}")
+
+    assert not violations, (
+        "Hard-wrapped @example detail= found -- typer_examples renders detail as a frozen "
+        "rich Text, not a reflowing one. Write each paragraph as ONE source line"
         ":\n  " + "\n  ".join(violations)
     )
