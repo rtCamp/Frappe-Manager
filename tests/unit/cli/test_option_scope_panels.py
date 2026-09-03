@@ -138,15 +138,26 @@ def test_redis_is_not_boxed_with_the_per_site_database():
 
 
 def test_the_site_panels_say_what_happens_without_a_site_part():
-    """Both commands answer the omitted second segment, and they answer it DIFFERENTLY: `create`
-    discards site flags under `--bench-only`, `update` falls back to the bench's primary site. A
-    panel title that does not say which one leaves the operator to find out by running it."""
-    create_site_panels = {p for p in (_panel(o) for o in _options("create")) if p.startswith(SITE_PREFIX)}
+    """Both commands answer the omitted second segment, but no longer in the same place: `update`
+    still answers it in the panel title (falls back to the bench's primary site), because that
+    fallback is itself a scope fact worth reading down the left edge. `create` answers it on
+    `--bench-only` instead, the flag that actually causes the discard, because a panel title is a
+    category label and "ignored under --bench-only" is a consequence, not a category; repeating it
+    on both create Site panels was read by every operator NOT passing --bench-only, on every
+    --help. Whichever flag carries the create answer, it must still say plainly what happens: this
+    test fails if that statement disappears from everywhere, not just from the panel titles."""
+    create_options = _options("create")
+    create_site_panels = {p for p in (_panel(o) for o in create_options) if p.startswith(SITE_PREFIX)}
     update_site_panels = {p for p in (_panel(o) for o in _options("update")) if p.startswith(SITE_PREFIX)}
 
     assert create_site_panels, "create has per-site flags"
     assert update_site_panels, "update has per-site flags"
-    assert all("--bench-only" in p for p in create_site_panels), create_site_panels
+
+    assert all("--bench-only" not in p for p in create_site_panels), create_site_panels
+    bench_only_help = next(o.help or "" for o in create_options if o.name == "bench_only")
+    assert "Site Option" in bench_only_help, bench_only_help
+    assert "ignored" in bench_only_help, bench_only_help
+
     assert all("primary site" in p for p in update_site_panels), update_site_panels
 
 

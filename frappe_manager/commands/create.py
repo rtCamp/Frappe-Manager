@@ -55,6 +55,14 @@ from frappe_manager.utils.site import validate_sitename
 # `_FLAG_TO_CONFIG` below and :func:`record_site`). Flags in the default "Options" box belong to
 # neither: they decide whether the site half happens at all.
 #
+# A parenthetical after a title may only IDENTIFY THE CATEGORY: which flags are in the box, or
+# what scope they act at (`(mount runtime only)`, `(every site)`). It must not WARN ABOUT A
+# CONSEQUENCE THAT ONLY HOLDS IN ANOTHER MODE: that reads as boilerplate to every operator not in
+# that mode, and worse if two adjacent titles say the same warning twice. A consequence belongs on
+# the flag that causes it, stated once, not repeated across every panel it affects. The boundary is
+# not perfectly sharp -- `(mount runtime only)` already leans toward "when this applies" -- but
+# "identifies what's in the box" versus "warns what happens elsewhere" is the question to ask.
+#
 # Rich renders panels in order of first appearance in the signature, so every bench-scoped
 # parameter is declared before the first site-scoped one. Moving one changes the help layout.
 _PANEL_BENCH = "Bench Options"
@@ -62,8 +70,8 @@ _PANEL_RUNTIME = "Bench Options: Runtime"
 _PANEL_MOUNT = "Bench Options: Workspace (mount runtime only)"
 _PANEL_MONITORING = "Bench Options: Monitoring"
 _PANEL_REDIS = "Bench Options: External Redis (every site)"
-_PANEL_SITE = "Site Options (nothing to apply with --bench-only)"
-_PANEL_DATABASE = "Site Options: External Database (nothing to apply with --bench-only)"
+_PANEL_SITE = "Site Options"
+_PANEL_DATABASE = "Site Options: External Database"
 
 
 # The flags that are simply a config value under another name. Each maps to the TOML key path it
@@ -760,7 +768,7 @@ def create(
             rich_help_panel=_PANEL_MOUNT,
         ),
     ] = EnableDisableOptionsEnum.disable,
-    bench_only: Annotated[bool, typer.Option(help="Create the bench (config, directory, containers) with no site in it. Sites are added afterwards with 'fm create BENCH/SITE'.")] = False,
+    bench_only: Annotated[bool, typer.Option(help="Create the bench (config, directory, containers) with no site in it. Sites are added afterwards with 'fm create BENCH/SITE'. Every Site Option is ignored: there is no site yet for them to describe.")] = False,
     github_token: Annotated[
         str | None,
         typer.Option(
