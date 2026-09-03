@@ -1876,14 +1876,56 @@ def test_remove_writes_host_name_to_the_site_the_domain_serves(h):
 
 
 @pytest.mark.timeout(15)
-def test_an_alias_certificate_writes_the_site_that_owns_the_alias(h):
-    """An alias is a hostname OF a site, so a certificate for it moves that site's host_name."""
+def test_an_alias_certificate_leaves_host_name_alone(h):
+    """An alias is an ALTERNATE hostname of a site; the site's name IS its canonical domain.
+
+    `host_name` is that canonical URL, and Frappe builds links, password resets and emails from
+    it. Writing it here used to silently rename the site to the alias the moment the alias was
+    certified. Do not "fix" this back to writing the owning site: the owning site is the right
+    SITE but the alias is the wrong VALUE -- the only correct write is for the site's own name,
+    which is exactly the `domain == served` case (`get_site_mappings` maps `site -> site`).
+    """
     h.set_sites({DOMAIN: [], "second.example.com": ["www.second.example.com"]})
 
     _add(h, domain="www.second.example.com", dry_run=False)
 
+    assert h.site_config_writes() == []
+    assert "www.second.example.com is an alias of second.example.com; leaving host_name alone" in h.debugs()
+
+
+@pytest.mark.timeout(15)
+def test_adding_for_the_sites_own_name_still_writes_host_name_when_it_has_aliases(h):
+    """The guard is `domain == served`, not "the site has no aliases": certifying the canonical
+    name of a site that ALSO carries aliases must keep writing `host_name`."""
+    h.set_sites({DOMAIN: [], "second.example.com": ["www.second.example.com"]})
+
+    _add(h, domain="second.example.com", dry_run=False)
+
     assert h.site_config_writes() == [
-        ("second.example.com", {"host_name": "https://www.second.example.com"})
+        ("second.example.com", {"host_name": "https://second.example.com"})
+    ]
+
+
+@pytest.mark.timeout(15)
+def test_removing_an_alias_certificate_leaves_host_name_alone(h):
+    """The old remove path did double damage from one command that never named the site: it
+    renamed the site to the alias AND downgraded its canonical URL to http."""
+    h.set_sites({DOMAIN: [], "second.example.com": ["www.second.example.com"]})
+
+    _remove(h, domain="www.second.example.com", yes=True)
+
+    assert h.site_config_writes() == []
+    assert "www.second.example.com is an alias of second.example.com; leaving host_name alone" in h.debugs()
+
+
+@pytest.mark.timeout(15)
+def test_removing_for_the_sites_own_name_still_reverts_host_name_when_it_has_aliases(h):
+    h.set_sites({DOMAIN: [], "second.example.com": ["www.second.example.com"]})
+
+    _remove(h, domain="second.example.com", yes=True)
+
+    assert h.site_config_writes() == [
+        ("second.example.com", {"host_name": "http://second.example.com"})
     ]
 
 

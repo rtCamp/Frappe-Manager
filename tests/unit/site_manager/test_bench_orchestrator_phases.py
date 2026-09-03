@@ -239,6 +239,7 @@ class _Harness:
             "sync_workers_compose", formatter=lambda **kw: f"sync_workers_compose(start={kw.get('start')})"
         )
         bench.apply_upload_limit.side_effect = events.hook("apply_upload_limit")
+        bench.apply_hsts.side_effect = events.hook("apply_hsts")
         bench.save_bench_config.side_effect = self._save_bench_config
         bench.is_bench_created.return_value = True
 
@@ -457,6 +458,28 @@ def test_a_bench_only_create_never_reaches_the_upload_limit_step(tmp_path):
     harness.orchestrator(real=("_phase5_finalize",)).create_bench(bench_only=True)
 
     assert harness.events.has("apply_upload_limit") is False
+
+
+def test_the_create_pipeline_applies_the_configured_hsts_override(tmp_path):
+    """Same gap as the upload limit, for the header the proxy is supposed to strip and replace:
+    `hsts` was persisted at create and applied by nothing, so a new bench with an `hsts` value
+    configured still relayed the bench's own hardcoded `Strict-Transport-Security` unstripped
+    until an unrelated `fm start`."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+
+    harness.orchestrator(real=("_phase5_finalize",)).create_bench()
+
+    assert harness.events.has("apply_hsts") is True
+    harness.bench.apply_hsts.assert_called_once_with()
+
+
+def test_a_bench_only_create_never_reaches_the_hsts_step(tmp_path):
+    """A bench with no site serves no domain, so there is nothing to apply it to."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+
+    harness.orchestrator(real=("_phase5_finalize",)).create_bench(bench_only=True)
+
+    assert harness.events.has("apply_hsts") is False
 
 
 def test_the_image_check_happens_outside_the_try_so_it_is_not_a_creation_failure(tmp_path):

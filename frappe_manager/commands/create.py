@@ -531,12 +531,17 @@ def _add_site_to_bench(
         )
         raise
 
-    # The bench's upload limit has to reach the new site before its domain is routable. Nothing else
-    # does it: `apply_upload_limit` runs on create, on `fm start` and on `fm update --upload-limit`,
-    # so a site added between those had no `vhost.d` entry of its own and inherited the global
-    # proxy's 1M default while the bench advertised its real limit. A 2MB upload to the new site
-    # answered 413 from the proxy, and `fm info` reported the bench limit either way.
-    if bench.apply_upload_limit() and bench.services.is_service_running("global-nginx-proxy"):
+    # The bench's upload limit and HSTS override both have to reach the new site before its
+    # domain is routable. Nothing else does it: `apply_upload_limit`/`apply_hsts` run on create,
+    # on `fm start` and (upload limit only) on `fm update --upload-limit`, so a site added between
+    # those had no `vhost.d` entry of its own and inherited the global proxy's 1M default (and no
+    # HSTS override, so the bench's own hardcoded header reached the browser unstripped) while the
+    # bench advertised its real limit. A 2MB upload to the new site answered 413 from the proxy,
+    # and `fm info` reported the bench limit either way. Both run unconditionally so a change to
+    # just one is never skipped by short-circuiting the other.
+    upload_limit_changed = bench.apply_upload_limit()
+    hsts_changed = bench.apply_hsts()
+    if (upload_limit_changed or hsts_changed) and bench.services.is_service_running("global-nginx-proxy"):
         bench.services.nginx_controller.reload()
 
     # Routing last: the new site is in `[sites]`, so the republished map now carries its domain in

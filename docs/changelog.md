@@ -12,6 +12,13 @@ All notable changes to Frappe Manager are documented here.
 - **ssl:** Add `fm ssl add --custom` to import an operator-supplied certificate (`--cert` and `--key`, optional `--ca` trusted inside bench containers for outbound HTTPS); `fm ssl renew` deliberately refuses to rotate an imported certificate and directs the operator to re-run the import
 - **ssl:** Add `fm ssl add --behind-proxy` (alias `--edge-tls`) for origins behind an external TLS terminator such as Cloudflare: the redirect keys on the forwarded proto, the bench's web server trusts that header (per bench, never globally), and fm hints when a domain resolves into Cloudflare's ranges
 
+### Bug Fixes
+
+- **ssl:** The `hsts` field on `[[ssl.certificates]]` now controls the header browsers actually receive: `"off"` (the default) sends no `Strict-Transport-Security` header at all, and any other value is sent verbatim. Applied as a marked block in the global proxy's `vhost.d/<domain>` file that also strips the two-year `includeSubDomains; preload` pin the bench nginx image hardcodes; written on `fm start`, at bench creation and on site add, so an existing bench heals on its next start with no image rebuild
+- **ssl:** `fm ssl add`/`fm ssl remove` for an alias domain no longer rewrites the site's `host_name` to the alias. Only a certificate for the site's own canonical name moves `host_name`, so links, password resets and emails keep pointing at the site instead of silently renaming it
+- **nginx:** A bench whose rendered nginx config fell behind its site list (a site added after the config's first render) now heals on `fm start`, instead of silently answering the missing domain with the primary site's data and a 200
+- **delete:** `fm delete` now removes the bench's per-domain upload-limit and HSTS entries from the global proxy's `vhost.d/` for every domain the bench served. Hand-written content in those shared files survives, and a file is deleted only when nothing else remains
+
 ## v0.19.0.dev0 - 2026-04-14
 
 ### Bug Fixes

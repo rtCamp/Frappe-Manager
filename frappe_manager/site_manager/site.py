@@ -45,6 +45,7 @@ from frappe_manager.site_manager.modules.bench_ssl import BenchSSL
 from frappe_manager.site_manager.modules.bench_supervisor import BenchSupervisor
 from frappe_manager.site_manager.modules.bench_workers import BenchWorkerCoordinator, BenchWorkers
 from frappe_manager.site_manager.modules.db_tls import remove_site_tls
+from frappe_manager.site_manager.modules.hsts_manager import HstsManager
 from frappe_manager.site_manager.modules.upload_limit_manager import UploadLimitManager
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkManager
@@ -663,7 +664,18 @@ class Bench:
         }
         self.logger.debug(f"Starting bench: {self.name}", extra_fields=extra)
         try:
+            # A base whose `nginx.conf` already exists has been through a real boot before, so a
+            # `default.conf` beside it (if any) is genuinely something a PAST run rendered and
+            # worth checking for staleness. A base that needed seeding just now has not: nothing
+            # this call has rendered yet can be stale, so there is nothing here to heal.
+            nginx_base_conf_existed = (self.path / "configs" / "nginx" / "conf" / "nginx.conf").exists()
             self.ensure_nginx_conf_seeded()
+            if nginx_base_conf_existed:
+                try:
+                    self.heal_stale_site_map_conf()
+                except Exception as e:
+                    self.logger.warning(f"Failed to heal bench nginx site map: {self.name}", extra_fields=extra)
+                    self.output.warning(f"Could not repair the bench nginx site map: {e!s}")
             # The fm-managed overlay (real-ip, auth) is written by generate_compose, so a
             # bench whose compose has not been regenerated since that landed never receives
             # it. Without real-ip.conf every request reaches the app carrying the global
@@ -675,10 +687,16 @@ class Bench:
                 self.ensure_fm_nginx_confs()
                 # The proxy vhost entry is the other half, and it is the binding one: a bench with
                 # no entry gets the proxy's 1M default and answers 413 however permissive its own
-                # nginx conf is. Existing benches have no entry at all, so this is what heals them
-                # without a migration. Reload only when something actually changed, because the
-                # proxy is shared by every bench.
-                if self.apply_upload_limit() and self.services.is_service_running("global-nginx-proxy"):
+                # nginx conf is, and no HSTS override strips the bench's own hardcoded header
+                # (see `HstsManager`). Existing benches have neither at all, so this is what heals
+                # them without a migration. Both run unconditionally (never short-circuited by the
+                # other) so that a change to just one is not missed; reload only when something
+                # actually changed, because the proxy is shared by every bench.
+                upload_limit_changed = self.apply_upload_limit()
+                hsts_changed = self.apply_hsts()
+                if (upload_limit_changed or hsts_changed) and self.services.is_service_running(
+                    "global-nginx-proxy"
+                ):
                     self.services.nginx_controller.reload()
             except Exception as e:
                 self.logger.warning(f"Failed to refresh bench nginx overlay: {self.name}", extra_fields=extra)
@@ -1297,6 +1315,61 @@ class Bench:
             cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE
         )
 
+    def heal_stale_site_map_conf(self) -> None:
+        """Delete a rendered `default.conf` that no longer covers every domain in `[sites]`.
+
+        `default.conf` is rendered ONCE, at the bench nginx container's first boot, from
+        `SITE_MAPPINGS`, and then persists on a host-mounted volume forever: the entrypoint only
+        renders it when the file is ABSENT (`Docker/nginx/entrypoint.sh`). `republish_site_map`
+        covers every site-map change fm itself makes, by deleting the file and recreating nginx
+        so the entrypoint re-renders it. What it cannot reach is a bench whose conf went stale
+        some OTHER way: an older fm that predates a domain now in `[sites]`, or a `configs/`
+        directory restored from a backup taken before that domain was added.
+
+        nginx's own fallback for a Host matching nothing is the FIRST site's block -- the `map`'s
+        `default` and the primary's `server_name` come first, by construction (see
+        `Docker/nginx/template.conf`) -- so an unrecognised domain is not refused, it is served
+        the PRIMARY site's data with an ordinary 200: silent cross-site data exposure, and nothing
+        short of reading every request would reveal it.
+
+        "Stale" is defined narrowly, as a coverage gap: every domain `[sites]` currently records
+        must appear SOMEWHERE in the rendered file (a `map` entry or a `server_name` line),
+        because that is exactly the condition under which nginx falls through to the primary's
+        block. It deliberately does not check that each domain maps to its OWN site: a domain
+        routed to a bench neighbour's block is a `[sites]`/`SITE_MAPPINGS` disagreement the map's
+        own render already prevents by construction, not the fallthrough this exists to close.
+
+        Costs one read of `default.conf` and a regex per domain, on every start of a bench that
+        was already up before this call (see the caller's `nginx_base_conf_existed` guard) -- and
+        nothing at all once healed, since a domain gap cannot reappear on its own. When a gap is
+        found, the fix is `republish_site_map`'s own deletion, plus -- unlike that path, which
+        only ever runs against a bench already up -- a force-recreate of nginx here ONLY IF it is
+        already running, since deleting the file on the host has no effect on a container that
+        already has last boot's rendered config loaded in memory. A bench that is not yet up needs
+        no extra push: `start`, right after this, brings nginx up for the first time this boot,
+        and its entrypoint finds the file gone.
+        """
+        default_conf = self.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+        if not default_conf.is_file():
+            return
+
+        wanted = self.domains
+        if not wanted:
+            return
+
+        text = default_conf.read_text()
+        missing = [d for d in wanted if not re.search(rf"(?<![\w.-]){re.escape(d)}(?![\w.-])", text)]
+        if not missing:
+            return
+
+        extra = {"operation": "nginx_conf_heal_site_map", "bench_name": self.name, "missing_domains": missing}
+        self.logger.warning(
+            f"Bench nginx conf for {self.name} is missing domain(s): {', '.join(missing)}", extra_fields=extra
+        )
+        default_conf.unlink()
+        if self._is_service_running("nginx"):
+            self.docker_ops.start(services=["nginx"], force_recreate=True, pull="never")
+
     def remove_site(
         self, site: str, delete_db_from_global_db: bool | None = None, delete_backups: bool = False
     ) -> bool:
@@ -1343,6 +1416,7 @@ class Bench:
         # entry is popped, because the map is the only thing that says which hostnames were this
         # site's.
         self._remove_proxy_upload_limits(site_domains)
+        self._remove_proxy_hsts(site_domains)
         self._forget_site_backups(site, delete_backups=delete_backups)
         try:
             remove_site_tls(self.path, site)
@@ -1378,6 +1452,24 @@ class Bench:
                 manager.remove_upload_limit(domain)
             except Exception as e:
                 self.output.warning(f"Could not clear the proxy upload limit for {domain}: {e}")
+
+    def _remove_proxy_hsts(self, domains: set[str]) -> None:
+        """Drop the removed site's `vhost.d/<domain>` HSTS override (see `apply_hsts`).
+
+        Same shape as `_remove_proxy_upload_limits`, for the same reason: `apply_hsts` writes one
+        block per served domain, and without this it outlived the site, so a domain later pointed
+        at another bench inherited a stale header override -- an `off` from a site that no longer
+        exists silently muting a header the NEW site's config asks for, or the reverse.
+        """
+        vhostd_dir = self.services.path / "nginx-proxy" / "vhostd"
+        if not vhostd_dir.exists():
+            return
+        manager = HstsManager(vhostd_dir)
+        for domain in sorted(domains):
+            try:
+                manager.remove_hsts(domain)
+            except Exception as e:
+                self.output.warning(f"Could not clear the proxy HSTS override for {domain}: {e}")
 
     def _forget_site_backups(self, site: str, *, delete_backups: bool) -> None:
         """Drop the removed site's rows from every deploy-history `backups` map.
@@ -1457,6 +1549,18 @@ class Bench:
                     self.remove_certificate()
                 except Exception as e:
                     self.output.warning(str(e))
+
+                # `remove_certificate` only strips the HTTPS-redirect block it owns
+                # (`VhostConfigManager`); the upload-limit directive and HSTS override each site
+                # picked up over its life (`apply_upload_limit`, `apply_hsts`) are separate marked
+                # regions in the same shared `vhost.d/<domain>` file and neither is cleared by it.
+                # `remove_site` already does this for one site leaving the bench; a bench going
+                # away entirely needs it for every domain it ever served, or a domain later
+                # repointed at another bench silently inherits this one's stale cap and header
+                # override.
+                domains = set(self.domains)
+                self._remove_proxy_upload_limits(domains)
+                self._remove_proxy_hsts(domains)
 
                 # The gate. With one site there were two outcomes: the schema was dealt with, or
                 # nothing was removed. With N there is a partial: sites 1 and 2 drop, site 3 fails,
@@ -1820,6 +1924,35 @@ class Bench:
                 if path.is_file() and path.read_text() != previous:
                     changed = True
 
+        return changed
+
+    def apply_hsts(self) -> bool:
+        """Push the primary certificate's ``hsts`` value to every domain's proxy vhost.d file.
+
+        Only the primary certificate is consulted, matching ``export_to_compose_inputs``'s own
+        ``HSTS`` env var and the documented contract (there is no per-alias override): one value,
+        pushed to every domain the bench serves, the same shape ``apply_upload_limit`` already
+        uses for a second bench-wide, proxy-side setting. Called from the same places for the
+        same reason -- create, ``fm start`` and site-add all need it live from the moment a
+        domain becomes reachable, not just after whatever later start happens to heal it.
+
+        Idempotent (``HstsManager.set_hsts`` only writes when the block actually changed) and a
+        no-op before the proxy's vhostd dir exists, which is what a not-yet-provisioned services
+        dir looks like.
+
+        Returns True when something on disk changed, so a caller can reload the global proxy only
+        when it needs to -- the proxy is shared by every bench.
+        """
+        vhostd_dir = self.services.path / "nginx-proxy" / "vhostd"
+        if not vhostd_dir.exists():
+            return False
+
+        hsts_value = self.bench_config.get_primary_certificate().hsts
+        manager = HstsManager(vhostd_dir)
+        changed = False
+        for domain in self.domains:
+            if manager.set_hsts(domain, hsts_value):
+                changed = True
         return changed
 
     def update_upload_limit(self, upload_limit: str):

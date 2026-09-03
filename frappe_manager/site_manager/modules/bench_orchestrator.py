@@ -976,12 +976,15 @@ class BenchOrchestrator:
         )
         self.output.print("Configured bench workers")
 
-        # The site exists by now, so site_config.json and the proxy vhost can both take the limit.
-        # Without this a new bench advertised its configured upload_limit and served nginx's 1M
-        # default, so the value only became true after an unrelated `fm update --upload-limit`.
+        # The site exists by now, so site_config.json and the proxy vhost can both take the limit,
+        # and the proxy vhost can take the HSTS override too. Without this a new bench advertised
+        # its configured upload_limit and hsts while nginx served its own 1M default and the
+        # bench's own hardcoded STS header unstripped, so both values only became true after an
+        # unrelated `fm start` or (upload limit only) `fm update --upload-limit`.
         self.output.change_head("Applying upload size limit")
         bench.apply_upload_limit()
         self.output.print(f"Applied upload size limit ({bench.bench_config.upload_limit})")
+        bench.apply_hsts()
 
         from datetime import datetime
 

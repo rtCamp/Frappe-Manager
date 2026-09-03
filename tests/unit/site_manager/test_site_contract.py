@@ -61,6 +61,7 @@ from frappe_manager.site_manager.modules.auth import (
     container_htpasswd_path,
     htpasswd_name,
 )
+from frappe_manager.site_manager.modules.hsts_manager import HstsManager
 from frappe_manager.site_manager.modules.realip import build_bench_realip_conf
 from frappe_manager.site_manager.site import Bench, SiteSchema
 
@@ -1370,6 +1371,59 @@ class TestRemoveBench:
         bench.remove_containers_and_dirs.side_effect = BenchRemoveDirectoryError(SITE, harness.path)
         with pytest.raises(BenchRemoveDirectoryError):
             bench.remove_bench()
+
+
+class TestRemoveBenchClearsProxyVhostdEntries:
+    """BUG: `remove_bench` stripped only the HTTPS-redirect block (via `remove_certificate`) and
+    left the upload-limit directive and HSTS block behind in every domain's `vhost.d/<domain>`
+    file. `remove_site` already cleaned both up for a site leaving a still-running bench
+    (`_remove_proxy_upload_limits`/`_remove_proxy_hsts`); `remove_bench` never called either, so a
+    domain later pointed at another bench silently inherited a stale cap and header override from
+    a bench that no longer existed.
+    """
+
+    def _removable(self, harness):
+        bench = harness.bench
+        bench.output.prompt_ask.return_value = "yes"
+        bench.remove_certificate = MagicMock()
+        bench._handle_database_deletion = MagicMock(return_value=[])
+        bench.remove_containers_and_dirs = MagicMock()
+        return bench
+
+    def test_the_upload_limit_and_hsts_entries_are_cleared_for_every_domain(self, harness):
+        bench = self._removable(harness)
+        bench.bench_config.sites = {SITE: SiteConfig(alias_domains=["alias.example.com"])}
+        vhostd = harness.services.path / "nginx-proxy" / "vhostd"
+        for domain in (SITE, "alias.example.com"):
+            (vhostd / domain).write_text("client_max_body_size 50m;\n" + HstsManager._block("max-age=31536000"))
+
+        assert bench.remove_bench() is True
+
+        assert not (vhostd / SITE).exists()
+        assert not (vhostd / "alias.example.com").exists()
+
+    def test_a_hand_written_directive_survives_in_the_shared_file(self, harness):
+        """The file is SHARED with foreign content; only fm's own directives are removed."""
+        bench = self._removable(harness)
+        vhostd = harness.services.path / "nginx-proxy" / "vhostd"
+        (vhostd / SITE).write_text(
+            "client_max_body_size 50m;\n" + HstsManager._block("max-age=31536000") + "allow 10.0.0.0/8;\n"
+        )
+
+        assert bench.remove_bench() is True
+
+        assert (vhostd / SITE).read_text() == "allow 10.0.0.0/8;\n"
+
+    def test_a_domain_with_no_vhostd_entry_at_all_is_not_an_error(self, harness):
+        bench = self._removable(harness)
+
+        assert bench.remove_bench() is True
+
+    def test_nothing_is_touched_when_the_proxy_has_no_vhostd_dir(self, harness):
+        bench = self._removable(harness)
+        shutil.rmtree(harness.services.path / "nginx-proxy" / "vhostd")
+
+        assert bench.remove_bench() is True
 
 
 class TestHandleDatabaseDeletion:

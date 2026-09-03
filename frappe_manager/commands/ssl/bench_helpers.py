@@ -239,12 +239,18 @@ def _add_bench_certificate(
         bench.certificate_manager.add_certificate(cert, dry_run=dry_run)
 
     if not dry_run:
-        # The site this domain serves, not the bench's own: see _site_serving.
+        # The site this domain serves, not the bench's own: see _site_serving. And only when the
+        # domain IS that site's own name: a site's name is its canonical domain
+        # (`get_site_mappings` maps `site -> site`, aliases map `alias -> site`), and `host_name`
+        # is the canonical URL Frappe builds links, password resets and emails from. Certifying an
+        # ALIAS must therefore not rewrite it -- that silently renamed the site to the alias.
         served = _site_serving(bench, domain)
         try:
-            if served:
+            if served == domain:
                 bench.set_bench_site_config(served, {"host_name": f"https://{domain}"})
                 output.debug(f"Updated host_name to https://{domain} on {served}")
+            elif served:
+                output.debug(f"{domain} is an alias of {served}; leaving host_name alone")
             else:
                 output.debug(f"No site maps {domain}; leaving host_name alone")
         except Exception as e:
@@ -318,12 +324,16 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
         with spinner(output, f"Removing SSL certificate for {domain}"):
             bench.certificate_manager.remove_certificate_by_domain(domain)
 
-        # The site this domain serves, not the bench's own: see _site_serving.
+        # Same rule as the add path: only the site's own canonical name moves `host_name`.
+        # Removing an ALIAS certificate used to do double damage -- it both renamed the site to
+        # the alias and downgraded its canonical URL to http.
         served = _site_serving(bench, domain)
         try:
-            if served:
+            if served == domain:
                 bench.set_bench_site_config(served, {"host_name": f"http://{domain}"})
                 output.debug(f"Updated host_name to http://{domain} on {served}")
+            elif served:
+                output.debug(f"{domain} is an alias of {served}; leaving host_name alone")
             else:
                 output.debug(f"No site maps {domain}; leaving host_name alone")
         except Exception as e:

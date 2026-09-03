@@ -77,6 +77,12 @@ def _bench(tmp_path: Path, config: BenchConfig, name: str, sites: dict[str, str]
     bench.bench_config = config
     bench.logger = MagicMock()
     bench.output = MagicMock()
+    # `remove_bench` clears the proxy's per-domain vhost.d entries (upload limit, HSTS) for every
+    # domain the bench serves; `services.path` is what locates that (nonexistent here, so both
+    # clears are no-ops) directory. Real `Path`, not a `MagicMock`, so `/ "nginx-proxy" / "vhostd"`
+    # and `.exists()` behave like the genuine attribute this stands in for.
+    bench.services = MagicMock()
+    bench.services.path = tmp_path / "services"
     for site, schema in sites.items():
         _site_on_disk(bench.path, site, schema)
     # The real drop path: Bench.remove_database_and_user() delegates here. Asserting on this

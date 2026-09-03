@@ -107,3 +107,15 @@ def test_the_site_map_still_covers_every_domain(render):
 
     for domain, site in TWO_SITES.items():
         assert f"\t{domain} {site};" in conf
+
+
+def test_no_block_ever_hardcodes_an_hsts_header(render):
+    """BUG: this server only ever speaks plain HTTP (`listen 80`); TLS is terminated by the
+    global nginx-proxy in front of it. A hardcoded `Strict-Transport-Security` here reached the
+    browser through the proxy regardless of the operator's `hsts` config -- "off" included --
+    because nothing downstream stripped it. `HstsManager` now owns this header, on the proxy
+    side, where TLS is actually terminated (frappe_manager/site_manager/modules/hsts_manager.py).
+    """
+    conf = render(TWO_SITES)
+
+    assert "add_header Strict-Transport-Security" not in conf

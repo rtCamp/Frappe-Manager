@@ -26,6 +26,7 @@ import pytest
 
 from frappe_manager.site_manager.bench_config import BenchRuntime
 from frappe_manager.site_manager.modules.bench_docker import BenchDockerOps
+from frappe_manager.site_manager.modules.hsts_manager import HstsManager
 from frappe_manager.site_manager.modules.realip import build_bench_realip_conf
 from frappe_manager.site_manager.site import Bench
 
@@ -94,8 +95,17 @@ def _bench(path: Path, docker_ops) -> Bench:
     # so a stand-in without it raised AttributeError, start() warned, and the vhostd assertions below
     # failed on a missing file instead of a wrong one. Empty, which is what a real BenchConfig with no
     # `[sites]` table returns, so this bench falls back to its single `site_name` exactly as before.
+    # `get_primary_certificate().hsts` is what `apply_hsts` reads; a bench with no certificate at
+    # all (the common case here) has a real `BenchConfig` returning a disabled one whose `hsts`
+    # defaults to "off" -- the same fallback this stand-in gives every test below.
     bench.bench_config = SimpleNamespace(
-        auth=None, admin_tools=False, upload_limit="50M", sites=None, domains=[DOMAIN], site_names=[]
+        auth=None,
+        admin_tools=False,
+        upload_limit="50M",
+        sites=None,
+        domains=[DOMAIN],
+        site_names=[],
+        get_primary_certificate=lambda: SimpleNamespace(hsts="off"),
     )
     bench.bench_nginx_controller = MagicMock()
     # The overlay refresh reads the subnet from the services compose, which is the pinned
@@ -238,7 +248,9 @@ def _healthy_base(path: Path) -> Path:
     conf = _conf_dir(path)
     (conf / "conf.d").mkdir(parents=True)
     (conf / "nginx.conf").write_text("events {}\n")
-    (conf / "conf.d" / "default.conf").write_text("server { listen 80; }\n")
+    # Covers DOMAIN, the one server_name the plain `_bench()` fixture serves, so this reads as a
+    # genuinely healthy, up-to-date render rather than one `heal_stale_site_map_conf` would flag.
+    (conf / "conf.d" / "default.conf").write_text(f"server {{\n\tlisten 80;\n\tserver_name {DOMAIN} ;\n}}\n")
     return conf
 
 
@@ -277,7 +289,9 @@ def test_the_proxy_is_not_reloaded_when_the_limit_already_matches(tmp_path):
     _healthy_base(tmp_path)
     vhostd = tmp_path / "services" / "nginx-proxy" / "vhostd"
     vhostd.mkdir(parents=True)
-    (vhostd / DOMAIN).write_text("\nclient_max_body_size 50m;\n")
+    # Both halves `start` heals here (upload limit and HSTS) already match, so neither reports a
+    # change: only then does "nothing changed" mean what this test asserts.
+    (vhostd / DOMAIN).write_text(HstsManager._block("off") + "\nclient_max_body_size 50m;\n")
     bench = _bench(tmp_path, _real_ops(tmp_path))
     bench.services.path = tmp_path / "services"
 
@@ -339,6 +353,11 @@ def test_a_failed_overlay_refresh_does_not_block_the_start_and_is_reported(tmp_p
             # too: leaving this off would make that read an AttributeError with another message.
             raise RuntimeError("bench config unreadable")
 
+        def get_primary_certificate(self):
+            # `apply_hsts` reads this before it reads `domains`; leaving it off would make that
+            # read an AttributeError with another message instead.
+            raise RuntimeError("bench config unreadable")
+
     _healthy_base(tmp_path)
     bench = _bench(tmp_path, _real_ops(tmp_path))
     bench.bench_config = _UnreadableConfig()
@@ -398,3 +417,147 @@ def test_a_site_with_the_limit_already_set_is_not_rewritten(tmp_path):
     bench.apply_upload_limit()
 
     assert written == []
+
+
+# ------------------------- HSTS: the proxy-side override `apply_hsts` writes
+
+
+def test_an_existing_bench_gains_its_hsts_override_on_start(tmp_path):
+    """Benches created before this existed have no HSTS block at all, so the proxy relays the
+    bench's hardcoded `Strict-Transport-Security` unstripped. `fm start` heals this the same way
+    it heals the upload limit, with no migration needed.
+    """
+    _healthy_base(tmp_path)
+    vhostd = tmp_path / "services" / "nginx-proxy" / "vhostd"
+    vhostd.mkdir(parents=True)
+    bench = _bench(tmp_path, _real_ops(tmp_path))
+    bench.services.path = tmp_path / "services"
+    bench.bench_config.get_primary_certificate = lambda: SimpleNamespace(hsts="max-age=31536000")
+
+    bench.start()
+
+    text = (vhostd / DOMAIN).read_text()
+    assert "proxy_hide_header Strict-Transport-Security;" in text
+    assert "add_header Strict-Transport-Security $fm_hsts_value always;" in text
+    assert 'set $fm_hsts_value "max-age=31536000";' in text
+
+
+def test_an_off_hsts_value_still_strips_the_bench_header(tmp_path):
+    """BUG: the bench's hardcoded header must be hidden even when the operator asked for no HSTS
+    of fm's own -- "off" must not mean "leave the bench's header alone"."""
+    _healthy_base(tmp_path)
+    vhostd = tmp_path / "services" / "nginx-proxy" / "vhostd"
+    vhostd.mkdir(parents=True)
+    bench = _bench(tmp_path, _real_ops(tmp_path))
+    bench.services.path = tmp_path / "services"
+
+    bench.start()
+
+    text = (vhostd / DOMAIN).read_text()
+    assert "proxy_hide_header Strict-Transport-Security;" in text
+    assert "add_header Strict-Transport-Security" not in text
+
+
+# ------------------------- site-map staleness: `heal_stale_site_map_conf`
+
+
+def test_a_stale_conf_missing_a_domain_is_deleted_on_start(tmp_path):
+    """BUG: a domain absent from the rendered `default.conf` falls through to nginx's default
+    server (the PRIMARY site's block) and is served that site's data with an ordinary 200 --
+    silent cross-site exposure. Deleting the stale file is what makes the entrypoint re-render it
+    from the CURRENT site map the next time nginx boots."""
+    conf = _healthy_base(tmp_path)  # covers DOMAIN only
+    docker_ops = MagicMock()
+    docker_ops._is_service_running.return_value = False
+    bench = _bench(tmp_path, docker_ops)
+    bench.bench_config.domains = [DOMAIN, "second.example.com"]
+
+    bench.start()
+
+    assert not (conf / "conf.d" / "default.conf").exists()
+    docker_ops.start.assert_not_called()
+
+
+def test_a_running_nginx_is_force_recreated_so_the_gap_is_closed_immediately(tmp_path):
+    """Deleting the file alone has no effect on a container already up: it has last boot's
+    rendered config loaded in memory and reads nothing further from disk until it restarts."""
+    _healthy_base(tmp_path)
+    docker_ops = MagicMock()
+    docker_ops._is_service_running.return_value = True
+    bench = _bench(tmp_path, docker_ops)
+    bench.bench_config.domains = [DOMAIN, "second.example.com"]
+
+    bench.start()
+
+    docker_ops.start.assert_called_once_with(services=["nginx"], force_recreate=True, pull="never")
+
+
+def test_a_conf_covering_every_domain_is_left_alone(tmp_path):
+    """The common case, on every start of every healthy bench: no unlink, no docker call."""
+    conf = _healthy_base(tmp_path)
+    before = (conf / "conf.d" / "default.conf").read_text()
+    docker_ops = MagicMock()
+    bench = _bench(tmp_path, docker_ops)
+
+    bench.start()
+
+    assert (conf / "conf.d" / "default.conf").read_text() == before
+    docker_ops.start.assert_not_called()
+
+
+def test_a_bench_with_no_sites_is_never_flagged_stale(tmp_path):
+    """A `--bench-only` bench serves no domain, so there is nothing a conf could fail to cover."""
+    conf = _healthy_base(tmp_path)
+    before = (conf / "conf.d" / "default.conf").read_text()
+    docker_ops = MagicMock()
+    bench = _bench(tmp_path, docker_ops)
+    bench.bench_config.domains = []
+
+    bench.start()
+
+    assert (conf / "conf.d" / "default.conf").read_text() == before
+    docker_ops.start.assert_not_called()
+
+
+def test_a_missing_default_conf_is_not_treated_as_stale(tmp_path):
+    """Nothing to heal: the entrypoint renders it fresh, from the current environment, on this
+    very boot."""
+    conf = _conf_dir(tmp_path)
+    conf.mkdir(parents=True)
+    (conf / "nginx.conf").write_text("events {}\n")
+    docker_ops = MagicMock()
+    bench = _bench(tmp_path, docker_ops)
+
+    bench.start()
+
+    assert not (conf / "conf.d" / "default.conf").exists()
+    docker_ops.start.assert_not_called()
+
+
+def test_a_freshly_reseeded_bench_is_never_treated_as_having_a_stale_site_map(tmp_path, monkeypatch):
+    """A base that needed re-seeding this call has rendered nothing yet this boot -- there is
+    nothing here for THIS check to have an opinion about, healthy or stale."""
+    monkeypatch.setattr("frappe_manager.site_manager.modules.bench_docker.host_run_cp", _fake_image_copy([]))
+    conf = _break_bench(tmp_path)
+    bench = _bench(tmp_path, _real_ops(tmp_path))
+
+    bench.start()
+
+    # `IMAGE_FILES` happens to include a `conf.d/default.conf` that names no real domain; the
+    # guard means it is never even inspected, let alone deleted, on the same call that placed it.
+    assert (conf / "conf.d" / "default.conf").read_text() == "server { listen 80; }\n"
+
+
+def test_a_failed_heal_does_not_block_the_start_and_is_reported_too(tmp_path):
+    """Best effort, like the other two overlay refreshes."""
+    _healthy_base(tmp_path)
+    docker_ops = MagicMock()
+    docker_ops._is_service_running.side_effect = RuntimeError("cannot connect to the docker daemon")
+    bench = _bench(tmp_path, docker_ops)
+    bench.bench_config.domains = [DOMAIN, "second.example.com"]
+
+    bench.start()
+
+    assert bench.orchestrator.start_bench.call_count == 1
+    warnings = " ".join(str(call.args[0]) for call in bench.output.warning.call_args_list)
+    assert "cannot connect to the docker daemon" in warnings
