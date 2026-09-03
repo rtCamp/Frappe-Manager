@@ -114,6 +114,7 @@ class TestSSLCertificateSerialization:
             "challenge_type": None,
             "enabled": True,
             "hsts": "on",
+            "behind_proxy": False,
         }
 
     def test_model_dump_json_works(self):
@@ -323,6 +324,7 @@ class TestRetiredKeysAreTolerated:
             "challenge_type": LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             "enabled": True,
             "hsts": "max-age=31536000; includeSubDomains",
+            "behind_proxy": False,
             "acme_client": "certbot",
             "dns_provider": "acct-b",
             "delegation_cname": "a-gg-com.fm.gw",
@@ -403,6 +405,7 @@ class TestCustomCertificate:
             "challenge_type": None,
             "enabled": True,
             "hsts": "off",
+            "behind_proxy": False,
         }
 
     def test_a_certificate_read_back_from_the_union_never_carries_source_paths(self):

@@ -1,6 +1,23 @@
 #!/bin/bash
 BENCH_DIR="{{ bench_dir }}"
 GUNICORN_ARGS="{{ gunicorn_args }}"
+{% if trust_forwarded_proto %}
+# --behind-proxy: trust X-Forwarded-Proto from this bench's own nginx so the post-login redirect,
+# the session cookie's Secure flag, and OAuth's advertised endpoints see https. Resolved here, at
+# start time inside this container, rather than baked in at generation time on the host: nginx's
+# address on site-network is dynamic, and this is the earliest point it is guaranteed current.
+# `nginx-site`, NOT the bare `nginx`: the bare service name also resolves on the shared
+# global-frontend-network, where every bench's nginx answers to it, so it round-robins across
+# benches -- the site-scoped alias (docker-compose.tmpl) exists only on THIS bench's own network,
+# same reasoning as `frappe-site`/`socketio-site` there.
+# Never falls back to trusting every peer (gunicorn's wildcard forwarded-ips setting): if resolution
+# fails, the flag is simply omitted and gunicorn keeps its default (nothing forwarded is trusted),
+# not "trust anyone".
+FM_NGINX_IP="$(getent hosts nginx-site 2>/dev/null | awk '{print $1}' | head -1)"
+if [[ -n "$FM_NGINX_IP" ]]; then
+    GUNICORN_ARGS="$GUNICORN_ARGS --forwarded-allow-ips=$FM_NGINX_IP"
+fi
+{% endif %}
 
 if [[ "${NEWRELIC_ENABLED:-}" == "true" && -n "${NEWRELIC_LICENSE_KEY:-}" ]]; then
     "$BENCH_DIR/env/bin/python" -c "import newrelic" 2>/dev/null || \

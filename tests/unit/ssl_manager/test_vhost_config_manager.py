@@ -205,3 +205,104 @@ def test_disable_alone_on_the_legacy_unmarked_shape_leaves_no_empty_file_behind(
     assert manager.disable_https_redirect(DOMAIN) is True
 
     assert not path.exists()
+
+
+# ======================================================================================
+# --behind-proxy variant: keyed on the forwarded proto, not the origin's own connection scheme
+# ======================================================================================
+
+
+def test_behind_proxy_enable_writes_the_forwarded_proto_predicate(manager, vhostd):
+    path = manager.enable_https_redirect(DOMAIN, behind_proxy=True)
+
+    text = path.read_text()
+    assert text.startswith(VhostConfigManager.BLOCK_BEGIN + "\n")
+    assert text.rstrip("\n").endswith(VhostConfigManager.BLOCK_END)
+    assert "if ($proxy_x_forwarded_proto = http)" in text
+    # Not the connection-scheme predicate: behind an external terminator this connection is
+    # always plain http, and keying off $scheme here is exactly the infinite-redirect bug.
+    assert "if ($scheme = http)" not in text
+    assert "return 301 https://$host$request_uri;" in text
+    assert manager.has_redirect_config(DOMAIN)
+
+
+def test_behind_proxy_variant_keeps_the_realtime_exemption_verbatim(manager, vhostd):
+    """The websocket/realtime carve-out is copied unchanged into the new variant: Node's fetch()
+    drops Cookie headers on cross-protocol redirects regardless of which predicate sent it there."""
+    path = manager.enable_https_redirect(DOMAIN, behind_proxy=True)
+
+    text = path.read_text()
+    assert r"if ($uri ~ ^/api/method/frappe\.realtime\.) {" in text
+    # The exemption clears the flag the http-check just set, exactly as the default variant does.
+    default_text = VhostConfigManager.HTTPS_REDIRECT_CONFIG
+    behind_proxy_text = VhostConfigManager.HTTPS_REDIRECT_CONFIG_BEHIND_PROXY
+    default_exemption = default_text.split("if ($uri", 1)[1]
+    behind_proxy_exemption = behind_proxy_text.split("if ($uri", 1)[1]
+    assert default_exemption == behind_proxy_exemption
+
+
+def test_default_https_redirect_config_text_is_untouched_by_this_variant(manager):
+    """CRITICAL regression guard: real deployed benches carry HTTPS_REDIRECT_CONFIG unmarked (see
+    _LEGACY_RE), so its text must stay byte-identical to before this variant was added -- a single
+    character of drift here breaks legacy-file removal on every bench that predates the markers."""
+    assert VhostConfigManager.HTTPS_REDIRECT_CONFIG == (
+        "# Enable HTTPS redirect for this domain only\n"
+        "# This domain has a valid SSL certificate\n"
+        "# Internal service API calls allowed over HTTP (Cookie header lost on redirect)\n"
+        "set $redirect_to_https 0;\n"
+        "if ($scheme = http) {\n"
+        "    set $redirect_to_https 1;\n"
+        "}\n"
+        "if ($uri ~ ^/api/method/frappe\\.realtime\\.) {\n"
+        "    set $redirect_to_https 0;\n"
+        "}\n"
+        "if ($redirect_to_https = 1) {\n"
+        "    return 301 https://$host$request_uri;\n"
+        "}\n"
+    )
+
+
+def test_behind_proxy_add_then_remove_restores_the_shared_file_byte_for_byte(manager, vhostd):
+    """Same byte-faithful inverse guarantee as the default variant, proven for this one too: the
+    marker-based strip does not care which body was between BEGIN and END."""
+    path = vhostd / DOMAIN
+    original = MAINTENANCE_BLOCK + UPLOAD_LIMIT + "\n" + HANDWRITTEN + "\n"
+    path.write_text(original)
+    before = path.read_bytes()
+
+    manager.enable_https_redirect(DOMAIN, behind_proxy=True)
+    assert path.read_bytes() != before
+    assert manager.disable_https_redirect(DOMAIN) is True
+
+    assert path.read_bytes() == before
+
+
+def test_behind_proxy_add_then_remove_on_a_brand_new_domain_leaves_no_file(manager, vhostd):
+    path = vhostd / DOMAIN
+
+    manager.enable_https_redirect(DOMAIN, behind_proxy=True)
+    assert manager.disable_https_redirect(DOMAIN) is True
+
+    assert not path.exists()
+
+
+def test_re_enabling_with_the_other_variant_replaces_rather_than_stacks(manager, vhostd):
+    """An operator re-running `fm ssl add` with a different --behind-proxy choice for the same
+    domain must not end up with two competing redirect blocks in one file."""
+    manager.enable_https_redirect(DOMAIN, behind_proxy=False)
+    manager.enable_https_redirect(DOMAIN, behind_proxy=True)
+
+    text = (vhostd / DOMAIN).read_text()
+    assert text.count(VhostConfigManager.BLOCK_BEGIN) == 1
+    assert "if ($proxy_x_forwarded_proto = http)" in text
+    assert "if ($scheme = http)" not in text
+
+
+def test_disable_removes_a_behind_proxy_block_the_same_way_as_the_default(manager, vhostd):
+    """`disable_https_redirect` takes no `behind_proxy` parameter and needs none: both variants
+    live inside the same BLOCK markers, so the marker-based removal strips either one."""
+    manager.enable_https_redirect(DOMAIN, behind_proxy=True)
+
+    assert manager.disable_https_redirect(DOMAIN) is True
+    assert not (vhostd / DOMAIN).exists()
+    assert manager.has_redirect_config(DOMAIN) is False

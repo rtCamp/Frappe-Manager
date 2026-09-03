@@ -55,9 +55,10 @@ from frappe_manager.commands.ssl.bench_helpers import (
 )
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.site_manager.bench_config import AuthConfig, SiteConfig
+from frappe_manager.site_manager.bench_config import AuthConfig, FMBenchEnvType, SiteConfig
 from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, AdminToolsFailedToStop, BenchException
 from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
+from frappe_manager.site_manager.modules.cdn_detection import CDNDetectionResult, CDNProxyStatus
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import RETIRED_CERTIFICATE_KEYS, CustomCertificate, SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotFoundError
@@ -104,6 +105,28 @@ class SSLHarness:
         self.set_sites({DOMAIN: [ALIAS]})
         self.cert_manager = self.bench.certificate_manager
         self.cert_manager.list_certificates.return_value = []
+        # Prod by default: most tests care about the restart instruction, not the dev-mode
+        # detour. TestDevEnvironmentBench below overrides this explicitly.
+        self.bench.bench_config.environment_type = FMBenchEnvType.prod
+        # Real list + real lookup behaviour (not a bare MagicMock, which is truthy by default and
+        # would make every `_remove_bench_certificate` call believe the domain it just removed
+        # `had_behind_proxy`): `certificate_for` mirrors BenchConfig's own method, driven by
+        # whatever `ssl_certificates` a test sets.
+        self.bench.bench_config.ssl_certificates = []
+        self.bench.bench_config.certificate_for.side_effect = lambda domain: next(
+            (c for c in self.bench.bench_config.ssl_certificates if c.domain == domain),
+            SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none),
+        )
+        # Production's remove_certificate_by_domain mutates the SAME list bench_config.ssl_certificates
+        # points at (SSLCertificateManager.certificates IS that list, not a copy -- see site.py's
+        # constructor). Mirrored here so a test setting ssl_certificates before `_remove` sees the
+        # post-removal set afterwards, exactly like the real "is the trust still needed" check does.
+        self.cert_manager.remove_certificate_by_domain.side_effect = self._simulate_removal
+        # Unmocked, `_add_bench_certificate`'s advisory hint would make a real `dig` call for
+        # every test that reaches it. `undetermined` is the neutral default: it prints nothing
+        # (see TestCdnAdvisoryHint below), so existing print-count assertions are unaffected.
+        self.cdn_detect = stack.enter_context(patch(f"{SSL_MODULE}.detect_cloudflare_proxy"))
+        self.cdn_detect.return_value = CDNDetectionResult(status=CDNProxyStatus.undetermined)
 
     def set_sites(self, sites: dict[str, list[str]]) -> None:
         """Record `{site name: that site's aliases}` and derive the bench's hostname list from it.
@@ -122,6 +145,11 @@ class SSLHarness:
         self.bench.bench_config.get_site_mappings.return_value = {
             domain: name for name, config in configs.items() for domain in (name, *config.alias_domains)
         }
+
+    def _simulate_removal(self, domain: str) -> None:
+        self.bench.bench_config.ssl_certificates = [
+            c for c in self.bench.bench_config.ssl_certificates if c.domain != domain
+        ]
 
     # -- convenience readers -----------------------------------------------------------
 
@@ -177,6 +205,7 @@ def _add(
     cert_path=None,
     key_path=None,
     ca_path=None,
+    behind_proxy=False,
 ):
     return _add_bench_certificate(
         h.ctx,
@@ -190,6 +219,7 @@ def _add(
         cert_path=cert_path,
         key_path=key_path,
         ca_path=ca_path,
+        behind_proxy=behind_proxy,
     )
 
 
@@ -266,6 +296,89 @@ def test_add_refuses_cname_on_a_dev_certificate_but_only_after_announcing_the_wo
     assert h.heads() == [f"Adding SSL certificate for {DOMAIN}"]
     h.cert_manager.add_certificate.assert_not_called()
 
+
+# ======================================================================================
+# _add_bench_certificate -- --behind-proxy must agree bench-wide (gunicorn is bench-scoped)
+# ======================================================================================
+
+
+def _cert(domain: str, *, behind_proxy: bool) -> SSLCertificate:
+    return SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.dev, behind_proxy=behind_proxy)
+
+
+@pytest.mark.timeout(15)
+def test_add_refuses_behind_proxy_when_an_existing_certificate_has_it_off(h):
+    h.bench.bench_config.ssl_certificates = [_cert(ALIAS, behind_proxy=False)]
+
+    with pytest.raises(typer.Exit) as exc:
+        _add(h, behind_proxy=True, dev=True)
+
+    assert exc.value.exit_code == 1
+    message = h.errors()[0]
+    assert ALIAS in message
+    assert "gunicorn" in message
+    h.cert_manager.add_certificate.assert_not_called()
+
+
+@pytest.mark.timeout(15)
+def test_add_refuses_the_reverse_direction_too(h):
+    """A domain being added WITHOUT the flag is just as much a mismatch when the bench already
+    trusts the header for another domain: the new one would inherit that trust for free."""
+    h.bench.bench_config.ssl_certificates = [_cert(ALIAS, behind_proxy=True)]
+
+    with pytest.raises(typer.Exit) as exc:
+        _add(h, behind_proxy=False)
+
+    assert exc.value.exit_code == 1
+    assert ALIAS in h.errors()[0]
+    h.cert_manager.add_certificate.assert_not_called()
+
+
+@pytest.mark.timeout(15)
+def test_add_permits_a_matching_behind_proxy_value(h):
+    h.bench.bench_config.ssl_certificates = [_cert(ALIAS, behind_proxy=True)]
+
+    _add(h, behind_proxy=True, dev=True)
+
+    h.cert_manager.add_certificate.assert_called_once()
+    assert h.errors() == []
+
+
+@pytest.mark.timeout(15)
+def test_add_permits_the_first_behind_proxy_certificate_on_an_empty_bench(h):
+    h.bench.bench_config.ssl_certificates = []
+
+    _add(h, behind_proxy=True, dev=True)
+
+    h.cert_manager.add_certificate.assert_called_once()
+    assert h.errors() == []
+
+
+@pytest.mark.timeout(15)
+def test_the_mixed_refusal_names_every_disagreeing_domain(h):
+    h.set_sites({DOMAIN: [ALIAS], "other.example.com": []})
+    h.bench.bench_config.ssl_certificates = [
+        _cert(DOMAIN, behind_proxy=False),
+        _cert("other.example.com", behind_proxy=False),
+    ]
+
+    with pytest.raises(typer.Exit):
+        _add(h, domain=ALIAS, behind_proxy=True, dev=True)
+
+    message = h.errors()[0]
+    assert DOMAIN in message
+    assert "other.example.com" in message
+
+
+@pytest.mark.timeout(15)
+def test_the_mixed_refusal_runs_before_change_head(h):
+    h.bench.bench_config.ssl_certificates = [_cert(ALIAS, behind_proxy=False)]
+
+    with pytest.raises(typer.Exit):
+        _add(h, behind_proxy=True, dev=True)
+
+    assert h.heads() == []
+    assert h.spinner_texts() == []
 
 # ======================================================================================
 # _add_bench_certificate -- which certificate gets built
@@ -401,6 +514,85 @@ def test_add_flips_host_name_to_https_and_confirms_when_not_a_dry_run(h):
 
 
 # ======================================================================================
+# _add_bench_certificate -- the CDN advisory hint (advisory only, never blocking)
+# ======================================================================================
+
+
+@pytest.mark.timeout(15)
+def test_a_proxied_domain_without_behind_proxy_gets_a_hint_to_add_it(h):
+    h.cdn_detect.return_value = CDNDetectionResult(status=CDNProxyStatus.proxied)
+
+    _add(h, behind_proxy=False)
+
+    assert any("add --behind-proxy" in p for p in h.prints())
+    assert not any("may not be necessary" in p for p in h.prints())
+
+
+@pytest.mark.timeout(15)
+def test_a_proxied_domain_with_behind_proxy_already_set_gets_no_hint(h):
+    """The operator already did the right thing; nothing left to advise."""
+    h.cdn_detect.return_value = CDNDetectionResult(status=CDNProxyStatus.proxied)
+
+    _add(h, behind_proxy=True, dev=True)
+
+    assert not any("add --behind-proxy" in p for p in h.prints())
+    assert not any("may not be necessary" in p for p in h.prints())
+
+
+@pytest.mark.timeout(15)
+def test_a_not_proxied_domain_with_behind_proxy_gets_a_hint_it_may_be_unnecessary(h):
+    h.cdn_detect.return_value = CDNDetectionResult(status=CDNProxyStatus.not_proxied)
+
+    _add(h, behind_proxy=True, dev=True)
+
+    assert any("may not be necessary" in p for p in h.prints())
+    assert not any("add --behind-proxy" in p for p in h.prints())
+
+
+@pytest.mark.timeout(15)
+def test_a_not_proxied_domain_without_behind_proxy_gets_no_hint(h):
+    """Both flag and DNS agree: nothing to say."""
+    h.cdn_detect.return_value = CDNDetectionResult(status=CDNProxyStatus.not_proxied)
+
+    _add(h, behind_proxy=False)
+
+    assert not any("add --behind-proxy" in p for p in h.prints())
+    assert not any("may not be necessary" in p for p in h.prints())
+
+
+@pytest.mark.timeout(15)
+@pytest.mark.parametrize("behind_proxy", [False, True])
+def test_undetermined_status_prints_nothing_regardless_of_the_flag(h, behind_proxy):
+    """`undetermined` means nothing was established, so there is nothing to advise -- printing
+    either hint here would be a guess dressed up as a finding. Checked by absence of the two hint
+    substrings, not an exact print list: `behind_proxy=True` legitimately adds its own unrelated
+    `fm restart` instruction (see TestSupervisorConfigRegeneration), which this test does not pin."""
+    h.cdn_detect.return_value = CDNDetectionResult(status=CDNProxyStatus.undetermined)
+
+    _add(h, behind_proxy=behind_proxy, dev=behind_proxy)
+
+    assert not any("add --behind-proxy" in p for p in h.prints())
+    assert not any("may not be necessary" in p for p in h.prints())
+
+
+@pytest.mark.timeout(15)
+def test_the_hint_check_is_made_for_the_domain_being_added(h):
+    _add(h, behind_proxy=False)
+
+    h.cdn_detect.assert_called_once_with(DOMAIN, output=h.output)
+
+
+@pytest.mark.timeout(15)
+def test_the_hint_runs_even_on_a_dry_run(h):
+    """Advisory, not tied to issuance: a dry run is exactly when an operator most wants the nudge,
+    before spending a real certificate on a mode they may not need."""
+    h.cdn_detect.return_value = CDNDetectionResult(status=CDNProxyStatus.proxied)
+
+    _add(h, behind_proxy=False, dry_run=True)
+
+    assert any("add --behind-proxy" in p for p in h.prints())
+
+# ======================================================================================
 # _add_bench_certificate / _remove_bench_certificate -- eager compose regeneration
 # ======================================================================================
 
@@ -474,6 +666,146 @@ def test_remove_regen_failure_warns_but_does_not_abort(h):
     assert any("Could not update" in w and "disk full" in w for w in h.warnings())
     assert not any("fm start" in p for p in h.prints())
     assert f"SSL certificate removed for {DOMAIN}" in h.prints()
+
+
+# ======================================================================================
+# _add_bench_certificate / _remove_bench_certificate -- gunicorn's forwarded-proto trust
+# ======================================================================================
+
+
+@pytest.mark.timeout(15)
+def test_add_without_behind_proxy_never_touches_the_supervisor_config(h):
+    _add(h, behind_proxy=False)
+
+    h.bench.supervisor.setup_supervisor.assert_not_called()
+    assert not any("fm restart" in p for p in h.prints())
+
+
+@pytest.mark.timeout(15)
+def test_add_with_behind_proxy_regenerates_the_supervisor_config_and_prints_restart(h):
+    _add(h, behind_proxy=True, dev=True)
+
+    h.bench.supervisor.setup_supervisor.assert_called_once_with(h.bench.path, force=True)
+    assert any(f"Run 'fm restart {BENCH}' to apply the forwarded-proto trust to gunicorn" in p for p in h.prints())
+
+
+@pytest.mark.timeout(15)
+def test_add_dry_run_never_regenerates_the_supervisor_config(h):
+    """--dry-run promises no nginx change; the gunicorn wrapper must stay untouched too."""
+    _add(h, behind_proxy=True, dev=True, dry_run=True)
+
+    h.bench.supervisor.setup_supervisor.assert_not_called()
+    assert not any("fm restart" in p for p in h.prints())
+
+
+@pytest.mark.timeout(15)
+def test_add_supervisor_regen_failure_warns_but_does_not_abort(h):
+    h.bench.supervisor.setup_supervisor.side_effect = RuntimeError("disk full")
+
+    _add(h, behind_proxy=True, dev=True)  # must not raise
+
+    assert any("Could not update" in w and "gunicorn wrapper" in w and "disk full" in w for w in h.warnings())
+    assert not any("fm restart" in p for p in h.prints())
+    assert f"SSL certificate added for {DOMAIN}" in h.prints()
+
+
+@pytest.mark.timeout(15)
+def test_removing_the_last_behind_proxy_certificate_regenerates_and_prints_restart(h):
+    h.bench.bench_config.ssl_certificates = [_cert(DOMAIN, behind_proxy=True)]
+
+    _remove(h)
+
+    h.bench.supervisor.setup_supervisor.assert_called_once_with(h.bench.path, force=True)
+    assert any(
+        f"Run 'fm restart {BENCH}' to drop the forwarded-proto trust from gunicorn" in p for p in h.prints()
+    )
+
+
+@pytest.mark.timeout(15)
+def test_removing_one_of_several_behind_proxy_certificates_does_not_touch_the_supervisor_config(h):
+    """The bench still legitimately needs the trust for the domain that remains: the mixed-bench
+    guard on add means every other certificate here already agreed to it too."""
+    h.bench.bench_config.ssl_certificates = [_cert(DOMAIN, behind_proxy=True), _cert(ALIAS, behind_proxy=True)]
+
+    _remove(h, domain=DOMAIN)
+
+    h.bench.supervisor.setup_supervisor.assert_not_called()
+    assert not any("fm restart" in p for p in h.prints())
+
+
+@pytest.mark.timeout(15)
+def test_removing_a_non_behind_proxy_certificate_never_touches_the_supervisor_config(h):
+    h.bench.bench_config.ssl_certificates = [_cert(DOMAIN, behind_proxy=False)]
+
+    _remove(h)
+
+    h.bench.supervisor.setup_supervisor.assert_not_called()
+    assert not any("fm restart" in p for p in h.prints())
+
+
+@pytest.mark.timeout(15)
+def test_remove_supervisor_regen_failure_warns_but_does_not_abort(h):
+    h.bench.bench_config.ssl_certificates = [_cert(DOMAIN, behind_proxy=True)]
+    h.bench.supervisor.setup_supervisor.side_effect = RuntimeError("disk full")
+
+    _remove(h)  # must not raise
+
+    assert any("Could not update" in w and "gunicorn wrapper" in w and "disk full" in w for w in h.warnings())
+    assert not any("fm restart" in p for p in h.prints())
+    assert f"SSL certificate removed for {DOMAIN}" in h.prints()
+
+
+# ======================================================================================
+# _add_bench_certificate / _remove_bench_certificate -- dev-environment benches run
+# `bench serve` under supervisor, never gunicorn, so the wrapper's trust has nothing live
+# to apply to (see user-script.sh: FRAPPE_ENV=dev never links web.fm.supervisor.conf).
+# ======================================================================================
+
+
+@pytest.mark.timeout(15)
+def test_add_with_behind_proxy_on_a_dev_bench_writes_the_wrapper_but_never_says_restart(h):
+    h.bench.bench_config.environment_type = FMBenchEnvType.dev
+
+    _add(h, behind_proxy=True, dev=True)
+
+    # Written anyway: harmless, and correct the moment the bench is switched to prod.
+    h.bench.supervisor.setup_supervisor.assert_called_once_with(h.bench.path, force=True)
+    assert not any("fm restart" in p for p in h.prints())
+
+
+@pytest.mark.timeout(15)
+def test_add_with_behind_proxy_on_a_dev_bench_says_the_trust_has_nothing_to_apply_to(h):
+    h.bench.bench_config.environment_type = FMBenchEnvType.dev
+
+    _add(h, behind_proxy=True, dev=True)
+
+    message = next(p for p in h.prints() if "nothing to apply to" in p)
+    assert "bench serve" in message
+    assert "not gunicorn" in message
+    assert f"fm update {BENCH} --environment prod" in message
+
+
+@pytest.mark.timeout(15)
+def test_add_with_behind_proxy_on_a_prod_bench_never_mentions_dev_mode(h):
+    """The default harness bench is prod; this pins that the two branches are genuinely
+    exclusive, not just the dev one failing to trigger."""
+    _add(h, behind_proxy=True, dev=True)
+
+    assert not any("nothing to apply to" in p for p in h.prints())
+    assert not any("bench serve" in p for p in h.prints())
+
+
+@pytest.mark.timeout(15)
+def test_removing_the_last_behind_proxy_certificate_on_a_dev_bench_never_says_restart(h):
+    h.bench.bench_config.environment_type = FMBenchEnvType.dev
+    h.bench.bench_config.ssl_certificates = [_cert(DOMAIN, behind_proxy=True)]
+
+    _remove(h)
+
+    h.bench.supervisor.setup_supervisor.assert_called_once_with(h.bench.path, force=True)
+    assert not any("fm restart" in p for p in h.prints())
+    message = next(p for p in h.prints() if "never active" in p)
+    assert "bench serve" in message
 
 
 @pytest.mark.timeout(15)

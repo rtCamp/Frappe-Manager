@@ -55,6 +55,7 @@ def build_letsencrypt_certificate(
     cname: str | None,
     acme_client: str | None = None,
     dns_provider: str | None = None,
+    behind_proxy: bool = False,
 ) -> LetsencryptSSLCertificate:
     """Build the Let's Encrypt certificate for a domain.
 
@@ -70,6 +71,10 @@ def build_letsencrypt_certificate(
 
     A None ``acme_client`` coalesces to the field's own default rather than being forwarded, because
     forwarding None would replace the default with nothing.
+
+    ``behind_proxy`` defaults False: only `fm ssl add`'s bench-mode branch ever passes it, since the
+    mode needs a bench's own nginx/gunicorn to wire trust into. `external_domain_manager` and the
+    standalone command helper build this same object for external domains and never pass it.
     """
     return LetsencryptSSLCertificate(
         domain=domain,
@@ -77,4 +82,5 @@ def build_letsencrypt_certificate(
         acme_client=acme_client or "acme.sh",
         dns_provider=dns_provider,
         delegation_cname=cname,
+        behind_proxy=behind_proxy,
     )

@@ -220,6 +220,7 @@ class TestCertificateFields:
             "challenge_type": LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             "enabled": True,
             "hsts": "off",
+            "behind_proxy": False,
             "acme_client": "certbot",
             # None because a standalone certificate has no bench, so there is no bench-scoped
             # `[ssl.dns_providers]` for a label to name; `fm ssl add` refuses --dns-provider
@@ -240,6 +241,7 @@ class TestCertificateFields:
             "challenge_type": LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             "enabled": True,
             "hsts": "off",
+            "behind_proxy": False,
             "acme_client": "certbot",
             "dns_provider": None,
             "delegation_cname": "app-example-com.fm.com",

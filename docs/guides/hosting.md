@@ -74,7 +74,7 @@ fm ssl add clienttwo.example.com/clienttwo.example.com
 
 - **Backups**: fm does not back up site data; `bench backup` does, and the artefacts live inside the bench you are backing up. See [Backup & Restore](backup-restore.md), then get the files off the server.
 - **Upgrading fm**: keep the CLI and your benches in sync; see [Upgrading fm](../getting-started/installation.md#upgrading-fm) (`fm self update` then `fm migrate all`).
-- **Behind a CDN or load balancer**: run `fm self real-ip` so the proxy logs and any `fm auth --allow-ip` list see the visitor's address instead of the CDN's.
+- **Behind a CDN or load balancer**: run `fm self real-ip` so the proxy logs and any `fm auth --allow-ip` list see the visitor's address instead of the CDN's, and issue that bench's certificates with `--behind-proxy` so the origin's redirect and Frappe's request handling stop assuming a direct TLS connection ([SSL guide](ssl.md#behind-proxy)).
 - **Monitoring**: report the web process to New Relic APM; see [Monitoring](environments.md#monitoring-new-relic).
 - **Web concurrency**: Gunicorn worker and thread counts have sensible RAM/CPU-based defaults; see [Web Serving & Concurrency](../concepts/web-serving.md).
 - **Background jobs**: queue and worker tuning; see [Background Jobs & Workers](../concepts/background-jobs.md).

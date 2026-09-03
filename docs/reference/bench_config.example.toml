@@ -261,6 +261,14 @@
 # enabled = ...
 # Strict-Transport-Security value the proxy sends, or 'off'. [default: 'off']
 # hsts = ...
+# The origin sits behind an external TLS terminator (`fm ssl add --behind-proxy`). Keys the
+# HTTP->HTTPS redirect off the forwarded proto instead of the origin's own always-http connection
+# scheme (per-domain, like the redirect itself), and makes the bench's gunicorn trust that header
+# for inbound requests -- bench-WIDE, since one gunicorn serves every domain the bench has, so
+# every certificate on a bench must agree on this flag (`_add_bench_certificate` refuses a
+# mismatch). A modifier on the certificate method, not a certificate type: dev, letsencrypt and
+# custom certificates can all carry it. [default: False]
+# behind_proxy = ...
 # ACME client used for issuance. [default: 'acme.sh']
 # acme_client = ...
 # Label of the `[ssl.dns_providers]` credential set that authenticates this domain's DNS-01

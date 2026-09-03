@@ -49,6 +49,7 @@ from frappe_manager.site_manager.modules.bench_docker import BenchDockerOps
 from frappe_manager.site_manager.modules.bench_supervisor import BenchSupervisor
 from frappe_manager.site_manager.modules.compose_shape import ServiceSpec
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager.certificate import SSLCertificate
 
 DOCKER_MODULE = "frappe_manager.site_manager.modules.bench_docker"
 SHAPE_MODULE = "frappe_manager.site_manager.modules.compose_shape"
@@ -418,6 +419,22 @@ class TestGenerateCompose:
         ops.compose_file_manager.write_to_file.assert_called_once_with()
 
     @pytest.mark.timeout(15)
+    def test_nginx_gets_a_site_scoped_network_alias_every_regen(self, tmp_path, monkeypatch):
+        """`docker-compose.tmpl` bakes `nginx-site` in for a BRAND NEW bench, same as
+        `frappe-site`/`socketio-site`, but this compose file is loaded from disk and mutated in
+        place on every later regen (see the CA mount comment in generate_compose), never
+        re-rendered from the template -- so a bench that already existed before this alias was
+        introduced needs it applied explicitly, every time, or `fm-web-server.sh`'s
+        `getent hosts nginx-site` (see behind_proxy) never resolves on that bench."""
+        ops = _ops(tmp_path)
+        self._patch_shape(monkeypatch)
+        monkeypatch.setattr(f"{DOCKER_MODULE}.get_proxy_ip_on_frontend", lambda: None)
+
+        ops.generate_compose({})
+
+        ops.compose_file_manager.set_network_alias.assert_called_once_with("nginx", "site-network", ["nginx-site"])
+
+    @pytest.mark.timeout(15)
     def test_prefix_is_derived_from_the_bench_name_not_from_a_domain(self, tmp_path, monkeypatch):
         """The container-name prefix is BENCH-scoped: it names the containers, and the
         leftover-container cleanup, admin tools, the database config and the workers compose all
@@ -768,6 +785,91 @@ class TestCaTrustIdempotency:
         env = ops.compose_file_manager.yml["services"]["frappe"]["environment"]
         assert "NODE_EXTRA_CA_CERTS" not in env
         assert "REQUESTS_CA_BUNDLE" not in env
+
+
+class TestNginxSiteAliasRollout:
+    """A real `ComposeFile`, not the all-mock `_ops` harness: proves the site-scoped nginx alias
+    actually lands in the on-disk YAML, including for a bench whose compose predates this fix
+    (no `nginx-site` in its `networks.site-network.aliases` at all -- the exact shape an existing
+    bench has today, since this file is loaded from disk and mutated in place, never re-rendered
+    from docker-compose.tmpl once it exists)."""
+
+    @staticmethod
+    def _real_ops_with_nginx(tmp_path, *, pre_existing_alias: bool) -> BenchDockerOps:
+        from frappe_manager.docker import ComposeFile
+
+        bench_path = tmp_path / "bench"
+        bench_path.mkdir(parents=True, exist_ok=True)
+        compose_path = bench_path / "docker-compose.yml"
+        nginx_networks = (
+            "      site-network:\n        aliases: [nginx-site]\n      global-frontend-network: {}\n"
+            if pre_existing_alias
+            else "      site-network: {}\n      global-frontend-network: {}\n"
+        )
+        compose_path.write_text(
+            "services:\n"
+            "  frappe:\n    image: frappe:pinned\n    volumes: []\n    environment: {}\n"
+            "  socketio:\n    image: frappe:pinned\n    volumes: []\n    environment: {}\n"
+            "  schedule:\n    image: frappe:pinned\n    volumes: []\n    environment: {}\n"
+            "  nginx:\n    image: nginx:pinned\n    networks:\n" + nginx_networks + "\n"
+            "volumes: {}\nnetworks:\n  site-network: {}\n  global-frontend-network: {}\n"
+        )
+        ops = object.__new__(BenchDockerOps)
+        ops.logger = MagicMock()
+        ops.docker_client = MagicMock()
+        ops.compose_file_manager = ComposeFile(compose_path)
+        ops.config = SimpleNamespace(
+            name="bench",
+            runtime=BenchRuntime.mount,
+            domains=["bench"],
+            site_names=["bench"],
+            ssl_certificates=[],
+            container_name_prefix="fm__bench",
+        )
+        ops.path = bench_path
+        ops.output = MagicMock()
+        return ops
+
+    @staticmethod
+    def _patch_shape(monkeypatch):
+        monkeypatch.setattr(f"{SHAPE_MODULE}.bench_service_specs", MagicMock(return_value=()))
+        monkeypatch.setattr(f"{SHAPE_MODULE}.apply_specs", MagicMock())
+        monkeypatch.setattr(f"{DOCKER_MODULE}.get_proxy_ip_on_frontend", lambda: None)
+
+    @pytest.mark.timeout(15)
+    def test_a_bench_that_predates_the_alias_gets_it_retrofitted_on_the_next_regen(self, tmp_path, monkeypatch):
+        ops = self._real_ops_with_nginx(tmp_path, pre_existing_alias=False)
+        self._patch_shape(monkeypatch)
+        assert ops.compose_file_manager.get_network_alias("nginx", "site-network") is None
+
+        ops.generate_compose({})
+
+        assert ops.compose_file_manager.get_network_alias("nginx", "site-network") == ["nginx-site"]
+
+    @pytest.mark.timeout(15)
+    def test_a_bench_that_already_has_the_alias_keeps_exactly_one_regardless_of_repeat_regens(
+        self, tmp_path, monkeypatch
+    ):
+        ops = self._real_ops_with_nginx(tmp_path, pre_existing_alias=True)
+        self._patch_shape(monkeypatch)
+
+        ops.generate_compose({})
+        ops.generate_compose({})
+        ops.generate_compose({})
+
+        assert ops.compose_file_manager.get_network_alias("nginx", "site-network") == ["nginx-site"]
+
+    @pytest.mark.timeout(15)
+    def test_the_alias_survives_alongside_the_global_frontend_network_entry(self, tmp_path, monkeypatch):
+        """`set_network_alias` replaces only the named network's own entry; nginx's OTHER network
+        (global-frontend-network, where the external terminator's proxy actually reaches it) must
+        not be disturbed."""
+        ops = self._real_ops_with_nginx(tmp_path, pre_existing_alias=False)
+        self._patch_shape(monkeypatch)
+
+        ops.generate_compose({})
+
+        assert "global-frontend-network" in ops.compose_file_manager.yml["services"]["nginx"]["networks"]
 
 
 class TestRenderImageCompose:
@@ -1386,7 +1488,9 @@ class TestRequiredImagesCheck:
 # ============================================================== BenchSupervisor
 
 
-def _supervisor(*, newrelic_enabled=False, newrelic_license_key=None, bench_name="test.localhost") -> BenchSupervisor:
+def _supervisor(
+    *, newrelic_enabled=False, newrelic_license_key=None, bench_name="test.localhost", ssl_certificates=()
+) -> BenchSupervisor:
     sup = object.__new__(BenchSupervisor)
     sup.logger = MagicMock()
     sup.docker_client = MagicMock()
@@ -1399,6 +1503,7 @@ def _supervisor(*, newrelic_enabled=False, newrelic_license_key=None, bench_name
         monitoring=MonitoringConfig(newrelic=NewRelicConfig(enabled=newrelic_enabled, license_key=newrelic_license_key))
         if newrelic_enabled or newrelic_license_key
         else None,
+        ssl_certificates=list(ssl_certificates),
     )
     sup.bench_name = bench_name
     sup.output = MagicMock()
@@ -1734,6 +1839,90 @@ class TestGunicornWrapper:
         )
 
         assert (tmp_path / "fm-web-server.sh").stat().st_mode & 0o111 == 0o111
+
+
+_GUNICORN_CTX = {
+    "webserver_port": 8080,
+    "gunicorn_workers": 3,
+    "gunicorn_threads": 2,
+    "gunicorn_max_requests": 500,
+    "gunicorn_max_requests_jitter": 50,
+    "http_timeout": 300,
+    "bench_dir": "/workspace/frappe-bench",
+}
+
+
+class TestForwardedProtoTrust:
+    """`--behind-proxy` needs gunicorn to trust X-Forwarded-Proto from the bench's own nginx; every
+    other bench must get exactly today's script, unchanged."""
+
+    @pytest.mark.timeout(15)
+    def test_a_bench_with_no_certificates_gets_no_trust_resolution_block(self, tmp_path):
+        sup = _supervisor()
+
+        sup._write_gunicorn_wrapper(tmp_path, _GUNICORN_CTX)
+
+        script = (tmp_path / "fm-web-server.sh").read_text()
+        assert "getent hosts nginx" not in script
+        assert "--forwarded-allow-ips" not in script
+
+    @pytest.mark.timeout(15)
+    def test_a_certificate_with_behind_proxy_false_gets_no_trust_resolution_block(self, tmp_path):
+        cert = SSLCertificate(domain="bench.localhost", ssl_type=SUPPORTED_SSL_TYPES.dev, behind_proxy=False)
+        sup = _supervisor(ssl_certificates=[cert])
+
+        sup._write_gunicorn_wrapper(tmp_path, _GUNICORN_CTX)
+
+        script = (tmp_path / "fm-web-server.sh").read_text()
+        assert "getent hosts nginx" not in script
+        assert "--forwarded-allow-ips" not in script
+
+    @pytest.mark.timeout(15)
+    def test_a_behind_proxy_certificate_adds_the_trust_resolution_block(self, tmp_path):
+        cert = SSLCertificate(domain="bench.localhost", ssl_type=SUPPORTED_SSL_TYPES.dev, behind_proxy=True)
+        sup = _supervisor(ssl_certificates=[cert])
+
+        sup._write_gunicorn_wrapper(tmp_path, _GUNICORN_CTX)
+
+        script = (tmp_path / "fm-web-server.sh").read_text()
+        assert "getent hosts nginx-site 2>/dev/null" in script
+        # NOT the bare service name: it also resolves on the shared global-frontend-network, where
+        # every bench's nginx answers to it, so it round-robins across benches (see
+        # docker-compose.tmpl's nginx-site alias, scoped to this bench's own site-network).
+        assert "getent hosts nginx 2>/dev/null" not in script
+        assert "--forwarded-allow-ips=$FM_NGINX_IP" in script
+        # Never the wildcard: that would let the global proxy's passthrough of a client-supplied
+        # X-Forwarded-Proto control request.scheme for anyone, not just the bench's own nginx.
+        assert "--forwarded-allow-ips=*" not in script
+
+    @pytest.mark.timeout(15)
+    def test_one_behind_proxy_certificate_among_several_is_enough(self, tmp_path):
+        """The flag is bench-scoped, not per-domain: gunicorn serves every site the bench has, so
+        one domain opting in means the whole bench's gunicorn needs the trust wired."""
+        certs = [
+            SSLCertificate(domain="a.localhost", ssl_type=SUPPORTED_SSL_TYPES.dev, behind_proxy=False),
+            SSLCertificate(domain="b.localhost", ssl_type=SUPPORTED_SSL_TYPES.dev, behind_proxy=True),
+        ]
+        sup = _supervisor(ssl_certificates=certs)
+
+        sup._write_gunicorn_wrapper(tmp_path, _GUNICORN_CTX)
+
+        script = (tmp_path / "fm-web-server.sh").read_text()
+        assert "getent hosts nginx-site 2>/dev/null" in script
+
+    @pytest.mark.timeout(15)
+    def test_resolution_failure_falls_back_to_no_trust_not_to_everyone(self, tmp_path):
+        """If `getent` cannot resolve nginx (unready DNS, transient), the script must degrade to
+        gunicorn's own default (nothing forwarded is trusted), not silently add an empty or
+        wildcard --forwarded-allow-ips."""
+        cert = SSLCertificate(domain="bench.localhost", ssl_type=SUPPORTED_SSL_TYPES.dev, behind_proxy=True)
+        sup = _supervisor(ssl_certificates=[cert])
+
+        sup._write_gunicorn_wrapper(tmp_path, _GUNICORN_CTX)
+
+        script = (tmp_path / "fm-web-server.sh").read_text()
+        assert 'if [[ -n "$FM_NGINX_IP" ]]; then' in script
+        assert "--forwarded-allow-ips=$FM_NGINX_IP" in script.split('if [[ -n "$FM_NGINX_IP" ]]; then')[1]
 
 
 class TestSetupSupervisor:

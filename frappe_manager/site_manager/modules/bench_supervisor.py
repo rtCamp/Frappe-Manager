@@ -462,11 +462,24 @@ class BenchSupervisor:
             f" frappe.app:application --preload"
         )
 
+        # `--behind-proxy` (fm ssl add) needs gunicorn to trust X-Forwarded-Proto from the bench's
+        # own nginx, otherwise the post-login redirect, the session cookie's Secure flag and OAuth's
+        # advertised endpoints all stay on http even though the certificate and host_name are https
+        # (see certificate.py's `behind_proxy` docstring). Gunicorn's default trusts only 127.0.0.1,
+        # which nginx is not: it is a peer container. Scoped to benches that opt in, and never `*`:
+        # the global proxy passes a client-supplied X-Forwarded-Proto straight through, so trusting
+        # every peer would let any anonymous client control request.scheme. The template resolves
+        # the trusted IP itself, at gunicorn-start time inside the container (see
+        # fm-web-server.sh.tmpl): nginx's address on `site-network` is dynamic, and Docker only
+        # guarantees it is current from inside a running container, not from here on the host.
+        trust_forwarded_proto = any(cert.behind_proxy for cert in self.config.ssl_certificates)
+
         template_path = get_template_path("fm-web-server.sh.tmpl")
         script = Template(template_path.read_text()).render(
             bench_dir=context["bench_dir"],
             gunicorn_args=gunicorn_args,
             bench_name=self.bench_name,
+            trust_forwarded_proto=trust_forwarded_proto,
         )
 
         wrapper_path = Path(config_dir) / "fm-web-server.sh"

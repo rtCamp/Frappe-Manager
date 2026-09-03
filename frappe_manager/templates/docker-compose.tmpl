@@ -43,6 +43,13 @@ services:
       - 80
     networks:
       site-network:
+        # Same hazard as `frappe-site`/`socketio-site` above: the bare service name `nginx` also
+        # resolves on the shared global-frontend-network, where every bench's nginx carries it, so
+        # DNS round-robins across benches. `fm-web-server.sh.tmpl` resolves THIS alias, not the
+        # bare name, to trust the one nginx container that actually proxies to this bench's own
+        # gunicorn (see ssl_manager/certificate.py's `behind_proxy` docstring).
+        aliases:
+          - nginx-site
       global-frontend-network:
 
   socketio:

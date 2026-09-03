@@ -207,6 +207,15 @@ class BenchDockerOps:
             auto_save=False,
         )
 
+        # `docker-compose.tmpl` bakes this alias into the nginx service, same as `frappe-site` and
+        # `socketio-site` -- but ONLY a bench built fresh from the template gets it that way. This
+        # compose file is loaded from disk and mutated in place on every later regen (see the CA
+        # mount comment above), never re-rendered from the template, so a bench that already
+        # existed before this alias was introduced would otherwise carry it forever. Set
+        # unconditionally, every regen: `set_network_alias` overwrites the same value on a bench
+        # that already has it, so this is a no-op write there, not a growing list.
+        self.compose_file_manager.set_network_alias("nginx", "site-network", ["nginx-site"])
+
         restart_policy = inputs.get("restart_policy", "no")
         self.compose_file_manager.set_all_services_restart(restart_policy)
 

@@ -210,7 +210,7 @@ class SSLCertificateManager:
                     alias_domains=None,
                 )
 
-                self.vhost_manager.enable_https_redirect(certificate.domain)
+                self.vhost_manager.enable_https_redirect(certificate.domain, behind_proxy=certificate.behind_proxy)
                 self.output_handler.print(f"Created vhost.d redirect config for {certificate.domain}")
                 self.logger.debug("Enabled HTTPS redirect", extra_fields={"domain": certificate.domain})
 
@@ -449,7 +449,7 @@ class SSLCertificateManager:
             )
 
             # Enable HTTPS redirect for this domain
-            self.vhost_manager.enable_https_redirect(certificate.domain)
+            self.vhost_manager.enable_https_redirect(certificate.domain, behind_proxy=certificate.behind_proxy)
             self.output_handler.print(f"Created vhost.d redirect config for {certificate.domain}")
 
         # Restart nginx once after all certificates are generated

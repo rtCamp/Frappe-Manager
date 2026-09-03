@@ -296,7 +296,9 @@ class TestSSLCertificateManagerAddCertificate:
         ssl_certificate_manager.link_manager.link_certificate.assert_called_once()
 
         # Verify vhost redirect was enabled
-        ssl_certificate_manager.vhost_manager.enable_https_redirect.assert_called_once_with("new-domain.com")
+        ssl_certificate_manager.vhost_manager.enable_https_redirect.assert_called_once_with(
+            "new-domain.com", behind_proxy=False
+        )
 
         # Verify nginx was restarted
         ssl_certificate_manager.nginx_controller.restart.assert_called_once()

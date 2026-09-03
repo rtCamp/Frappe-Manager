@@ -10,6 +10,7 @@ All notable changes to Frappe Manager are documented here.
 ### Features
 
 - **ssl:** Add `fm ssl add --custom` to import an operator-supplied certificate (`--cert` and `--key`, optional `--ca` trusted inside bench containers for outbound HTTPS); `fm ssl renew` deliberately refuses to rotate an imported certificate and directs the operator to re-run the import
+- **ssl:** Add `fm ssl add --behind-proxy` (alias `--edge-tls`) for origins behind an external TLS terminator such as Cloudflare: the redirect keys on the forwarded proto, the bench's web server trusts that header (per bench, never globally), and fm hints when a domain resolves into Cloudflare's ranges
 
 ## v0.19.0.dev0 - 2026-04-14
 

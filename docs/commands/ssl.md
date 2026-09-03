@@ -167,6 +167,7 @@ $ fm ssl add BENCH(/DOMAIN) [OPTIONS]
 * `--cert`: Certificate file (PEM). --custom only.
 * `--key`: Private key file (PEM), unencrypted. --custom only.
 * `--ca`: CA bundle file (PEM). Optional; when given, bench containers trust it for outbound self-calls once you run 'fm start BENCH' to apply the updated compose. --custom only.
+* `--edge-tls, --behind-proxy`: For an origin behind an external TLS terminator (e.g. Cloudflare Flexible: browser to edge over HTTPS, edge to origin over plain HTTP). Keys the origin's HTTP->HTTPS redirect off the forwarded proto instead of its own always-http connection, so it stops looping. Also makes the bench's gunicorn trust that header for inbound requests -- bench-wide, for every domain the bench serves, not just this one, so every certificate on a bench must agree on this flag. Still issues a certificate: needs an explicit method (--dev, --custom, or --challenge), since the mode's own point is a locally trusted certificate for the origin's own :443. Bench mode only.
 
 
 ## Examples
@@ -227,6 +228,14 @@ acct-b is a label stored by fm ssl dns-config cloudflare --name acct-b, at eithe
 
 ```bash
 fm ssl add mybench/example.com --challenge dns01 --dns-provider acct-b
+```
+
+### Issue behind Cloudflare's proxy
+
+The redirect keys on the forwarded proto so it stops looping; pair with Cloudflare SSL mode Full (strict).
+
+```bash
+fm ssl add mybench/example.com --challenge dns01 --behind-proxy
 ```
 
 

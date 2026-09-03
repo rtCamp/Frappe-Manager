@@ -6,7 +6,9 @@ from typing import TYPE_CHECKING
 import typer
 from rich.table import Table
 
-from frappe_manager.output_manager import spinner
+from frappe_manager.output_manager import OutputHandler, spinner
+from frappe_manager.site_manager.bench_config import FMBenchEnvType
+from frappe_manager.site_manager.modules.cdn_detection import CDNProxyStatus, detect_cloudflare_proxy
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import CustomCertificate, SSLCertificate
@@ -37,6 +39,27 @@ def _site_serving(bench: Bench, domain: str) -> str | None:
     caller treats a missing value as "leave host_name alone".
     """
     return bench.bench_config.get_site_mappings().get(domain)
+
+
+def _print_cdn_hint(output: OutputHandler, domain: str, behind_proxy: bool) -> None:
+    """Advisory only: never raises, never changes what `fm ssl add` does. `detect_cloudflare_proxy`
+    itself guarantees no exception reaches here; `undetermined` (no A record, DNS timeout, no `dig`,
+    ...) prints nothing, because there is nothing established to report.
+    """
+    result = detect_cloudflare_proxy(domain, output=output)
+    if result.status == CDNProxyStatus.proxied and not behind_proxy:
+        output.print(
+            f"{domain} resolves into Cloudflare's published ranges. If it is proxied (orange-clouded), "
+            "add --behind-proxy so the origin's own redirect and self-calls stop assuming a direct "
+            "TLS connection.",
+            emoji_code=":information:",
+        )
+    elif result.status == CDNProxyStatus.not_proxied and behind_proxy:
+        output.print(
+            f"{domain} does not currently resolve into a known CDN range; --behind-proxy may not be "
+            "necessary here.",
+            emoji_code=":information:",
+        )
 
 
 def _regenerate_bench_compose(bench: Bench, output) -> bool:
@@ -70,6 +93,38 @@ def _regenerate_bench_compose(bench: Bench, output) -> bool:
         return True
 
 
+def _regenerate_bench_supervisor_config(bench: Bench, output) -> bool:
+    """Resync `fm-web-server.sh` (the gunicorn wrapper) with the bench's current `--behind-proxy`
+    certificates after an add/remove.
+
+    Pure file write, like `_regenerate_bench_compose` above -- but the command that actually
+    APPLIES it is the other one. `fm start` only rewrites this file when told with
+    `--reconfigure-supervisor`, and even then nothing re-execs the running gunicorn process:
+    `docker_ops.start` on an unchanged compose does not recreate the container, so the OLD script
+    keeps running underneath. What applies a changed wrapper is `fm restart`: its default
+    (non-`--container`) leg runs `supervisorctl restart`, which re-execs the supervisor program's
+    own `command=` line -- this exact script -- fresh from disk. This is the mirror image of
+    `_regenerate_bench_compose`'s own docstring: that one exists because `fm restart` CANNOT reach
+    a container's already-created mounts/env, and this one exists because `fm start` cannot reach
+    an already-running supervisor program's in-memory command line.
+
+    Returns True if the file was rewritten, so the caller only prints the restart instruction when
+    there is actually something for it to apply.
+    """
+    try:
+        bench.supervisor.setup_supervisor(bench.path, force=True)
+    except Exception as e:
+        # Non-fatal, same reasoning as _regenerate_bench_compose: the certificate itself is
+        # already added/removed by the time this runs.
+        output.warning(
+            f"Could not update {bench.name}'s gunicorn wrapper: {e}. "
+            f"Run 'fm start {bench.name} --reconfigure-supervisor' to retry."
+        )
+        return False
+    else:
+        return True
+
+
 def _add_bench_certificate(
     ctx: typer.Context,
     benchname: str,
@@ -83,6 +138,7 @@ def _add_bench_certificate(
     cert_path: Path | None = None,
     key_path: Path | None = None,
     ca_path: Path | None = None,
+    behind_proxy: bool = False,
 ):
     """Add SSL certificate for a bench domain (existing logic extracted)."""
 
@@ -100,6 +156,34 @@ def _add_bench_certificate(
         )
         raise typer.Exit(1)
 
+    # --behind-proxy trusts X-Forwarded-Proto for gunicorn (see bench_supervisor.py), and that
+    # trust is bench-WIDE: one supervisor-managed gunicorn process serves every site the bench
+    # has, unlike the redirect config, which is genuinely per-domain (a separate vhost.d file
+    # each). Bench nginx does not recompute the header, it relays whatever it received verbatim
+    # (Docker/nginx/template.conf's @webserver location: `proxy_set_header X-Forwarded-Proto
+    # $http_x_forwarded_proto`), and the global proxy trusts a client-supplied value unless the
+    # request came with none at all (its own `map ... default $http_x_forwarded_proto`). So once
+    # ANY domain on a bench turns this on, an anonymous client can forge the header for every
+    # OTHER domain that bench serves too -- stripping the Secure flag from a direct domain's
+    # session cookie, or spoofing https on a plain request. Scoping the trusted peer IP narrower
+    # (just bench nginx) does not close this: bench nginx is the relay, not the origin of the
+    # value. A bench must therefore agree on --behind-proxy across every certificate it holds.
+    disagreeing = sorted(
+        cert.domain for cert in bench.bench_config.ssl_certificates if cert.behind_proxy != behind_proxy
+    )
+    if disagreeing:
+        new_state = "behind an external terminator (--behind-proxy)" if behind_proxy else "not behind one"
+        other_state = "not behind one" if behind_proxy else "behind an external terminator (--behind-proxy)"
+        verb = "are" if len(disagreeing) > 1 else "is"
+        output.display_error(
+            f"--behind-proxy trusts the forwarded proto for gunicorn, which serves the whole bench, "
+            f"not one domain. {domain} is being added {new_state}, but {', '.join(disagreeing)} on "
+            f"'{benchname}' {verb} already configured as {other_state}: gunicorn cannot trust the "
+            "header for one domain and not another. Match the bench's existing setting, or use a "
+            "separate bench."
+        )
+        raise typer.Exit(1)
+
     if cname and challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         output.display_error("CNAME delegation (--cname) can only be used with DNS-01 challenge")
         raise typer.Exit(1)
@@ -109,6 +193,8 @@ def _add_bench_certificate(
         raise typer.Exit(1)
 
     output.change_head(f"Adding SSL certificate for {domain}")
+
+    _print_cdn_hint(output, domain, behind_proxy)
 
     if dev:
         if cname:
@@ -120,6 +206,7 @@ def _add_bench_certificate(
         cert = SSLCertificate(
             domain=domain,
             ssl_type=SUPPORTED_SSL_TYPES.dev,
+            behind_proxy=behind_proxy,
         )
     elif custom:
         # cname/dns_provider/challenge/dry_run/standalone incompatibilities are already refused in
@@ -130,9 +217,12 @@ def _add_bench_certificate(
             cert_source=cert_path,
             key_source=key_path,
             ca_source=ca_path,
+            behind_proxy=behind_proxy,
         )
     else:
-        cert = build_letsencrypt_certificate(domain, challenge, cname, dns_provider=dns_provider)
+        cert = build_letsencrypt_certificate(
+            domain, challenge, cname, dns_provider=dns_provider, behind_proxy=behind_proxy
+        )
         if dns_provider:
             # Resolve now: at issuance a mistyped label aborts the run after nginx and config work,
             # whereas here the user is still sitting in front of the command.
@@ -170,6 +260,29 @@ def _add_bench_certificate(
                 emoji_code=":information:",
             )
 
+        if behind_proxy and _regenerate_bench_supervisor_config(bench, output):
+            if bench.bench_config.environment_type == FMBenchEnvType.prod:
+                output.print(
+                    f"Run 'fm restart {benchname}' to apply the forwarded-proto trust to gunicorn "
+                    "(the compose converge above does not reach it).",
+                    emoji_code=":information:",
+                )
+            else:
+                # A dev-environment bench runs `bench serve` under supervisor, not gunicorn (see
+                # user-script.sh: FRAPPE_ENV=dev links frappe-dev.conf, never web.fm.supervisor.conf,
+                # which is the only place fm-web-server.sh is referenced). The wrapper is still
+                # written -- harmless, and correct the moment the bench is switched to prod -- but
+                # telling the operator to restart something gunicorn never runs here would be an
+                # instruction that does nothing. The redirect half of --behind-proxy is unaffected:
+                # it runs at the global proxy, independent of which web server this bench runs.
+                output.print(
+                    f"{domain}'s certificate trusts the forwarded proto for gunicorn, but "
+                    f"'{benchname}' is a dev-environment bench (runs 'bench serve', not gunicorn), so "
+                    "that trust has nothing to apply to yet. It takes effect if the bench is later "
+                    f"switched to prod ('fm update {benchname} --environment prod').",
+                    emoji_code=":information:",
+                )
+
 
 def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, yes: bool):
     services_manager = ctx.obj["services"]
@@ -197,6 +310,10 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
 
     output.change_head(f"Removing SSL certificate for {domain}")
 
+    # Captured before the removal call: `certificate_for` returns a disabled default (behind_proxy
+    # False) once the certificate is gone, which would hide that THIS domain needed the trust.
+    had_behind_proxy = bench.bench_config.certificate_for(domain).behind_proxy
+
     try:
         with spinner(output, f"Removing SSL certificate for {domain}"):
             bench.certificate_manager.remove_certificate_by_domain(domain)
@@ -220,6 +337,29 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
                 "definition changed; running jobs are undisturbed until then).",
                 emoji_code=":information:",
             )
+
+        # `remove_certificate_by_domain` mutates the same list `bench.bench_config.ssl_certificates`
+        # points at, so this reads the POST-removal set: whether gunicorn still legitimately needs
+        # the trust for another --behind-proxy domain the bench still serves. If nothing does, the
+        # wrapper must be rewritten and the operator told to restart, or gunicorn keeps trusting a
+        # forwarded proto no certificate is asking for anymore -- the exact spoofable state the
+        # mixed-bench guard on add exists to prevent in the first place.
+        still_needed = any(cert.behind_proxy for cert in bench.bench_config.ssl_certificates)
+        if had_behind_proxy and not still_needed and _regenerate_bench_supervisor_config(bench, output):
+            if bench.bench_config.environment_type == FMBenchEnvType.prod:
+                output.print(
+                    f"Run 'fm restart {benchname}' to drop the forwarded-proto trust from gunicorn "
+                    "(the compose converge above does not reach it).",
+                    emoji_code=":information:",
+                )
+            else:
+                # See the matching branch in _add_bench_certificate: a dev-environment bench never
+                # actually ran gunicorn with this trust active, so there is nothing live to drop.
+                output.print(
+                    f"'{benchname}' is a dev-environment bench (runs 'bench serve', not gunicorn), so "
+                    "the forwarded-proto trust just removed from the wrapper was never active.",
+                    emoji_code=":information:",
+                )
 
     except SSLCertificateNotFoundError as e:
         output.display_error(f"Certificate not found: {e}")

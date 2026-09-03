@@ -61,6 +61,12 @@ from .helpers import get_output_handler
     detail="acct-b is a label stored by fm ssl dns-config cloudflare --name acct-b, at either global or bench scope.",
     benchname="mybench",
 )
+@example(
+    "Issue behind Cloudflare's proxy",
+    "{benchname}/example.com --challenge dns01 --behind-proxy",
+    detail="The redirect keys on the forwarded proto so it stops looping; pair with Cloudflare SSL mode Full (strict).",
+    benchname="mybench",
+)
 def add_certificate(
     ctx: typer.Context,
     address: BenchDomainArgument = None,
@@ -136,6 +142,23 @@ def add_certificate(
             help="CA bundle file (PEM). Optional; when given, bench containers trust it for outbound self-calls once you run 'fm start BENCH' to apply the updated compose. --custom only.",
         ),
     ] = None,
+    behind_proxy: Annotated[
+        bool,
+        typer.Option(
+            "--behind-proxy",
+            "--edge-tls",
+            help=(
+                "For an origin behind an external TLS terminator (e.g. Cloudflare Flexible: browser to "
+                "edge over HTTPS, edge to origin over plain HTTP). Keys the origin's HTTP->HTTPS redirect "
+                "off the forwarded proto instead of its own always-http connection, so it stops looping. "
+                "Also makes the bench's gunicorn trust that header for inbound requests -- bench-wide, "
+                "for every domain the bench serves, not just this one, so every certificate on a bench "
+                "must agree on this flag. Still issues a certificate: needs an explicit method (--dev, "
+                "--custom, or --challenge), since the mode's own point is a locally trusted certificate "
+                "for the origin's own :443. Bench mode only."
+            ),
+        ),
+    ] = False,
 ):
     """
     Issue or import an SSL certificate for a domain and point nginx at it.
@@ -224,6 +247,29 @@ def add_certificate(
             output.display_error(f"{flag_name} file not found: {path}")
             raise typer.Exit(1)
 
+    if behind_proxy and standalone:
+        output = get_output_handler(ctx)
+        output.display_error("--behind-proxy is bench mode only; --standalone is not supported yet")
+        raise typer.Exit(1)
+
+    # The mode's whole point is a locally trusted certificate on the origin's own :443 (so internal
+    # self-calls, PDF/print, OAuth, get_url fetches keep working); which method issues that
+    # certificate is not a default fm can guess, since it also determines what the external edge's
+    # own TLS mode needs to be. --dev/--custom are unambiguous booleans; --challenge always defaults
+    # to http01 (LETSENCRYPT_PREFERRED_CHALLENGE.http01), so only the parameter source tells apart
+    # "the operator asked for this challenge" from "nothing was passed" -- same idiom as --custom above.
+    if (
+        behind_proxy
+        and not dev
+        and not custom
+        and ctx.get_parameter_source("challenge") != ParameterSource.COMMANDLINE
+    ):
+        output = get_output_handler(ctx)
+        output.display_error(
+            "--behind-proxy needs an explicit certificate method: pass --dev, --custom, or --challenge."
+        )
+        raise typer.Exit(1)
+
     # The address's second segment, put there by `bench_domain_callback`. In standalone mode there
     # is no bench, so the external domain arrives as the whole (unslashed) argument instead.
     domain = ctx.obj.get("domain") if ctx.obj else None
@@ -285,4 +331,5 @@ def add_certificate(
             cert_path=cert,
             key_path=key,
             ca_path=ca,
+            behind_proxy=behind_proxy,
         )

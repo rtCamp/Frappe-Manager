@@ -1,6 +1,6 @@
 # SSL / HTTPS
 
-Frappe Manager issues and installs Let's Encrypt certificates for your benches using either the HTTP-01 challenge (the default) or DNS-01 through Cloudflare. It can also mint locally-trusted certificates from its own CA for development, import a certificate you already have with `--custom`, and front external Docker projects that share its proxy network.
+Frappe Manager issues and installs Let's Encrypt certificates for your benches using either the HTTP-01 challenge (the default) or DNS-01 through Cloudflare. It can also mint locally-trusted certificates from its own CA for development, import a certificate you already have with `--custom`, serve origins behind an external TLS terminator such as Cloudflare with `--behind-proxy`, and front external Docker projects that share its proxy network.
 
 ## What `fm ssl add` does
 
@@ -233,6 +233,61 @@ fm ssl renew mybench/mybench.local --force
 
 ---
 
+## Behind an external TLS terminator (`--behind-proxy`) {#behind-proxy}
+
+```bash
+fm ssl add mybench/example.com --challenge dns01 --behind-proxy
+```
+
+`--behind-proxy` (alias `--edge-tls`) is for an origin behind an external TLS terminator: the browser reaches the edge over HTTPS and the edge forwards to your server, Cloudflare's proxied (orange-cloud) mode being the canonical case. Without the flag the origin's HTTP to HTTPS redirect keys on its own connection scheme, which behind a Flexible-style edge is always http, so every request answers 301 and the browser reports a redirect loop.
+
+It is a modifier on the certificate methods above, not a method of its own. It does four things:
+
+1. Records `behind_proxy = true` on that domain's `[[ssl.certificates]]` entry.
+2. Still issues or imports a certificate by whichever method you paired it with.
+3. Switches the domain's HTTP to HTTPS redirect to key on the forwarded proto instead of the connection scheme. The value falls back to the connection's own scheme when no header arrived at all, which is why a visitor who reaches the origin directly over plain HTTP is still upgraded rather than served http forever.
+4. Makes this bench's web server trust `X-Forwarded-Proto` (gunicorn, so on a prod bench: see [When it takes effect](#when-it-takes-effect)). `host_name` is already https on every certificate add and Frappe builds emails, password resets and links from it, so those were never broken; what the trust fixes is request-scoped: the post-login redirect, the session cookie's Secure flag, and the endpoints OAuth advertises. It is deliberately per bench and never a global default, because the proxy passes a client-supplied `X-Forwarded-Proto` straight through, so trusting it everywhere would let any anonymous client dictate the scheme Frappe believes it is serving.
+
+Bare `--behind-proxy` is refused: pass `--dev`, `--custom`, or an explicit `--challenge`. The mode exists so the origin's own internal HTTPS self-calls (PDF rendering, OAuth callbacks, `get_url` fetches) keep working, and those only work if the origin actually holds a trusted certificate on its own port 443. A behind-proxy mode with no certificate would be the one configuration that cannot deliver what the mode is for.
+
+!!! note "The whole bench must agree"
+    The redirect is per domain, but the forwarded-proto trust is per bench: one web server process serves every site the bench has. Bench nginx relays the header rather than recomputing it, and the global proxy passes a client-supplied value through, so if one domain opted in, an anonymous client could forge the header for every other domain the bench serves, stripping the Secure flag from a direct domain's session cookie. fm therefore refuses to mix: adding a `--behind-proxy` certificate to a bench holding an ordinary one is an error, and so is the reverse, with the message "gunicorn cannot trust the header for one domain and not another. Match the bench's existing setting, or use a separate bench." Those are also your two options.
+
+### Pairing it with a certificate method
+
+| Pairing | Origin certificate | Cloudflare SSL/TLS mode | Verdict |
+|---|---|---|---|
+| `--challenge dns01` | Real Let's Encrypt; renews with no inbound connection | **Full (strict)** | **Recommended** |
+| `--custom` with a Cloudflare Origin CA certificate | 15-year certificate Cloudflare mints for your origin; pass its root with `--ca` so self-calls trust it (Origin CA is not publicly trusted) | **Full (strict)** | Recommended alternative |
+| `--dev` | fm's local CA | Full (the edge cannot strictly verify a private CA) | Development and internal use |
+| `--challenge http01` | Real Let's Encrypt | Full (strict) | Permitted, fragile: see warning |
+
+Flexible mode at the edge "works" with any pairing, but it downgrades edge-to-origin traffic to plain HTTP, defeating half the point once the origin holds a certificate. Move the edge to Full (strict) as soon as the fm side is done.
+
+A `--dev` certificate and a dev-environment bench are different axes: the table above is about the certificate method. On a dev-environment bench the trust half of the mode has nothing to attach to, whatever the method; see [When it takes effect](#when-it-takes-effect).
+
+!!! warning "HTTP-01 behind an edge is fragile"
+    Issuance works today and breaks silently later. Every renewal needs Let's Encrypt to fetch `/.well-known/acme-challenge/` over plain HTTP through the edge, so port 80 must stay reachable end to end and no edge rule (Always Use HTTPS, a redirect rule, WAF, cache) may ever touch that path. A rule someone adds at the edge months from now fails the next renewal, not the current certificate, so the damage surfaces as an expiry. Prefer `--challenge dns01`, which renews with no inbound connection at all.
+
+### When it takes effect
+
+The redirect switches in the same command, in every environment: the vhost snippet is rewritten and the proxy restarted as part of the add, and the redirect runs at the global proxy regardless of which web server the bench runs.
+
+The forwarded-proto trust depends on the bench's environment, because it attaches to gunicorn and only a prod bench runs gunicorn:
+
+- **Prod bench.** The trust is rewritten into the bench's gunicorn launch script in the same command, but a running gunicorn keeps its old script until its supervisor process is restarted, so fm prints two instructions: "Run 'fm start BENCH' to apply it" for the compose half, and "Run 'fm restart BENCH' to apply the forwarded-proto trust to gunicorn (the compose converge above does not reach it)." One `fm restart` at the end of a batch of adds is enough. The launch script resolves the one trusted address (this bench's own nginx, via its site-scoped alias) each time gunicorn starts, and if that resolution ever fails it trusts nothing rather than everything.
+- **Dev bench.** A dev-environment bench serves through `bench serve`, not gunicorn, so there is nothing for the trust to apply to. The mode is still allowed, because the redirect half is genuinely useful there, and fm says so instead of printing a restart that would do nothing: "'BENCH' is a dev-environment bench (runs 'bench serve', not gunicorn), so that trust has nothing to apply to yet. It takes effect if the bench is later switched to prod ('fm update BENCH --environment prod')."
+
+Removal mirrors this, and it is the security-relevant half: when `fm ssl remove` takes away the LAST behind-proxy certificate a bench holds, fm rewrites the launch script without the trust and, on a prod bench, prints "Run 'fm restart BENCH' to drop the forwarded-proto trust from gunicorn", so the bench does not keep trusting a forwarded proto no certificate is asking for. On a dev bench it notes instead that the trust being removed "was never active". While other behind-proxy certificates remain, the trust stays, because they still need it.
+
+### The Cloudflare hint
+
+fm checks where the domain resolves when you run `fm ssl add`. A domain inside Cloudflare's published ranges without `--behind-proxy` gets a hint that the flag may be wanted; `--behind-proxy` on a domain that does not currently resolve into a known CDN range gets a note that it may be unnecessary. Both are advisory: nothing blocks, and when DNS cannot answer within a few seconds fm says nothing rather than guessing.
+
+`--behind-proxy` handles the scheme. Real client IPs are the other half of sitting behind an edge: run `fm self real-ip` so logs, `fm auth --allow-ip` and frappe's rate limiting see the visitor rather than the edge ([Hosting guide](hosting.md)).
+
+---
+
 ## Renewals {#renewals}
 
 Let's Encrypt certificates are valid for 90 days. fm treats a certificate as due when fewer than 30 days remain; one that is not due is reported and left alone unless you pass `--force`.
@@ -310,6 +365,7 @@ fm list
 | `NET::ERR_CERT_COMMON_NAME_INVALID` | The name you visited is not in the certificate | `fm ssl list mybench` to see which domains are covered; a wildcard does not cover the apex |
 | A `--dev` certificate is untrusted in Firefox or Chrome, but fine in `curl` | The CA reached the system store but `certutil` was missing, so the NSS databases were skipped | Install `libnss3-tools` (Debian/Ubuntu) or `nss-tools` (Fedora), delete `~/frappe/services/nginx-proxy/ssl/dev/ca/.installed`, then re-run `fm ssl add ... --dev` |
 | Clock skew warning | Host clock is wrong | `sudo timedatectl set-ntp true` |
+| `ERR_TOO_MANY_REDIRECTS` behind Cloudflare | The domain is proxied (orange-clouded) but the certificate was added without `--behind-proxy`, so the origin's redirect keys on a connection scheme that is always http | Re-add the certificate with `--behind-proxy` ([details](#behind-proxy)) |
 
 ### Renewal failures
 
