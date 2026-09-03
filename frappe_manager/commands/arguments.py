@@ -1,13 +1,21 @@
-"""Shared `Annotated` aliases for the `benchname` positional argument.
+"""Shared `Annotated` aliases for the bench/site/domain positional argument.
 
-Most `fm` commands take the same positional bench name, and the declaration --
+Most `fm` commands take the same positional address, and the declaration --
 help text, shell completion, and the `sitename_callback` validator that also
 normalises a bare name to `<name>.localhost` -- used to be copy-pasted into
 every command module. These aliases are that one declaration, so a change to the
-help text or the validator lands on every command at once instead of drifting.
+help text or a validator lands on every command at once instead of drifting.
 
-There are deliberately FOUR aliases, not one. They differ in ways a user or a
-shell can observe, so they are not interchangeable:
+There are NINE aliases, grouped below by the address grammar they accept.
+That grammar is what `fm --help` groups commands by, in the `_PANEL_BENCH`,
+`_PANEL_SITE` and `_PANEL_DOMAIN` constants at
+`frappe_manager/commands/__init__.py:247-250`: a command whose alias accepts
+no site or domain part sits in "Bench commands", one whose alias's metavar
+carries `/SITE` sits in "Site commands", one whose metavar carries `/DOMAIN`
+sits in "Domain commands". This docstring and that panel grouping describe
+the same taxonomy; keep them in step.
+
+Bench only, no site or domain part is ever accepted:
 
 * :data:`BenchNameArgument` -- optional, validated. The default for a command
   that operates on an existing bench: omitting the name falls back to the bench
@@ -23,17 +31,12 @@ shell can observe, so they are not interchangeable:
   would silently offer to prune whatever bench the picker lands on instead of
   refusing. Do not collapse these two aliases into one.
 
-* :data:`BenchDomainArgument` -- optional, and deliberately WITHOUT the must-exist
-  check, for the `fm ssl` subcommands. They also manage certificates for domains
-  that belong to no bench, so `sitename_callback`'s must-exist check would reject
-  valid input; they resolve the bench themselves. Its second segment is a served
-  DOMAIN, not a site: a certificate is keyed by hostname, so a bench's aliases are
-  addressable here and are not in `BenchSiteArgument`.
-
 * :data:`BenchAllArgument` -- a bench name or the `all` address, for `fm migrate`,
   the one bench-scoped command that can run over every bench at once. `all` is a
   reserved word refused as a bench NAME at create time, which is what lets it mean
   something else in this position without ambiguity.
+
+Bench, optionally with a SITE part:
 
 * :data:`BenchSiteArgument` -- optional, validated, and the ONLY alias that
   accepts a site part. Three commands use it, for two different reasons.
@@ -46,9 +49,37 @@ shell can observe, so they are not interchangeable:
   `sites_autocompletion_callback`, which completes bench names alone, so an
   argument that refuses a site part can never complete the operator into one.
 
-Commands whose `benchname` genuinely differs (`create`, `migrate`,
-`self compose`, `bake`, `deploy`, `maintenance`, `ssl dns-config cloudflare`)
-keep their own inline declaration on purpose and must NOT be moved here.
+* :data:`BenchSiteAllArgument` -- the same address as :data:`BenchSiteArgument`,
+  plus `BENCH/all`. `fm update` uses it, because installing an app is per-site
+  work that legitimately fans out; nothing else needs it yet.
+
+Bench, optionally with a served DOMAIN part. The `fm ssl` subcommands use these:
+a certificate is keyed by hostname rather than site, so a bench's aliases are
+addressable here and are not in :data:`BenchSiteArgument`:
+
+* :data:`BenchDomainArgument` -- optional, and deliberately WITHOUT the must-exist
+  check, for `fm ssl add` and `fm ssl remove`. They also manage certificates for
+  domains that belong to no bench, so `sitename_callback`'s must-exist check would
+  reject valid input; they resolve the bench themselves. It does no must-exist
+  check because `--standalone` puts an external domain in this same position.
+
+* :data:`BenchServedDomainArgument` -- the same second segment as
+  :data:`BenchDomainArgument`, but the bench must EXIST. `fm ngrok` uses it: the
+  tunnel rewrites the `Host:` header, and a host can be an alias, so the
+  population is domains rather than sites, but there is no standalone mode here
+  to exempt from the must-exist check.
+
+* :data:`BenchDomainAllArgument` -- the same address as :data:`BenchDomainArgument`,
+  plus a bare `all`, for `fm ssl renew`, the one `ssl` command that legitimately
+  acts across every bench and domain at once.
+
+* :data:`BenchOnlyAllArgument` -- `BENCH|all` for `fm ssl list`, which reports per
+  BENCH and refuses a domain part outright: naming one would narrow a listing
+  command, not target an action.
+
+Commands whose address argument genuinely differs (`create`, `self compose`,
+`bake`, `maintenance`, `auth`, `ssl dns-config cloudflare`) keep their own inline
+declaration on purpose and must NOT be moved here.
 """
 
 from typing import Annotated

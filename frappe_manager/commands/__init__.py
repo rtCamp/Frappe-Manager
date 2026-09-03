@@ -237,10 +237,27 @@ app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 # Activate typer-examples for the main Typer app
 install(app)
 
+# Rich help panels for `fm --help`, grouped by the shape of the address the command takes (see
+# `frappe_manager/commands/arguments.py` for the underlying `Annotated` aliases). Every top-level
+# command and sub-app below carries one of these explicitly: `rich_utils.py` puts any command left
+# without a panel into an unlabelled "Commands" box that renders BEFORE all named panels, so a
+# single omission would silently jump that command above this grouping. Panel order follows first
+# appearance while registering commands (`typer/core.py` keeps declaration order, not alphabetical),
+# so this order matches the order the `app.command(...)` block below registers them in.
+_PANEL_BENCH = "Bench commands (BENCH)"
+_PANEL_SITE = "Site commands (BENCH/SITE)"
+_PANEL_DOMAIN = "Domain commands (BENCH/DOMAIN)"
+_PANEL_GLOBAL = "Global commands (no address)"
+
 # Register subcommands
-app.add_typer(services_app, name="services", help="Handle global services.")
-app.add_typer(self_app, name="self", help="Perform operations related to [bold][blue]fm[/bold][/blue] itself.")
-app.add_typer(ssl_app, name="ssl", help="Perform operations related to ssl.")
+app.add_typer(services_app, name="services", help="Handle global services.", rich_help_panel=_PANEL_GLOBAL)
+app.add_typer(
+    self_app,
+    name="self",
+    help="Perform operations related to [bold][blue]fm[/bold][/blue] itself.",
+    rich_help_panel=_PANEL_GLOBAL,
+)
+app.add_typer(ssl_app, name="ssl", help="Perform operations related to ssl.", rich_help_panel=_PANEL_DOMAIN)
 
 
 # App callback (runs before all commands)
@@ -572,26 +589,32 @@ from frappe_manager.commands.start import start
 from frappe_manager.commands.stop import stop
 from frappe_manager.commands.update import update
 
-# Register all commands with the app
-app.command(name="create", no_args_is_help=True)(create)
-app.command(name="delete")(delete)
-app.command(name="list")(list_benches)
-app.command(name="start")(start)
-app.command(name="stop")(stop)
-app.command(name="code")(code)
-app.command(name="logs")(logs)
-app.command(name="shell", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})(shell)
-app.command(name="info")(info)
-app.command(name="update", no_args_is_help=True)(update)
-app.command(name="reset")(reset)
-app.command(name="restart")(restart)
-app.command(name="maintenance")(maintenance)
-app.command(name="auth")(auth)
-app.command(name="ngrok")(ngrok)
-app.command(name="migrate")(migrate)
-app.command(name="bake", no_args_is_help=True)(bake)
-app.command(name="switch", no_args_is_help=True)(switch)
-app.command(name="prune", no_args_is_help=True)(prune)
+# Register all commands with the app, grouped and ordered by rich_help_panel (see the constants
+# above): every command carries an explicit panel, and their relative order here is what decides
+# the panel order in `fm --help`.
+app.command(name="start", rich_help_panel=_PANEL_BENCH)(start)
+app.command(name="stop", rich_help_panel=_PANEL_BENCH)(stop)
+app.command(name="code", rich_help_panel=_PANEL_BENCH)(code)
+app.command(name="logs", rich_help_panel=_PANEL_BENCH)(logs)
+app.command(name="info", rich_help_panel=_PANEL_BENCH)(info)
+app.command(name="restart", rich_help_panel=_PANEL_BENCH)(restart)
+app.command(name="migrate", rich_help_panel=_PANEL_BENCH)(migrate)
+app.command(name="bake", no_args_is_help=True, rich_help_panel=_PANEL_BENCH)(bake)
+app.command(name="switch", no_args_is_help=True, rich_help_panel=_PANEL_BENCH)(switch)
+app.command(name="prune", no_args_is_help=True, rich_help_panel=_PANEL_BENCH)(prune)
+app.command(name="create", no_args_is_help=True, rich_help_panel=_PANEL_SITE)(create)
+app.command(name="delete", rich_help_panel=_PANEL_SITE)(delete)
+app.command(
+    name="shell",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    rich_help_panel=_PANEL_SITE,
+)(shell)
+app.command(name="update", no_args_is_help=True, rich_help_panel=_PANEL_SITE)(update)
+app.command(name="reset", rich_help_panel=_PANEL_SITE)(reset)
+app.command(name="maintenance", rich_help_panel=_PANEL_SITE)(maintenance)
+app.command(name="auth", rich_help_panel=_PANEL_SITE)(auth)
+app.command(name="ngrok", rich_help_panel=_PANEL_DOMAIN)(ngrok)
+app.command(name="list", rich_help_panel=_PANEL_GLOBAL)(list_benches)
 
 # Export app and helpers for backward compatibility
 __all__ = [
