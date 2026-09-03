@@ -132,9 +132,9 @@ If pulls still fail, check the CLI logs for details: [Logs](reference/logs.md).
 fm ssl add mybench/example.com
 ```
 
-The default HTTP-01 challenge needs the domain's A record pointing at this server and port 80 reachable from the internet. If you cannot open port 80, use `--challenge dns01` with saved provider credentials. For a local bench that needs no public DNS at all, `--dev` issues from fm's own CA.
+The default HTTP-01 challenge needs the domain's A record pointing at this server and port 80 reachable from the internet. If you cannot open port 80, use `--challenge dns01` with saved provider credentials. For a local bench that needs no public DNS at all, `--dev` issues from fm's own CA. Already hold a certificate from your own issuer? Import it with `--custom --cert PATH --key PATH` instead of issuing one.
 
-Renewal is not automatic: run `fm ssl renew all` from a daily cron. The [SSL guide](guides/ssl.md) has step-by-step instructions for all of it.
+Renewal is not automatic: run `fm ssl renew all` from a daily cron. A certificate imported with `--custom` is the one exception; fm never rotates it, re-import a fresh one instead. The [SSL guide](guides/ssl.md) has step-by-step instructions for all of it.
 
 ### `fm info` says a site is `missing` or `unmanaged`. What do they mean?
 

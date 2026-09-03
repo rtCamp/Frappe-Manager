@@ -48,10 +48,29 @@ def test_a_name_declared_at_the_compose_root_is_a_named_volume():
     assert volume.host == "mydata"
 
 
-@pytest.mark.parametrize("mode", ["rw", "ro"])
-def test_a_trailing_access_mode_does_not_shift_the_mapping(mode):
+@pytest.mark.parametrize(("mode", "expected_read_only"), [("rw", False), ("ro", True)])
+def test_a_trailing_access_mode_does_not_shift_the_mapping(mode, expected_read_only):
     volume = parse_docker_volume(f"/host/side:/container/side:{mode}", {}, COMPOSE_PATH)
 
     assert volume is not None
     assert volume.host == Path("/host/side")
     assert volume.container == Path("/container/side")
+    assert volume.read_only is expected_read_only
+
+
+def test_a_ro_mode_round_trips_back_through_str():
+    """A CA bundle (or any bind meant to be read-only) must survive being read off disk and
+    written back out on every compose regeneration -- see TestCaTrustIdempotency in
+    tests/unit/site_manager/test_bench_docker_supervisor_contract.py for the end-to-end case."""
+    volume = parse_docker_volume("/host/side:/container/side:ro", {}, COMPOSE_PATH)
+
+    assert volume is not None
+    assert str(volume) == "/host/side:/container/side:ro"
+
+
+def test_a_bare_mapping_defaults_to_read_write():
+    volume = parse_docker_volume("/host/side:/container/side", {}, COMPOSE_PATH)
+
+    assert volume is not None
+    assert volume.read_only is False
+    assert str(volume) == "/host/side:/container/side"

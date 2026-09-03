@@ -778,6 +778,50 @@ class TestSSLCertificateManagerRenewAllCertificates:
         mock_service1.renew_certificate.assert_called_once()
         mock_service2.renew_certificate.assert_called_once()
 
+    def test_renew_all_certificates_reports_a_manual_renewal_required_cert_as_a_skip_not_a_failure(
+        self,
+        mocker,
+        ssl_certificate_manager,
+        mock_letsencrypt_certificate_http01,
+    ):
+        """A custom certificate's renew_certificate always raises SSLCertificateManualRenewalRequired
+        by design (see custom_certificate_service.py) -- working as intended, not a failure, so it
+        must be printed with the same skip framing as 'not due yet', never the ❌/'Failed to renew'
+        line, and it must not stop the next certificate from renewing."""
+        from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateManualRenewalRequired
+
+        cert2 = mock_letsencrypt_certificate_http01
+        cert2.domain = "second.com"
+        ssl_certificate_manager.certificates.append(cert2)
+
+        mocker.patch.object(ssl_certificate_manager, "needs_renewal", return_value=True)
+        expiry_date = datetime.now() + timedelta(days=10)
+        mocker.patch.object(ssl_certificate_manager, "get_certificate_expiry", return_value=expiry_date)
+        mocker.patch.object(
+            ssl_certificate_manager,
+            "get_certificate_paths",
+            return_value=(Path("/key.pem"), Path("/fullchain.pem")),
+        )
+
+        custom_service = MagicMock()
+        custom_service.renew_certificate.side_effect = SSLCertificateManualRenewalRequired("custom.example.com")
+        le_service = MagicMock()
+        le_service.renew_certificate.return_value = True
+
+        ssl_certificate_manager.services[ssl_certificate_manager.certificates[0].domain] = custom_service
+        ssl_certificate_manager.services["second.com"] = le_service
+
+        ssl_certificate_manager.renew_all_certificates()  # must not raise
+
+        custom_service.renew_certificate.assert_called_once()
+        le_service.renew_certificate.assert_called_once()  # the other cert is unaffected
+
+        prints = [c.args[0] for c in ssl_certificate_manager.output_handler.print.call_args_list]
+        emojis = [c.kwargs.get("emoji_code") for c in ssl_certificate_manager.output_handler.print.call_args_list]
+        assert not any("Failed to renew" in p for p in prints)
+        assert not any(e == "❌" for e in emojis)
+        assert any("custom.example.com" in p and "--custom" in p for p in prints)
+
     def test_renew_all_certificates_dry_run_mode(self, mocker, ssl_certificate_manager, monkeypatch):
         """Test that dry run mode uses staging server."""
         mocker.patch.object(ssl_certificate_manager, "needs_renewal", return_value=True)

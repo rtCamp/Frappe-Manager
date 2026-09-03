@@ -24,7 +24,7 @@ hide:
 
     ---
 
-    Issue a Let's Encrypt certificate for any bench domain with `fm ssl add`, over HTTP-01 or DNS-01. Renewal is `fm ssl renew all`, which is safe to run from a daily cron.
+    Issue a Let's Encrypt certificate for any bench domain with `fm ssl add`, over HTTP-01 or DNS-01, or import one you already have with `--custom`. Renewal is `fm ssl renew all`, which is safe to run from a daily cron.
 
 -   :lucide-code-2:{ .lg .middle } &nbsp; **[Built for developers](guides/vscode.md)**
 

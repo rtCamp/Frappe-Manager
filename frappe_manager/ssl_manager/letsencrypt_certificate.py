@@ -5,7 +5,12 @@ from typing import Annotated, Literal
 from pydantic import Field, TypeAdapter
 
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
-from frappe_manager.ssl_manager.certificate import DevCertificate, DisabledCertificate, SSLCertificate
+from frappe_manager.ssl_manager.certificate import (
+    CustomCertificate,
+    DevCertificate,
+    DisabledCertificate,
+    SSLCertificate,
+)
 
 
 class LetsencryptSSLCertificate(SSLCertificate):
@@ -38,7 +43,7 @@ class LetsencryptSSLCertificate(SSLCertificate):
 # that already tested this field's truthiness anyway.
 CERTIFICATE_ADAPTER: TypeAdapter[SSLCertificate] = TypeAdapter(
     Annotated[
-        DisabledCertificate | DevCertificate | LetsencryptSSLCertificate,
+        DisabledCertificate | DevCertificate | CustomCertificate | LetsencryptSSLCertificate,
         Field(discriminator="ssl_type"),
     ]
 )

@@ -8,6 +8,7 @@ dispatch silently downgraded a certificate whenever it forgot to read a key, and
 losing `hsts` once and `delegation_cname` once.
 """
 
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -80,3 +81,38 @@ class DisabledCertificate(SSLCertificate):
     """No certificate for this domain. Accepted on read; fm drops the domain rather than writing one."""
 
     ssl_type: Literal[SUPPORTED_SSL_TYPES.none] = SUPPORTED_SSL_TYPES.none
+
+
+class CustomCertificate(SSLCertificate):
+    """A bring-your-own certificate, copied in verbatim (`fm ssl add --custom`). fm issues nothing
+    for this variant: no ACME account, no challenge, no local CA -- the operator is the CA.
+
+    `cert_source`/`key_source`/`ca_source` carry the `--cert`/`--key`/`--ca` files ONLY for the
+    lifetime of the `fm ssl add --custom` call that constructs this object: `exclude=True` keeps
+    every one of them out of `model_dump()`, and therefore out of `[[ssl.certificates]]` on disk
+    (see `ssl_certificate_to_toml_doc`, which dumps the model verbatim). A certificate read back
+    from bench_config.toml -- which is every certificate `CustomCertificateService.renew_certificate`
+    or a later `fm ssl add`/`list`/`bake` run ever sees -- therefore always has these as None. That
+    is deliberate, not an oversight: fm does not remember a host path to the operator's original
+    files, the same choice already made for `db_ssl_ca` (see db_tls.py). A recorded path would go
+    stale the moment the bench moves host, gets restored elsewhere, or the operator deletes the
+    original file after import, with no way for fm to notice.
+
+    Named `*_source`, not `cert_path`/`key_path`: those two are already RETIRED_CERTIFICATE_KEYS
+    (acme.sh-issuance leftovers from before this variant existed), so the shared
+    `_drop_retired_keys` before-validator this class inherits would silently strip them from every
+    constructor call -- including `CustomCertificateService.generate_certificate`'s -- and every
+    import would look like it had no source files at all.
+    """
+
+    ssl_type: Literal[SUPPORTED_SSL_TYPES.custom] = SUPPORTED_SSL_TYPES.custom
+
+    cert_source: Path | None = Field(
+        None, exclude=True, description="Source certificate file from --cert. Not persisted."
+    )
+    key_source: Path | None = Field(
+        None, exclude=True, description="Source private key file from --key. Not persisted."
+    )
+    ca_source: Path | None = Field(
+        None, exclude=True, description="Source CA bundle file from --ca, if given. Not persisted."
+    )

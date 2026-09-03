@@ -161,15 +161,16 @@ fm keeps everything under a single root directory (default `~/frappe/`).
 │   │   └── data/                        # (7)
 │   └── nginx-proxy/
 │       ├── ssl/
-│       │   └── acmesh/
-│       │       ├── .acme.sh/            # (8)
-│       │       └── certs/
-│       │           └── example.com/
-│       │               ├── fullchain.pem
-│       │               └── example.com.key
+│       │   ├── acmesh/
+│       │   │   ├── .acme.sh/            # (8)
+│       │   │   └── example.com/
+│       │   │       ├── fullchain.pem
+│       │   │       └── key.pem
+│       │   └── custom/
+│       │       └── byo.example.com/     # key.pem, fullchain.pem, ca.pem
 │       ├── certs/                       # (9)
-│       │   ├── example.com.crt → ../ssl/acmesh/certs/example.com/fullchain.pem
-│       │   └── example.com.key → ../ssl/acmesh/certs/example.com/example.com.key
+│       │   ├── example.com.crt → /usr/share/nginx/ssl/acmesh/example.com/fullchain.pem
+│       │   └── example.com.key → /usr/share/nginx/ssl/acmesh/example.com/key.pem
 │       ├── vhostd/                      # (10)
 │       │   └── example.com
 │       └── confd/                       # (11)
@@ -225,7 +226,7 @@ fm keeps everything under a single root directory (default `~/frappe/`).
 6. **Database secrets**: `db_password.txt` and `db_root_password.txt`, mounted into `global-db` as Docker secrets.
 7. **MariaDB data**: Linux only. macOS uses the named volume `fm-global-db-data` to avoid bind-mount slowness.
 8. **acme.sh installation**: the certificate automation tool and its state.
-9. **Certificate symlinks**: what `global-nginx-proxy` actually reads, pointing at the real certs in `ssl/acmesh/certs/`.
+9. **Certificate symlinks**: what `global-nginx-proxy` actually reads. Each link's target is a container path (the proxy mounts `ssl/` at `/usr/share/nginx/ssl`), pointing at the real files in `ssl/acmesh/<domain>/`, `ssl/dev/<domain>/` or `ssl/custom/<domain>/`.
 10. **Per-domain vhost snippets**: the HTTP-to-HTTPS redirects written by `fm ssl add`.
 11. **Global nginx `conf.d`**: fm's own snippets (the `fm self real-ip` config, `fm_headers.conf`) plus custom server blocks for non-fm Docker projects.
 12. **All benches**: one subdirectory per bench.

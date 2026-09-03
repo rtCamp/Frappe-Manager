@@ -59,7 +59,7 @@ from frappe_manager.site_manager.bench_config import AuthConfig, SiteConfig
 from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, AdminToolsFailedToStop, BenchException
 from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
-from frappe_manager.ssl_manager.certificate import RETIRED_CERTIFICATE_KEYS, SSLCertificate
+from frappe_manager.ssl_manager.certificate import RETIRED_CERTIFICATE_KEYS, CustomCertificate, SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotFoundError
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.utils.helpers import get_current_fm_version
@@ -140,6 +140,9 @@ class SSLHarness:
     def debugs(self) -> list[str]:
         return [c.args[0] for c in self.output.debug.call_args_list]
 
+    def warnings(self) -> list[str]:
+        return [c.args[0] for c in self.output.warning.call_args_list]
+
     def spinner_texts(self) -> list[str]:
         return [c.args[0] for c in self.output.start.call_args_list]
 
@@ -162,8 +165,32 @@ def h():
         yield SSLHarness(stack)
 
 
-def _add(h, *, domain=DOMAIN, challenge=HTTP01, cname=None, dry_run=False, dev=False):
-    return _add_bench_certificate(h.ctx, BENCH, domain, challenge, cname, dry_run, dev)
+def _add(
+    h,
+    *,
+    domain=DOMAIN,
+    challenge=HTTP01,
+    cname=None,
+    dry_run=False,
+    dev=False,
+    custom=False,
+    cert_path=None,
+    key_path=None,
+    ca_path=None,
+):
+    return _add_bench_certificate(
+        h.ctx,
+        BENCH,
+        domain,
+        challenge,
+        cname,
+        dry_run,
+        dev,
+        custom=custom,
+        cert_path=cert_path,
+        key_path=key_path,
+        ca_path=ca_path,
+    )
 
 
 def _remove(h, *, domain=DOMAIN, yes=True):
@@ -259,6 +286,32 @@ def test_add_dev_builds_a_plain_dev_certificate_with_no_challenge(h):
 
 
 @pytest.mark.timeout(15)
+def test_add_custom_builds_a_custom_certificate_carrying_the_source_paths(h, tmp_path):
+    cert_file = tmp_path / "app.crt"
+    key_file = tmp_path / "app.key"
+    _add(h, challenge=DNS01, custom=True, cert_path=cert_file, key_path=key_file)
+
+    cert = h.added_cert()
+    assert type(cert) is CustomCertificate
+    assert cert.domain == DOMAIN
+    assert cert.ssl_type == SUPPORTED_SSL_TYPES.custom
+    assert cert.cert_source == cert_file
+    assert cert.key_source == key_file
+    assert cert.ca_source is None
+    # custom ignores --challenge entirely, exactly like dev.
+    assert cert.challenge_type is None
+
+
+@pytest.mark.timeout(15)
+def test_add_custom_carries_the_ca_source_when_given(h, tmp_path):
+    cert_file = tmp_path / "app.crt"
+    key_file = tmp_path / "app.key"
+    ca_file = tmp_path / "ca.crt"
+    _add(h, custom=True, cert_path=cert_file, key_path=key_file, ca_path=ca_file)
+
+    assert h.added_cert().ca_source == ca_file
+
+@pytest.mark.timeout(15)
 def test_add_with_cname_builds_a_certificate_carrying_the_delegation(h):
     _add(h, challenge=DNS01, cname="alias-example-com.fm.test")
 
@@ -341,8 +394,86 @@ def test_add_flips_host_name_to_https_and_confirms_when_not_a_dry_run(h):
     assert h.prints() == [
         f"SSL certificate added for {DOMAIN}",
         "Certificate has been issued and configured.",
+        f"Run 'fm start {BENCH}' to apply it (recreates only the services whose definition "
+        "changed; running jobs are undisturbed until then).",
     ]
-    assert h.print_emojis() == [":white_check_mark:", ":zap:"]
+    assert h.print_emojis() == [":white_check_mark:", ":zap:", ":information:"]
+
+
+# ======================================================================================
+# _add_bench_certificate / _remove_bench_certificate -- eager compose regeneration
+# ======================================================================================
+
+
+@pytest.mark.timeout(15)
+def test_add_regenerates_bench_and_workers_compose(h):
+    """This is the ONLY thing that carries a --dev/--custom --ca certificate's CA trust into the
+    compose file; fm ssl add used to call neither generate_compose."""
+    _add(h, dry_run=False)
+
+    h.bench.generate_compose.assert_called_once_with(h.bench.bench_config.export_to_compose_inputs.return_value)
+    h.bench.workers.generate_compose.assert_called_once_with()
+
+
+@pytest.mark.timeout(15)
+def test_add_skips_workers_regen_when_no_workers_compose_exists(h):
+    h.bench.workers.compose_file_manager.compose_path.exists.return_value = False
+
+    _add(h, dry_run=False)
+
+    h.bench.generate_compose.assert_called_once()
+    h.bench.workers.generate_compose.assert_not_called()
+
+
+@pytest.mark.timeout(15)
+def test_add_dry_run_never_regenerates_compose(h):
+    """--dry-run promises no nginx change; the bench's own compose must stay untouched too."""
+    _add(h, dry_run=True)
+
+    h.bench.generate_compose.assert_not_called()
+    h.bench.workers.generate_compose.assert_not_called()
+    assert not any("fm start" in p for p in h.prints())
+
+
+@pytest.mark.timeout(15)
+def test_add_regen_failure_warns_and_skips_the_converge_instruction_but_does_not_abort(h):
+    h.bench.generate_compose.side_effect = RuntimeError("disk full")
+
+    _add(h, dry_run=False)  # must not raise
+
+    assert any("Could not update" in w and "disk full" in w for w in h.warnings())
+    assert not any("fm start" in p for p in h.prints())
+    # The certificate itself is unaffected by a compose-regen failure.
+    assert f"SSL certificate added for {DOMAIN}" in h.prints()
+
+
+@pytest.mark.timeout(15)
+def test_remove_regenerates_bench_and_workers_compose(h):
+    _remove(h)
+
+    h.bench.generate_compose.assert_called_once_with(h.bench.bench_config.export_to_compose_inputs.return_value)
+    h.bench.workers.generate_compose.assert_called_once_with()
+
+
+@pytest.mark.timeout(15)
+def test_remove_skips_workers_regen_when_no_workers_compose_exists(h):
+    h.bench.workers.compose_file_manager.compose_path.exists.return_value = False
+
+    _remove(h)
+
+    h.bench.generate_compose.assert_called_once()
+    h.bench.workers.generate_compose.assert_not_called()
+
+
+@pytest.mark.timeout(15)
+def test_remove_regen_failure_warns_but_does_not_abort(h):
+    h.bench.generate_compose.side_effect = RuntimeError("disk full")
+
+    _remove(h)  # must not raise
+
+    assert any("Could not update" in w and "disk full" in w for w in h.warnings())
+    assert not any("fm start" in p for p in h.prints())
+    assert f"SSL certificate removed for {DOMAIN}" in h.prints()
 
 
 @pytest.mark.timeout(15)
@@ -429,7 +560,11 @@ def test_remove_reverts_host_name_to_http_and_confirms(h):
     _remove(h)
 
     assert h.site_config_writes() == [(DOMAIN, {"host_name": f"http://{DOMAIN}"})]
-    assert h.prints() == [f"SSL certificate removed for {DOMAIN}"]
+    assert h.prints() == [
+        f"SSL certificate removed for {DOMAIN}",
+        f"Run 'fm start {BENCH}' to apply it (recreates only the services whose definition "
+        "changed; running jobs are undisturbed until then).",
+    ]
     assert h.spinner_texts() == [f"Removing SSL certificate for {DOMAIN}"]
 
 
@@ -629,6 +764,51 @@ def test_list_flags_a_certificate_that_needs_renewal(h):
 
     assert _rows(h.table())[0][-1] == "⚠️ DUE"
 
+
+@pytest.mark.timeout(15)
+def test_list_never_calls_a_custom_certificate_due_for_renewal(h):
+    """fm has no ACME account and no stored source bytes for a custom certificate, so `fm ssl
+    renew` never acts on it -- 'DUE' would promise that. Name the real action instead."""
+    h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
+    h.cert_manager.list_certificates.return_value = [
+        _cert_row(
+            DOMAIN,
+            ssl_type="custom",
+            challenge_type=None,
+            expiry_date=datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+            days_until_expiry=3,
+            needs_renewal=True,
+        )
+    ]
+
+    _list_bench_certificates(h.ctx, BENCH)
+
+    renewal_cell = _rows(h.table())[0][-1]
+    assert renewal_cell == "⚠️ re-import"
+    assert "DUE" not in renewal_cell
+
+
+@pytest.mark.timeout(15)
+def test_list_shows_a_healthy_custom_certificate_as_manual_not_ok(h):
+    """'OK' beside every other type means 'fm has this covered'; for --custom that is never true,
+    even well before expiry, so it must read differently from the auto-renewable types."""
+    h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
+    h.cert_manager.list_certificates.return_value = [
+        _cert_row(
+            DOMAIN,
+            ssl_type="custom",
+            challenge_type=None,
+            expiry_date=datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+            days_until_expiry=200,
+            needs_renewal=False,
+        )
+    ]
+
+    _list_bench_certificates(h.ctx, BENCH)
+
+    renewal_cell = _rows(h.table())[0][-1]
+    assert renewal_cell == "manual"
+    assert renewal_cell != "✓ OK"
 
 @pytest.mark.timeout(15)
 def test_list_marks_a_configured_but_unissued_certificate_as_not_issued(h):

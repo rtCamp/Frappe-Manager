@@ -58,7 +58,7 @@ Everyday bench workflows, for any bench: dev or prod, on your laptop or a server
 
     ---
 
-    Let's Encrypt over HTTP-01 or Cloudflare DNS-01, and fm's own CA for locally trusted development certificates.
+    Let's Encrypt over HTTP-01 or Cloudflare DNS-01, fm's own CA for locally trusted development certificates, or a certificate you bring yourself.
 
 -   :lucide-archive:{ .lg .middle } &nbsp; **[Backup & Restore](backup-restore.md)**
 

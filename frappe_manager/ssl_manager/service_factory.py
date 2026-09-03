@@ -58,6 +58,14 @@ def create_certificate_service(
             output_handler=output_handler,
         )
 
+    if certificate.ssl_type == SUPPORTED_SSL_TYPES.custom:
+        from frappe_manager.ssl_manager.custom_certificate_service import CustomCertificateService
+
+        return CustomCertificateService(
+            ssl_service_dir=storage_config.ssl_dir,
+            output_handler=output_handler,
+        )
+
     return AcmeShCertificateService(
         ssl_service_dir=storage_config.ssl_dir,
         webroot_dir=storage_config.webroot_dir,

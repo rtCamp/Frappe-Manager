@@ -246,11 +246,12 @@ Manage SSL certificates and HTTPS.
 ### :material-certificate: [`fm ssl`](ssl.md) {.command-heading}
 **Manage SSL certificates**
 
-Add, remove, renew, and list SSL certificates using Let's Encrypt (HTTP-01 or DNS-01 challenges).
+Add, remove, renew, and list SSL certificates using Let's Encrypt (HTTP-01 or DNS-01 challenges), or by importing your own certificate with `--custom`.
 
 ```bash
 fm ssl add mybench/example.com
 fm ssl add mybench/example.com --challenge dns01
+fm ssl add mybench/example.com --custom --cert ./tls.crt --key ./tls.key
 fm ssl remove mybench/example.com
 fm ssl renew mybench/example.com
 fm ssl list mybench

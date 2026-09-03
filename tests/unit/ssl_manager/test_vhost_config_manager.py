@@ -137,3 +137,71 @@ def test_legacy_unmarked_redirect_is_replaced_by_the_marked_block_on_enable(mana
 
 def test_get_config_path_points_at_the_per_domain_file(manager, vhostd):
     assert manager.get_config_path(DOMAIN) == vhostd / DOMAIN
+
+
+# ======================================================================================
+# enable then disable is a true inverse -- byte-for-byte, not merely semantically equal
+# ======================================================================================
+
+
+def test_add_then_remove_restores_a_brand_new_domain_to_no_file_at_all(manager, vhostd):
+    path = vhostd / DOMAIN
+    assert not path.exists()
+
+    manager.enable_https_redirect(DOMAIN)
+    assert manager.disable_https_redirect(DOMAIN) is True
+
+    assert not path.exists()
+
+
+@pytest.mark.parametrize(
+    "original",
+    [
+        UPLOAD_LIMIT + "\n",
+        MAINTENANCE_BLOCK + UPLOAD_LIMIT + "\n" + HANDWRITTEN + "\n",
+        # The exact production shape this was found against: a leading blank line before the
+        # first real directive.
+        "\n" + HANDWRITTEN + "\n",
+        # Trailing blank line, no leading one.
+        UPLOAD_LIMIT + "\n\n",
+        # No trailing newline at all.
+        HANDWRITTEN,
+    ],
+    ids=["plain", "maintenance+upload+handwritten", "leading-blank-line", "trailing-blank-line", "no-trailing-newline"],
+)
+def test_add_then_remove_restores_the_shared_file_byte_for_byte(manager, vhostd, original):
+    path = vhostd / DOMAIN
+    path.write_text(original)
+    before = path.read_bytes()
+
+    manager.enable_https_redirect(DOMAIN)
+    assert path.read_bytes() != before  # sanity: enable actually changed the file
+    assert manager.disable_https_redirect(DOMAIN) is True
+
+    assert path.read_bytes() == before
+
+
+def test_add_then_remove_restores_the_legacy_unmarked_shape_byte_for_byte(manager, vhostd):
+    """The one real shape this file must never break: a pre-markers install whose whole file body
+    is the bare config, no markers, verified against a production host and against this machine.
+    `enable` upgrades it to the marked form; `disable` must still return it to nothing (the whole
+    body was fm's own text, so 'restored' means the file is gone, matching what a legacy `disable`
+    on that same file, without ever calling enable first, already does)."""
+    path = vhostd / DOMAIN
+    path.write_text(VhostConfigManager.HTTPS_REDIRECT_CONFIG)
+
+    manager.enable_https_redirect(DOMAIN)
+    assert manager.disable_https_redirect(DOMAIN) is True
+
+    assert not path.exists()
+
+
+def test_disable_alone_on_the_legacy_unmarked_shape_leaves_no_empty_file_behind(manager, vhostd):
+    """Regression: the bare exact-text match used to leave the constant's own trailing newline
+    behind as a truthy 'remainder', so disable kept an empty file around instead of deleting it."""
+    path = vhostd / DOMAIN
+    path.write_text(VhostConfigManager.HTTPS_REDIRECT_CONFIG)
+
+    assert manager.disable_https_redirect(DOMAIN) is True
+
+    assert not path.exists()

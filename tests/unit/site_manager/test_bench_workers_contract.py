@@ -26,6 +26,7 @@ mocked at their boundary and every file lives in `tmp_path`.
 """
 
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
@@ -904,9 +905,9 @@ class TestGenerateCompose:
             workers.generate_compose()
 
         worker = workers.compose_file_manager.yml["services"]["long-worker"]
-        assert f"{ca}:/etc/ssl/certs/fm-dev-ca.pem:ro" in worker["volumes"]
-        assert worker["environment"]["NODE_EXTRA_CA_CERTS"] == "/etc/ssl/certs/fm-dev-ca.pem"
-        assert worker["environment"]["REQUESTS_CA_BUNDLE"] == "/etc/ssl/certs/fm-dev-ca.pem"
+        assert f"{ca}:/etc/ssl/certs/fm-trusted-ca.pem:ro" in worker["volumes"]
+        assert worker["environment"]["NODE_EXTRA_CA_CERTS"] == "/etc/ssl/certs/fm-trusted-ca.pem"
+        assert worker["environment"]["REQUESTS_CA_BUNDLE"] == "/etc/ssl/certs/fm-trusted-ca.pem"
 
     @pytest.mark.timeout(15)
     def test_missing_dev_ca_file_leaves_the_worker_untrusting(self, tmp_path):
@@ -925,6 +926,88 @@ class TestGenerateCompose:
         env = workers.compose_file_manager.yml["services"]["long-worker"]["environment"]
         assert "NODE_EXTRA_CA_CERTS" not in env
         assert "REQUESTS_CA_BUNDLE" not in env
+
+    @staticmethod
+    def _custom_ca(tmp_path, services_dir="services", domain="app.example.com") -> Path:
+        ca = tmp_path / services_dir / "nginx-proxy" / "ssl" / "custom" / domain / "ca.pem"
+        ca.parent.mkdir(parents=True)
+        ca.write_text("-----BEGIN CERTIFICATE-----\ncustom\n")
+        return ca
+
+    @pytest.mark.timeout(15)
+    def test_custom_ssl_with_ca_mounts_its_own_ca_file_directly(self, tmp_path):
+        """One source (no dev certificate on this bench): mounts the custom cert's own ca.pem
+        unchanged, exactly like a lone dev certificate always has."""
+        workers = _make_workers(
+            tmp_path,
+            confs=["long-worker.workers.fm.supervisor.conf"],
+            bench_config=_bench_config(
+                ssl_certificates=[SimpleNamespace(ssl_type=SUPPORTED_SSL_TYPES.custom, domain="app.example.com")]
+            ),
+        )
+        ca = self._custom_ca(tmp_path)
+
+        with (
+            patch(f"{MODULE}.get_proxy_ip_on_frontend", return_value=None),
+            patch(f"{MODULE}.CLI_SERVICES_DIRECTORY", tmp_path / "services"),
+        ):
+            workers.generate_compose()
+
+        worker = workers.compose_file_manager.yml["services"]["long-worker"]
+        assert f"{ca}:/etc/ssl/certs/fm-trusted-ca.pem:ro" in worker["volumes"]
+        assert worker["environment"]["NODE_EXTRA_CA_CERTS"] == "/etc/ssl/certs/fm-trusted-ca.pem"
+        assert worker["environment"]["REQUESTS_CA_BUNDLE"] == "/etc/ssl/certs/fm-trusted-ca.pem"
+        assert not (tmp_path / "test.localhost" / "config" / "fm-trusted-ca-bundle.pem").exists()
+
+    @pytest.mark.timeout(15)
+    def test_custom_ssl_without_ca_gets_no_ca_mount(self, tmp_path):
+        workers = _make_workers(
+            tmp_path,
+            confs=["long-worker.workers.fm.supervisor.conf"],
+            bench_config=_bench_config(
+                ssl_certificates=[SimpleNamespace(ssl_type=SUPPORTED_SSL_TYPES.custom, domain="app.example.com")]
+            ),
+        )
+
+        with (
+            patch(f"{MODULE}.get_proxy_ip_on_frontend", return_value=None),
+            patch(f"{MODULE}.CLI_SERVICES_DIRECTORY", tmp_path / "services"),
+        ):
+            workers.generate_compose()
+
+        env = workers.compose_file_manager.yml["services"]["long-worker"]["environment"]
+        assert "NODE_EXTRA_CA_CERTS" not in env
+        assert "REQUESTS_CA_BUNDLE" not in env
+
+    @pytest.mark.timeout(15)
+    def test_dev_and_custom_ca_are_merged_into_one_bundle(self, tmp_path):
+        """Two sources on the same bench: both CAs must land in a single mounted bundle, since
+        NODE_EXTRA_CA_CERTS/REQUESTS_CA_BUNDLE each take exactly one path."""
+        workers = _make_workers(
+            tmp_path,
+            confs=["long-worker.workers.fm.supervisor.conf"],
+            bench_config=_bench_config(
+                ssl_certificates=[
+                    SimpleNamespace(ssl_type=SUPPORTED_SSL_TYPES.dev, domain="dev.localhost"),
+                    SimpleNamespace(ssl_type=SUPPORTED_SSL_TYPES.custom, domain="app.example.com"),
+                ]
+            ),
+        )
+        dev_ca = tmp_path / "services" / "nginx-proxy" / "ssl" / "dev" / "ca" / "rootCA.pem"
+        dev_ca.parent.mkdir(parents=True)
+        dev_ca.write_text("-----BEGIN CERTIFICATE-----\ndev\n")
+        custom_ca = self._custom_ca(tmp_path)
+
+        with (
+            patch(f"{MODULE}.get_proxy_ip_on_frontend", return_value=None),
+            patch(f"{MODULE}.CLI_SERVICES_DIRECTORY", tmp_path / "services"),
+        ):
+            workers.generate_compose()
+
+        bundle = tmp_path / "test.localhost" / "config" / "fm-trusted-ca-bundle.pem"
+        assert bundle.read_bytes() == dev_ca.read_bytes() + custom_ca.read_bytes()
+        worker = workers.compose_file_manager.yml["services"]["long-worker"]
+        assert f"{bundle}:/etc/ssl/certs/fm-trusted-ca.pem:ro" in worker["volumes"]
 
     @pytest.mark.timeout(15)
     def test_dropped_worker_is_removed_from_the_workers_compose_only(self, tmp_path):

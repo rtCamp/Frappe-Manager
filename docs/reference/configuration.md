@@ -617,18 +617,24 @@ domain = "www.mybench.com"
 ssl_type = "letsencrypt"
 challenge_type = "dns01"
 acme_client = "acme.sh"
+
+[[ssl.certificates]]
+domain = "internal.mybench.com"
+ssl_type = "custom"
 ```
 
 **Certificate fields:**
 
 - `domain`: hostname this certificate covers
-- `ssl_type`: `"letsencrypt"`, or `"dev"` for a certificate from FM's local CA (`fm ssl add --dev`). `"disable"` is accepted on read and means no certificate; FM never writes such an entry, it drops the domain from the array instead
-- `challenge_type`: `"http01"` or `"dns01"`, Let's Encrypt only. Absent, FM picks `dns01` when Cloudflare credentials exist and `http01` otherwise
-- `acme_client`: always `"acme.sh"`
+- `ssl_type`: `"letsencrypt"`, `"dev"` for a certificate from FM's local CA (`fm ssl add --dev`), or `"custom"` for an operator-supplied certificate imported by `fm ssl add --custom`. `"disable"` is accepted on read and means no certificate; FM never writes such an entry, it drops the domain from the array instead
+- `challenge_type`: `"http01"` or `"dns01"`, Let's Encrypt only. Absent, it defaults to `"http01"`
+- `acme_client`: always `"acme.sh"`, Let's Encrypt entries only
 - `dns_provider`: label of the [`[ssl.dns_providers]`](#dns-providers) entry that authenticates this domain's DNS-01 challenge, written by `fm ssl add --dns-provider`. Absent means the label `cloudflare`. A label that exists at neither scope is an error, not a fallback
 - `delegation_cname`: delegated zone for `_acme-challenge`, written by `fm ssl add --cname`
 - `hsts`: value for the `Strict-Transport-Security` header the proxy sends for this domain, or `"off"` (the default). There is no flag for it; set it here. Only the primary domain's certificate is consulted
 - `enabled`: `true` by default. `false` leaves the entry in the file but makes issuance and renewal a no-op for that domain. No flag writes it
+
+A `custom` entry records only the domain and type: the imported bytes live under `~/frappe/services/nginx-proxy/ssl/custom/<domain>/`, and FM keeps no record of the original `--cert`/`--key`/`--ca` paths. `fm ssl renew` never renews one, because FM does not rotate a certificate it did not issue; re-run `fm ssl add BENCH/DOMAIN --custom` with the replacement files instead. The [SSL guide](../guides/ssl.md#custom-certificates) covers the import and its validation.
 
 That is the whole entry, and an unrecognised key in one is an error. A certificate never holds a credential: DNS-01 credentials are resolved from [`[ssl.dns_providers]`](#dns-providers) at issuance and again at every renewal. Earlier releases copied the global token onto every certificate, which put a secret in this world readable file and kept it working after `fm ssl dns-config cloudflare --remove` had reported success; the 0.20.0 migration moves any such copy into `[ssl.dns_providers]` and deletes it from the certificate.
 
@@ -1022,6 +1028,7 @@ Only the paths that hold configuration or credentials. The [Architecture referen
 ├── services/
 │   ├── docker-compose.yml                   ← Global services compose
 │   ├── nginx-proxy/ssl/acmesh/              ← acme.sh certificate store
+│   ├── nginx-proxy/ssl/custom/              ← imported custom certificates (fm ssl add --custom)
 │   ├── mariadb/conf/                        ← global-db configuration
 │   └── secrets/                             ← global-db root and user password files
 └── sites/<benchname>/

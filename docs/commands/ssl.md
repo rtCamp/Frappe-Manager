@@ -16,7 +16,7 @@ $ fm ssl [OPTIONS] COMMAND [ARGS]...
 
 * `renew`: Renew SSL certificates before they expire.
 * `list`: List SSL certificates with their expiry and renewal status.
-* `add`: Issue an SSL certificate for a domain and point nginx at it.
+* `add`: Issue or import an SSL certificate for a domain and point nginx at it.
 * `remove`: Delete an SSL certificate and go back to serving the domain over plain HTTP.
 * `acme-sh`: Run the bundled acme.sh directly, against fm's certificate home.
 
@@ -139,7 +139,7 @@ fm ssl list all
 
 ### `fm ssl add`
 
-Issue an SSL certificate for a domain and point nginx at it.
+Issue or import an SSL certificate for a domain and point nginx at it.
 
 Bench mode takes a bench name and one of its configured domains (add new ones with fm update --add-alias). Naming just the bench offers its domains to pick from. --standalone issues for an external Docker project instead.
 
@@ -163,6 +163,10 @@ $ fm ssl add BENCH(/DOMAIN) [OPTIONS]
 * `--dev`: Issue from fm's local CA, so no internet or public DNS is needed. Bench mode only.
 * `--skip-dns-check`: Skip the DNS pre-check. Standalone mode only.
 * `--wait-for-dns`: Wait up to 5 min for the CNAME. Standalone only.
+* `--custom`: Import an operator-supplied certificate instead of issuing one. Needs --cert and --key. Bench mode only.
+* `--cert`: Certificate file (PEM). --custom only.
+* `--key`: Private key file (PEM), unencrypted. --custom only.
+* `--ca`: CA bundle file (PEM). Optional; when given, bench containers trust it for outbound self-calls once you run 'fm start BENCH' to apply the updated compose. --custom only.
 
 
 ## Examples
@@ -199,6 +203,14 @@ fm ssl add mybench/all
 
 ```bash
 fm ssl add example.com --standalone
+```
+
+### Import an operator-issued certificate
+
+No issuance: fm copies the files in, links them into the global proxy, and restarts it. Add --ca to also trust a private CA for outbound self-calls once you run 'fm start BENCH' to apply the updated compose.
+
+```bash
+fm ssl add mybench/example.com --custom --cert ./example.com.crt --key ./example.com.key
 ```
 
 ### Validate through a delegated zone

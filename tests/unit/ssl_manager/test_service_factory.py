@@ -9,7 +9,8 @@ from unittest.mock import Mock
 
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.acmesh_certificate_service import AcmeShCertificateService
-from frappe_manager.ssl_manager.certificate import SSLCertificate
+from frappe_manager.ssl_manager.certificate import CustomCertificate, SSLCertificate
+from frappe_manager.ssl_manager.custom_certificate_service import CustomCertificateService
 from frappe_manager.ssl_manager.no_op_certificate_service import NoOpCertificateService
 from frappe_manager.ssl_manager.service_factory import create_certificate_service
 
@@ -31,6 +32,27 @@ class TestCreateCertificateService:
         service = create_certificate_service(certificate, storage_config, mock_output_handler)
 
         assert isinstance(service, NoOpCertificateService)
+
+    def test_returns_custom_service_for_ssl_type_custom(self, tmp_path, mock_output_handler):
+        """A custom certificate must go to CustomCertificateService, never to AcmeSh: the factory's
+        catch-all fallthrough assumes 'not dev, not none' means Let's Encrypt, and a missing custom
+        branch would hand this certificate to acme.sh instead."""
+        certificate = CustomCertificate(
+            domain="example.com",
+            ssl_type=SUPPORTED_SSL_TYPES.custom,
+            cert_source=tmp_path / "a.crt",
+            key_source=tmp_path / "a.key",
+        )
+
+        storage_config = Mock()
+        storage_config.ssl_dir = tmp_path / "ssl"
+        storage_config.webroot_dir = tmp_path / "webroot"
+
+        service = create_certificate_service(certificate, storage_config, mock_output_handler)
+
+        assert isinstance(service, CustomCertificateService)
+        assert not isinstance(service, AcmeShCertificateService)
+        assert service.root_dir == storage_config.ssl_dir / "custom"
 
     def test_returns_noop_service_when_enabled_false(self, tmp_path, mock_output_handler, mock_letsencrypt_certificate_http01, mocker):
         """Test that NoOpCertificateService is returned when enabled=False."""

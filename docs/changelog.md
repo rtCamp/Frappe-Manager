@@ -5,6 +5,12 @@ All notable changes to Frappe Manager are documented here.
 > Versions prior to v0.19.0 were released without structured changelogs.
 > See the [GitHub Releases page](https://github.com/rtCamp/Frappe-Manager/releases) for historical notes.
 
+## Unreleased
+
+### Features
+
+- **ssl:** Add `fm ssl add --custom` to import an operator-supplied certificate (`--cert` and `--key`, optional `--ca` trusted inside bench containers for outbound HTTPS); `fm ssl renew` deliberately refuses to rotate an imported certificate and directs the operator to re-run the import
+
 ## v0.19.0.dev0 - 2026-04-14
 
 ### Bug Fixes

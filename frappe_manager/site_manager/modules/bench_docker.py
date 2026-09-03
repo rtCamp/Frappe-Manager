@@ -138,37 +138,57 @@ class BenchDockerOps:
             for service in ["frappe", "socketio", "schedule"]:
                 self.compose_file_manager.set_extrahosts(service, extra_hosts)
 
-        # For dev SSL (self-signed certs), mount the CA cert into containers
-        # that make outbound HTTPS requests, so they trust the dev cert.
-        # Production Let's Encrypt certs are trusted by default and don't need this.
+        # Outbound HTTPS trust: a dev certificate, or a --custom --ca certificate, needs its CA in
+        # the container's trust store so a server-side call to the bench's own domain (PDF/print,
+        # OAuth, get_url fetches) does not fail with an unknown-CA error. A Let's Encrypt or
+        # bare --custom (no --ca) certificate chains to a public root and needs nothing here.
         from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
-        from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+        from frappe_manager.site_manager.modules.ssl_ca_trust import (
+            CA_TRUST_ENV_VARS,
+            CONTAINER_CA_PATH,
+            resolve_ca_trust,
+            strip_managed_ca_volumes,
+        )
 
-        has_dev_ssl = any(cert.ssl_type == SUPPORTED_SSL_TYPES.dev for cert in self.config.ssl_certificates)
-        if has_dev_ssl:
-            ca_cert_host = CLI_SERVICES_DIRECTORY / "nginx-proxy" / "ssl" / "dev" / "ca" / "rootCA.pem"
-            if ca_cert_host.exists():
-                container_ca_path = "/etc/ssl/certs/fm-dev-ca.pem"
-                ca_services = ["frappe", "socketio", "schedule"]
-                for svc in ca_services:
-                    # Mount the CA cert
-                    vols = self.compose_file_manager.get_service_volumes(svc)
-                    vols.append(
-                        DockerVolumeMount(
-                            host=str(ca_cert_host),
-                            container=container_ca_path,
-                            type=DockerVolumeType.bind,
-                            compose_path=self.compose_file_manager.compose_path,
-                        )
+        ca_bundle_host = resolve_ca_trust(self.path, self.config, CLI_SERVICES_DIRECTORY)
+        ca_services = ["frappe", "socketio", "schedule"]
+        for svc in ca_services:
+            # Strip any fm-managed CA mount -- current name or the pre-rename legacy one -- BEFORE
+            # deciding whether to add today's, on every regen: this compose file is loaded from
+            # disk and mutated in place (unlike the workers compose, rebuilt from the template
+            # each time), so appending unconditionally would grow a duplicate mount on every later
+            # regen, and would never clean up a bench upgraded from before the rename.
+            original_vols = self.compose_file_manager.get_service_volumes(svc)
+            vols = strip_managed_ca_volumes(original_vols)
+            original_envs = self.compose_file_manager.get_envs(svc) or {}
+            envs = dict(original_envs)
+            # Also true when the bench's last dev/custom-ca certificate was just removed: there is
+            # nothing left to trust, but a stale mount/env pair from before must still be dropped.
+            had_stale = len(vols) != len(original_vols) or any(var in envs for var in CA_TRUST_ENV_VARS)
+            for var in CA_TRUST_ENV_VARS:
+                envs.pop(var, None)
+
+            if ca_bundle_host:
+                vols.append(
+                    DockerVolumeMount(
+                        host=str(ca_bundle_host),
+                        container=CONTAINER_CA_PATH,
+                        type=DockerVolumeType.bind,
+                        compose_path=self.compose_file_manager.compose_path,
+                        read_only=True,
                     )
-                    self.compose_file_manager.set_service_volumes(svc, vols)
-                    # Set runtime-specific env var for CA trust
-                    envs = self.compose_file_manager.get_envs(svc) or {}
-                    # Node.js apps (socketio) or any process that uses NODE_EXTRA_CA_CERTS
-                    envs["NODE_EXTRA_CA_CERTS"] = container_ca_path
-                    # Python requests library honors this env var
-                    envs["REQUESTS_CA_BUNDLE"] = container_ca_path
-                    self.compose_file_manager.set_envs(svc, envs, append=True)
+                )
+                # Node.js apps (socketio) or any process that uses NODE_EXTRA_CA_CERTS
+                envs["NODE_EXTRA_CA_CERTS"] = CONTAINER_CA_PATH
+                # Python requests library honors this env var
+                envs["REQUESTS_CA_BUNDLE"] = CONTAINER_CA_PATH
+
+            if ca_bundle_host or had_stale:
+                self.compose_file_manager.set_service_volumes(svc, vols)
+                # append=False: `envs` above is already the full, correctly-popped set; append=True
+                # merges against whatever is still on disk, which would silently resurrect a var
+                # this block just popped.
+                self.compose_file_manager.set_envs(svc, envs, append=False)
 
         # The container-name prefix is BENCH-scoped, so it comes from the bench name and not from
         # `network_aliases[0]`. Those were the same string while the aliases list started at

@@ -1,5 +1,6 @@
 """Helper functions for bench SSL certificate operations."""
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import typer
@@ -8,7 +9,7 @@ from rich.table import Table
 from frappe_manager.output_manager import spinner
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
-from frappe_manager.ssl_manager.certificate import SSLCertificate
+from frappe_manager.ssl_manager.certificate import CustomCertificate, SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateNotFoundError,
     SSLDNSProviderNotConfigured,
@@ -38,6 +39,37 @@ def _site_serving(bench: Bench, domain: str) -> str | None:
     return bench.bench_config.get_site_mappings().get(domain)
 
 
+def _regenerate_bench_compose(bench: Bench, output) -> bool:
+    """Resync `docker-compose.yml` (and the workers compose, if one exists) with the bench's
+    current config after a certificate add/remove.
+
+    This is a pure file write -- no docker call, nothing disruptive -- and it is the ONLY thing
+    that carries a `--dev`/`--custom --ca` certificate's CA trust (the mount plus
+    NODE_EXTRA_CA_CERTS/REQUESTS_CA_BUNDLE, see ssl_ca_trust.py) into the compose file at all:
+    `fm ssl add`/`remove` used to call neither `generate_compose`, so that trust never landed
+    until some UNRELATED later command happened to regenerate compose, and `fm restart` can never
+    apply it (`docker compose restart` reuses a container's already-created mounts/env; it does
+    not re-read the compose file the way `compose up` does). Idempotent, so calling it once per
+    certificate in a batch of adds costs nothing beyond the write itself -- the actual container
+    recreation is deliberately left to the operator's own `fm start`, once, at the end of the
+    batch, rather than bounced automatically here on every single certificate.
+
+    Returns True if the compose files were rewritten, so the caller only prints the converge
+    instruction when there is actually something to converge.
+    """
+    try:
+        bench.generate_compose(bench.bench_config.export_to_compose_inputs())
+        if bench.workers.compose_file_manager.compose_path.exists():
+            bench.workers.generate_compose()
+    except Exception as e:
+        # Non-fatal: the certificate itself is already added/removed by the time this runs. A
+        # bench left on a stale compose still works; it just needs a manual nudge to catch up.
+        output.warning(f"Could not update {bench.name}'s compose files: {e}. Run 'fm update {bench.name}' to retry.")
+        return False
+    else:
+        return True
+
+
 def _add_bench_certificate(
     ctx: typer.Context,
     benchname: str,
@@ -47,6 +79,10 @@ def _add_bench_certificate(
     dry_run: bool,
     dev: bool = False,
     dns_provider: str | None = None,
+    custom: bool = False,
+    cert_path: Path | None = None,
+    key_path: Path | None = None,
+    ca_path: Path | None = None,
 ):
     """Add SSL certificate for a bench domain (existing logic extracted)."""
 
@@ -85,6 +121,16 @@ def _add_bench_certificate(
             domain=domain,
             ssl_type=SUPPORTED_SSL_TYPES.dev,
         )
+    elif custom:
+        # cname/dns_provider/challenge/dry_run/standalone incompatibilities are already refused in
+        # add.py before this is reached; nothing left to guard here.
+        cert = CustomCertificate(
+            domain=domain,
+            ssl_type=SUPPORTED_SSL_TYPES.custom,
+            cert_source=cert_path,
+            key_source=key_path,
+            ca_source=ca_path,
+        )
     else:
         cert = build_letsencrypt_certificate(domain, challenge, cname, dns_provider=dns_provider)
         if dns_provider:
@@ -116,6 +162,13 @@ def _add_bench_certificate(
             output.debug(f"Could not update host_name to https://{domain}: {e}")
         output.print(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
         output.print("Certificate has been issued and configured.", emoji_code=":zap:")
+
+        if _regenerate_bench_compose(bench, output):
+            output.print(
+                f"Run 'fm start {benchname}' to apply it (recreates only the services whose "
+                "definition changed; running jobs are undisturbed until then).",
+                emoji_code=":information:",
+            )
 
 
 def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, yes: bool):
@@ -160,6 +213,13 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
             output.debug(f"Could not update host_name to http://{domain}: {e}")
 
         output.print(f"SSL certificate removed for {domain}", emoji_code=":white_check_mark:")
+
+        if _regenerate_bench_compose(bench, output):
+            output.print(
+                f"Run 'fm start {benchname}' to apply it (recreates only the services whose "
+                "definition changed; running jobs are undisturbed until then).",
+                emoji_code=":information:",
+            )
 
     except SSLCertificateNotFoundError as e:
         output.display_error(f"Certificate not found: {e}")
@@ -230,7 +290,13 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
             if cert["exists"] and cert["expiry_date"]:
                 expiry = cert["expiry_date"].strftime("%Y-%m-%d %H:%M")
                 days_left = str(cert["days_until_expiry"])
-                renewal = "⚠️ DUE" if cert["needs_renewal"] else "✓ OK"
+                if ssl_type == "custom":
+                    # fm never auto-renews this type (no ACME account, no stored source bytes),
+                    # so "DUE"/"OK" -- which imply `fm ssl renew` acts on this row -- would be a
+                    # promise the command does not keep. Name the real action instead.
+                    renewal = "⚠️ re-import" if cert["needs_renewal"] else "manual"
+                else:
+                    renewal = "⚠️ DUE" if cert["needs_renewal"] else "✓ OK"
             else:
                 expiry = "N/A"
                 days_left = "N/A"

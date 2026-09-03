@@ -50,6 +50,15 @@ if ($redirect_to_https = 1) {
 }
 """
 
+    # Bare exact-text fallback for a legacy install with no markers, whose whole file body is just
+    # this text (re.escape, since the body contains regex metacharacters like `\\.` and `$`). The
+    # optional trailing `\n` is swallowed too, mirroring `_BLOCK_RE`'s own `\n?` after BLOCK_END:
+    # without it, removing this text from a legacy file left exactly one "\n" behind, which is
+    # truthy, so `disable_https_redirect` kept the file around (empty but present) instead of
+    # deleting it -- a plain `.replace()` had no way to know that leftover newline was the
+    # constant's own trailing formatting rather than real foreign content.
+    _LEGACY_RE = re.compile(re.escape(HTTPS_REDIRECT_CONFIG.strip("\n")) + r"\n?")
+
     @classmethod
     def _redirect_block(cls) -> str:
         return f"{cls.BLOCK_BEGIN}\n{cls.HTTPS_REDIRECT_CONFIG}{cls.BLOCK_END}\n"
@@ -59,7 +68,7 @@ if ($redirect_to_https = 1) {
         stripped = cls._BLOCK_RE.sub("", text)
         # Files written before the markers existed hold the bare config as the whole file body;
         # recognise that legacy shape too so an upgraded install can still turn the redirect off.
-        return stripped.replace(cls.HTTPS_REDIRECT_CONFIG.strip("\n"), "")
+        return cls._LEGACY_RE.sub("", stripped)
 
     def __init__(self, vhostd_dir: Path):
         """
@@ -87,6 +96,10 @@ if ($redirect_to_https = 1) {
         other content already there (maintenance block, upload limit, hand-written directives).
         This should be called after a certificate is successfully generated for the domain.
 
+        The remainder is written back byte-for-byte, with no newline normalisation: whatever
+        `disable_https_redirect` strips back out later must be identical to what was here before
+        this call, so that add-then-remove is a true inverse, not merely a semantic one.
+
         Args:
             domain: Domain name to enable HTTPS redirect for
 
@@ -99,9 +112,12 @@ if ($redirect_to_https = 1) {
         """
         vhost_file = self.vhostd_dir / domain
 
-        # Replace only our own block; everything else in this shared file survives verbatim.
-        remainder = self._strip_redirect_block(vhost_file.read_text()).strip("\n") if vhost_file.exists() else ""
-        vhost_file.write_text(self._redirect_block() + (remainder + "\n" if remainder else ""))
+        # Replace only our own block; everything else in this shared file survives verbatim,
+        # byte-for-byte -- no .strip("\n") here, which used to normalise away a foreign file's own
+        # leading/trailing newlines and made remove restore something merely equivalent, not
+        # identical, to what add found.
+        remainder = self._strip_redirect_block(vhost_file.read_text()) if vhost_file.exists() else ""
+        vhost_file.write_text(self._redirect_block() + remainder)
 
         return vhost_file
 
@@ -112,6 +128,10 @@ if ($redirect_to_https = 1) {
         Strips fm's redirect block from the domain's vhost.d file, leaving foreign content in
         place; the file itself is removed only when nothing else remains. This should be called
         when a certificate is removed.
+
+        The remainder is written back exactly as `_strip_redirect_block` returns it -- no
+        `.strip("\\n")` -- so that a file `enable_https_redirect` last touched returns to its
+        pre-add bytes exactly, including any leading/trailing blank lines it already had.
 
         Args:
             domain: Domain name to disable HTTPS redirect for
@@ -132,9 +152,9 @@ if ($redirect_to_https = 1) {
         if self.BLOCK_BEGIN not in text and self.HTTPS_REDIRECT_CONFIG.strip("\n") not in text:
             return False
 
-        remainder = self._strip_redirect_block(text).strip("\n")
+        remainder = self._strip_redirect_block(text)
         if remainder:
-            vhost_file.write_text(remainder + "\n")
+            vhost_file.write_text(remainder)
         else:
             vhost_file.unlink()
         return True

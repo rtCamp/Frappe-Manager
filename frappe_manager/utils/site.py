@@ -154,7 +154,13 @@ def parse_docker_volume(volume_string: str, root_volumes: dict, compose_path: Pa
         if not is_bind_mount:
             volume_type = DockerVolumeType.volume
 
-        docker_volume = DockerVolumeMount(src, dest, volume_type, compose_path)
+        # A third `HOST:CONTAINER:ro` segment is the only other mode `DockerVolumeMount` knows;
+        # without detecting it here, reading an existing `:ro` bind back off disk and writing it
+        # out again (every regeneration) silently drops the flag, since `DockerVolumeMount.__str__`
+        # otherwise never emits it.
+        read_only = len(string_parts) > 2 and string_parts[2] == "ro"
+
+        docker_volume = DockerVolumeMount(src, dest, volume_type, compose_path, read_only=read_only)
 
         return docker_volume
 

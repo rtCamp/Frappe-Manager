@@ -21,6 +21,7 @@ from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
+    SSLCertificateManualRenewalRequired,
     SSLCertificateNotDueForRenewalError,
     SSLCertificateNotFoundError,
 )
@@ -626,6 +627,12 @@ class SSLCertificateManager:
                     renewed_count += 1
 
                 except SSLCertificateNotDueForRenewalError as e:
+                    self.output_handler.print(f"{e}", emoji_code="⏭️ ")
+                    skipped_count += 1
+                except SSLCertificateManualRenewalRequired as e:
+                    # Working as designed, not a failure: fm never auto-renews this type, so this
+                    # is the same "nothing to do here" outcome as not-due-yet, just for a
+                    # different reason. The message already names the exact command to run.
                     self.output_handler.print(f"{e}", emoji_code="⏭️ ")
                     skipped_count += 1
                 except Exception as e:

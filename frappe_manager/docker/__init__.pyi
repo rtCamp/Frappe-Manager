@@ -13,7 +13,10 @@ class DockerVolumeMount:
     type: str
     container: Path
     compose_path: Path
-    def __init__(self, host: str | Path, container: str, type: str, compose_path: Path) -> None: ...
+    read_only: bool
+    def __init__(
+        self, host: str | Path, container: str, type: str, compose_path: Path, read_only: bool = ...
+    ) -> None: ...
 
 # Import actual classes for type checking
 from frappe_manager.docker.compose_exceptions import (

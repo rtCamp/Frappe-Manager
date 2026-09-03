@@ -1,14 +1,18 @@
 # SSL / HTTPS
 
-Frappe Manager issues and installs Let's Encrypt certificates for your benches using either the HTTP-01 challenge (the default) or DNS-01 through Cloudflare. It can also mint locally-trusted certificates from its own CA for development, and it can front external Docker projects that share its proxy network.
+Frappe Manager issues and installs Let's Encrypt certificates for your benches using either the HTTP-01 challenge (the default) or DNS-01 through Cloudflare. It can also mint locally-trusted certificates from its own CA for development, import a certificate you already have with `--custom`, and front external Docker projects that share its proxy network.
 
 ## What `fm ssl add` does
+
+With no mode flag, `fm ssl add` issues from Let's Encrypt:
 
 1. Installs acme.sh on first use into `~/frappe/services/nginx-proxy/ssl/acmesh/.acme.sh/`.
 2. Runs the ACME challenge against Let's Encrypt. For HTTP-01, acme.sh drops the validation file into the bench's nginx webroot, which is served at `/.well-known/acme-challenge/`. For DNS-01, acme.sh creates and then removes a `_acme-challenge` TXT record through the Cloudflare API.
 3. Copies the issued certificate to `~/frappe/services/nginx-proxy/ssl/acmesh/<domain>/` and symlinks it into the proxy's `certs/` directory, where nginx-proxy reads it.
 4. Writes a `vhostd/<domain>` snippet that redirects HTTP to HTTPS, then restarts nginx-proxy.
 5. Records the certificate in the bench's `bench_config.toml` and sets the site's `host_name` to `https://<domain>`.
+
+`--dev` ([below](#local-development-certificates-dev)) and `--custom` ([below](#custom-certificates)) replace the first three steps: `--dev` signs a certificate from fm's local CA, and `--custom` validates and copies files you supply, into `ssl/dev/<domain>/` and `ssl/custom/<domain>/` respectively. The symlink, redirect, restart and config steps are identical in every mode.
 
 !!! warning "Nothing renews on its own"
     fm installs no cron job, timer, or daemon. `fm ssl renew` only runs when you run it. Set up the cron job in [Renewals](#renewals) the same day you issue your first certificate.
@@ -188,6 +192,29 @@ Until that is in place the domain answers `503 Backend Not Connected` over HTTPS
 
 ---
 
+## Bring your own certificate (`--custom`) {#custom-certificates}
+
+```bash
+fm ssl add mybench/example.com --custom --cert ./example.com.crt --key ./example.com.key
+```
+
+`--custom` imports a certificate you already have instead of issuing one: no ACME account, no challenge, no call to Let's Encrypt. fm validates the files, copies their bytes into `~/frappe/services/nginx-proxy/ssl/custom/<domain>/`, symlinks them into the proxy's `certs/` directory, writes the `vhostd/<domain>` HTTP to HTTPS redirect, records `ssl_type = "custom"` in the bench's `bench_config.toml`, and sets the site's `host_name` to `https://<domain>`, exactly like an issued certificate.
+
+Give `--cert` the full chain (leaf first, then intermediates) in PEM: fm copies the bytes verbatim, and nginx serves exactly what you supply. `--key` must be the matching private key, also PEM and unencrypted; decrypt a password-protected key first.
+
+The import is refused when a file is missing or unreadable, when it does not parse as PEM, when the key does not match the certificate's public key, when the certificate does not cover the domain (SAN is checked first, then CN as the pre-SAN fallback), or when the certificate has already expired. A certificate with fewer than 30 days left imports with a warning, because fm cannot renew it for you.
+
+`--custom` is bench mode only, like `--dev`, and the domain must already be configured on the bench (see [Before you start](#before-you-start)). It cannot be combined with `--dev`, `--standalone`, `--dry-run`, `--cname`, `--dns-provider`, or an explicitly passed `--challenge`, and `--cert`/`--key`/`--ca` are refused without `--custom`.
+
+!!! warning "fm will not rotate this certificate"
+    Renewal stays your job. `fm ssl renew` reports a custom certificate and changes nothing, at any age: fm keeps only the imported bytes, not the paths to your original files, and it never re-issues a certificate it did not create. When you have a replacement, run `fm ssl add BENCH/DOMAIN --custom` again with the new files. Expiry shows up in `fm ssl list` like any other certificate, so put the date in whatever calendar your issuer's renewals already live in.
+
+### Private CAs (`--ca`)
+
+If the certificate chains to a private CA rather than a public root, pass the CA bundle with `--ca`. fm stores it beside the certificate as `ca.pem` and mounts it into the bench's frappe, socketio, schedule and worker containers, with `NODE_EXTRA_CA_CERTS` and `REQUESTS_CA_BUNDLE` pointing at it, so server-side HTTPS calls to the bench's own domain (PDF rendering, OAuth callbacks, `get_url` fetches) trust it. This is the same mechanism `--dev` already uses for fm's local CA, and a bench holding both trusts a combined bundle. The import rewrites the bench's compose files on the spot and tells you to run `fm start BENCH`, which recreates only the services whose definition changed; the trust is live from that point, and a batch of imports needs just one `fm start` at the end. A publicly-trusted certificate needs no `--ca` at all.
+
+---
+
 ## Local development certificates (`--dev`) {#local-development-certificates-dev}
 
 ```bash
@@ -209,6 +236,8 @@ fm ssl renew mybench/mybench.local --force
 ## Renewals {#renewals}
 
 Let's Encrypt certificates are valid for 90 days. fm treats a certificate as due when fewer than 30 days remain; one that is not due is reported and left alone unless you pass `--force`.
+
+A custom certificate is never renewed: `fm ssl renew` answers with a reminder to re-import and changes nothing, whatever its age (see [Bring your own certificate](#custom-certificates)).
 
 ```bash
 fm ssl renew mybench                        # every certificate on one bench
@@ -303,6 +332,7 @@ Everything lives under the global nginx-proxy service directory:
 | `~/frappe/services/nginx-proxy/ssl/acmesh/<domain>/key.pem` | Private key |
 | `~/frappe/services/nginx-proxy/ssl/dev/ca/` | Local dev CA (`rootCA.pem`, `rootCA-key.pem`, `.installed` sentinel) |
 | `~/frappe/services/nginx-proxy/ssl/dev/<domain>/` | Dev leaf certificate and key |
+| `~/frappe/services/nginx-proxy/ssl/custom/<domain>/` | Imported custom certificate: `key.pem`, `fullchain.pem`, and `ca.pem` when `--ca` was given |
 | `~/frappe/services/nginx-proxy/certs/<domain>.crt` | Symlink nginx-proxy reads for the chain |
 | `~/frappe/services/nginx-proxy/certs/<domain>.key` | Symlink nginx-proxy reads for the key |
 | `~/frappe/services/nginx-proxy/vhostd/<domain>` | HTTP to HTTPS redirect snippet |
@@ -322,4 +352,4 @@ Everything lives under the global nginx-proxy service directory:
     - [fm ssl command reference](../commands/ssl.md): every flag and subcommand
     - [Cloudflare DNS config reference](../commands/ssl-dns-config-cloudflare.md)
     - [Environments](environments.md): prod and dev differences
-    - [Configuration reference](../reference/configuration.md#ssl-certificates): how issued certificates are recorded in `bench_config.toml`
+    - [Configuration reference](../reference/configuration.md#ssl-certificates): how certificates are recorded in `bench_config.toml`

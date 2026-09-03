@@ -22,11 +22,19 @@ class DockerVolumeType(str, Enum):
 
 
 class DockerVolumeMount:
-    def __init__(self, host: str | Path, container: str, type: str, compose_path: Path):
+    def __init__(
+        self,
+        host: str | Path,
+        container: str,
+        type: str,
+        compose_path: Path,
+        read_only: bool = False,
+    ):
         self.host = host
         self.type = type
         self.container = Path(container)
         self.compose_path = compose_path
+        self.read_only = read_only
 
         if type == DockerVolumeType.bind:
             self.host = Path(self.host)
@@ -41,7 +49,11 @@ class DockerVolumeMount:
             source = str(self.host).replace(str(self.compose_path.parent), ".")
 
         dest = str(self.container)
-        return f"{source}:{dest}"
+        mount = f"{source}:{dest}"
+        # A CA bundle (or any bind meant to be read-only) must never be writable by the container
+        # that reads it; `:ro` is the only thing that makes that survive a regeneration, since
+        # this string is what gets written back to the compose file on disk.
+        return f"{mount}:ro" if self.read_only else mount
 
 
 # For convenient imports: from frappe_manager.docker import ComposeFile, DockerClient, etc.

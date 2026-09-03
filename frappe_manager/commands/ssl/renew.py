@@ -9,7 +9,10 @@ from frappe_manager.commands.arguments import BenchDomainAllArgument
 from frappe_manager.output_manager import spinner, temporary_stop
 from frappe_manager.site_manager.exceptions import BenchSSLCertificateNotIssued
 from frappe_manager.site_manager.site import Bench
-from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotDueForRenewalError
+from frappe_manager.ssl_manager.certificate_exceptions import (
+    SSLCertificateManualRenewalRequired,
+    SSLCertificateNotDueForRenewalError,
+)
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, prompt_for_bench_selection, resolve_bench_targets
 
 from .external_helpers import _renew_all_external_certificates, _renew_external_certificate
@@ -133,7 +136,11 @@ def renew(
                 # same thing, because a bench's certificates ARE its domains' certificates.
                 with spinner(output, f"Renewing certificates for {address}"):
                     bench.ssl.renew_all_certificates(dry_run=dry_run, force=force)
-        except (BenchSSLCertificateNotIssued, SSLCertificateNotDueForRenewalError) as e:
+        except (
+            BenchSSLCertificateNotIssued,
+            SSLCertificateNotDueForRenewalError,
+            SSLCertificateManualRenewalRequired,
+        ) as e:
             output.warning(e.message)
         except typer.Exit:
             raise

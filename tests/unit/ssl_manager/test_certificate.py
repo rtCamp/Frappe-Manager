@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import (
     RETIRED_CERTIFICATE_KEYS,
+    CustomCertificate,
     DevCertificate,
     DisabledCertificate,
     SSLCertificate,
@@ -190,6 +191,7 @@ class TestCertificateAdapterVariantSelection:
         [
             ("letsencrypt", LetsencryptSSLCertificate),
             ("dev", DevCertificate),
+            ("custom", CustomCertificate),
             # The enum member is `none` but its VALUE, and therefore the discriminator on disk, is
             # the string "disable".
             ("disable", DisabledCertificate),
@@ -244,6 +246,16 @@ class TestCertificateAdapterVariantSelection:
         with pytest.raises(ValidationError) as exc_info:
             CERTIFICATE_ADAPTER.validate_python(
                 {"domain": "app.example.com", "ssl_type": ssl_type, "delegation_cname": "a.fm.gw"}
+            )
+
+        assert [e["type"] for e in exc_info.value.errors()] == ["extra_forbidden"]
+
+    @pytest.mark.parametrize("ssl_type", ["dev", "disable", "letsencrypt"])
+    def test_a_custom_only_key_is_rejected_on_the_other_variants(self, ssl_type):
+        """`cert_source` and friends belong to the custom shape alone."""
+        with pytest.raises(ValidationError) as exc_info:
+            CERTIFICATE_ADAPTER.validate_python(
+                {"domain": "app.example.com", "ssl_type": ssl_type, "cert_source": "/tmp/a.crt"}
             )
 
         assert [e["type"] for e in exc_info.value.errors()] == ["extra_forbidden"]
@@ -342,3 +354,77 @@ class TestRetiredKeysAreTolerated:
             )
 
         assert [e["type"] for e in exc_info.value.errors()] == ["extra_forbidden"]
+
+
+class TestCustomCertificate:
+    """`CustomCertificate.cert_source`/`key_source`/`ca_source` are in-memory only: `fm ssl add
+    --custom` populates them from --cert/--key/--ca, but `exclude=True` keeps every one of them out
+    of `model_dump()`, and therefore out of `[[ssl.certificates]]` on disk. A certificate read back
+    from bench_config.toml -- every certificate CustomCertificateService.renew_certificate or a
+    later `fm ssl add`/`list`/`bake` run ever sees -- always has them as None.
+    """
+
+    def test_source_paths_are_carried_in_memory(self):
+        cert = CustomCertificate(
+            domain="app.example.com",
+            cert_source="/tmp/a.crt",
+            key_source="/tmp/a.key",
+            ca_source="/tmp/ca.crt",
+        )
+
+        assert str(cert.cert_source) == "/tmp/a.crt"
+        assert str(cert.key_source) == "/tmp/a.key"
+        assert str(cert.ca_source) == "/tmp/ca.crt"
+
+    def test_source_paths_default_to_none(self):
+        cert = CustomCertificate(domain="app.example.com")
+
+        assert cert.cert_source is None
+        assert cert.key_source is None
+        assert cert.ca_source is None
+
+    def test_source_paths_are_excluded_from_model_dump(self):
+        """The exact guarantee that keeps a private key path off disk."""
+        cert = CustomCertificate(
+            domain="app.example.com",
+            cert_source="/tmp/a.crt",
+            key_source="/tmp/a.key",
+            ca_source="/tmp/ca.crt",
+        )
+
+        dumped = cert.model_dump()
+
+        assert "cert_source" not in dumped
+        assert "key_source" not in dumped
+        assert "ca_source" not in dumped
+        assert dumped == {
+            "domain": "app.example.com",
+            "ssl_type": SUPPORTED_SSL_TYPES.custom,
+            "challenge_type": None,
+            "enabled": True,
+            "hsts": "off",
+        }
+
+    def test_a_certificate_read_back_from_the_union_never_carries_source_paths(self):
+        """Simulates a fresh `bench_config.toml` read: the TOML table never had these keys."""
+        cert = CERTIFICATE_ADAPTER.validate_python({"domain": "app.example.com", "ssl_type": "custom"})
+
+        assert type(cert) is CustomCertificate
+        assert cert.cert_source is None
+        assert cert.key_source is None
+        assert cert.ca_source is None
+
+    def test_challenge_type_is_inherited_unused_like_dev(self):
+        """No ACME here either: custom does not narrow challenge_type the way letsencrypt does."""
+        cert = CustomCertificate(domain="app.example.com")
+
+        assert cert.challenge_type is None
+
+    def test_source_field_names_do_not_collide_with_retired_certificate_keys(self):
+        """Regression guard: `cert_path`/`key_path` are RETIRED_CERTIFICATE_KEYS (acme.sh-issuance
+        leftovers), and the shared before-validator strips any key in that set before pydantic ever
+        assigns it. A CustomCertificate field reusing one of those names would be silently dropped
+        on every construction -- including CustomCertificateService.generate_certificate's -- while
+        looking perfectly valid. This is exactly the bug that shipped once already in this file.
+        """
+        assert RETIRED_CERTIFICATE_KEYS.isdisjoint({"cert_source", "key_source", "ca_source"})

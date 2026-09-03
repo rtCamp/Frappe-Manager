@@ -517,13 +517,20 @@ class TestGenerateCompose:
         ]
         mount = ops.compose_file_manager.set_service_volumes.call_args_list[0].args[1][0]
         assert Path(mount.host) == ca
-        assert str(mount.container) == "/etc/ssl/certs/fm-dev-ca.pem"
+        assert str(mount.container) == "/etc/ssl/certs/fm-trusted-ca.pem"
+        # A CA bundle must never be writable by the container that reads it; both composes agree
+        # on this (see TestCaTrustIdempotency and test_bench_workers_contract.py's `:ro` asserts).
+        assert mount.read_only is True
+        assert str(mount).endswith(":ro")
         for c in ops.compose_file_manager.set_envs.call_args_list:
             assert c.args[1] == {
-                "NODE_EXTRA_CA_CERTS": "/etc/ssl/certs/fm-dev-ca.pem",
-                "REQUESTS_CA_BUNDLE": "/etc/ssl/certs/fm-dev-ca.pem",
+                "NODE_EXTRA_CA_CERTS": "/etc/ssl/certs/fm-trusted-ca.pem",
+                "REQUESTS_CA_BUNDLE": "/etc/ssl/certs/fm-trusted-ca.pem",
             }
-            assert c.kwargs["append"] is True
+            # append=False, not True: the env dict passed here is already the full, correctly
+            # stale-stripped set (see TestCaTrustIdempotency), and append=True would merge against
+            # whatever is still on disk and could resurrect a var this call just meant to drop.
+            assert c.kwargs["append"] is False
 
     @pytest.mark.timeout(15)
     def test_letsencrypt_ssl_gets_no_ca_mount(self, tmp_path, monkeypatch):
@@ -554,6 +561,75 @@ class TestGenerateCompose:
 
         ops.compose_file_manager.set_service_volumes.assert_not_called()
 
+    @staticmethod
+    def _custom_ca(tmp_path, domain="app.example.com") -> Path:
+        ca = tmp_path / "services" / "nginx-proxy" / "ssl" / "custom" / domain / "ca.pem"
+        ca.parent.mkdir(parents=True)
+        ca.write_text("-----BEGIN CERTIFICATE-----\ncustom\n")
+        return ca
+
+    @pytest.mark.timeout(15)
+    def test_custom_ssl_with_ca_mounts_its_own_ca_file_directly(self, tmp_path, monkeypatch):
+        """One source (no dev certificate on this bench): the custom cert's own ca.pem is
+        mounted unchanged, exactly like a lone dev certificate always has been -- no bundle."""
+        ca = self._custom_ca(tmp_path)
+        cert = SimpleNamespace(ssl_type=SUPPORTED_SSL_TYPES.custom, domain="app.example.com")
+        ops = _ops(tmp_path, ssl_certificates=[cert])
+        self._patch_shape(monkeypatch)
+        monkeypatch.setattr(f"{DOCKER_MODULE}.get_proxy_ip_on_frontend", lambda: None)
+        monkeypatch.setattr(f"{DOCKER_MODULE}.CLI_SERVICES_DIRECTORY", tmp_path / "services")
+        ops.compose_file_manager.get_service_volumes.return_value = []
+        ops.compose_file_manager.get_envs.return_value = None
+
+        ops.generate_compose({})
+
+        mount = ops.compose_file_manager.set_service_volumes.call_args_list[0].args[1][0]
+        assert Path(mount.host) == ca
+        assert str(mount.container) == "/etc/ssl/certs/fm-trusted-ca.pem"
+        assert mount.read_only is True
+        assert not (tmp_path / "config" / "fm-trusted-ca-bundle.pem").exists()
+
+    @pytest.mark.timeout(15)
+    def test_custom_ssl_without_ca_gets_no_ca_mount(self, tmp_path, monkeypatch):
+        """--custom with no --ca: the certificate chains to a public/operator root the OS trust
+        store already has, exactly like Let's Encrypt."""
+        cert = SimpleNamespace(ssl_type=SUPPORTED_SSL_TYPES.custom, domain="app.example.com")
+        ops = _ops(tmp_path, ssl_certificates=[cert])
+        self._patch_shape(monkeypatch)
+        monkeypatch.setattr(f"{DOCKER_MODULE}.get_proxy_ip_on_frontend", lambda: None)
+        monkeypatch.setattr(f"{DOCKER_MODULE}.CLI_SERVICES_DIRECTORY", tmp_path / "services")
+
+        ops.generate_compose({})
+
+        ops.compose_file_manager.set_service_volumes.assert_not_called()
+
+    @pytest.mark.timeout(15)
+    def test_dev_and_custom_ca_are_merged_into_one_bundle(self, tmp_path, monkeypatch):
+        """Two sources on the same bench: NODE_EXTRA_CA_CERTS/REQUESTS_CA_BUNDLE take exactly one
+        path each, so both CAs must land in a single mounted bundle or one domain's self-calls
+        keep failing no matter which certificate 'wins'."""
+        dev_ca = self._dev_ca(tmp_path)
+        custom_ca = self._custom_ca(tmp_path)
+        certs = [
+            SimpleNamespace(ssl_type=SUPPORTED_SSL_TYPES.dev, domain="dev.localhost"),
+            SimpleNamespace(ssl_type=SUPPORTED_SSL_TYPES.custom, domain="app.example.com"),
+        ]
+        ops = _ops(tmp_path, ssl_certificates=certs)
+        self._patch_shape(monkeypatch)
+        monkeypatch.setattr(f"{DOCKER_MODULE}.get_proxy_ip_on_frontend", lambda: None)
+        monkeypatch.setattr(f"{DOCKER_MODULE}.CLI_SERVICES_DIRECTORY", tmp_path / "services")
+        ops.compose_file_manager.get_service_volumes.return_value = []
+        ops.compose_file_manager.get_envs.return_value = None
+
+        ops.generate_compose({})
+
+        bundle = tmp_path / "config" / "fm-trusted-ca-bundle.pem"
+        assert bundle.read_bytes() == dev_ca.read_bytes() + custom_ca.read_bytes()
+        mount = ops.compose_file_manager.set_service_volumes.call_args_list[0].args[1][0]
+        assert Path(mount.host) == bundle
+        assert str(mount.container) == "/etc/ssl/certs/fm-trusted-ca.pem"
+        assert mount.read_only is True
+
     @pytest.mark.timeout(15)
     def test_mode_shape_is_projected_from_the_bench_config(self, tmp_path, monkeypatch):
         """Image/volume shape is a pure projection so create/update/deploy all
@@ -567,6 +643,131 @@ class TestGenerateCompose:
         # The third argument is the bench's SITES, one bind per site: a list, never a bare
         # site string, which the projection would iterate character by character.
         apply_specs.assert_called_once_with(ops.compose_file_manager, specs, ["proj.localhost"])
+
+
+class TestCaTrustIdempotency:
+    """`BenchDockerOps.generate_compose` mutates the compose file LOADED FROM DISK rather than
+    rebuilding it from the template on every call (unlike BenchWorkers.generate_compose, which
+    always starts from a fresh template and is immune to this by construction). A real
+    `ComposeFile`, not the all-mock `_ops` harness, is required to prove the CA-mount block does
+    not accumulate across repeated regenerations, and does clean up an upgraded bench's
+    pre-rename `fm-dev-ca.pem` mount and a bench whose last trust-needing certificate was removed.
+    """
+
+    @staticmethod
+    def _real_ops(tmp_path, *, ssl_certificates=()) -> BenchDockerOps:
+        from frappe_manager.docker import ComposeFile
+
+        bench_path = tmp_path / "bench"
+        bench_path.mkdir(parents=True, exist_ok=True)
+        compose_path = bench_path / "docker-compose.yml"
+        if not compose_path.exists():
+            compose_path.write_text(
+                "services:\n"
+                "  frappe:\n    image: frappe:pinned\n    volumes: []\n    environment: {}\n"
+                "  socketio:\n    image: frappe:pinned\n    volumes: []\n    environment: {}\n"
+                "  schedule:\n    image: frappe:pinned\n    volumes: []\n    environment: {}\n"
+                "volumes: {}\nnetworks:\n  site-network: {}\n"
+            )
+        ops = object.__new__(BenchDockerOps)
+        ops.logger = MagicMock()
+        ops.docker_client = MagicMock()
+        ops.compose_file_manager = ComposeFile(compose_path)
+        ops.config = SimpleNamespace(
+            name="bench",
+            runtime=BenchRuntime.mount,
+            domains=["bench"],
+            site_names=["bench"],
+            ssl_certificates=list(ssl_certificates),
+            container_name_prefix="fm__bench",
+        )
+        ops.path = bench_path
+        ops.output = MagicMock()
+        return ops
+
+    @staticmethod
+    def _dev_ca(tmp_path) -> Path:
+        ca = tmp_path / "services" / "nginx-proxy" / "ssl" / "dev" / "ca" / "rootCA.pem"
+        ca.parent.mkdir(parents=True)
+        ca.write_text("-----BEGIN CERTIFICATE-----\n")
+        return ca
+
+    @staticmethod
+    def _patch_shape(monkeypatch):
+        monkeypatch.setattr(f"{SHAPE_MODULE}.bench_service_specs", MagicMock(return_value=()))
+        monkeypatch.setattr(f"{SHAPE_MODULE}.apply_specs", MagicMock())
+
+    @pytest.mark.timeout(15)
+    def test_regenerating_three_times_mounts_exactly_one_ca_entry(self, tmp_path, monkeypatch):
+        """The exact scenario that grew to 3 duplicate volume strings before this fix."""
+        self._dev_ca(tmp_path)
+        cert = SimpleNamespace(ssl_type=SUPPORTED_SSL_TYPES.dev, domain="bench")
+        ops = self._real_ops(tmp_path, ssl_certificates=[cert])
+        self._patch_shape(monkeypatch)
+        monkeypatch.setattr(f"{DOCKER_MODULE}.get_proxy_ip_on_frontend", lambda: None)
+        monkeypatch.setattr(f"{DOCKER_MODULE}.CLI_SERVICES_DIRECTORY", tmp_path / "services")
+
+        ops.generate_compose({})
+        ops.generate_compose({})
+        ops.generate_compose({})
+
+        volumes = ops.compose_file_manager.yml["services"]["frappe"]["volumes"]
+        ca_mounts = [v for v in volumes if "fm-trusted-ca.pem" in v or "fm-dev-ca.pem" in v]
+        assert len(ca_mounts) == 1, ca_mounts
+        assert ca_mounts[0].endswith(":/etc/ssl/certs/fm-trusted-ca.pem:ro")
+
+    @pytest.mark.timeout(15)
+    def test_an_upgraded_benchs_legacy_mount_is_removed_on_the_next_regen(self, tmp_path, monkeypatch):
+        """A bench created before the fm-dev-ca.pem -> fm-trusted-ca.pem rename: its compose still
+        carries the OLD path on disk. The very next regen must replace it, not add alongside it."""
+        dev_ca = self._dev_ca(tmp_path)
+        cert = SimpleNamespace(ssl_type=SUPPORTED_SSL_TYPES.dev, domain="bench")
+        ops = self._real_ops(tmp_path, ssl_certificates=[cert])
+        ops.compose_file_manager.yml["services"]["frappe"]["volumes"] = [
+            f"{dev_ca}:/etc/ssl/certs/fm-dev-ca.pem:ro"
+        ]
+        ops.compose_file_manager.yml["services"]["frappe"]["environment"] = {
+            "NODE_EXTRA_CA_CERTS": "/etc/ssl/certs/fm-dev-ca.pem",
+            "REQUESTS_CA_BUNDLE": "/etc/ssl/certs/fm-dev-ca.pem",
+        }
+        self._patch_shape(monkeypatch)
+        monkeypatch.setattr(f"{DOCKER_MODULE}.get_proxy_ip_on_frontend", lambda: None)
+        monkeypatch.setattr(f"{DOCKER_MODULE}.CLI_SERVICES_DIRECTORY", tmp_path / "services")
+
+        ops.generate_compose({})
+
+        volumes = ops.compose_file_manager.yml["services"]["frappe"]["volumes"]
+        assert not any("fm-dev-ca.pem" in v for v in volumes), volumes
+        assert any(v.endswith(":/etc/ssl/certs/fm-trusted-ca.pem:ro") for v in volumes)
+        env = ops.compose_file_manager.yml["services"]["frappe"]["environment"]
+        assert env["NODE_EXTRA_CA_CERTS"] == "/etc/ssl/certs/fm-trusted-ca.pem"
+        assert env["REQUESTS_CA_BUNDLE"] == "/etc/ssl/certs/fm-trusted-ca.pem"
+
+    @pytest.mark.timeout(15)
+    def test_removing_the_last_trust_needing_certificate_cleans_up_the_stale_mount(self, tmp_path, monkeypatch):
+        """A bench that HAD a dev certificate mounted, then had it removed (ssl_certificates no
+        longer contains it): the next regen must drop the now-meaningless mount and env vars, not
+        leave them pointing at a CA the bench no longer issues anything from."""
+        dev_ca = self._dev_ca(tmp_path)
+        ops = self._real_ops(tmp_path, ssl_certificates=[])  # dev cert already removed
+        ops.compose_file_manager.yml["services"]["frappe"]["volumes"] = [
+            f"{dev_ca}:/etc/ssl/certs/fm-trusted-ca.pem:ro"
+        ]
+        ops.compose_file_manager.yml["services"]["frappe"]["environment"] = {
+            "NODE_EXTRA_CA_CERTS": "/etc/ssl/certs/fm-trusted-ca.pem",
+            "REQUESTS_CA_BUNDLE": "/etc/ssl/certs/fm-trusted-ca.pem",
+        }
+        self._patch_shape(monkeypatch)
+        monkeypatch.setattr(f"{DOCKER_MODULE}.get_proxy_ip_on_frontend", lambda: None)
+        monkeypatch.setattr(f"{DOCKER_MODULE}.CLI_SERVICES_DIRECTORY", tmp_path / "services")
+
+        ops.generate_compose({})
+
+        volumes = ops.compose_file_manager.yml["services"]["frappe"]["volumes"]
+        assert not any("fm-trusted-ca.pem" in v or "fm-dev-ca.pem" in v for v in volumes), volumes
+        env = ops.compose_file_manager.yml["services"]["frappe"]["environment"]
+        assert "NODE_EXTRA_CA_CERTS" not in env
+        assert "REQUESTS_CA_BUNDLE" not in env
 
 
 class TestRenderImageCompose:

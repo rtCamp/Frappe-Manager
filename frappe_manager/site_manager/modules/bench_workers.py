@@ -21,7 +21,7 @@ from frappe_manager.site_manager.exceptions import (
     BenchOperationException,
     BenchWorkersSupervisorConfigurtionNotFoundError,
 )
-from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+from frappe_manager.site_manager.modules.ssl_ca_trust import CONTAINER_CA_PATH, resolve_ca_trust
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
 from frappe_manager.utils.network import get_proxy_ip_on_frontend
 from frappe_manager.utils.site import is_default_worker
@@ -207,17 +207,11 @@ class BenchWorkers:
                 all_domains = self.bench.domains
                 extra_hosts = [f"{domain}:{proxy_ip}" for domain in all_domains]
 
-            # For dev SSL, workers need the CA cert mounted so outbound HTTPS
-            # requests trust the self-signed dev certificate. Resolve this once.
-            has_dev_ssl = any(
-                cert.ssl_type == SUPPORTED_SSL_TYPES.dev for cert in self.bench.bench_config.ssl_certificates
-            )
-            ca_host = None
-            if has_dev_ssl:
-                candidate = CLI_SERVICES_DIRECTORY / "nginx-proxy" / "ssl" / "dev" / "ca" / "rootCA.pem"
-                if candidate.exists():
-                    ca_host = candidate
-            ca_container = "/etc/ssl/certs/fm-dev-ca.pem"
+            # Outbound HTTPS trust: a dev certificate, or a --custom --ca certificate, needs its CA
+            # mounted so a background job's server-side HTTPS calls to the bench's own domain trust
+            # it. See ssl_ca_trust.resolve_ca_trust for how the two sources combine when both are
+            # present on the same bench.
+            ca_bundle_host = resolve_ca_trust(self.bench.path, self.bench.bench_config, CLI_SERVICES_DIRECTORY)
 
             from frappe_manager.site_manager.modules.compose_shape import bind_strings, worker_service_specs
 
@@ -243,10 +237,10 @@ class BenchWorkers:
                 worker_config["environment"]["WORKER_NAME"] = worker
                 if extra_hosts:
                     worker_config["extra_hosts"] = extra_hosts
-                if ca_host:
-                    worker_config.setdefault("volumes", []).append(f"{ca_host}:{ca_container}:ro")
-                    worker_config["environment"]["NODE_EXTRA_CA_CERTS"] = ca_container
-                    worker_config["environment"]["REQUESTS_CA_BUNDLE"] = ca_container
+                if ca_bundle_host:
+                    worker_config.setdefault("volumes", []).append(f"{ca_bundle_host}:{CONTAINER_CA_PATH}:ro")
+                    worker_config["environment"]["NODE_EXTRA_CA_CERTS"] = CONTAINER_CA_PATH
+                    worker_config["environment"]["REQUESTS_CA_BUNDLE"] = CONTAINER_CA_PATH
 
                 self.compose_file_manager.yml["services"][worker] = worker_config
 

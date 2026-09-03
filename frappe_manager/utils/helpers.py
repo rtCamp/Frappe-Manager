@@ -454,20 +454,32 @@ def pluralise(singular, count):
     return "{} {}{}".format(count, singular, "" if count == 1 else "s")
 
 
-def format_ssl_certificate_time_remaining(expiry_date: datetime):
+def format_ssl_certificate_time_remaining(expiry_date: datetime) -> str:
+    """The magnitude of time between now and `expiry_date`, as 'N days N hours N mins'.
+
+    A past `expiry_date` (the certificate already expired) is reported as the same magnitude with
+    'ago' appended, e.g. 'expired 65 days 0 hours 0 mins ago', rather than the signed timedelta's
+    raw negative day count ('expired -65 days ...'), which every caller that reports an expiry
+    (dev/letsencrypt renewal-due messages, custom-certificate expiry, `fm info`'s SSL card) would
+    otherwise surface verbatim to the operator.
+    """
     today_date = datetime.now(expiry_date.tzinfo)
     time_remaining = expiry_date - today_date
-    day_count = time_remaining.days
+    expired = time_remaining.total_seconds() < 0
+    magnitude = -time_remaining if expired else time_remaining
+
+    day_count = magnitude.days
     seconds_per_minute = 60
     seconds_per_hour = seconds_per_minute * 60
-    seconds_unaccounted_for = time_remaining.seconds
+    seconds_unaccounted_for = magnitude.seconds
 
     hours = int(seconds_unaccounted_for / seconds_per_hour)
     seconds_unaccounted_for -= hours * seconds_per_hour
 
     minutes = int(seconds_unaccounted_for / seconds_per_minute)
 
-    return "{} {} {}".format(pluralise("day", day_count), pluralise("hour", hours), pluralise("min", minutes))
+    text = "{} {} {}".format(pluralise("day", day_count), pluralise("hour", hours), pluralise("min", minutes))
+    return f"{text} ago" if expired else text
 
 
 def get_certificate_expiry_date(fullchain_path: Path) -> datetime:

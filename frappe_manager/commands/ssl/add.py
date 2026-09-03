@@ -1,8 +1,10 @@
 """Add SSL certificate command."""
 
+from pathlib import Path
 from typing import Annotated
 
 import typer
+from click.core import ParameterSource
 from typer_examples import example
 
 from frappe_manager.commands.arguments import BenchDomainArgument
@@ -40,6 +42,12 @@ from .helpers import get_output_handler
 @example(
     "Issue for an external Docker project",
     "example.com --standalone",
+)
+@example(
+    "Import an operator-issued certificate",
+    "{benchname}/example.com --custom --cert ./example.com.crt --key ./example.com.key",
+    detail="No issuance: fm copies the files in, links them into the global proxy, and restarts it. Add --ca to also trust a private CA for outbound self-calls once you run 'fm start BENCH' to apply the updated compose.",
+    benchname="mybench",
 )
 @example(
     "Validate through a delegated zone",
@@ -106,9 +114,31 @@ def add_certificate(
             help="Wait up to 5 min for the CNAME. Standalone only.",
         ),
     ] = False,
+    custom: Annotated[
+        bool,
+        typer.Option(
+            "--custom",
+            help="Import an operator-supplied certificate instead of issuing one. Needs --cert and --key. Bench mode only.",
+        ),
+    ] = False,
+    cert: Annotated[
+        Path | None,
+        typer.Option("--cert", help="Certificate file (PEM). --custom only."),
+    ] = None,
+    key: Annotated[
+        Path | None,
+        typer.Option("--key", help="Private key file (PEM), unencrypted. --custom only."),
+    ] = None,
+    ca: Annotated[
+        Path | None,
+        typer.Option(
+            "--ca",
+            help="CA bundle file (PEM). Optional; when given, bench containers trust it for outbound self-calls once you run 'fm start BENCH' to apply the updated compose. --custom only.",
+        ),
+    ] = None,
 ):
     """
-    Issue an SSL certificate for a domain and point nginx at it.
+    Issue or import an SSL certificate for a domain and point nginx at it.
 
     Bench mode takes a bench name and one of its configured domains (add new ones with fm update --add-alias). Naming just the bench offers its domains to pick from. --standalone issues for an external Docker project instead.
     """
@@ -142,6 +172,57 @@ def add_certificate(
             "--wait-for-dns is --standalone only; a bench certificate is issued without waiting on DNS propagation"
         )
         raise typer.Exit(1)
+
+    if custom and dev:
+        output = get_output_handler(ctx)
+        output.display_error("--custom cannot be used with --dev")
+        raise typer.Exit(1)
+
+    if custom and standalone:
+        output = get_output_handler(ctx)
+        output.display_error("--custom is bench mode only; --standalone is not supported yet")
+        raise typer.Exit(1)
+
+    if custom and dry_run:
+        output = get_output_handler(ctx)
+        output.display_error(
+            "--custom cannot be used with --dry-run: there is no staging server to rehearse an import against"
+        )
+        raise typer.Exit(1)
+
+    if custom and cname:
+        output = get_output_handler(ctx)
+        output.display_error("--cname is not applicable to --custom (there is no ACME challenge to delegate)")
+        raise typer.Exit(1)
+
+    if custom and dns_provider:
+        output = get_output_handler(ctx)
+        output.display_error("--dns-provider is not applicable to --custom (there is no ACME challenge to authenticate)")
+        raise typer.Exit(1)
+
+    # --challenge always defaults to http01 (LETSENCRYPT_PREFERRED_CHALLENGE.http01), so `challenge
+    # is None` can never distinguish "the user asked for it" from "nothing was passed" -- only the
+    # parameter source can. Mirrors restart.py's drain_explicit check.
+    if custom and ctx.get_parameter_source("challenge") == ParameterSource.COMMANDLINE:
+        output = get_output_handler(ctx)
+        output.display_error("--challenge is not applicable to --custom: there is no ACME challenge to perform")
+        raise typer.Exit(1)
+
+    if not custom and (cert or key or ca):
+        output = get_output_handler(ctx)
+        output.display_error("--cert/--key/--ca require --custom")
+        raise typer.Exit(1)
+
+    if custom and (not cert or not key):
+        output = get_output_handler(ctx)
+        output.display_error("--custom requires both --cert and --key")
+        raise typer.Exit(1)
+
+    for flag_name, path in (("--cert", cert), ("--key", key), ("--ca", ca)):
+        if path and not path.exists():
+            output = get_output_handler(ctx)
+            output.display_error(f"{flag_name} file not found: {path}")
+            raise typer.Exit(1)
 
     # The address's second segment, put there by `bench_domain_callback`. In standalone mode there
     # is no bench, so the external domain arrives as the whole (unslashed) argument instead.
@@ -191,4 +272,17 @@ def add_certificate(
         raise typer.Exit(1)
 
     for target in _resolve_domains(ctx, address, domain):
-        _add_bench_certificate(ctx, address, target, challenge, cname, dry_run, dev=dev, dns_provider=dns_provider)
+        _add_bench_certificate(
+            ctx,
+            address,
+            target,
+            challenge,
+            cname,
+            dry_run,
+            dev=dev,
+            dns_provider=dns_provider,
+            custom=custom,
+            cert_path=cert,
+            key_path=key,
+            ca_path=ca,
+        )

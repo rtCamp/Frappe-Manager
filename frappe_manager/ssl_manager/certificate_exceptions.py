@@ -55,11 +55,15 @@ class SSLCertificateGenerateFailed(FrappeManagerException):
     def __init__(
         self,
         domain: str | None = None,
+        detail: str | None = None,
     ):
         if domain:
             self.message = f"Certificate generation failed for {domain}."
         else:
             self.message = "Certificate generation failed."
+        if detail:
+            self.message = f"{self.message} {detail}"
+        self.domain = domain
         super().__init__(self.message)
 
 
@@ -76,4 +80,24 @@ class SSLCertificateNotDueForRenewalError(FrappeManagerException):
         self.expiry_date = expiry_date
         self.time_remaining_txt = format_ssl_certificate_time_remaining(self.expiry_date)
         self.message = message.format(self.domain, self.time_remaining_txt)
+        super().__init__(self.message)
+
+
+class SSLCertificateManualRenewalRequired(FrappeManagerException):
+    """Raised for a certificate with no automated renewal path: fm cannot mint new bytes for it.
+
+    A custom certificate (`fm ssl add --custom`) is the one case today. fm never stores the
+    original --cert/--key/--ca paths (see CustomCertificate), so there is nothing to re-copy from,
+    and there is no ACME account to re-issue against either -- the only correct action is telling
+    the operator to get a fresh certificate and re-run the add.
+    """
+
+    def __init__(self, domain: str, message: str | None = None):
+        self.domain = domain
+        self.message = message or (
+            f"'{domain}' has a custom certificate; fm does not store the original --cert/--key/--ca "
+            f"files, only their bytes, so it cannot renew this automatically. Get a fresh "
+            f"certificate and run 'fm ssl add <bench>/{domain} --custom --cert PATH --key PATH' "
+            f"again to rotate it."
+        )
         super().__init__(self.message)

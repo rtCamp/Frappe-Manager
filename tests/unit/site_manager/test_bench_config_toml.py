@@ -206,6 +206,7 @@ class TestCertificateVariantSelection:
         [
             ("letsencrypt", SUPPORTED_SSL_TYPES.le),
             ("dev", SUPPORTED_SSL_TYPES.dev),
+            ("custom", SUPPORTED_SSL_TYPES.custom),
             ("disable", SUPPORTED_SSL_TYPES.none),
         ],
     )
@@ -224,6 +225,46 @@ class TestCertificateVariantSelection:
 
         assert "c.gg.com" not in out.read_text()
         assert BenchConfig.import_from_toml(out).ssl_certificates == []
+
+
+class TestCustomCertificateSourceFieldsNeverSurviveTheTomlBoundary:
+    """`cert_source`/`key_source`/`ca_source` are `exclude=True` on the model (see certificate.py),
+    so they never appear in an fm-written file. But `exclude=True` only governs OUTPUT: pydantic
+    still accepts the key on INPUT, since it is a real field and not a typo. A hand-edited file
+    naming one therefore parses today and is silently dropped on the next export -- pinned here so
+    that stays true rather than becoming an `extra_forbidden` error or, worse, a path fm starts
+    treating as durable state.
+    """
+
+    def test_a_bare_custom_certificate_round_trips(self, tmp_path):
+        text = '\n[[ssl.certificates]]\ndomain = "c.gg.com"\nssl_type = "custom"\n'
+        bc = _import(tmp_path, _BASE + text)
+
+        cert = bc.ssl_certificates[0]
+        assert cert.domain == "c.gg.com"
+        assert cert.ssl_type is SUPPORTED_SSL_TYPES.custom
+        assert cert.cert_source is None
+
+        out = tmp_path / "out.toml"
+        bc.export_to_toml(out)
+        reimported = BenchConfig.import_from_toml(out).ssl_certificates[0]
+        assert reimported.ssl_type is SUPPORTED_SSL_TYPES.custom
+        assert reimported.cert_source is None
+
+    def test_a_hand_written_source_field_is_accepted_on_read_but_dropped_on_export(self, tmp_path):
+        text = (
+            '\n[[ssl.certificates]]\ndomain = "c.gg.com"\nssl_type = "custom"\n'
+            'cert_source = "/home/op/c.gg.com.crt"\n'
+        )
+        bc = _import(tmp_path, _BASE + text)
+
+        cert = bc.ssl_certificates[0]
+        assert str(cert.cert_source) == "/home/op/c.gg.com.crt"
+
+        out = tmp_path / "out.toml"
+        bc.export_to_toml(out)
+        assert "cert_source" not in out.read_text()
+        assert BenchConfig.import_from_toml(out).ssl_certificates[0].cert_source is None
 
 
 class TestPreMigrationCertificateEntry:
