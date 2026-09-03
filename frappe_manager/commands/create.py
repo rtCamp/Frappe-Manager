@@ -1065,7 +1065,7 @@ def create(
                     "seed_image": seed_image,
                 },
             ),
-            address=address,
+            benchname=address,
             root_path=bench_config_path,
             base_image=base_image if "base_image" in requested else None,
             db_name=global_db_name,

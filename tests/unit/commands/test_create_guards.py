@@ -232,3 +232,48 @@ def test_the_add_site_call_matches_the_helpers_signature(cli, benches):
 
     # Raises TypeError if the keywords the caller passes are not the ones the helper declares.
     inspect.signature(_add_site_to_bench).bind(**add_site.call_args.kwargs)
+
+
+# ----------------------------------- the fresh-bench config call itself
+
+
+def test_a_fresh_bench_reaches_the_config_builder_with_the_typed_name(cli, benches):
+    """The other half of the rename sweep that hit `_add_site_to_bench`.
+
+    `fm create BENCH` raised `TypeError: bench_config_from_inputs() got an unexpected keyword
+    argument 'address'` for the same reason: the command's parameter became `address` and the
+    rename swept this call's keyword, while the callee's parameter stayed `benchname`. The
+    docstring on `bench_config_from_inputs` promises it is the one seam between the CLI and
+    `create_bench`, but every test entered at the seam directly with correct kwargs, so the
+    caller's side of it was never exercised.
+    """
+    with patch("frappe_manager.commands.create.bench_config_from_inputs") as from_inputs:
+        from_inputs.return_value = (MagicMock(), False)
+        runner.invoke(
+            cli,
+            ["fresh.localhost"],
+            obj={"services": MagicMock(), "verbose": False, "fm_config_manager": MagicMock()},
+        )
+
+    from_inputs.assert_called_once()
+    # The callback returns the bare bench name; that is what the config builder names the bench.
+    assert from_inputs.call_args.kwargs["benchname"] == "fresh.localhost"
+
+
+def test_the_config_builder_call_matches_the_callees_signature(cli, benches):
+    """A mock accepts any keyword, so the recorded call is bound against the REAL signature: this
+    is what makes a rename on either side fail here rather than at the operator's terminal."""
+    import inspect
+
+    from frappe_manager.commands.create import bench_config_from_inputs
+
+    with patch("frappe_manager.commands.create.bench_config_from_inputs") as from_inputs:
+        from_inputs.return_value = (MagicMock(), False)
+        runner.invoke(
+            cli,
+            ["fresh.localhost"],
+            obj={"services": MagicMock(), "verbose": False, "fm_config_manager": MagicMock()},
+        )
+
+    # Raises TypeError if the keywords the caller passes are not the ones the callee declares.
+    inspect.signature(bench_config_from_inputs).bind(**from_inputs.call_args.kwargs)
