@@ -20,6 +20,7 @@ from .helpers import get_output_handler
 @example(
     "Issue a certificate for a bench domain",
     "{benchname}/example.com",
+    detail="Naming just the bench with no domain offers its configured domains to pick from interactively.",
     benchname="mybench",
 )
 @example(

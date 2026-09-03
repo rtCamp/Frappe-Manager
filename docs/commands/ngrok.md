@@ -36,6 +36,12 @@ fm ngrok mybench
 fm ngrok mybench --auth-token 2abcXYZ --save-token
 ```
 
+### Tunnel one alias of a multi-domain bench
+
+```bash
+fm ngrok mybench/shop.example.com
+```
+
 ## Related
 
 - [Domains & Remote Access](../guides/domains.md)

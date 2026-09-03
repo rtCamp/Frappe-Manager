@@ -74,6 +74,20 @@ fm update mybench --add-alias www.example.com
 fm update mybench --python 3.11
 ```
 
+### Install an app into one site of a multi-site bench
+
+```bash
+fm update mybench/shop.example.com --apps erpnext:version-15
+```
+
+### Install an app into every site the bench serves
+
+Installs and migrates site by site, reporting failures per site instead of stopping at the first.
+
+```bash
+fm update mybench/all --apps erpnext:version-15
+```
+
 ## Related
 
 - [App Management](../guides/app-management.md)

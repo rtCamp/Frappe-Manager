@@ -174,6 +174,8 @@ $ fm ssl add BENCH(/DOMAIN) [OPTIONS]
 
 ### Issue a certificate for a bench domain
 
+Naming just the bench with no domain offers its configured domains to pick from interactively.
+
 ```bash
 fm ssl add mybench/example.com
 ```
@@ -264,6 +266,8 @@ $ fm ssl remove BENCH(/DOMAIN) [OPTIONS]
 ## Examples
 
 ### Delete a bench certificate
+
+Naming just the bench with no domain offers its domains to pick from interactively.
 
 ```bash
 fm ssl remove mybench/example.com

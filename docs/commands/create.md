@@ -60,6 +60,14 @@ $ fm create BENCH(/SITE) [OPTIONS]
 fm create mybench
 ```
 
+### Add a site to a bench that already exists
+
+The bench and its other sites are untouched; only b.example.com is created.
+
+```bash
+fm create mybench/b.example.com
+```
+
 ### Add apps, pinned to a branch or not
 
 ```bash

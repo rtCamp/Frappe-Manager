@@ -17,6 +17,7 @@ from .helpers import get_output_handler
 @example(
     "Delete a bench certificate",
     "{benchname}/example.com",
+    detail="Naming just the bench with no domain offers its domains to pick from interactively.",
     benchname="mybench",
 )
 @example(

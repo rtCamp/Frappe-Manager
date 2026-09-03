@@ -704,6 +704,12 @@ def _resolve_external_options(
     benchname="mybench",
 )
 @example(
+    "Add a site to a bench that already exists",
+    "{benchname}/b.example.com",
+    detail="The bench and its other sites are untouched; only b.example.com is created.",
+    benchname="mybench",
+)
+@example(
     "Add apps, pinned to a branch or not",
     "{benchname} --apps erpnext:version-15 --apps hrms",
     benchname="mybench",

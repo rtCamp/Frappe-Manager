@@ -227,6 +227,11 @@ def _maintenance_sitename_callback(ctx: typer.Context, value: str | None):
     benchname="mybench",
 )
 @example(
+    "Put one site of a multi-site bench into maintenance",
+    "{benchname}/shop.example.com",
+    benchname="mybench",
+)
+@example(
     "Let the office and a payment webhook through",
     "{benchname} --allow-ip 203.0.113.7 --allow-path '/api/method/payment_webhook*'",
     benchname="mybench",
@@ -240,6 +245,10 @@ def _maintenance_sitename_callback(ctx: typer.Context, value: str | None):
     "Check the state",
     "{benchname} --status",
     benchname="mybench",
+)
+@example(
+    "See every domain in maintenance, across every bench",
+    "--status",
 )
 @example(
     "Bring the bench back",

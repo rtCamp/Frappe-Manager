@@ -42,6 +42,14 @@ Everything after -- is joined into one command line and run through the containe
 fm shell mybench -- bench migrate
 ```
 
+### Run a command against one site of a multi-site bench
+
+Exports FRAPPE_SITE=shop.example.com, so the bare bench command targets that site instead of whichever one bench use last wrote.
+
+```bash
+fm shell mybench/shop.example.com -- bench migrate
+```
+
 ### Pipe a script in
 
 stdin is read as a shell script whenever it is not a terminal.

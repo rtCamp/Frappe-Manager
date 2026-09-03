@@ -23,6 +23,11 @@ from frappe_manager.site_manager.site import Bench
     "{benchname} --auth-token 2abcXYZ --save-token",
     benchname="mybench",
 )
+@example(
+    "Tunnel one alias of a multi-domain bench",
+    "{benchname}/shop.example.com",
+    benchname="mybench",
+)
 def ngrok(
     ctx: typer.Context,
     address: BenchServedDomainArgument = None,

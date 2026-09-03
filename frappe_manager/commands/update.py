@@ -94,6 +94,17 @@ def is_immutable_update_request(
     "{benchname} --python 3.11",
     benchname="mybench",
 )
+@example(
+    "Install an app into one site of a multi-site bench",
+    "{benchname}/shop.example.com --apps erpnext:version-15",
+    benchname="mybench",
+)
+@example(
+    "Install an app into every site the bench serves",
+    "{benchname}/all --apps erpnext:version-15",
+    detail="Installs and migrates site by site, reporting failures per site instead of stopping at the first.",
+    benchname="mybench",
+)
 def update(
     ctx: typer.Context,
     address: BenchSiteAllArgument = None,

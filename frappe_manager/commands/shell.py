@@ -96,6 +96,12 @@ frappe.connect()
     benchname="mybench",
 )
 @example(
+    "Run a command against one site of a multi-site bench",
+    "{benchname}/shop.example.com -- bench migrate",
+    detail="Exports FRAPPE_SITE=shop.example.com, so the bare bench command targets that site instead of whichever one bench use last wrote.",
+    benchname="mybench",
+)
+@example(
     "Pipe a script in",
     "{benchname} <<'EOF'\nbench build --app frappe\nbench clear-cache\nEOF",
     detail="stdin is read as a shell script whenever it is not a terminal.",

@@ -39,6 +39,12 @@ $ fm maintenance BENCH(/SITE) [OPTIONS]
 fm maintenance mybench
 ```
 
+### Put one site of a multi-site bench into maintenance
+
+```bash
+fm maintenance mybench/shop.example.com
+```
+
 ### Let the office and a payment webhook through
 
 ```bash
@@ -55,6 +61,12 @@ fm maintenance mybench --message 'Back at 17:00 UTC' --retry-after 1800
 
 ```bash
 fm maintenance mybench --status
+```
+
+### See every domain in maintenance, across every bench
+
+```bash
+fm maintenance --status
 ```
 
 ### Bring the bench back
