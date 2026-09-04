@@ -46,7 +46,7 @@ def _cfg(runtime, name="s.localhost", tag=None, base_image=None, database=None, 
         runtime=runtime,
         name=name,
         base_image=base_image,
-        deploy_state=SimpleNamespace(current_tag=tag) if tag else None,
+        deploy_state=SimpleNamespace(current_image=tag) if tag else None,
         sites={site: SiteConfig(database=cfg) for site, cfg in (database or {}).items()} or None,
         site_names=recorded,
         redis=redis,
@@ -138,9 +138,9 @@ def test_image_runtime_without_tag_yields_no_shape():
     assert bench_service_specs(_cfg(BenchRuntime.image)) == ()
 
 
-def test_deploy_tag_context_overrides_recorded_tag():
+def test_deploy_image_context_overrides_recorded_image():
     cfg = _cfg(BenchRuntime.image, tag="repo:old")
-    shape = runtime_shape(cfg, RenderContext(deploy_tag="repo:new"))
+    shape = runtime_shape(cfg, RenderContext(deploy_image="repo:new"))
     assert shape.image("frappe") == "repo:new"
 
 
@@ -233,7 +233,7 @@ def test_apply_specs_idempotent_no_duplicates(tmp_path):
     cfg = _cfg(BenchRuntime.image, tag="r:t1")
     apply_specs(cfm, bench_service_specs(cfg), cfg.site_names)
     apply_specs(cfm, bench_service_specs(cfg), cfg.site_names)  # re-render, same tag
-    apply_specs(cfm, bench_service_specs(cfg, RenderContext(deploy_tag="r:t2")), cfg.site_names)  # re-pin
+    apply_specs(cfm, bench_service_specs(cfg, RenderContext(deploy_image="r:t2")), cfg.site_names)  # re-pin
     raw = list(cfm.yml["services"]["frappe"]["volumes"])
     assert len(raw) == len(set(raw))  # never duplicates
     assert cfm.yml["services"]["frappe"]["image"] == "r:t2"
@@ -250,7 +250,7 @@ def test_apply_specs_idempotent_on_a_two_site_bench(tmp_path):
     first = list(cfm.yml["services"]["frappe"]["volumes"])
 
     apply_specs(cfm, bench_service_specs(cfg), cfg.site_names)  # re-render, same tag
-    apply_specs(cfm, bench_service_specs(cfg, RenderContext(deploy_tag="r:t2")), cfg.site_names)  # re-pin
+    apply_specs(cfm, bench_service_specs(cfg, RenderContext(deploy_image="r:t2")), cfg.site_names)  # re-pin
 
     raw = list(cfm.yml["services"]["frappe"]["volumes"])
     assert raw == first  # settled after the first pass, not merely free of duplicates
@@ -382,4 +382,4 @@ def test_default_render_context_is_not_a_rolling_swap():
     from frappe_manager.site_manager.modules.compose_shape import DEFAULT_CONTEXT
 
     assert DEFAULT_CONTEXT.rolling is False
-    assert DEFAULT_CONTEXT.deploy_tag is None
+    assert DEFAULT_CONTEXT.deploy_image is None

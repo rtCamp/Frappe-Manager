@@ -737,7 +737,7 @@ Bench runtime model:
 
 | Key | Applies to | Meaning |
 |---|---|---|
-| `image` | image runtime | App image repository, the pre-built app image the bench runs. Set by `fm create --runtime image --base-image <repo:tag>`, which persists the repo half here, and by `fm bake --image`, which bakes into it. FM manages the `:tag` separately through [`[deploy_state].current_tag`](#deploy-state), rewritten by `fm switch` on every deploy, so this key is the repo and never the running tag |
+| `image` | image runtime | App image repository, the pre-built app image the bench runs. Set by `fm create --runtime image --base-image <repo:tag>`, which persists the repo half here, and by `fm bake --image`, which bakes into it. FM manages the `:tag` separately through [`[deploy_state].current_image`](#deploy-state), rewritten by `fm switch` on every deploy, so this key is the repo and never the running image |
 | `base_image` | mount runtime | The base frappe image (`repo:tag`) the frappe/socketio/schedule/workers containers **run from**, under your editable workspace. Set by `fm create --base-image`, and static once set: nothing rewrites it. Not the same key as [`[build].base_image`](#deploy-tables), which is what a bake builds from |
 | `seed_image` | mount runtime | Provenance record: the baked image the workspace was seeded from at create (`fm create --seed-image`). Read once at create and never again, unlike `base_image`, which the containers run from at every start |
 
@@ -904,18 +904,18 @@ Image deploy state, managed by `fm switch`; do not edit.
 
 ```toml
 [deploy_state]
-current_tag = "local/mybench:20260728103100-abc123"
-previous_tag = "local/mybench:20260721091500-def456"
+current_image = "local/mybench:20260728103100-abc123"
+previous_image = "local/mybench:20260721091500-def456"
 last_deploy_at = "2026-07-28T10:31:02"
 
 [[deploy_state.history]]
-tag = "local/mybench:20260728103100-abc123"
+image = "local/mybench:20260728103100-abc123"
 deployed_at = "2026-07-28T10:31:02"
 migrate_status = "migrated"      # migrated | skipped | failed | rollback
 backup = "/home/user/frappe/sites/mybench/..."  # pre-migrate DB dump, used by `fm switch --previous --restore-db`
 ```
 
-`fm prune` trims old history rows and their dumps/tags, keeping the newest `keep_releases` (current + previous are always safe).
+`fm prune` trims old history rows and their dumps/images, keeping the newest `keep_releases` (current + previous are always safe).
 
 ---
 

@@ -904,7 +904,7 @@ class TestRenderImageCompose:
         ops.render_image_compose("repo/app:v9", rolling=True)
 
         ctx = specs_fn.call_args.args[1]
-        assert (ctx.deploy_tag, ctx.rolling) == ("repo/app:v9", True)
+        assert (ctx.deploy_image, ctx.rolling) == ("repo/app:v9", True)
 
     @pytest.mark.timeout(15)
     def test_rolling_render_sheds_container_name_on_scaled_services(self, tmp_path, monkeypatch):

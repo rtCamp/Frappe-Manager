@@ -2,7 +2,7 @@
 
 ``DeployOrchestrator`` is the highest-consequence module in the product: a bug
 here leaves a customer's bench half-migrated, dark behind a maintenance page, or
-running on the wrong image tag. These tests pin the DECISIONS and the PHASE
+running on the wrong image. These tests pin the DECISIONS and the PHASE
 ORDER, not the plumbing:
 
 * what ``__init__`` binds and what ``_require_image_mode`` re-binds / refuses,
@@ -441,7 +441,7 @@ class TestDeployPhaseOrder:
             r.orch.deploy(NEW_TAG)
         assert r.order == ["_fetch_image"]
 
-    def test_compose_is_repinned_to_the_new_tag_before_the_migrate_decision(self, rig):
+    def test_compose_is_repinned_to_the_new_image_before_the_migrate_decision(self, rig):
         r = rig(switch=SwitchConfig(migrate=True))
         r.orch.deploy(NEW_TAG)
         r.orch.docker_ops.render_image_compose.assert_called_once_with(NEW_TAG)
@@ -732,7 +732,7 @@ class TestPreSwapAbort:
 
 class TestMigrateFailure:
     def test_migrate_failure_keeps_the_old_image_and_never_swaps(self, rig):
-        r = rig(_migrate={"side_effect": docker_error("patch blew up")}, deploy_state=DeployState(current_tag=OLD_TAG))
+        r = rig(_migrate={"side_effect": docker_error("patch blew up")}, deploy_state=DeployState(current_image=OLD_TAG))
         with pytest.raises(DeployError) as exc:
             r.orch.deploy(NEW_TAG)
         assert f"kept old image ({OLD_TAG})" in str(exc.value)
@@ -741,7 +741,7 @@ class TestMigrateFailure:
         r.orch._restore_compose.assert_called_once_with({"snap": b"x"})
         r.orch._record.assert_not_called()
 
-    def test_migrate_failure_without_a_previous_tag_says_dev_mount(self, rig):
+    def test_migrate_failure_without_a_previous_image_says_dev_mount(self, rig):
         r = rig(_migrate={"side_effect": docker_error("patch blew up")})
         with pytest.raises(DeployError, match=r"kept old image \(dev/mount\)"):
             r.orch.deploy(NEW_TAG)
@@ -845,7 +845,7 @@ class TestNotifyAfterMigrate:
 
 
 class TestHookInvocationPoints:
-    def test_every_phase_fires_with_its_configured_script_and_the_new_tag(self, rig):
+    def test_every_phase_fires_with_its_configured_script_and_the_new_image(self, rig):
         hooks = SwitchHooks(
             before_migrate="c-bm",
             after_migrate="c-am",
@@ -931,7 +931,7 @@ class TestHookRunners:
         with patch("subprocess.run", side_effect=_capture):
             orch._run_host_hook("echo hi", "before_restart", NEW_TAG)
         assert f"export SITE_NAME={SITE}" in written["body"]
-        assert f"export DEPLOY_TAG={NEW_TAG}" in written["body"]
+        assert f"export DEPLOY_IMAGE={NEW_TAG}" in written["body"]
         assert f"export BENCH_PATH={orch.bench_path}" in written["body"]
 
     def test_hook_script_exports_the_migrate_outcome_and_both_log_paths(self, tmp_path):
@@ -980,7 +980,7 @@ class TestHookRunners:
         orch._exec_frappe = MagicMock(side_effect=_exec)
         orch._run_container_hook("echo hi", "before_restart", NEW_TAG)
         assert seen["command"].startswith("bash /workspace/frappe-bench/logs/.fm_hook_before_restart_")
-        assert f"export DEPLOY_TAG={NEW_TAG}" in seen["body"]
+        assert f"export DEPLOY_IMAGE={NEW_TAG}" in seen["body"]
         leftovers = list((orch.bench_path / "workspace" / "frappe-bench" / "logs").glob(".fm_hook_*"))
         assert leftovers == []
 
@@ -1036,8 +1036,8 @@ class TestSwapSelection:
         r.orch.docker.compose.up.assert_called_once()
         assert any("no running web to swap alongside" in str(c.args) for c in r.orch.output.warning.call_args_list)
 
-    def test_rolling_swap_is_handed_the_old_tag_and_the_snapshots(self, rig):
-        r = rig(deploy_state=DeployState(current_tag=OLD_TAG))
+    def test_rolling_swap_is_handed_the_old_image_and_the_snapshots(self, rig):
+        r = rig(deploy_state=DeployState(current_image=OLD_TAG))
         r.orch.deploy(NEW_TAG)
         r.orch._rolling_swap.assert_called_once_with(NEW_TAG, OLD_TAG, {"snap": b"x"})
 
@@ -1065,7 +1065,7 @@ class TestSwapFailureUnwind:
 
     def test_the_swap_window_leaves_the_compose_to_the_swap_itself(self, rig):
         """Only the page and the workers unwind here: the rolling swap's own ``_abort_rolling``
-        already restored the canonical compose, and a recreate swap is pinned to the tag it
+        already restored the canonical compose, and a recreate swap is pinned to the image it
         brought up."""
         r = rig(_rolling_swap={"side_effect": DeployError("boom")})
         with pytest.raises(DeployError):
@@ -1094,8 +1094,8 @@ class TestSwapFailureUnwind:
 
 
 class TestHealthGate:
-    def test_unhealthy_new_image_rolls_back_to_the_previous_tag(self, rig):
-        r = rig(deploy_state=DeployState(current_tag=OLD_TAG), _health_check=False)
+    def test_unhealthy_new_image_rolls_back_to_the_previous_image(self, rig):
+        r = rig(deploy_state=DeployState(current_image=OLD_TAG), _health_check=False)
         with pytest.raises(DeployError, match=f"failed health check; rolled back to {OLD_TAG}"):
             r.orch.deploy(NEW_TAG)
         r.orch.rollback.assert_called_once_with(OLD_TAG, restore_db_dumps=None)
@@ -1103,14 +1103,14 @@ class TestHealthGate:
     def test_rollback_db_hands_the_dump_to_the_rollback(self, rig):
         r = rig(
             switch=SwitchConfig(backup_db=True, rollback_db=True),
-            deploy_state=DeployState(current_tag=OLD_TAG),
+            deploy_state=DeployState(current_image=OLD_TAG),
             _health_check=False,
         )
         with pytest.raises(DeployError):
             r.orch.deploy(NEW_TAG)
         r.orch.rollback.assert_called_once_with(OLD_TAG, restore_db_dumps=r.backups)
 
-    def test_no_previous_tag_halts_the_bench_in_maintenance(self, rig):
+    def test_no_previous_image_halts_the_bench_in_maintenance(self, rig):
         r = rig(_health_check=False)
         with pytest.raises(DeployError, match="halted in maintenance mode"):
             r.orch.deploy(NEW_TAG)
@@ -1120,22 +1120,22 @@ class TestHealthGate:
     def test_rollback_image_disabled_halts_rather_than_reverting(self, rig):
         r = rig(
             switch=SwitchConfig(rollback_image=False),
-            deploy_state=DeployState(current_tag=OLD_TAG),
+            deploy_state=DeployState(current_image=OLD_TAG),
             _health_check=False,
         )
         with pytest.raises(DeployError, match="halted in maintenance mode"):
             r.orch.deploy(NEW_TAG)
         r.orch.rollback.assert_not_called()
 
-    def test_a_failed_health_gate_never_records_the_new_tag(self, rig):
+    def test_a_failed_health_gate_never_records_the_new_image(self, rig):
         r = rig(_health_check=False)
         with pytest.raises(DeployError):
             r.orch.deploy(NEW_TAG)
         r.orch._record.assert_not_called()
 
     def test_a_failed_health_gate_does_not_restore_the_compose(self, rig):
-        """Post-swap: the compose IS the new tag and the rollback re-pins it."""
-        r = rig(deploy_state=DeployState(current_tag=OLD_TAG), _health_check=False)
+        """Post-swap: the compose IS the new image and the rollback re-pins it."""
+        r = rig(deploy_state=DeployState(current_image=OLD_TAG), _health_check=False)
         with pytest.raises(DeployError):
             r.orch.deploy(NEW_TAG)
         r.orch._restore_compose.assert_not_called()
@@ -1221,17 +1221,17 @@ class TestFinalizeAndRecord:
 class TestRecordBookkeeping:
     def test_record_rotates_current_into_previous_and_appends_history(self, tmp_path):
         state = DeployState(
-            current_tag=OLD_TAG,
+            current_image=OLD_TAG,
             history=[
-                DeployStateEntry(tag=OLD_TAG, deployed_at="t0", migrate_status="migrated"),
+                DeployStateEntry(image=OLD_TAG, deployed_at="t0", migrate_status="migrated"),
             ],
         )
         orch = make_orch(tmp_path, deploy_state=state)
         orch._record(NEW_TAG, "migrated", backups={SITE: Path("/b/db.sql")})
         result = orch.config.deploy_state
-        assert result.previous_tag == OLD_TAG
-        assert result.current_tag == NEW_TAG
-        assert [e.tag for e in result.history] == [OLD_TAG, NEW_TAG]
+        assert result.previous_image == OLD_TAG
+        assert result.current_image == NEW_TAG
+        assert [e.image for e in result.history] == [OLD_TAG, NEW_TAG]
         assert result.history[-1].backups == {SITE: "/b/db.sql"}
         assert result.history[-1].migrate_status == "migrated"
         assert result.last_deploy_at == result.history[-1].deployed_at
@@ -1241,36 +1241,36 @@ class TestRecordBookkeeping:
         orch = make_orch(tmp_path, deploy_state=None)
         orch._record(NEW_TAG, "skipped")
         result = orch.config.deploy_state
-        assert result.previous_tag is None
-        assert result.current_tag == NEW_TAG
+        assert result.previous_image is None
+        assert result.current_image == NEW_TAG
         assert result.history[-1].backups == {}
 
-    def test_re_recording_the_current_tag_keeps_the_older_previous(self, tmp_path):
-        """``previous_tag`` must not collapse onto ``current_tag``.
+    def test_re_recording_the_current_image_keeps_the_older_previous(self, tmp_path):
+        """``previous_image`` must not collapse onto ``current_image``.
 
-        The health-gate rollback records the tag that is ALREADY current (it re-pinned the running
-        old image). Rotating it into ``previous_tag`` would make the operator's next escape hatch,
+        The health-gate rollback records the image that is ALREADY current (it re-pinned the running
+        old image). Rotating it into ``previous_image`` would make the operator's next escape hatch,
         ``fm switch --previous``, a redeploy of what is already live and strand the genuinely older
         release.
         """
         older = "reg.example/shop:v0"
         state = DeployState(
-            current_tag=OLD_TAG,
-            previous_tag=older,
-            history=[DeployStateEntry(tag=OLD_TAG, deployed_at="t0", migrate_status="migrated")],
+            current_image=OLD_TAG,
+            previous_image=older,
+            history=[DeployStateEntry(image=OLD_TAG, deployed_at="t0", migrate_status="migrated")],
         )
         orch = make_orch(tmp_path, deploy_state=state)
         orch._record(OLD_TAG, "rollback")
         result = orch.config.deploy_state
-        assert result.current_tag == OLD_TAG
-        assert result.previous_tag == older
-        assert [e.tag for e in result.history] == [OLD_TAG, OLD_TAG]
+        assert result.current_image == OLD_TAG
+        assert result.previous_image == older
+        assert [e.image for e in result.history] == [OLD_TAG, OLD_TAG]
 
-    def test_current_deployed_tag_reads_the_recorded_tag(self, tmp_path):
-        assert make_orch(tmp_path)._current_deployed_tag() is None
-        assert make_orch(tmp_path, deploy_state=DeployState())._current_deployed_tag() is None
-        state = DeployState(current_tag=OLD_TAG)
-        assert make_orch(tmp_path, deploy_state=state)._current_deployed_tag() == OLD_TAG
+    def test_current_deployed_image_reads_the_recorded_image(self, tmp_path):
+        assert make_orch(tmp_path)._current_deployed_image() is None
+        assert make_orch(tmp_path, deploy_state=DeployState())._current_deployed_image() is None
+        state = DeployState(current_image=OLD_TAG)
+        assert make_orch(tmp_path, deploy_state=state)._current_deployed_image() == OLD_TAG
 
     def test_every_sites_dump_is_recorded_not_only_the_primarys(self, tmp_path):
         """``backups`` is what a later ``fm switch --previous --restore-db`` reads back.
@@ -1337,7 +1337,7 @@ class TestRollback:
             setattr(owner, attr, spy)
         return orch, manager
 
-    def test_rollback_repins_the_previous_tag_and_recreates(self, tmp_path):
+    def test_rollback_repins_the_previous_image_and_recreates(self, tmp_path):
         orch, manager = self._rollback_rig(tmp_path)
         orch.rollback(OLD_TAG)
         assert [n for n, _a, _k in manager.mock_calls] == [
@@ -1438,23 +1438,23 @@ class TestRollback:
             orch.rollback(OLD_TAG)
         orch._fetch_image.assert_not_called()
 
-    def test_the_health_gate_rollback_preserves_the_previous_tag(self, tmp_path):
+    def test_the_health_gate_rollback_preserves_the_previous_image(self, tmp_path):
         """After the auto-rollback, ``fm switch --previous`` must still reach the older release."""
         older = "reg.example/shop:v0"
         state = DeployState(
-            current_tag=OLD_TAG,
-            previous_tag=older,
+            current_image=OLD_TAG,
+            previous_image=older,
             history=[
-                DeployStateEntry(tag=older, deployed_at="t0", migrate_status="skipped"),
-                DeployStateEntry(tag=OLD_TAG, deployed_at="t1", migrate_status="migrated"),
+                DeployStateEntry(image=older, deployed_at="t0", migrate_status="skipped"),
+                DeployStateEntry(image=OLD_TAG, deployed_at="t1", migrate_status="migrated"),
             ],
         )
         orch, _ = self._rollback_rig(tmp_path, deploy_state=state)
         del orch._record  # the real bookkeeping is what this pins
         orch.rollback(OLD_TAG)
         result = orch.config.deploy_state
-        assert result.current_tag == OLD_TAG
-        assert result.previous_tag == older
+        assert result.current_image == OLD_TAG
+        assert result.previous_image == older
 
 
 class TestRollingRestart:
@@ -1467,8 +1467,8 @@ class TestRollingRestart:
         orch._record = MagicMock()
         return orch
 
-    def test_rolling_restart_reuses_the_current_tag_on_both_sides(self, tmp_path):
-        orch = self._restart_rig(tmp_path, DeployState(current_tag=OLD_TAG))
+    def test_rolling_restart_reuses_the_current_image_on_both_sides(self, tmp_path):
+        orch = self._restart_rig(tmp_path, DeployState(current_image=OLD_TAG))
         orch.rolling_restart()
         orch._fetch_image.assert_called_once_with(OLD_TAG)
         orch._rolling_swap.assert_called_once_with(OLD_TAG, OLD_TAG, {"snap": b"x"})
@@ -1476,12 +1476,12 @@ class TestRollingRestart:
 
     def test_rolling_restart_refuses_an_unrecorded_bench(self, tmp_path):
         orch = self._restart_rig(tmp_path, DeployState())
-        with pytest.raises(DeployError, match="No deployed image tag recorded"):
+        with pytest.raises(DeployError, match="No deployed image recorded"):
             orch.rolling_restart()
         orch._rolling_swap.assert_not_called()
 
     def test_rolling_restart_refuses_a_stopped_web_tier(self, tmp_path):
-        orch = self._restart_rig(tmp_path, DeployState(current_tag=OLD_TAG), running=False)
+        orch = self._restart_rig(tmp_path, DeployState(current_image=OLD_TAG), running=False)
         with pytest.raises(DeployError, match="Web tier is not running"):
             orch.rolling_restart()
         orch._rolling_swap.assert_not_called()
@@ -1851,7 +1851,7 @@ class TestRollingSwap:
         assert ("rm", "newN") in argv
         assert ("stop", "oldN") not in argv
 
-    def test_abort_without_a_previous_tag_leaves_the_worker_pin_alone(self, tmp_path):
+    def test_abort_without_a_previous_image_leaves_the_worker_pin_alone(self, tmp_path):
         orch = self._swap(tmp_path, frappe_ok=False)
         with pytest.raises(DeployError):
             orch._rolling_swap(NEW_TAG, None, {})
@@ -2031,14 +2031,14 @@ class TestPruneReleases:
         backups = backups or {}
         history = [
             DeployStateEntry(
-                tag=t,
+                image=t,
                 deployed_at=f"t{i}",
                 migrate_status="migrated",
                 backups={SITE: backups[t]} if backups.get(t) else {},
             )
             for i, t in enumerate(tags)
         ]
-        state = DeployState(current_tag=current, previous_tag=previous, history=history)
+        state = DeployState(current_image=current, previous_image=previous, history=history)
         orch = make_orch(tmp_path, switch=SwitchConfig(keep_releases=keep_releases), deploy_state=state)
         orch.docker.rmi = MagicMock()
         return orch
@@ -2053,7 +2053,7 @@ class TestPruneReleases:
         summary = orch.prune_releases()
         assert summary["kept"] == 2
         assert summary["entries"] == 1
-        assert [e.tag for e in orch.config.deploy_state.history] == ["repo:b", "repo:c"]
+        assert [e.image for e in orch.config.deploy_state.history] == ["repo:b", "repo:c"]
 
     def test_an_explicit_keep_overrides_the_configured_retention(self, tmp_path):
         orch = self._pruner(tmp_path, ["repo:a", "repo:b", "repo:c"], keep_releases=99)

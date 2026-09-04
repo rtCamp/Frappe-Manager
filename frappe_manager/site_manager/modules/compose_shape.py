@@ -17,7 +17,7 @@ Architecture (functional core, imperative shell):
   stripped and re-added, everything else (fm-sockets, nginx conf binds, CA cert)
   passes through. User customizations belong in ``docker-compose.override.yml``,
   which fm never writes and Docker merges on top.
-* ``RenderContext.deploy_tag`` lets deploy/switch/rollback shape a CANDIDATE tag
+* ``RenderContext.deploy_image`` lets deploy/switch/rollback shape a CANDIDATE image
   without mutating ``deploy_state`` mid-pipeline; ``rolling`` marks the
   rolling swap (handled by the bench renderer via ``ServiceSpec.rolling``).
 * ``ServiceSpec.enabled`` suppresses a service: ``apply_specs`` writes the
@@ -60,11 +60,11 @@ BENCH_REDIS_SERVICES: tuple[str, ...] = ("redis-cache", "redis-queue")
 class RenderContext:
     """Operation context for a projection.
 
-    deploy_tag: candidate app tag for deploy/switch/rollback (None = the
-    recorded ``deploy_state.current_tag``). rolling: rolling-swap render.
+    deploy_image: candidate app image for deploy/switch/rollback (None = the
+    recorded ``deploy_state.current_image``). rolling: rolling-swap render.
     """
 
-    deploy_tag: str | None = None
+    deploy_image: str | None = None
     rolling: bool = False
 
 
@@ -195,15 +195,15 @@ class MountShape:
 class ImageShape:
     """Image runtime: immutable app image; data-only binds."""
 
-    tag: str
+    image_ref: str
     sites: tuple[str, ...]
 
     def image(self, service: str) -> str | None:
         if service == "nginx":
             from frappe_manager.site_manager.modules.bake import BakeManager
 
-            return BakeManager.nginx_image_tag(self.tag)
-        return self.tag
+            return BakeManager.nginx_image_tag(self.image_ref)
+        return self.image_ref
 
     def binds(self) -> list[VolumeBind]:
         return data_binds(self.sites)
@@ -213,16 +213,16 @@ def runtime_shape(config, ctx: RenderContext = DEFAULT_CONTEXT) -> RuntimeShape 
     """Select the strategy for ``config`` (+ operation context).
 
     Returns None when the shape cannot be determined yet (image runtime with no
-    tag recorded and none supplied) -- callers then leave the skeleton untouched.
+    image recorded and none supplied) -- callers then leave the skeleton untouched.
     """
     from frappe_manager.site_manager.bench_config import BenchRuntime
 
     if config.runtime == BenchRuntime.image:
-        tag = ctx.deploy_tag or (config.deploy_state.current_tag if config.deploy_state else None)
+        image_ref = ctx.deploy_image or (config.deploy_state.current_image if config.deploy_state else None)
         # Every recorded site, NOT config.name: the bench name is not a site, and on a bench
         # where they differ the container would mount a directory that does not exist while
         # the real sites stayed invisible.
-        return ImageShape(tag=tag, sites=tuple(config.site_names)) if tag else None
+        return ImageShape(image_ref=image_ref, sites=tuple(config.site_names)) if image_ref else None
     return MountShape(base_image=config.base_image)
 
 

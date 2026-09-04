@@ -9,7 +9,7 @@ fm bake mybench --image ghcr.io/acme/mybench:v42 --push
 fm switch mybench ghcr.io/acme/mybench:v42
 ```
 
-`--image` names the app image the bake produces, and it takes either form. Give it a **full image ref** and it is built exactly as typed, so the tag you switch to is the tag you typed and nothing has to be read back out of the bake output. Give it a **bare repo** and the bake generates `<repo>:<timestamp>-<git sha>` and prints it, which you then pass to `fm switch`; omitting `--image` altogether falls back to the bench's own `image` repo the same way. What the image is built *from* is a separate input, `--base-image` (persisted as `[build].base_image`), and it is never the thing you switch onto.
+`--image` names the app image the bake produces, and it takes either form. Give it a **full image ref** and it is built exactly as typed, so the image you switch to is the image you typed and nothing has to be read back out of the bake output. Give it a **bare repo** and the bake generates `<repo>:<timestamp>-<git sha>` and prints it, which you then pass to `fm switch`; omitting `--image` altogether falls back to the bench's own `image` repo the same way. What the image is built *from* is a separate input, `--base-image` (persisted as `[build].base_image`), and it is never the thing you switch onto.
 
 Whether anything has to be transported at all depends on where those two commands run.
 
@@ -22,9 +22,9 @@ flowchart LR
     RD --> RUN[bench containers]
 ```
 
-**Same host, the single-server case.** `fm switch` begins by making sure both tags are on the daemon it talks to, and returns immediately when they already are. A bake on that same machine has just put them there, so the switch never pulls and you need no registry at all: skip `--push` and an `image = "local/mybench"` repo is enough.
+**Same host, the single-server case.** `fm switch` begins by making sure both images are on the daemon it talks to, and returns immediately when they already are. A bake on that same machine has just put them there, so the switch never pulls and you need no registry at all: skip `--push` and an `image = "local/mybench"` repo is enough.
 
-**Bake here, run there.** Now the image has to cross the gap. There is no mode to select: `fm switch` asks the target daemon whether each tag is already there, and pulls only what is missing. So you choose by how you get the image across, not by a config value.
+**Bake here, run there.** Now the image has to cross the gap. There is no mode to select: `fm switch` asks the target daemon whether each image is already there, and pulls only what is missing. So you choose by how you get the image across, not by a config value.
 
 Via a registry, which is the normal path:
 
@@ -33,7 +33,7 @@ Via a registry, which is the normal path:
 push = true                  # or pass --push on the command line
 ```
 
-`fm bake --push` (or `[build] push = true`) publishes both tags, and `fm switch` on the target pulls whatever it does not already have. The registry host is part of the image ref itself (`image = "ghcr.io/acme/mybench"`), so there is nothing else to configure.
+`fm bake --push` (or `[build] push = true`) publishes both images, and `fm switch` on the target pulls whatever it does not already have. The registry host is part of the image ref itself (`image = "ghcr.io/acme/mybench"`), so there is nothing else to configure.
 
 **Authentication is docker's, not fm's.** A private registry needs one `docker login` on each machine that pushes or pulls, or a login step in CI. That is all: `~/.docker/config.json` already stores credentials per registry, and supports credential helpers (osxkeychain, `pass`, `ecr-login`) that fm has no way to reach. fm holds no registry credentials of its own and never did anything with them beyond running `docker login` for you, which is why the `[registry]` table was removed in 0.20.0. A bench that still carries one loads fine and the 0.20.0 migration strips it.
 
@@ -45,7 +45,7 @@ image is private, run `docker login ghcr.io` here and retry: fm uses the daemon'
 credentials and holds none itself. The registry said: manifest unknown
 ```
 
-That matters because registries disagree about how they refuse an anonymous request for a private image. Docker Hub says `pull access denied ... may require 'docker login'`. GHCR says `manifest unknown`, which is indistinguishable from a tag that was never pushed, so the raw message sends you hunting through the registry UI for a bad tag when the answer is a login. When you *are* logged in to that host, the same failure instead points at the tag and at `fm bake --push`.
+That matters because registries disagree about how they refuse an anonymous request for a private image. Docker Hub says `pull access denied ... may require 'docker login'`. GHCR says `manifest unknown`, which is indistinguishable from an image that was never pushed, so the raw message sends you hunting through the registry UI for a bad image when the answer is a login. When you *are* logged in to that host, the same failure instead points at the image and at `fm bake --push`.
 
 Or by hand, for an airgapped target with no registry at all:
 
@@ -54,9 +54,9 @@ docker save ghcr.io/acme/mybench:v42 ghcr.io/acme/mybench-nginx:v42 | ssh prod d
 ssh prod "fm switch mybench ghcr.io/acme/mybench:v42"
 ```
 
-The presence check is what makes this work: the tags are already on the target daemon, so the switch uses them and never contacts a registry. If you skip the transport, the pull that follows is what fails, and it names the tag it could not get.
+The presence check is what makes this work: the images are already on the target daemon, so the switch uses them and never contacts a registry. If you skip the transport, the pull that follows is what fails, and it names the image it could not get.
 
-Either way you are moving a **pair** of tags. Every bake builds the app image and its paired `-nginx` assets image, which is the same tag with `-nginx` appended to the repo. Only the app tag is ever named on the command line; fm derives the second one, and both are what `fm switch` fetches, deploys and prunes together. That is why the `docker save` above names two tags.
+Either way you are moving a **pair** of images. Every bake builds the app image and its paired `-nginx` assets image, which is the same tag with `-nginx` appended to the repo. Only the app image is ever named on the command line; fm derives the second one, and both are what `fm switch` fetches, deploys and prunes together. That is why the `docker save` above names two images.
 
 ## Platforms (CPU architectures)
 

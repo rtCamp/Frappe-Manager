@@ -102,7 +102,7 @@ def _config(
     if external:
         config.db_password = SITE_PASSWORD
     if runtime == "image":
-        config.deploy_state = DeployState(current_tag=IMAGE_TAG)
+        config.deploy_state = DeployState(current_image=IMAGE_TAG)
     return config
 
 

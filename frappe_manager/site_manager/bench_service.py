@@ -263,8 +263,8 @@ class BenchService:
                             "runtime": config.runtime.value,
                             "environment": config.environment_type.value,
                             "apps": apps,
-                            "deployed_tag": deploy_state.current_tag if deploy_state else None,
-                            "previous_tag": deploy_state.previous_tag if deploy_state else None,
+                            "deployed_image": deploy_state.current_image if deploy_state else None,
+                            "previous_image": deploy_state.previous_image if deploy_state else None,
                             "base_image": config.base_image,
                             "seed_image": config.seed_image,
                             # Every alias across the bench's sites. `fm list` is the overview, so it
@@ -333,8 +333,8 @@ class BenchService:
             )
             card.fact("sites", _sites_fact(row["sites"]))
             card.fact("apps", ", ".join(row["apps"]) or "-")
-            if row["deployed_tag"]:
-                card.fact("tag", row["deployed_tag"])
+            if row["deployed_image"]:
+                card.fact("image", row["deployed_image"])
             if row["base_image"]:
                 card.fact("base", row["base_image"])
             if row["seed_image"]:

@@ -141,14 +141,14 @@ def _apply_base_image(bc: BenchConfig, base_image: str) -> None:
     PRODUCED, and one word cannot point both ways. The runtimes persist it differently, which is the
     only reason this is code and not another row in ``_FLAG_TO_CONFIG``: mount keeps the whole ref in
     top-level ``base_image`` and nothing ever rewrites it, while image runtime keeps the repo in
-    ``image`` and the tag in ``[deploy_state].current_tag``, which ``fm switch`` moves on every
-    deploy. Tag validation belongs to ``BenchConfig.assert_runtime_coherent``.
+    ``image`` and the full image in ``[deploy_state].current_image``, which ``fm switch`` moves on every
+    deploy. Image validation belongs to ``BenchConfig.assert_runtime_coherent``.
     """
     if bc.runtime != BenchRuntime.image:
         bc.base_image = base_image
         return
     bc.image = base_image.rpartition(":")[0] or None
-    bc.deploy_state = DeployState(current_tag=base_image)
+    bc.deploy_state = DeployState(current_image=base_image)
     bc.base_image = None
 
 
@@ -722,7 +722,7 @@ def _resolve_external_options(
 @example(
     "Run a pre-built app image",
     "{benchname} --runtime image --base-image ghcr.io/acme/mybench:v15-20260822",
-    detail="--base-image is the image the containers run. Here it is the app image itself, and fm switch moves the bench to later tags from there.",
+    detail="--base-image is the image the containers run. Here it is the app image itself, and fm switch moves the bench to later images from there.",
     benchname="mybench",
 )
 @example(
@@ -825,7 +825,7 @@ def create(
         BenchRuntime | None,
         typer.Option(
             "--runtime",
-            help="'mount' (default) live-mounts an editable workspace; 'image' runs a pre-built app image, moved to a new tag with 'fm switch'.",
+            help="'mount' (default) live-mounts an editable workspace; 'image' runs a pre-built app image, moved to a new image with 'fm switch'.",
             show_default=False,
             rich_help_panel=_PANEL_RUNTIME,
         ),
@@ -834,7 +834,7 @@ def create(
         str | None,
         typer.Option(
             "--base-image",
-            help="The image the bench's containers run (repo:tag). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another tag.",
+            help="The image the bench's containers run (repo:tag). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another image.",
             show_default=False,
             rich_help_panel=_PANEL_RUNTIME,
         ),
@@ -1101,7 +1101,7 @@ def create(
     if bench_config.runtime == BenchRuntime.image and bench_config.deploy_state:
         output.print(
             f"Image bench: creating the site from pre-built image "
-            f"[fm.info]{bench_config.deploy_state.current_tag}[/fm.info].",
+            f"[fm.info]{bench_config.deploy_state.current_image}[/fm.info].",
             emoji_code=":package:",
         )
 

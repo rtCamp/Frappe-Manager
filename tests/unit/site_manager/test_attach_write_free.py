@@ -76,7 +76,7 @@ def _config(tmp_path: Path, *, external: bool, runtime: str = "mount") -> BenchC
         config.attach_existing_site = True
         config.db_password = SITE_PASSWORD
     if runtime == "image":
-        config.deploy_state = DeployState(current_tag="ghcr.io/fm/app:v1")
+        config.deploy_state = DeployState(current_image="ghcr.io/fm/app:v1")
     return config
 
 

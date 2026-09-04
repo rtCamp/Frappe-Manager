@@ -334,23 +334,23 @@ is why every test here asserts the result LOADS and not merely that the file cha
 
 HISTORY = """
 [deploy_state]
-current_tag = "v2"
-previous_tag = "v1"
+current_image = "v2"
+previous_image = "v1"
 
 [[deploy_state.history]]
-tag = "v1"
+image = "v1"
 deployed_at = "2026-01-01T00:00:00"
 migrate_status = "migrated"
 backup = "/backups/deploy-1/db-one.sql"
 
 [[deploy_state.history]]
-tag = "v2"
+image = "v2"
 deployed_at = "2026-01-02T00:00:00"
 migrate_status = "skipped"
 backup = ""
 
 [[deploy_state.history]]
-tag = "v3"
+image = "v3"
 deployed_at = "2026-01-03T00:00:00"
 migrate_status = "skipped"
 """

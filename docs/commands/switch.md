@@ -1,25 +1,25 @@
 ## `fm switch`
 
-Switch a bench to an already-built image tag, or roll back.
+Switch a bench to an already-built image, or roll back.
 
-A switch is not just a tag change. By default it takes a database backup, raises a maintenance page for the schema-changing steps, and runs bench migrate against the new image, so plan for the site to be briefly unavailable. Each of those is a \[switch] config key and can be turned off there.
+A switch is not just an image change. By default it takes a database backup, raises a maintenance page for the schema-changing steps, and runs bench migrate against the new image, so plan for the site to be briefly unavailable. Each of those is a \[switch] config key and can be turned off there.
 
-Every switch records the tag you left, so --previous returns to it; run it twice and you are back where you started. Rolling back does NOT migrate, because old code must never migrate a newer schema; pass --migrate to insist. Older releases stay until fm prune clears them.
+Every switch records the image you left, so --previous returns to it; run it twice and you are back where you started. Rolling back does NOT migrate, because old code must never migrate a newer schema; pass --migrate to insist. Older releases stay until fm prune clears them.
 
 **Usage**:
 
 ```console
-$ fm switch BENCH TAG [OPTIONS]
+$ fm switch BENCH IMAGE [OPTIONS]
 ```
 
 **Arguments**:
 
 * `BENCH`: Bench to act on.  [required]
-* `TAG`: Image tag to switch to. Omit when using --previous.
+* `IMAGE`: Image to switch to: a full reference such as ghcr.io/acme/mybench:v15.2.1. Omit when using --previous.
 
 **Options**:
 
-* `--previous`: Roll back to the previously deployed tag, with migrate disabled.
+* `--previous`: Roll back to the previously deployed image, with migrate disabled.
 * `--migrate/--no-migrate`: Force or skip bench migrate for this run, overriding the bench config.
 * `--restore-db`: Also restore the DB dump taken during the deploy you are undoing. This REPLACES the current database: the dump drops and recreates every table, so everything written since that deploy is lost. fm asks you to confirm before importing.
 * `-y, --yes`: Accept the --restore-db overwrite without being asked. The only way to restore a dump unattended, and the only thing this flag skips.
@@ -29,15 +29,15 @@ $ fm switch BENCH TAG [OPTIONS]
 
 ## Examples
 
-### Switch to a tag you baked
+### Switch to an image you baked
 
-fm bake prints the tag; fm info lists the ones this bench has already run.
+fm bake prints the image; fm info lists the ones this bench has already run.
 
 ```bash
 fm switch mybench local/mybench:20260721-abc123
 ```
 
-### Switch to a tag from a registry
+### Switch to an image from a registry
 
 Pulled with your ambient docker login when it is not already local.
 
@@ -69,7 +69,7 @@ fm switch mybench --previous --restore-db --yes
 
 ### Roll back more than one release
 
---previous only knows the last tag, so name an older one explicitly and keep migrate off.
+--previous only knows the last image, so name an older one explicitly and keep migrate off.
 
 ```bash
 fm switch mybench local/mybench:20260718-9f21e0 --no-migrate

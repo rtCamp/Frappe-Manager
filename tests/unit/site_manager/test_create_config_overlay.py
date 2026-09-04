@@ -3,7 +3,7 @@
 Precedence: explicit CLI flags > --config overlays > create defaults. It is the ORDER of the
 overlay merge, not a per-field assignment, which is what stops any single field from being
 forgotten. The merged result is imported into a BenchConfig; the top-level image identity lives on
-`image`, the switch pipeline under `[switch]`, and image runtime records `[deploy_state].current_tag`.
+`image`, the switch pipeline under `[switch]`, and image runtime records `[deploy_state].current_image`.
 
 Everything goes through `bench_config_from_inputs`, the one seam `fm create` uses between its
 parameters and `create_bench`.
@@ -113,7 +113,7 @@ def test_image_runtime_via_flags_resolves_tag():
     )
     assert bc.runtime == BenchRuntime.image
     assert bc.image == "ghcr.io/acme/app"  # tag stripped for top-level image
-    assert bc.deploy_state.current_tag == "ghcr.io/acme/app:fm-1"
+    assert bc.deploy_state.current_image == "ghcr.io/acme/app:fm-1"
     assert bc.base_image is None  # the ref went to image + deploy_state, not base_image
 
 
@@ -122,11 +122,11 @@ def test_image_runtime_purely_from_config():
 runtime = "image"
 image = "ghcr.io/acme/app"
 [deploy_state]
-current_tag = "ghcr.io/acme/app:fm-9"
+current_image = "ghcr.io/acme/app:fm-9"
 """
     bc, _ = _build([cfg])
     assert bc.runtime == BenchRuntime.image
-    assert bc.deploy_state.current_tag == "ghcr.io/acme/app:fm-9"
+    assert bc.deploy_state.current_image == "ghcr.io/acme/app:fm-9"
 
 
 def test_explicit_apps_rejected_in_image_runtime():

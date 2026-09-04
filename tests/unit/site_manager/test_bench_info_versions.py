@@ -55,7 +55,7 @@ def _info(runtime, tmp_path, docker_client=None, tag="repo:tag"):
     info.docker_client = docker_client
     info.bench_config = SimpleNamespace(
         runtime=runtime,
-        deploy_state=SimpleNamespace(current_tag=tag) if tag else None,
+        deploy_state=SimpleNamespace(current_image=tag) if tag else None,
     )
     return info
 

@@ -240,7 +240,7 @@ class BenchOrchestrator:
         from frappe_manager.utils.docker import host_run_cp
 
         bench = self.bench
-        tag = bench.bench_config.deploy_state.current_tag
+        image = bench.bench_config.deploy_state.current_image
 
         # Host-side config + supervisor (mode-agnostic, no image needed).
         common_site_config_data = bench.bench_config.get_commmon_site_config_data()
@@ -248,11 +248,11 @@ class BenchOrchestrator:
         bench.supervisor.setup_supervisor(bench.path, force=True, use_run=True)
 
         # Ensure the app image (+ its nginx-assets image) is present.
-        fetch_image(bench.docker_client, tag, output=self.output)
+        fetch_image(bench.docker_client, image, output=self.output)
 
         # Seed apps.txt from the baked image and drive apps_list off it.
         apps_txt = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
-        host_run_cp(tag, "/workspace/frappe-bench/sites/apps.txt", str(apps_txt), bench.docker_client)
+        host_run_cp(image, "/workspace/frappe-bench/sites/apps.txt", str(apps_txt), bench.docker_client)
         baked = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
         bench.bench_config.apps_list = [AppConfig.from_string(n) for n in baked]
 
@@ -365,22 +365,22 @@ class BenchOrchestrator:
         from frappe_manager.utils.docker import host_run_cp
 
         bench = self.bench
-        tag = bench.bench_config.seed_image
+        image = bench.bench_config.seed_image
         # For seeded creates, create() stores the raw --apps entries (no frappe
         # auto-injection) -- they are override requests, not the bench app set.
         overrides = list(bench.bench_config.apps_list)
 
-        self.output.change_head(f"Seeding workspace from image {tag}")
-        fetch_image(bench.docker_client, tag, output=self.output)
+        self.output.change_head(f"Seeding workspace from image {image}")
+        fetch_image(bench.docker_client, image, output=self.output)
         frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
-        materialize_workspace_from_image(bench.docker_client, tag, frappe_bench_dir, output=self.output)
+        materialize_workspace_from_image(bench.docker_client, image, frappe_bench_dir, output=self.output)
 
         # The baked app set drives apps.txt and the per-site installs.
         apps_txt = frappe_bench_dir / "sites" / "apps.txt"
-        host_run_cp(tag, "/workspace/frappe-bench/sites/apps.txt", str(apps_txt), bench.docker_client)
+        host_run_cp(image, "/workspace/frappe-bench/sites/apps.txt", str(apps_txt), bench.docker_client)
         baked = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
         bench.bench_config.apps_list = [AppConfig.from_string(n) for n in baked]
-        self.output.print(f"Seeded workspace from {tag} (apps: {', '.join(baked)})")
+        self.output.print(f"Seeded workspace from {image} (apps: {', '.join(baked)})")
 
         if overrides:
             self._apply_seed_overrides(overrides, frappe_bench_dir, baked)

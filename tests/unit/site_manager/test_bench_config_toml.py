@@ -32,11 +32,11 @@ _BASE = 'name = "dev.localhost"\ndeveloper_mode = true\nadmin_tools = true\nenvi
 
 _DEPLOY_STATE = (
     "\n[deploy_state]\n"
-    'current_tag = "v2"\n'
-    'previous_tag = "v1"\n'
+    'current_image = "v2"\n'
+    'previous_image = "v1"\n'
     'last_deploy_at = "2026-01-01T00:00:00"\n'
     "[[deploy_state.history]]\n"
-    'tag = "v2"\n'
+    'image = "v2"\n'
     'deployed_at = "2026-01-01T00:00:00"\n'
     'migrate_status = "migrated"\n'
 )
@@ -55,10 +55,10 @@ class TestDeployStateImportGuard:
         bc = _import(tmp_path, _BASE + _DEPLOY_STATE)
 
         assert isinstance(bc.deploy_state, DeployState)
-        assert bc.deploy_state.current_tag == "v2"
-        assert bc.deploy_state.previous_tag == "v1"
+        assert bc.deploy_state.current_image == "v2"
+        assert bc.deploy_state.previous_image == "v1"
         assert bc.deploy_state.last_deploy_at == "2026-01-01T00:00:00"
-        assert [e.tag for e in bc.deploy_state.history] == ["v2"]
+        assert [e.image for e in bc.deploy_state.history] == ["v2"]
         assert bc.deploy_state.history[0].migrate_status == "migrated"
 
     def test_missing_key_yields_none(self, tmp_path):
@@ -90,8 +90,8 @@ class TestDeployStateImportGuard:
         reimported = BenchConfig.import_from_toml(out)
 
         assert isinstance(reimported.deploy_state, DeployState)
-        assert reimported.deploy_state.current_tag == "v2"
-        assert [e.tag for e in reimported.deploy_state.history] == ["v2"]
+        assert reimported.deploy_state.current_image == "v2"
+        assert [e.image for e in reimported.deploy_state.history] == ["v2"]
 
 
 class TestCreateTimeOnlyFieldsAreNeverSerialized:

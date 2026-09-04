@@ -203,7 +203,7 @@ fm ngrok mybench
 
 ## Deployment
 
-Bake immutable images and ship them by switching a bench onto a tag. See the [Deployment guide](../deploy/index.md) for the full workflow.
+Bake immutable images and ship them by switching a bench onto an image. See the [Deployment guide](../deploy/index.md) for the full workflow.
 
 ### :material-image-multiple: [`fm bake`](bake.md) {.command-heading}
 **Bake an immutable app image**
@@ -217,9 +217,9 @@ fm bake --apps erpnext:version-15 --image ghcr.io/acme/mysite --push
 ```
 
 ### :material-swap-horizontal: [`fm switch`](switch.md) {.command-heading}
-**Switch to an image tag, or roll back**
+**Switch to an image, or roll back**
 
-Forward deploys and rollbacks are the same pipeline pointed at different tags. `--previous` rolls back with migrate disabled; add `--restore-db` to restore the deploy's DB dump too.
+Forward deploys and rollbacks are the same pipeline pointed at different images. `--previous` rolls back with migrate disabled; add `--restore-db` to restore the deploy's DB dump too.
 
 ```bash
 fm switch mybench local/mybench:20260721-abc123
@@ -230,7 +230,7 @@ fm switch mybench --previous --restore-db
 ### :material-broom: [`fm prune`](prune.md) {.command-heading}
 **Remove old deploy releases**
 
-Deletes old deploy history, DB dumps, and unused image tags, keeping the newest N releases (`keep_releases` in bench config, or `--keep`).
+Deletes old deploy history, DB dumps, and unused images, keeping the newest N releases (`keep_releases` in bench config, or `--keep`).
 
 ```bash
 fm prune mybench --dry-run

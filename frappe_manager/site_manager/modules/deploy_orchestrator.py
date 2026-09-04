@@ -3,7 +3,7 @@
 Implements the decomposed image deploy (recreate-swap) that ``fmx restart
 --migrate`` cannot express in image mode:
 
-    fetch -> pre-flight -> render image compose(new tag) -> resolve migrate
+    fetch -> pre-flight -> render image compose(new image) -> resolve migrate
     -> maintenance(if migrate) -> drain(old) -> backup (at
     the quiesced point) -> migrate(one-shot, new image) -> swap (rolling when
     the overlap is safe, else recreate) -> finalize(resume + site DB ops +
@@ -147,12 +147,12 @@ def rolling_eligible(
     return maintenance_mode
 
 
-def pin_workers_to_image(workers, sites: Sequence[str], deploy_tag: str) -> None:
-    """Pin the workers compose to ``deploy_tag`` with image-mode data binds.
+def pin_workers_to_image(workers, sites: Sequence[str], deploy_image: str) -> None:
+    """Pin the workers compose to ``deploy_image`` with image-mode data binds.
 
     Thin delegator over the compose_shape projection -- the same specs the
-    workers' own generate_compose uses, with ``deploy_tag`` as the candidate
-    tag. No-op when the bench has no workers compose. Idempotent; user extras
+    workers' own generate_compose uses, with ``deploy_image`` as the candidate
+    image. No-op when the bench has no workers compose. Idempotent; user extras
     (override.yml / non-managed mounts) pass through untouched.
     """
     from frappe_manager.site_manager.modules.compose_shape import (
@@ -167,7 +167,7 @@ def pin_workers_to_image(workers, sites: Sequence[str], deploy_tag: str) -> None
     svcs = cfm.get_services_list()
     if not svcs:
         return
-    specs = worker_service_specs(workers.bench.bench_config, svcs, RenderContext(deploy_tag=deploy_tag))
+    specs = worker_service_specs(workers.bench.bench_config, svcs, RenderContext(deploy_image=deploy_image))
     apply_specs(cfm, specs, sites)
     cfm.write_to_file()
 
@@ -197,7 +197,7 @@ def _new_apps(wanted: list[str], installed: set[str]) -> list[str]:
 def plan_release_prune(history: list, keep: int) -> tuple[list, list]:
     """Split deploy history into ``(kept, pruned)`` -- pure newest-``keep`` rows.
 
-    Rows are audit lines only; artifact safety (images/dumps a live tag still
+    Rows are audit lines only; artifact safety (images/dumps a live image still
     needs) is decided separately by :func:`plan_artifact_removal`.
     """
     keep = max(1, keep)
@@ -206,12 +206,12 @@ def plan_release_prune(history: list, keep: int) -> tuple[list, list]:
     return list(history[-keep:]), list(history[:-keep])
 
 
-def plan_artifact_removal(kept: list, pruned: list, protected_tags: set[str]) -> tuple[list[str], list[str]]:
-    """``(backup_paths, image_tags)`` safe to delete for the pruned rows.
+def plan_artifact_removal(kept: list, pruned: list, protected_images: set[str]) -> tuple[list[str], list[str]]:
+    """``(backup_paths, images)`` safe to delete for the pruned rows.
 
-    A backup survives while ANY kept row references it; an image tag survives
+    A backup survives while ANY kept row references it; an image survives
     while any kept row OR the protected set (current / previous / target)
-    references it -- pruning must never orphan a tag the bench could still
+    references it -- pruning must never orphan an image the bench could still
     switch back to.
 
     A row records one dump per SITE, so the sets are flattened across every
@@ -220,9 +220,9 @@ def plan_artifact_removal(kept: list, pruned: list, protected_tags: set[str]) ->
     """
     kept_backups = {path for entry in kept for path in entry.backups.values()}
     backups = sorted({path for entry in pruned for path in entry.backups.values()} - kept_backups)
-    kept_tags = {entry.tag for entry in kept} | protected_tags
-    tags = sorted({entry.tag for entry in pruned} - kept_tags)
-    return backups, tags
+    kept_images = {entry.image for entry in kept} | protected_images
+    images = sorted({entry.image for entry in pruned} - kept_images)
+    return backups, images
 
 
 class DeployOrchestrator:
@@ -302,13 +302,13 @@ class DeployOrchestrator:
     def _set_maintenance(self, value: int) -> None:
         self._exec_frappe(f"{BENCH_BIN} --site {self.site} set-config -g maintenance_mode {value}")
 
-    def _fetch_image(self, tag: str) -> None:
-        """Ensure ``tag`` (+ its derived nginx tag) is present on the target daemon.
+    def _fetch_image(self, image: str) -> None:
+        """Ensure ``image`` (+ its derived nginx image) is present on the target daemon.
 
         Delegates to the shared ``transport.fetch_image``; ``TransportError`` AND
         ``BakeError`` are re-raised as ``DeployError`` to preserve deploy's error
         contract. ``BakeError`` belongs here because fetch_image derives the nginx
-        tag first: a tag with no ``':'`` (``fm switch mybench local/mybench`` --
+        image first: a reference with no ``':'`` (``fm switch mybench local/mybench`` --
         a plausible typo) dies there, and untranslated it escapes the CLI's
         ``except DeployError`` as a traceback instead of the typo's message.
         """
@@ -316,7 +316,7 @@ class DeployOrchestrator:
         from frappe_manager.site_manager.modules.transport import TransportError, fetch_image
 
         try:
-            fetch_image(self.docker, tag, output=self.output)
+            fetch_image(self.docker, image, output=self.output)
         except (TransportError, BakeError) as e:
             raise DeployError(str(e)) from e
 
@@ -367,8 +367,8 @@ class DeployOrchestrator:
     def _scale(self, scales: dict[str, int]) -> None:
         """``compose up -d --no-recreate`` at the given per-service replica counts.
 
-        ``--no-recreate`` keeps the old (old-tag) container in place and only
-        adds the new replica; the compose file is already pinned to the new tag.
+        ``--no-recreate`` keeps the old (old-image) container in place and only
+        adds the new replica; the compose file is already pinned to the new image.
 
         A non-zero compose exit never comes back as an exit code: the capturing
         path raises DockerException while the output is drained. Translate it to
@@ -458,11 +458,11 @@ class DeployOrchestrator:
         self,
         web: list[str],
         old_ids: dict[str, list[str]],
-        old_tag: str | None,
+        old_image: str | None,
         snaps: dict[Path, bytes],
     ) -> None:
         """New replica unhealthy: OLD never stopped -> still serving. Tear down the
-        new replicas and restore the pre-deploy (old-tag) compose. Zero downtime
+        new replicas and restore the pre-deploy (old-image) compose. Zero downtime
         even on a failed rolling deploy."""
         self.output.warning("Rolling: new replica unhealthy; keeping old, tearing down new replicas")
         for svc in web:
@@ -470,10 +470,10 @@ class DeployOrchestrator:
             if nid:
                 self._stop_rm(nid, drain=0)
         self._restore_compose(snaps)
-        if old_tag:
-            self._pin_workers(old_tag)
+        if old_image:
+            self._pin_workers(old_image)
 
-    def _rolling_swap(self, new_tag: str, old_tag: str | None, snaps: dict[Path, bytes]) -> None:
+    def _rolling_swap(self, new_image: str, old_image: str | None, snaps: dict[Path, bytes]) -> None:
         """Rolling web swap: run new + old web replicas concurrently, drain old,
         then reduce to the new replica -- zero dropped requests for a no-migrate
         deploy (vs the recreate-swap's brief blip). Recreate-swap stays the
@@ -497,8 +497,7 @@ class DeployOrchestrator:
         # Steps 1-3 all run while the OLD replicas are untouched and still
         # serving, so EVERY failure in them -- an unhealthy new replica, or a
         # `compose --scale` that failed (DeployError out of `_scale`) -- unwinds
-        # through `_abort_rolling`: new replicas torn down, canonical (old-tag)
-        # compose restored. Without that, a mid-scale failure would escape with
+        # through `_abort_rolling`: new replicas torn down, canonical (old-image)
         # the compose left in the rolling render (no `container_name`), and a
         # later `compose up` would create containers under generated names that
         # `get_container_names()` no longer matches -- fm would read the bench as
@@ -507,10 +506,10 @@ class DeployOrchestrator:
         # very outage `_abort_rolling` exists to prevent.
         try:
             # 1. Re-render the compose without container_name on the web tiers so
-            #    docker compose accepts --scale, and pin workers to the new tag.
+            #    docker compose accepts --scale, and pin workers to the new image.
             self.output.change_head("Rolling: rendering scalable image compose")
-            self.docker_ops.render_image_compose(new_tag, rolling=True)
-            self._pin_workers(new_tag)
+            self.docker_ops.render_image_compose(new_image, rolling=True)
+            self._pin_workers(new_image)
 
             # 2. Add the new frappe replica alongside the old (old keeps serving).
             self.output.change_head("Rolling: starting new frappe replica")
@@ -526,7 +525,7 @@ class DeployOrchestrator:
             if not new_nginx or not self._container_health(new_nginx):
                 raise DeployError("new nginx replica failed health check; kept old, no swap")
         except Exception:
-            self._abort_rolling(web, old_ids, old_tag, snaps)
+            self._abort_rolling(web, old_ids, old_image, snaps)
             raise
 
         # 4. Drain OLD replicas. jwilder/nginx-proxy 1.11 does NOT honor container
@@ -561,10 +560,10 @@ class DeployOrchestrator:
         self.output.change_head("Rolling: restoring canonical container names")
         self._rename(new_frappe, canonical["frappe"])
         self._rename(new_nginx, canonical["nginx"])
-        self.docker_ops.render_image_compose(new_tag, rolling=False)
+        self.docker_ops.render_image_compose(new_image, rolling=False)
 
         # 6. Bring the non-web code tiers (socketio, schedule) + workers to the
-        #    new tag. These are out of the /api HTTP path; a brief socketio
+        #    new image. These are out of the /api HTTP path; a brief socketio
         #    reconnect is acceptable and not in the request histogram.
         with contextlib.suppress(Exception):
             self._raw_compose("up", "-d", "--pull", "never", "socketio", "schedule")
@@ -586,8 +585,8 @@ class DeployOrchestrator:
             return None
         return cfm, workers.docker_client, svcs
 
-    def _pin_workers(self, deploy_tag: str) -> None:
-        pin_workers_to_image(self.bench.workers, self.sites, deploy_tag)
+    def _pin_workers(self, deploy_image: str) -> None:
+        pin_workers_to_image(self.bench.workers, self.sites, deploy_image)
 
     def _up_workers(self) -> None:
         info = self._worker_services()
@@ -1008,9 +1007,9 @@ class DeployOrchestrator:
                 self.output.change_head(f"Merging site_config keys into {site}")
                 self.bench.set_bench_site_config(site, site_keys)
 
-    def _hook_script(self, value: str, deploy_tag: str) -> str:
+    def _hook_script(self, value: str, deploy_image: str) -> str:
         """``set -e`` + exported env + resolved content, so no exec env passthrough is needed."""
-        core = {"SITE_NAME": self.site, "BENCH_PATH": str(self.bench_path), "DEPLOY_TAG": deploy_tag}
+        core = {"SITE_NAME": self.site, "BENCH_PATH": str(self.bench_path), "DEPLOY_IMAGE": deploy_image}
         if self._migrate_status is not None:
             core["MIGRATE_STATUS"] = self._migrate_status
         if self._migrate_log_container is not None:
@@ -1019,12 +1018,12 @@ class DeployOrchestrator:
         env = hook_env(core, self.switch_config)
         return hook_script(value, env)
 
-    def _run_host_hook(self, value: str | None, phase: str, deploy_tag: str) -> None:
+    def _run_host_hook(self, value: str | None, phase: str, deploy_image: str) -> None:
         if not value:
             return
         self.output.change_head(f"Running {phase} hook (host)")
         with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as fh:
-            fh.write(self._hook_script(value, deploy_tag))
+            fh.write(self._hook_script(value, deploy_image))
             script_path = fh.name
         try:
             proc = subprocess.run(  # noqa: S603
@@ -1045,7 +1044,7 @@ class DeployOrchestrator:
             with contextlib.suppress(OSError):
                 Path(script_path).unlink()
 
-    def _run_container_hook(self, value: str | None, phase: str, deploy_tag: str) -> None:
+    def _run_container_hook(self, value: str | None, phase: str, deploy_image: str) -> None:
         if not value:
             return
         if not self._frappe_running():
@@ -1057,7 +1056,7 @@ class DeployOrchestrator:
         name = f".fm_hook_{phase}_{int(time.time())}.sh"
         host_script = logs_dir / name
         container_script = f"/workspace/frappe-bench/logs/{name}"
-        host_script.write_text(self._hook_script(value, deploy_tag))
+        host_script.write_text(self._hook_script(value, deploy_image))
         try:
             result = self._exec_frappe(f"bash {container_script}")
             for line in getattr(result, "stdout", None) or []:
@@ -1069,7 +1068,7 @@ class DeployOrchestrator:
             with contextlib.suppress(OSError):
                 host_script.unlink()
 
-    def _migrate(self, deploy_tag: str) -> bool:
+    def _migrate(self, deploy_image: str) -> bool:
         """Run bench migrate in a one-shot container from the newly-pinned image, per SITE.
 
         Every site the bench serves gets its own migrate, because every site has its own
@@ -1149,7 +1148,7 @@ class DeployOrchestrator:
             self.output.print("Migrations applied")
         return True
 
-    def _notify_after_migrate(self, new_tag: str) -> None:
+    def _notify_after_migrate(self, new_image: str) -> None:
         """Failure-path after_migrate hooks (notifications): best-effort, container
         then host, with MIGRATE_STATUS=failed and the persisted migrate log in the
         hook env. A broken notification hook must never mask the migrate error."""
@@ -1158,31 +1157,31 @@ class DeployOrchestrator:
             (self._switch_hook("after_migrate", host=True), "host_after_migrate", self._run_host_hook),
         ):
             try:
-                runner(value, phase, new_tag)
+                runner(value, phase, new_image)
             except Exception as e:
                 self.output.warning(f"{phase} hook failed on the migrate-failure path (continuing): {e}")
 
-    def _current_deployed_tag(self) -> str | None:
+    def _current_deployed_image(self) -> str | None:
         state = self.config.deploy_state
-        if state and state.current_tag:
-            return state.current_tag
+        if state and state.current_image:
+            return state.current_image
         return None
 
-    def _record(self, new_tag: str, migrate_status: str, backups: dict[str, Path] | None = None) -> None:
+    def _record(self, new_image: str, migrate_status: str, backups: dict[str, Path] | None = None) -> None:
         now = datetime.now(UTC).isoformat()
         state = self.config.deploy_state or DeployState()
-        # Re-recording the tag that is ALREADY current (the health-gate rollback
-        # re-pins the running old tag) must not rotate it into previous_tag:
+        # Re-recording the image that is ALREADY current (the health-gate rollback
+        # re-pins the running old image) must not rotate it into previous_image:
         # previous would collapse onto current, turning the operator's next
         # escape hatch (`fm switch --previous`) into a redeploy of what is
         # already live and stranding the genuinely older release.
-        if state.current_tag != new_tag:
-            state.previous_tag = state.current_tag
-        state.current_tag = new_tag
+        if state.current_image != new_image:
+            state.previous_image = state.current_image
+        state.current_image = new_image
         state.last_deploy_at = now
         state.history.append(
             DeployStateEntry(
-                tag=new_tag,
+                image=new_image,
                 deployed_at=now,
                 migrate_status=migrate_status,
                 backups={site: str(path) for site, path in (backups or {}).items()},
@@ -1210,14 +1209,14 @@ class DeployOrchestrator:
 
     def deploy(
         self,
-        new_tag: str,
+        new_image: str,
         rolling: bool | None = None,
         migrate_override: bool | None = None,
         restore_db_dumps: dict[str, Path] | None = None,
         prune_keep: int | None = None,
         restore_confirmed: bool = False,
     ) -> None:
-        """Run the image deploy to ``new_tag``.
+        """Run the image deploy to ``new_image``.
 
         Uses the rolling web swap when eligible (see ``rolling_eligible``) and
         the old stack is up; otherwise the recreate-swap. ``rolling`` is the
@@ -1231,18 +1230,18 @@ class DeployOrchestrator:
         migrate, and each one is confirmed before it runs unless ``restore_confirmed``
         (``--yes``)."""
         self._require_image_mode()
-        old_tag = self._current_deployed_tag()
+        old_image = self._current_deployed_image()
         self._warn_unmanaged_sites()
 
         # 1. Fetch (registry login+pull, or verify save_load-loaded image present)
-        self.output.change_head(f"Fetching image {new_tag}")
-        self._fetch_image(new_tag)
+        self.output.change_head(f"Fetching image {new_image}")
+        self._fetch_image(new_image)
 
         # 2. Pre-flight boot check (nonzero => abort before any change)
         self.output.change_head("Pre-flight boot check")
         try:
             self.docker.run(
-                image=new_tag,
+                image=new_image,
                 entrypoint=BENCH_BIN,
                 command="version",
                 workdir="/workspace/frappe-bench",
@@ -1252,7 +1251,7 @@ class DeployOrchestrator:
                 stream=False,
             )
         except DockerException as e:
-            raise DeployError(f"Pre-flight boot check failed for {new_tag}; aborting deploy: {e}") from e
+            raise DeployError(f"Pre-flight boot check failed for {new_image}; aborting deploy: {e}") from e
         self.output.print("Pre-flight boot check passed")
 
         backup_dir = self.bench_path / "backups" / f"deploy-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
@@ -1261,11 +1260,11 @@ class DeployOrchestrator:
 
         snaps = self._snapshot_compose()
 
-        # 3. Render the image-mode compose pinned to the new tag. From here until
+        # 3. Render the image-mode compose pinned to the new image. From here until
         # the swap, every abort path restores the snapshots (old stack serving).
         self.output.change_head("Rendering image-mode compose")
-        self.docker_ops.render_image_compose(new_tag)
-        self._pin_workers(new_tag)
+        self.docker_ops.render_image_compose(new_image)
+        self._pin_workers(new_image)
 
         # 4. Resolve migrate: runtime override first, else the bench config.
         requested = self.switch_config.migrate if migrate_override is None else migrate_override
@@ -1353,21 +1352,20 @@ class DeployOrchestrator:
             for site, dump in restore_db_dumps.items():
                 self._restore_db(site, dump, requested=True, confirmed=restore_confirmed)
 
-            # 8. Migrate in a one-shot new-image container.
             if migrate:
-                self._run_host_hook(self._switch_hook("before_migrate", host=True), "host_before_migrate", new_tag)
-                self._run_container_hook(self._switch_hook("before_migrate"), "before_migrate", new_tag)
+                self._run_host_hook(self._switch_hook("before_migrate", host=True), "host_before_migrate", new_image)
+                self._run_container_hook(self._switch_hook("before_migrate"), "before_migrate", new_image)
                 try:
-                    self._migrate(new_tag)
+                    self._migrate(new_image)
                     migrate_status = self._migrate_status = "migrated"
                 except (DockerException, DeployError) as e:
-                    # Migrate failure: NO swap. Keep old tag + report. migrate is
+                    # Migrate failure: NO swap. Keep old image + report. migrate is
                     # transactional/resumable so default is keep-old (re-runnable).
                     # DeployError is in the tuple because ``_migrate`` translates a
                     # migrate_timeout kill into one: it must land HERE (notify +
                     # rollback_db), not on the generic pre-swap abort above.
                     migrate_status = self._migrate_status = "failed"
-                    self._notify_after_migrate(new_tag)
+                    self._notify_after_migrate(new_image)
                     if self.switch_config.rollback_db and db_dumps:
                         # Every site, in reverse: the migrate walked them primary-first and
                         # stopped at the first failure, so unwinding backwards undoes the most
@@ -1384,21 +1382,21 @@ class DeployOrchestrator:
                             except RestoreNotConfirmed as declined:
                                 self.output.warning(str(declined))
                     raise DeployError(
-                        f"Migration failed; kept old image ({old_tag or 'dev/mount'}). "
+                        f"Migration failed; kept old image ({old_image or 'dev/mount'}). "
                         f"Compose reverted, no swap performed. Re-run deploy after fixing: {e}",
                     ) from e
-                self._run_container_hook(self._switch_hook("after_migrate"), "after_migrate", new_tag)
-                self._run_host_hook(self._switch_hook("after_migrate", host=True), "host_after_migrate", new_tag)
+                self._run_container_hook(self._switch_hook("after_migrate"), "after_migrate", new_image)
+                self._run_host_hook(self._switch_hook("after_migrate", host=True), "host_after_migrate", new_image)
 
             # Switch hooks (pre-restart): host first, then the still-running old container.
-            self._run_host_hook(self._switch_hook("before_restart", host=True), "host_before_restart", new_tag)
-            self._run_container_hook(self._switch_hook("before_restart"), "before_restart", new_tag)
+            self._run_host_hook(self._switch_hook("before_restart", host=True), "host_before_restart", new_image)
+            self._run_container_hook(self._switch_hook("before_restart"), "before_restart", new_image)
         except Exception:
             # Abort BEFORE the swap (hook/migrate/maintenance/drain failure): the OLD
             # stack is still the live one. Revert the compose re-pin, then drop the
             # page and un-suspend RQ so an aborted deploy never leaves the site dark
             # or the compose half-switched (a later plain `compose up` must not jump
-            # tags).
+            # images).
             self._restore_compose(snaps)
             self._unwind_maintenance()
             raise
@@ -1407,13 +1405,13 @@ class DeployOrchestrator:
         # otherwise recreate-swap (the maintenance window covers the brief blip).
         # A failure IN the swap is its own abort window: the swap paths restore the
         # compose themselves (`_abort_rolling` for rolling; the recreate is already
-        # pinned to the tag it brought up), but the page and the suspended workers
+        # pinned to the image it brought up), but the page and the suspended workers
         # are this pipeline's to unwind -- otherwise the surviving stack serves 503
         # to everyone while the CLI reports the old image was kept.
         try:
             if do_rolling:
                 self.output.change_head("Rolling web swap")
-                self._rolling_swap(new_tag, old_tag, snaps)
+                self._rolling_swap(new_image, old_image, snaps)
             else:
                 # Recreate-swap. No ``--wait``: nginx emerg-exits on the frappe:80
                 # upstream DNS if it wins the startup race, so we gate on the frappe
@@ -1428,15 +1426,15 @@ class DeployOrchestrator:
         # Health gate (503 = maintenance page = server up; finalize clears it).
         self.output.change_head("Health-gating new containers")
         if not self._health_check():
-            if self.switch_config.rollback_image and old_tag:
-                self.output.warning("New image unhealthy; rolling back to previous tag.")
-                self.rollback(old_tag, restore_db_dumps=db_dumps if self.switch_config.rollback_db else None)
+            if self.switch_config.rollback_image and old_image:
+                self.output.warning("New image unhealthy; rolling back to previous image.")
+                self.rollback(old_image, restore_db_dumps=db_dumps if self.switch_config.rollback_db else None)
                 raise DeployError(
-                    f"Deploy of {new_tag} failed health check; rolled back to {old_tag}.",
+                    f"Deploy of {new_image} failed health check; rolled back to {old_image}.",
                 )
             raise DeployError(
-                f"Deploy of {new_tag} failed health check and is halted in maintenance mode "
-                f"(no previous tag to roll back to). Investigate the new containers.",
+                f"Deploy of {new_image} failed health check and is halted in maintenance mode "
+                f"(no previous image to roll back to). Investigate the new containers.",
             )
         if not do_rolling:
             self._ensure_nginx()
@@ -1458,21 +1456,21 @@ class DeployOrchestrator:
         # already happened -- a failing post hook must not leave the site in
         # maintenance or the deploy unrecorded (rollback bookkeeping stays truthful).
         try:
-            self._run_container_hook(self._switch_hook("after_restart"), "after_restart", new_tag)
-            self._run_host_hook(self._switch_hook("after_restart", host=True), "host_after_restart", new_tag)
+            self._run_container_hook(self._switch_hook("after_restart"), "after_restart", new_image)
+            self._run_host_hook(self._switch_hook("after_restart", host=True), "host_after_restart", new_image)
         except DeployError:
             if maintenance:
                 with contextlib.suppress(Exception):
                     self._set_maintenance(0)
-            self._record(new_tag, migrate_status, backups=db_dumps)
+            self._record(new_image, migrate_status, backups=db_dumps)
             raise
 
         if maintenance:
             self._set_maintenance(0)
 
         # 9. Record.
-        self._record(new_tag, migrate_status, backups=db_dumps)
-        self.output.print(f"Deployed {new_tag}", emoji_code=":rocket:")
+        self._record(new_image, migrate_status, backups=db_dumps)
+        self.output.print(f"Deployed {new_image}", emoji_code=":rocket:")
 
         # Opt-in housekeeping: prune old releases only when the caller asked
         # (--keep N); never by default, and never failing a successful deploy.
@@ -1483,32 +1481,32 @@ class DeployOrchestrator:
                 self.output.warning(f"Release prune failed (continuing): {e}")
 
     def rolling_restart(self) -> None:
-        """Zero-downtime web-tier recreate on the CURRENT tag (`fm restart --rolling`).
+        """Zero-downtime web-tier recreate on the CURRENT image (`fm restart --rolling`).
 
-        Same engine as the deploy swap, pointed at the running tag: new frappe +
+        Same engine as the deploy swap, pointed at the running image: new frappe +
         nginx replicas come up alongside the old ones, health-gate, drain, rename
         back to canonical. No migrate, no hooks, no record -- nothing about the
         release changes, only the containers are fresh.
         """
         self._require_image_mode()
-        tag = self._current_deployed_tag()
-        if not tag:
-            raise DeployError("No deployed image tag recorded; bake and switch first (fm bake, then fm switch).")
+        image = self._current_deployed_image()
+        if not image:
+            raise DeployError("No deployed image recorded; bake and switch first (fm bake, then fm switch).")
         if not self._frappe_running():
             raise DeployError("Web tier is not running; use a plain start/restart instead of --rolling.")
 
         snaps = self._snapshot_compose()
-        self._fetch_image(tag)
-        self._rolling_swap(tag, tag, snaps)
-        self.output.print(f"Rolling restart complete on {tag}", emoji_code=":arrows_counterclockwise:")
+        self._fetch_image(image)
+        self._rolling_swap(image, image, snaps)
+        self.output.print(f"Rolling restart complete on {image}", emoji_code=":arrows_counterclockwise:")
 
     def prune_releases(self, keep: int | None = None, dry_run: bool = False) -> dict:
-        """Prune old releases: history rows, recorded DB-dump dirs, local image tags.
+        """Prune old releases: history rows, recorded DB-dump dirs, local images.
 
         History rows: keep the newest ``keep`` (default
         ``[switch] keep_releases``). Artifacts are refcounted
         separately: a recorded backup's ``deploy-*`` dir is deleted only when
-        no kept row references it; an image tag is rmi'd (app + paired -nginx,
+        no kept row references it; an image is rmi'd (app + paired -nginx,
         best-effort) only when neither a kept row nor the protected set
         (current/previous/seed/base) references it.
         Invoked by ``fm prune``, or after a successful deploy/switch when
@@ -1521,14 +1519,14 @@ class DeployOrchestrator:
 
         limit = self.switch_config.keep_releases if keep is None else keep
         protected = {
-            tag
-            for tag in (
-                state.current_tag,
-                state.previous_tag,
+            image
+            for image in (
+                state.current_image,
+                state.previous_image,
                 self.config.seed_image,
                 getattr(self.config, "base_image", None),
             )
-            if tag
+            if image
         }
         kept, pruned = plan_release_prune(state.history, limit)
         summary["kept"] = len(kept)
@@ -1536,7 +1534,7 @@ class DeployOrchestrator:
             return summary
         summary["entries"] = len(pruned)
 
-        backups, tags = plan_artifact_removal(kept, pruned, protected)
+        backups, pruned_images = plan_artifact_removal(kept, pruned, protected)
         for backup in backups:
             backup_dir = Path(backup).parent
             if backup_dir.name.startswith("deploy-") and backup_dir.exists():
@@ -1544,8 +1542,8 @@ class DeployOrchestrator:
 
         from frappe_manager.site_manager.modules.bake import BakeManager
 
-        for tag in tags:
-            summary["images"].extend([tag, BakeManager.nginx_image_tag(tag)])
+        for image in pruned_images:
+            summary["images"].extend([image, BakeManager.nginx_image_tag(image)])
 
         if dry_run:
             return summary
@@ -1561,13 +1559,13 @@ class DeployOrchestrator:
         self.config.export_to_toml(self._config_path())
         self.output.print(
             f"Pruned {summary['entries']} old release(s): {len(summary['backups'])} backup dir(s), "
-            f"{len(summary['images'])} image tag(s); kept {summary['kept']}.",
+            f"{len(summary['images'])} image(s); kept {summary['kept']}.",
             emoji_code=":broom:",
         )
         return summary
 
-    def rollback(self, previous_tag: str, restore_db_dumps: dict[str, Path] | None = None) -> None:
-        """INTERNAL health-gate recovery: re-pin to ``previous_tag`` and recreate.
+    def rollback(self, previous_image: str, restore_db_dumps: dict[str, Path] | None = None) -> None:
+        """INTERNAL health-gate recovery: re-pin to ``previous_image`` and recreate.
 
         Called only from ``deploy()`` when the new stack fails its health gate
         (``rollback_image``) -- deliberately minimal (no probe/hooks/backup/drain)
@@ -1576,12 +1574,12 @@ class DeployOrchestrator:
         (``rollback_db``) maps SITE to a dump, all imported BEFORE the swap.
         """
         self._require_image_mode()
-        self.output.change_head(f"Rolling back to {previous_tag}")
+        self.output.change_head(f"Rolling back to {previous_image}")
 
-        self._fetch_image(previous_tag)
+        self._fetch_image(previous_image)
 
-        self.docker_ops.render_image_compose(previous_tag)
-        self._pin_workers(previous_tag)
+        self.docker_ops.render_image_compose(previous_image)
+        self._pin_workers(previous_image)
 
         for site, dump in (restore_db_dumps or {}).items():
             # Declining the DB import is a decision about someone else's database,
@@ -1597,11 +1595,11 @@ class DeployOrchestrator:
         self._up_workers()
 
         if not self._health_check():
-            # The compose IS pinned to previous_tag at this point; record reality
+            # The compose IS pinned to previous_image at this point; record reality
             # so deploy_state matches what a later `compose up` would run.
-            self._record(previous_tag, "rollback")
+            self._record(previous_image, "rollback")
             raise DeployError(
-                f"Rollback to {previous_tag} failed health check; bench halted. Investigate the containers.",
+                f"Rollback to {previous_image} failed health check; bench halted. Investigate the containers.",
             )
         self._ensure_nginx()
 
@@ -1611,11 +1609,11 @@ class DeployOrchestrator:
         except Exception as e:
             self.output.warning(f"Could not clear maintenance mode (continuing): {e}")
 
-        self._record(previous_tag, "rollback")
+        self._record(previous_image, "rollback")
         state = self.config.deploy_state
-        if state and state.previous_tag:
+        if state and state.previous_image:
             self.output.print(
-                f"Previous tag is now {state.previous_tag} -- running `fm rollback` again would re-deploy it.",
+                f"Previous image is now {state.previous_image} -- running `fm rollback` again would re-deploy it.",
                 emoji_code=":information:",
             )
-        self.output.print(f"Rolled back to {previous_tag}", emoji_code=":rewind:")
+        self.output.print(f"Rolled back to {previous_image}", emoji_code=":rewind:")

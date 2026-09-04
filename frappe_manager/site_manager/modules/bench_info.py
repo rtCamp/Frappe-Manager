@@ -158,10 +158,10 @@ class BenchInfo:
         Mount runtime: from git under the workspace ``apps/``.
         """
         if self.bench_config.runtime == BenchRuntime.image:
-            tag = self.bench_config.deploy_state.current_tag if self.bench_config.deploy_state else None
-            if not tag or self.docker_client is None:
+            image = self.bench_config.deploy_state.current_image if self.bench_config.deploy_state else None
+            if not image or self.docker_client is None:
                 return []
-            raw = self.docker_client.image_labels(tag).get("fm.apps")
+            raw = self.docker_client.image_labels(image).get("fm.apps")
             try:
                 return json.loads(raw) if raw else []
             except (ValueError, TypeError):
@@ -235,11 +235,11 @@ class BenchInfo:
         return read_bench_node_version(self.bench_path / "workspace/frappe-bench") or "N/A"
 
     def _image_label(self, key: str) -> str:
-        """Read ``key`` off the pinned image (deploy_state.current_tag); ``N/A`` if absent."""
-        tag = self.bench_config.deploy_state.current_tag if self.bench_config.deploy_state else None
-        if not tag or self.docker_client is None:
+        """Read ``key`` off the pinned image (deploy_state.current_image); ``N/A`` if absent."""
+        image = self.bench_config.deploy_state.current_image if self.bench_config.deploy_state else None
+        if not image or self.docker_client is None:
             return "N/A"
-        return self.docker_client.image_labels(tag).get(key) or "N/A"
+        return self.docker_client.image_labels(image).get(key) or "N/A"
 
     def get_log_file_paths(self) -> list[Path]:
         """
@@ -423,10 +423,10 @@ class BenchInfo:
             card.fact(label, f"{app.get('name', '?')}  [fm.muted]{ref}  {commit}[/fm.muted]")
         if config.runtime == BenchRuntime.image:
             deploy_state = config.deploy_state
-            tag = deploy_state.current_tag if deploy_state and deploy_state.current_tag else None
-            card.fact("tag", tag or "[fm.muted]N/A (not yet deployed)[/fm.muted]")
-            if deploy_state and deploy_state.previous_tag:
-                card.fact("previous", deploy_state.previous_tag)
+            image = deploy_state.current_image if deploy_state and deploy_state.current_image else None
+            card.fact("image", image or "[fm.muted]N/A (not yet deployed)[/fm.muted]")
+            if deploy_state and deploy_state.previous_image:
+                card.fact("previous", deploy_state.previous_image)
         else:
             if config.base_image:
                 card.fact("base", config.base_image)
@@ -447,11 +447,11 @@ class BenchInfo:
                 n = len(entry.backups)
                 dump = f"  [fm.muted]·[/fm.muted] {n} db-dump{'s' if n > 1 else ''}" if n else ""
                 marker = ""
-                if not current_marked and entry.tag == deploy_state.current_tag:
+                if not current_marked and entry.image == deploy_state.current_image:
                     marker = "  [fm.ok]● current[/fm.ok]"
                     current_marked = True
                 when = self._short_ts(entry.deployed_at)
-                card.fact(label, f"{entry.tag}  [fm.muted]{when} · {status_markup}{dump}[/fm.muted]{marker}")
+                card.fact(label, f"{entry.image}  [fm.muted]{when} · {status_markup}{dump}[/fm.muted]{marker}")
 
         # ---- access
         card.section("access")

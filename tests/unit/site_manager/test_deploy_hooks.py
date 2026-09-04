@@ -37,10 +37,10 @@ def test_existing_sh_file_is_read(tmp_path):
 
 
 def test_hook_env_core_vars_passed_through():
-    env = hook_env({"SITE_NAME": "x.localhost", "BENCH_PATH": "/data/x", "DEPLOY_TAG": "repo:t"})
+    env = hook_env({"SITE_NAME": "x.localhost", "BENCH_PATH": "/data/x", "DEPLOY_IMAGE": "repo:t"})
     assert env["SITE_NAME"] == "x.localhost"
     assert env["BENCH_PATH"] == "/data/x"
-    assert env["DEPLOY_TAG"] == "repo:t"
+    assert env["DEPLOY_IMAGE"] == "repo:t"
 
 
 def test_hook_env_includes_switch_scalars_excludes_hooks():

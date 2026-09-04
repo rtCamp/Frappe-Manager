@@ -29,8 +29,8 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `--node`: Node version, e.g. '20'. Auto-detected by default.
 * `--restart`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
 * `--allow-domain-conflicts`: Skip the domain uniqueness check.
-* `--runtime`: 'mount' (default) live-mounts an editable workspace; 'image' runs a pre-built app image, moved to a new tag with 'fm switch'.
-* `--base-image`: The image the bench's containers run (repo:tag). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another tag.
+* `--runtime`: 'mount' (default) live-mounts an editable workspace; 'image' runs a pre-built app image, moved to a new image with 'fm switch'.
+* `--base-image`: The image the bench's containers run (repo:tag). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another image.
 * `--seed-image`: Mount runtime: seed the workspace from a baked app image (repo:tag) instead of cloning and installing apps. --apps, --python and --node then override what it carries. This is a one-time copy, not what the containers run: see --base-image.
 * `--config`: TOML base config: file path or inline. Explicit flags win; later --config wins.
 * `--newrelic/--no-newrelic`: Enable NewRelic APM for the web process.
@@ -82,7 +82,7 @@ fm create mybench -e prod --apps erpnext
 
 ### Run a pre-built app image
 
---base-image is the image the containers run. Here it is the app image itself, and fm switch moves the bench to later tags from there.
+--base-image is the image the containers run. Here it is the app image itself, and fm switch moves the bench to later images from there.
 
 ```bash
 fm create mybench --runtime image --base-image ghcr.io/acme/mybench:v15-20260822

@@ -2,7 +2,7 @@
 
 `deploy_state` mirrors `migration_state`: it is exported via `export_to_toml`
 (model_dump) and re-parsed explicitly by `import_from_toml`. These tests assert
-that current/previous tags and the deploy history survive the round-trip.
+that current/previous images and the deploy history survive the round-trip.
 """
 
 from pathlib import Path
@@ -40,15 +40,15 @@ def test_deploy_state_roundtrip(tmp_path):
     path = tmp_path / "bench_config.toml"
     bc = _image_bench(path)
     bc.deploy_state = DeployState(
-        current_tag="local/x:20260721-abc",
-        previous_tag="local/x:20260720-def",
+        current_image="local/x:20260721-abc",
+        previous_image="local/x:20260720-def",
         last_deploy_at="2026-07-21T10:00:00+00:00",
         history=[
             DeployStateEntry(
-                tag="local/x:20260720-def", deployed_at="2026-07-20T09:00:00+00:00", migrate_status="migrated"
+                image="local/x:20260720-def", deployed_at="2026-07-20T09:00:00+00:00", migrate_status="migrated"
             ),
             DeployStateEntry(
-                tag="local/x:20260721-abc", deployed_at="2026-07-21T10:00:00+00:00", migrate_status="skipped"
+                image="local/x:20260721-abc", deployed_at="2026-07-21T10:00:00+00:00", migrate_status="skipped"
             ),
         ],
     )
@@ -57,10 +57,10 @@ def test_deploy_state_roundtrip(tmp_path):
 
     reloaded = BenchConfig.import_from_toml(path)
     assert reloaded.deploy_state is not None
-    assert reloaded.deploy_state.current_tag == "local/x:20260721-abc"
-    assert reloaded.deploy_state.previous_tag == "local/x:20260720-def"
+    assert reloaded.deploy_state.current_image == "local/x:20260721-abc"
+    assert reloaded.deploy_state.previous_image == "local/x:20260720-def"
     assert reloaded.deploy_state.last_deploy_at == "2026-07-21T10:00:00+00:00"
-    assert [e.tag for e in reloaded.deploy_state.history] == [
+    assert [e.image for e in reloaded.deploy_state.history] == [
         "local/x:20260720-def",
         "local/x:20260721-abc",
     ]
@@ -83,12 +83,12 @@ def test_deploy_state_backups_roundtrip(tmp_path):
     path = tmp_path / "bench_config.toml"
     bc = _image_bench(path)
     bc.deploy_state = DeployState(
-        current_tag="local/x:t2",
-        previous_tag="local/x:t1",
+        current_image="local/x:t2",
+        previous_image="local/x:t1",
         history=[
-            DeployStateEntry(tag="local/x:t1", deployed_at="2026-07-20T09:00:00+00:00", migrate_status="skipped"),
+            DeployStateEntry(image="local/x:t1", deployed_at="2026-07-20T09:00:00+00:00", migrate_status="skipped"),
             DeployStateEntry(
-                tag="local/x:t2",
+                image="local/x:t2",
                 deployed_at="2026-07-21T10:00:00+00:00",
                 migrate_status="migrated",
                 backups={
@@ -115,7 +115,7 @@ def test_deploy_state_backups_rejects_non_string_dump_paths():
     # writing a bench config that no later `fm` run can read back.
     with pytest.raises(ValidationError) as excinfo:
         DeployStateEntry(
-            tag="local/x:t1",
+            image="local/x:t1",
             deployed_at="2026-07-21T10:00:00+00:00",
             migrate_status="migrated",
             backups={"x.localhost": Path("/benches/x/backups/deploy-20260721/db-fm_x.sql")},
@@ -125,7 +125,7 @@ def test_deploy_state_backups_rejects_non_string_dump_paths():
     # Same for any other non-string dump value.
     with pytest.raises(ValidationError):
         DeployStateEntry(
-            tag="local/x:t1",
+            image="local/x:t1",
             deployed_at="2026-07-21T10:00:00+00:00",
             migrate_status="migrated",
             backups={"x.localhost": 5},
@@ -137,7 +137,7 @@ def test_deploy_state_backups_rejects_non_string_site_keys():
     # site lookup in `fm switch --restore-db` could ever match.
     with pytest.raises(ValidationError) as excinfo:
         DeployStateEntry(
-            tag="local/x:t1",
+            image="local/x:t1",
             deployed_at="2026-07-21T10:00:00+00:00",
             migrate_status="migrated",
             backups={1: "/benches/x/backups/deploy-20260721/db-fm_x.sql"},
@@ -149,7 +149,7 @@ def test_deploy_state_backups_rejects_non_mapping():
     # backups is a per-site mapping, never a bare path or a sequence of pairs.
     with pytest.raises(ValidationError) as excinfo:
         DeployStateEntry(
-            tag="local/x:t1",
+            image="local/x:t1",
             deployed_at="2026-07-21T10:00:00+00:00",
             migrate_status="migrated",
             backups="/benches/x/backups/deploy-20260721/db-fm_x.sql",
@@ -162,12 +162,12 @@ class TestSwitchResolvers:
 
     def _state(self):
         return DeployState(
-            current_tag="local/x:t3",
-            previous_tag="local/x:t2",
+            current_image="local/x:t3",
+            previous_image="local/x:t2",
             history=[
-                DeployStateEntry(tag="local/x:t2", deployed_at="d2", migrate_status="skipped"),
+                DeployStateEntry(image="local/x:t2", deployed_at="d2", migrate_status="skipped"),
                 DeployStateEntry(
-                    tag="local/x:t3",
+                    image="local/x:t3",
                     deployed_at="d3",
                     migrate_status="migrated",
                     backups={"x.localhost": "/b/db.sql", "shop.x.localhost": "/b/db-shop.sql"},
@@ -175,36 +175,58 @@ class TestSwitchResolvers:
             ],
         )
 
-    def test_explicit_tag_wins(self):
-        from frappe_manager.commands.deploy import _resolve_switch_tag
+    def test_explicit_image_wins(self):
+        from frappe_manager.commands.deploy import _resolve_switch_image
 
-        assert _resolve_switch_tag(self._state(), "local/x:t9", False) == ("local/x:t9", None)
+        assert _resolve_switch_image(self._state(), "local/x:t9", False) == ("local/x:t9", None)
 
-    def test_previous_resolves_recorded_tag(self):
-        from frappe_manager.commands.deploy import _resolve_switch_tag
+    def test_previous_resolves_recorded_image(self):
+        from frappe_manager.commands.deploy import _resolve_switch_image
 
-        assert _resolve_switch_tag(self._state(), None, True) == ("local/x:t2", None)
+        assert _resolve_switch_image(self._state(), None, True) == ("local/x:t2", None)
 
-    def test_tag_and_previous_conflict(self):
-        from frappe_manager.commands.deploy import _resolve_switch_tag
+    def test_image_and_previous_conflict(self):
+        from frappe_manager.commands.deploy import _resolve_switch_image
 
-        target, error = _resolve_switch_tag(self._state(), "local/x:t9", True)
+        target, error = _resolve_switch_image(self._state(), "local/x:t9", True)
         assert target is None
         assert "not both" in error
 
     def test_previous_without_history_errors(self):
-        from frappe_manager.commands.deploy import _resolve_switch_tag
+        from frappe_manager.commands.deploy import _resolve_switch_image
 
-        target, error = _resolve_switch_tag(None, None, True)
+        target, error = _resolve_switch_image(None, None, True)
         assert target is None
-        assert "No previous image tag recorded" in error
+        assert "No previous image recorded" in error
 
-    def test_neither_tag_nor_previous_errors(self):
-        from frappe_manager.commands.deploy import _resolve_switch_tag
+    def test_neither_image_nor_previous_errors(self):
+        from frappe_manager.commands.deploy import _resolve_switch_image
 
-        target, error = _resolve_switch_tag(self._state(), None, False)
+        target, error = _resolve_switch_image(self._state(), None, False)
         assert target is None
         assert "Missing target" in error
+
+    def test_a_bare_tag_without_a_repo_is_refused_before_any_docker_call(self):
+        """``fm switch mybench v15`` used to sail through with no validation and die on a
+        generic ``docker pull`` error naming the bare tag as if it were a repository. The
+        resolver now refuses a target with no explicit ``repo:tag`` shape up front, via the
+        same ``has_explicit_tag`` check ``create``/``bake`` already use."""
+        from frappe_manager.commands.deploy import _resolve_switch_image
+
+        target, error = _resolve_switch_image(self._state(), "v15", False)
+        assert target is None
+        assert "not a full image reference" in error
+        assert "repo:tag" in error
+
+    def test_a_registry_host_port_without_a_tag_is_still_refused(self):
+        """A registry host:port (``localhost:5000/repo``) is not a tag: the colon has to come
+        after the last ``/``. Confirms the resolver reuses ``has_explicit_tag`` rather than a
+        naive ``':' in value`` check."""
+        from frappe_manager.commands.deploy import _resolve_switch_image
+
+        target, error = _resolve_switch_image(self._state(), "localhost:5000/repo", False)
+        assert target is None
+        assert "not a full image reference" in error
 
     def test_backups_found_for_current_deploy(self):
         # Every site's dump, not just the primary's: a rollback that restored one schema
@@ -238,7 +260,7 @@ class TestReleasePrunePlanner:
     def _hist(self, *tags, backups=None):
         backups = backups or {}
         return [
-            DeployStateEntry(tag=t, deployed_at=f"d{i}", migrate_status="skipped", backups=backups.get(i) or {})
+            DeployStateEntry(image=t, deployed_at=f"d{i}", migrate_status="skipped", backups=backups.get(i) or {})
             for i, t in enumerate(tags)
         ]
 
@@ -246,14 +268,14 @@ class TestReleasePrunePlanner:
         from frappe_manager.site_manager.modules.deploy_orchestrator import plan_release_prune
 
         kept, pruned = plan_release_prune(self._hist("a", "b", "c", "d", "e"), 2)
-        assert [e.tag for e in kept] == ["d", "e"]
-        assert [e.tag for e in pruned] == ["a", "b", "c"]
+        assert [e.image for e in kept] == ["d", "e"]
+        assert [e.image for e in pruned] == ["a", "b", "c"]
 
     def test_rows_keep_clamped_to_at_least_one(self):
         from frappe_manager.site_manager.modules.deploy_orchestrator import plan_release_prune
 
         kept, pruned = plan_release_prune(self._hist("a", "b"), 0)
-        assert [e.tag for e in kept] == ["b"]
+        assert [e.image for e in kept] == ["b"]
 
     def test_rows_short_history_prunes_nothing(self):
         from frappe_manager.site_manager.modules.deploy_orchestrator import plan_release_prune
@@ -262,7 +284,7 @@ class TestReleasePrunePlanner:
         assert len(kept) == 2
         assert pruned == []
 
-    def test_pingpong_rows_prune_even_when_tags_protected(self):
+    def test_pingpong_rows_prune_even_when_images_protected(self):
         # The 33-entry ping-pong bench: rows go, artifacts stay.
         from frappe_manager.site_manager.modules.deploy_orchestrator import (
             plan_artifact_removal,
@@ -272,19 +294,19 @@ class TestReleasePrunePlanner:
         history = self._hist("x", "y", "x", "y", "x")
         kept, pruned = plan_release_prune(history, 2)
         assert len(pruned) == 3  # rows DO prune
-        backups, tags = plan_artifact_removal(kept, pruned, {"x", "y"})
-        assert tags == []  # protected tags never rmi'd
+        backups, images = plan_artifact_removal(kept, pruned, {"x", "y"})
+        assert images == []  # protected images never rmi'd
         assert backups == []
 
-    def test_unreferenced_tag_is_removable_protected_is_not(self):
+    def test_unreferenced_image_is_removable_protected_is_not(self):
         from frappe_manager.site_manager.modules.deploy_orchestrator import (
             plan_artifact_removal,
             plan_release_prune,
         )
 
         kept, pruned = plan_release_prune(self._hist("old1", "old2", "cur"), 1)
-        backups, tags = plan_artifact_removal(kept, pruned, {"cur", "old2"})  # old2 = previous
-        assert tags == ["old1"]
+        backups, images = plan_artifact_removal(kept, pruned, {"cur", "old2"})  # old2 = previous
+        assert images == ["old1"]
 
     def test_backup_survives_while_a_kept_row_references_it(self):
         from frappe_manager.site_manager.modules.deploy_orchestrator import (

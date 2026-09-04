@@ -844,7 +844,7 @@ class DeployStateEntry(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    tag: str = Field(..., description="Image tag deployed.")
+    image: str = Field(..., description="Image deployed (full reference, e.g. repo:tag).")
     deployed_at: str = Field(..., description="ISO timestamp of the deploy.")
     migrate_status: str = Field(..., description="Migrate outcome: 'migrated', 'skipped', 'failed', or 'rollback'.")
     backups: dict[str, str] = Field(
@@ -860,8 +860,8 @@ class DeployState(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    current_tag: str | None = Field(None, description="Currently deployed image tag.")
-    previous_tag: str | None = Field(None, description="Previously deployed image tag (rollback target).")
+    current_image: str | None = Field(None, description="Currently deployed image (full reference).")
+    previous_image: str | None = Field(None, description="Previously deployed image (rollback target).")
     last_deploy_at: str | None = Field(None, description="ISO timestamp of the last successful deploy.")
     history: list[DeployStateEntry] = Field(default_factory=list, description="Chronological deploy history.")
 
@@ -1546,13 +1546,13 @@ class BenchConfig(BaseModel):
         if self.runtime != BenchRuntime.image:
             return
 
-        current_tag = self.deploy_state.current_tag if self.deploy_state else None
-        if not current_tag:
+        current_image = self.deploy_state.current_image if self.deploy_state else None
+        if not current_image:
             raise ValueError(
-                "image runtime needs a pre-built image: set base_image <repo:tag>, or top-level image plus [deploy_state].current_tag."
+                "image runtime needs a pre-built image: set base_image <repo:tag>, or top-level image plus [deploy_state].current_image."
             )
-        if not has_explicit_tag(current_tag):
-            raise ValueError(f"the image runtime tag must be a full reference with a tag (got {current_tag!r}).")
+        if not has_explicit_tag(current_image):
+            raise ValueError(f"the image runtime image must be a full reference with a tag (got {current_image!r}).")
         if self.developer_mode:
             raise ValueError(
                 "developer_mode is not supported with image runtime: DocType authoring writes app files into the ephemeral container layer (lost on the next deploy, never re-derivable from the DB). Use runtime = 'mount'."
@@ -1752,8 +1752,8 @@ class BenchConfig(BaseModel):
             history_data = deploy_state_data.get("history", []) or []
             history = [DeployStateEntry(**dict(entry)) for entry in history_data if isinstance(entry, dict)]
             deploy_state_obj = DeployState(
-                current_tag=deploy_state_data.get("current_tag"),
-                previous_tag=deploy_state_data.get("previous_tag"),
+                current_image=deploy_state_data.get("current_image"),
+                previous_image=deploy_state_data.get("previous_image"),
                 last_deploy_at=deploy_state_data.get("last_deploy_at"),
                 history=history,
             )

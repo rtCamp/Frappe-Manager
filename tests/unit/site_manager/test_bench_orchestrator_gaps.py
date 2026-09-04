@@ -53,7 +53,7 @@ def _config(tmp_path: Path, *, runtime: str = "mount") -> BenchConfig:
     path.write_text(toml)
     config = BenchConfig.import_from_toml(path)
     if runtime == "image":
-        config.deploy_state = DeployState(current_tag=IMAGE_TAG)
+        config.deploy_state = DeployState(current_image=IMAGE_TAG)
     return config
 
 

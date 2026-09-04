@@ -282,7 +282,7 @@ class TestImageRuntimeImmutabilityGate:
     def test_demoting_in_the_same_command_exempts_the_gate(self, world):
         """``--runtime mount`` in the same invocation demotes FIRST, so code changes then apply."""
         world.config.runtime = BenchRuntime.image
-        world.config.deploy_state = SimpleNamespace(current_tag="local/mybench:t1")
+        world.config.deploy_state = SimpleNamespace(current_image="local/mybench:t1")
 
         world.run(runtime=BenchRuntime.mount, python_version="3.12")
 
@@ -490,10 +490,10 @@ class TestRuntimeSwitch:
         "state",
         [
             pytest.param(None, id="no-deploy-state"),
-            pytest.param(SimpleNamespace(current_tag=None), id="no-current-tag"),
+            pytest.param(SimpleNamespace(current_image=None), id="no-current-image"),
         ],
     )
-    def test_demotion_needs_a_recorded_deployed_tag(self, world, state):
+    def test_demotion_needs_a_recorded_deployed_image(self, world, state):
         world.config.runtime = BenchRuntime.image
         world.config.deploy_state = state
 
@@ -501,13 +501,13 @@ class TestRuntimeSwitch:
             world.run(runtime=BenchRuntime.mount)
 
         assert exc.value.exit_code == 1
-        assert world.errors == ["No deployed tag recorded; cannot materialize the workspace."]
+        assert world.errors == ["No deployed image recorded; cannot materialize the workspace."]
         world.fetch_image.assert_not_called()
         assert world.config.runtime == BenchRuntime.image
 
-    def test_demotion_materializes_the_workspace_from_the_deployed_tag(self, world):
+    def test_demotion_materializes_the_workspace_from_the_deployed_image(self, world):
         world.config.runtime = BenchRuntime.image
-        world.config.deploy_state = SimpleNamespace(current_tag="local/mybench:t7")
+        world.config.deploy_state = SimpleNamespace(current_image="local/mybench:t7")
         world.materialize.return_value = ["apps", "env"]
 
         world.run(runtime=BenchRuntime.mount)
@@ -523,7 +523,7 @@ class TestRuntimeSwitch:
 
     def test_demotion_reports_nothing_extracted_when_the_workspace_was_complete(self, world):
         world.config.runtime = BenchRuntime.image
-        world.config.deploy_state = SimpleNamespace(current_tag="local/mybench:t7")
+        world.config.deploy_state = SimpleNamespace(current_image="local/mybench:t7")
         world.materialize.return_value = []
 
         world.run(runtime=BenchRuntime.mount)
@@ -532,7 +532,7 @@ class TestRuntimeSwitch:
 
     def test_demotion_warns_about_stashed_stale_code_but_continues(self, world):
         world.config.runtime = BenchRuntime.image
-        world.config.deploy_state = SimpleNamespace(current_tag="local/mybench:t7")
+        world.config.deploy_state = SimpleNamespace(current_image="local/mybench:t7")
         world.stash_seed.return_value = Path("/benches/x/workspace/frappe-bench.stash")
 
         world.run(runtime=BenchRuntime.mount)
@@ -545,7 +545,7 @@ class TestRuntimeSwitch:
 
     def test_demotion_recreates_every_container_without_pulling(self, world):
         world.config.runtime = BenchRuntime.image
-        world.config.deploy_state = SimpleNamespace(current_tag="local/mybench:t7")
+        world.config.deploy_state = SimpleNamespace(current_image="local/mybench:t7")
 
         world.run(runtime=BenchRuntime.mount)
 
@@ -559,7 +559,7 @@ class TestRuntimeSwitch:
 
     def test_demotion_regenerates_worker_compose_only_when_it_exists(self, world):
         world.config.runtime = BenchRuntime.image
-        world.config.deploy_state = SimpleNamespace(current_tag="local/mybench:t7")
+        world.config.deploy_state = SimpleNamespace(current_image="local/mybench:t7")
 
         world.run(runtime=BenchRuntime.mount)
         world.bench.workers.generate_compose.assert_not_called()
@@ -1241,11 +1241,11 @@ def ship(tmp_path):
 
 
 class TestMountRuntimeIsRefused:
-    def test_switch_refuses_a_mount_runtime_bench_before_resolving_a_tag(self, ship):
+    def test_switch_refuses_a_mount_runtime_bench_before_resolving_an_image(self, ship):
         ship.config.runtime = BenchRuntime.mount
 
         with pytest.raises(typer.Exit) as exc:
-            ship.switch(tag="local/mybench:t1")
+            ship.switch(image="local/mybench:t1")
 
         assert exc.value.exit_code == 1
         assert ship.errors == [NOT_IMAGE_RUNTIME_REFUSAL]
@@ -1259,17 +1259,17 @@ def _deploy_state(current="local/mybench:t2", previous="local/mybench:t1", backu
     if backups is None:
         backups = {BENCH: "/b/db.sql"}
     return SimpleNamespace(
-        current_tag=current,
-        previous_tag=previous,
-        history=[SimpleNamespace(tag=current, backups=backups)],
+        current_image=current,
+        previous_image=previous,
+        history=[SimpleNamespace(image=current, backups=backups)],
     )
 
 
-class TestSwitchTargetTagResolution:
-    def test_an_explicit_tag_is_deployed_as_given(self, ship):
+class TestSwitchTargetImageResolution:
+    def test_an_explicit_image_is_deployed_as_given(self, ship):
         ship.config.deploy_state = _deploy_state()
 
-        ship.switch(tag="local/mybench:t9")
+        ship.switch(image="local/mybench:t9")
 
         assert ship.orchestrator.deploy.call_args.args == ("local/mybench:t9",)
         assert ship.orchestrator.deploy.call_args.kwargs == {
@@ -1285,7 +1285,7 @@ class TestSwitchTargetTagResolution:
     def test_rolling_and_keep_are_forwarded_to_the_orchestrator(self, ship):
         ship.config.deploy_state = _deploy_state()
 
-        ship.switch(tag="local/mybench:t9", rolling=False, keep=3)
+        ship.switch(image="local/mybench:t9", rolling=False, keep=3)
 
         assert ship.orchestrator.deploy.call_args.kwargs["rolling"] is False
         assert ship.orchestrator.deploy.call_args.kwargs["prune_keep"] == 3
@@ -1297,7 +1297,7 @@ class TestSwitchTargetTagResolution:
             ship.switch()
 
         assert exc.value.exit_code == 1
-        assert ship.errors == ["Missing target: pass an image TAG or --previous."]
+        assert ship.errors == ["Missing target: pass an image reference or --previous."]
         ship.orchestrator_cls.assert_not_called()
 
     def test_previous_rolls_back_and_disables_migrate_by_default(self, ship):
@@ -1326,7 +1326,7 @@ class TestSwitchTargetTagResolution:
         shop.write_text("dump")
         ship.config.deploy_state = _deploy_state(backups={BENCH: str(primary), SHOP: str(shop)})
 
-        ship.switch(tag="local/mybench:t9", restore_db=True)
+        ship.switch(image="local/mybench:t9", restore_db=True)
 
         assert ship.orchestrator.deploy.call_args.kwargs["restore_db_dumps"] == {BENCH: primary, SHOP: shop}
 
@@ -1334,7 +1334,7 @@ class TestSwitchTargetTagResolution:
         ship.config.deploy_state = _deploy_state(backups={BENCH: "/b/vanished.sql"})
 
         with pytest.raises(typer.Exit) as exc:
-            ship.switch(tag="local/mybench:t9", restore_db=True)
+            ship.switch(image="local/mybench:t9", restore_db=True)
 
         assert exc.value.exit_code == 1
         assert ship.errors == ["Recorded DB backup(s) missing on disk: /b/vanished.sql"]
@@ -1348,7 +1348,7 @@ class TestSwitchTargetTagResolution:
         ship.config.deploy_state = _deploy_state(backups={BENCH: str(primary), SHOP: "/b/vanished-shop.sql"})
 
         with pytest.raises(typer.Exit) as exc:
-            ship.switch(tag="local/mybench:t9", restore_db=True)
+            ship.switch(image="local/mybench:t9", restore_db=True)
 
         assert exc.value.exit_code == 1
         assert ship.errors == ["Recorded DB backup(s) missing on disk: /b/vanished-shop.sql"]
@@ -1360,7 +1360,7 @@ class TestSwitchTargetTagResolution:
         ship.config.deploy_state = state
 
         with pytest.raises(typer.Exit) as exc:
-            ship.switch(tag="local/mybench:t9", restore_db=True)
+            ship.switch(image="local/mybench:t9", restore_db=True)
 
         assert exc.value.exit_code == 1
         assert ship.errors == [
@@ -1373,7 +1373,7 @@ class TestSwitchTargetTagResolution:
         ship.orchestrator.deploy.side_effect = DeployError("swap failed")
 
         with pytest.raises(typer.Exit) as exc:
-            ship.switch(tag="local/mybench:t9")
+            ship.switch(image="local/mybench:t9")
 
         assert exc.value.exit_code == 1
         assert ship.errors == ["swap failed"]
@@ -1400,7 +1400,7 @@ class TestPrune:
         ship.orchestrator.prune_releases.assert_called_once_with(keep=None, dry_run=False)
         assert ship.prints == ["Nothing to prune (4 release(s) recorded, all within retention)."]
 
-    def test_dry_run_lists_every_backup_dir_and_image_tag(self, ship):
+    def test_dry_run_lists_every_backup_dir_and_image(self, ship):
         ship.orchestrator.prune_releases.return_value = {
             "entries": 2,
             "kept": 3,
@@ -1415,7 +1415,7 @@ class TestPrune:
             "Would prune 2 release(s), keep 3:",
             "backup dir  /b/deploy-1",
             "backup dir  /b/deploy-2",
-            "image tag   local/mybench:t1",
+            "image       local/mybench:t1",
         ]
 
     def test_a_real_prune_adds_no_output_of_its_own(self, ship):
@@ -1446,7 +1446,7 @@ KEEP_FLOOR_REFUSAL = "--keep must be at least 1: the current release is never pr
 class TestKeepFloor:
     """``plan_release_prune`` floors retention at 1, so ``--keep 0`` used to mean ``--keep 1``
     with nothing printed: an operator asking to drop all history silently kept the newest row
-    and its image tag. The impossible ask is refused at the CLI instead."""
+    and its image. The impossible ask is refused at the CLI instead."""
 
     @pytest.mark.parametrize("keep", [0, -5])
     def test_prune_refuses_keep_below_one(self, ship, keep):
@@ -1459,7 +1459,7 @@ class TestKeepFloor:
 
     def test_switch_refuses_keep_below_one(self, ship):
         with pytest.raises(typer.Exit) as exc:
-            ship.switch(tag="local/mybench:t9", keep=0)
+            ship.switch(image="local/mybench:t9", keep=0)
 
         assert exc.value.exit_code == 1
         assert ship.errors == [KEEP_FLOOR_REFUSAL]

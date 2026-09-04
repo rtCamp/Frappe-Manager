@@ -227,15 +227,15 @@ class BenchDockerOps:
         apply_specs(self.compose_file_manager, bench_service_specs(self.config), self.config.site_names)
         self.compose_file_manager.write_to_file()
 
-    def render_image_compose(self, deploy_tag: str, rolling: bool = False) -> str:
-        """Re-pin the bench compose to ``deploy_tag`` (deploy/switch/rollback).
+    def render_image_compose(self, deploy_image: str, rolling: bool = False) -> str:
+        """Re-pin the bench compose to ``deploy_image`` (deploy/switch/rollback).
 
         Thin delegator over the compose_shape projection -- the same specs
-        ``generate_compose`` uses, with ``deploy_tag`` as the candidate tag (so
-        deploy shapes the NEW tag without mutating deploy_state mid-pipeline).
+        ``generate_compose`` uses, with ``deploy_image`` as the candidate image (so
+        deploy shapes the NEW image without mutating deploy_state mid-pipeline).
         ``rolling=True`` sheds container_name on the scaled web services so
         ``compose up --scale`` is accepted; the canonical render restores them.
-        Returns the paired nginx assets tag. Idempotent.
+        Returns the paired nginx assets image. Idempotent.
         """
         from frappe_manager.site_manager.bench_config import BenchRuntime
         from frappe_manager.site_manager.modules.bake import BakeManager
@@ -248,7 +248,7 @@ class BenchDockerOps:
         if self.config.runtime != BenchRuntime.image:
             raise ValueError("render_image_compose is only valid for image runtime")
 
-        specs = bench_service_specs(self.config, RenderContext(deploy_tag=deploy_tag, rolling=rolling))
+        specs = bench_service_specs(self.config, RenderContext(deploy_image=deploy_image, rolling=rolling))
         apply_specs(self.compose_file_manager, specs, self.config.site_names)
 
         # Rolling swap: shed container_name on the scaled web
@@ -269,8 +269,8 @@ class BenchDockerOps:
                 self.compose_file_manager.set_container_name(spec.name, f"{prefix}{CLI_DEFAULT_DELIMETER}{spec.name}")
 
         self.compose_file_manager.write_to_file()
-        self.output.print(f"Rendered image-mode compose pinned to {deploy_tag}")
-        return BakeManager.nginx_image_tag(deploy_tag)
+        self.output.print(f"Rendered image-mode compose pinned to {deploy_image}")
+        return BakeManager.nginx_image_tag(deploy_image)
 
     def _seed_nginx_conf(self, conf_dir: Path, nginx_image: str) -> None:
         """Lay the nginx image's `/etc/nginx` onto the host without clobbering fm's overlays.

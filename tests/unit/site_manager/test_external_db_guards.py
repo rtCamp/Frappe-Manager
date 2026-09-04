@@ -498,7 +498,7 @@ def test_the_removed_sites_backup_rows_are_dropped_but_the_dumps_are_kept(tmp_pa
     dump = tmp_path / "b.sql"
     dump.write_text("dump")
     bench.bench_config.deploy_state = DeployState(
-        history=[DeployStateEntry(tag="v1", deployed_at="now", migrate_status="migrated",
+        history=[DeployStateEntry(image="v1", deployed_at="now", migrate_status="migrated",
                                   backups={"shop.localhost": str(tmp_path / "s.sql"), "b.example.com": str(dump)})]
     )
 
@@ -515,7 +515,7 @@ def test_the_dumps_go_when_asked(tmp_path):
     dump = tmp_path / "b.sql"
     dump.write_text("dump")
     bench.bench_config.deploy_state = DeployState(
-        history=[DeployStateEntry(tag="v1", deployed_at="now", migrate_status="migrated",
+        history=[DeployStateEntry(image="v1", deployed_at="now", migrate_status="migrated",
                                   backups={"b.example.com": str(dump)})]
     )
 
@@ -532,9 +532,9 @@ def test_a_dump_another_release_still_names_survives_being_asked(tmp_path):
     shared.write_text("dump")
     bench.bench_config.deploy_state = DeployState(
         history=[
-            DeployStateEntry(tag="v1", deployed_at="now", migrate_status="migrated",
+            DeployStateEntry(image="v1", deployed_at="now", migrate_status="migrated",
                              backups={"b.example.com": str(shared)}),
-            DeployStateEntry(tag="v2", deployed_at="now", migrate_status="migrated",
+            DeployStateEntry(image="v2", deployed_at="now", migrate_status="migrated",
                              backups={"shop.localhost": str(shared)}),
         ]
     )

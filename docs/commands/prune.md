@@ -1,8 +1,8 @@
 ## `fm prune`
 
-Delete old deploy releases: history rows, their DB dumps, and their local image tags.
+Delete old deploy releases: history rows, their DB dumps, and their local images.
 
-Keeps the newest \[switch].keep_releases from the bench config (7 by default) or --keep. Nothing else is touched: a dump or image survives while a kept release, the current or previous tag, or the seed or base image still needs it, so rollback stays possible.
+Keeps the newest \[switch].keep_releases from the bench config (7 by default) or --keep. Nothing else is touched: a dump or image survives while a kept release, the current or previous image, or the seed or base image still needs it, so rollback stays possible.
 
 **Usage**:
 

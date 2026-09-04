@@ -9,6 +9,7 @@ from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_config import BenchRuntime
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError, DeployOrchestrator
 from frappe_manager.site_manager.site import Bench
+from frappe_manager.utils.helpers import has_explicit_tag
 
 
 def _load_image_bench(ctx: typer.Context, benchname: str) -> Bench:
@@ -26,18 +27,23 @@ def _load_image_bench(ctx: typer.Context, benchname: str) -> Bench:
     return bench
 
 
-def _resolve_switch_tag(state, tag: str | None, previous: bool) -> tuple[str | None, str | None]:
-    """(target_tag, error) for ``fm switch``: explicit TAG xor ``--previous``."""
-    if tag and previous:
-        return None, "Pass either an explicit TAG or --previous, not both."
+def _resolve_switch_image(state, image: str | None, previous: bool) -> tuple[str | None, str | None]:
+    """(target_image, error) for ``fm switch``: explicit IMAGE xor ``--previous``."""
+    if image and previous:
+        return None, "Pass either an explicit image or --previous, not both."
     if previous:
-        prev = state.previous_tag if state else None
+        prev = state.previous_image if state else None
         if not prev:
-            return None, "No previous image tag recorded; nothing to roll back to (pass an explicit TAG)."
+            return None, "No previous image recorded; nothing to roll back to (pass an explicit image)."
         return prev, None
-    if not tag:
-        return None, "Missing target: pass an image TAG or --previous."
-    return tag, None
+    if not image:
+        return None, "Missing target: pass an image reference or --previous."
+    if not has_explicit_tag(image):
+        return None, (
+            f"'{image}' is not a full image reference: pass repo:tag (e.g. "
+            f"ghcr.io/acme/mybench:v15.2.1), not a bare tag."
+        )
+    return image, None
 
 
 def _reject_impossible_keep(output, keep: int | None) -> None:
@@ -57,16 +63,16 @@ def _reject_impossible_keep(output, keep: int | None) -> None:
 def _find_current_deploy_backups(state) -> "tuple[dict[str, str], str | None]":
     """({site: dump_path}, error) -- the pre-migrate DB dumps recorded for the CURRENT deploy.
 
-    The dumps taken while deploying the current (bad) tag are the exact pre-migrate
+    The dumps taken while deploying the current (bad) image are the exact pre-migrate
     state; restoring them alongside the code rollback undoes a bad migrate.
 
     Every site, not one: each site has its own schema, so a rollback that restored only
     one would leave the others migrated against code that is being rolled back under them.
     """
-    current = state.current_tag if state else None
+    current = state.current_image if state else None
     if not current:
         return {}, "No current deploy recorded; nothing to restore."
-    entries = [e for e in (state.history or []) if e.tag == current and e.backups]
+    entries = [e for e in (state.history or []) if e.image == current and e.backups]
     if not entries:
         return {}, (
             f"No DB backup recorded for the current deploy ({current}). "
@@ -76,13 +82,13 @@ def _find_current_deploy_backups(state) -> "tuple[dict[str, str], str | None]":
 
 
 @example(
-    "Switch to a tag you baked",
+    "Switch to an image you baked",
     "{benchname} local/mybench:20260721-abc123",
-    detail="fm bake prints the tag; fm info lists the ones this bench has already run.",
+    detail="fm bake prints the image; fm info lists the ones this bench has already run.",
     benchname="mybench",
 )
 @example(
-    "Switch to a tag from a registry",
+    "Switch to an image from a registry",
     "{benchname} ghcr.io/acme/mybench:v15.2.1",
     detail="Pulled with your ambient docker login when it is not already local.",
     benchname="mybench",
@@ -107,19 +113,22 @@ def _find_current_deploy_backups(state) -> "tuple[dict[str, str], str | None]":
 @example(
     "Roll back more than one release",
     "{benchname} local/mybench:20260718-9f21e0 --no-migrate",
-    detail="--previous only knows the last tag, so name an older one explicitly and keep migrate off.",
+    detail="--previous only knows the last image, so name an older one explicitly and keep migrate off.",
     benchname="mybench",
 )
 def switch(
     ctx: typer.Context,
     benchname: RequiredBenchNameArgument,
-    tag: Annotated[
+    image: Annotated[
         str | None,
-        typer.Argument(help="Image tag to switch to. Omit when using --previous.", show_default=False),
+        typer.Argument(
+            help="Image to switch to: a full reference such as ghcr.io/acme/mybench:v15.2.1. Omit when using --previous.",
+            show_default=False,
+        ),
     ] = None,
     previous: Annotated[
         bool,
-        typer.Option("--previous", help="Roll back to the previously deployed tag, with migrate disabled."),
+        typer.Option("--previous", help="Roll back to the previously deployed image, with migrate disabled."),
     ] = False,
     migrate: Annotated[
         bool | None,
@@ -162,18 +171,18 @@ def switch(
     ] = None,
 ):
     """
-    Switch a bench to an already-built image tag, or roll back.
+    Switch a bench to an already-built image, or roll back.
 
-    A switch is not just a tag change. By default it takes a database backup, raises a maintenance page for the schema-changing steps, and runs bench migrate against the new image, so plan for the site to be briefly unavailable. Each of those is a \\[switch] config key and can be turned off there.
+    A switch is not just an image change. By default it takes a database backup, raises a maintenance page for the schema-changing steps, and runs bench migrate against the new image, so plan for the site to be briefly unavailable. Each of those is a \\[switch] config key and can be turned off there.
 
-    Every switch records the tag you left, so --previous returns to it; run it twice and you are back where you started. Rolling back does NOT migrate, because old code must never migrate a newer schema; pass --migrate to insist. Older releases stay until fm prune clears them.
+    Every switch records the image you left, so --previous returns to it; run it twice and you are back where you started. Rolling back does NOT migrate, because old code must never migrate a newer schema; pass --migrate to insist. Older releases stay until fm prune clears them.
     """
     output = get_global_output_handler()
     _reject_impossible_keep(output, keep)
     bench = _load_image_bench(ctx, benchname)
 
     state = bench.bench_config.deploy_state
-    target, error = _resolve_switch_tag(state, tag, previous)
+    target, error = _resolve_switch_image(state, image, previous)
     if error:
         output.display_error(error)
         raise typer.Exit(1)
@@ -245,9 +254,9 @@ def prune(
     ] = False,
 ):
     """
-    Delete old deploy releases: history rows, their DB dumps, and their local image tags.
+    Delete old deploy releases: history rows, their DB dumps, and their local images.
 
-    Keeps the newest \\[switch].keep_releases from the bench config (7 by default) or --keep. Nothing else is touched: a dump or image survives while a kept release, the current or previous tag, or the seed or base image still needs it, so rollback stays possible.
+    Keeps the newest \\[switch].keep_releases from the bench config (7 by default) or --keep. Nothing else is touched: a dump or image survives while a kept release, the current or previous image, or the seed or base image still needs it, so rollback stays possible.
     """
     output = get_global_output_handler()
     _reject_impossible_keep(output, keep)
@@ -268,4 +277,4 @@ def prune(
         for backup_dir in summary["backups"]:
             output.print(f"backup dir  {backup_dir}", emoji_code="", prefix="  ")
         for image in summary["images"]:
-            output.print(f"image tag   {image}", emoji_code="", prefix="  ")
+            output.print(f"image       {image}", emoji_code="", prefix="  ")

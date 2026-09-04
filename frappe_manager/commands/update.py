@@ -357,14 +357,14 @@ def update(
         )
         raise typer.Exit(1)
 
-    # The tag the demotion extracts the workspace from; an image bench with no recorded deploy has
+    # The image the demotion extracts the workspace from; an image bench with no recorded deploy has
     # nothing to materialize.
-    demotion_tag: str | None = None
+    demotion_image: str | None = None
     if materializing_workspace:
         deploy_state = bench.bench_config.deploy_state
-        demotion_tag = deploy_state.current_tag if deploy_state else None
-        if not demotion_tag:
-            output.display_error("No deployed tag recorded; cannot materialize the workspace.")
+        demotion_image = deploy_state.current_image if deploy_state else None
+        if not demotion_image:
+            output.display_error("No deployed image recorded; cannot materialize the workspace.")
             raise typer.Exit(1)
 
     database_config = None
@@ -525,7 +525,7 @@ def update(
                 output.print(f"Bench runtime is already '{runtime.value}'")
             else:
                 # image -> mount demotion (mount -> image was refused up front): extract the
-                # editable workspace from the CURRENTLY DEPLOYED tag -- code on disk == running
+                # editable workspace from the CURRENTLY DEPLOYED image -- code on disk == running
                 # code, so no migrate is needed; site data already lives host-side and is untouched.
                 from frappe_manager.site_manager.modules.transport import fetch_image
                 from frappe_manager.site_manager.modules.workspace_seed import (
@@ -533,19 +533,19 @@ def update(
                     stash_conflicting_seed_paths,
                 )
 
-                output.change_head(f"Materializing editable workspace from {demotion_tag}")
-                fetch_image(bench.docker_client, demotion_tag, output=output)
+                output.change_head(f"Materializing editable workspace from {demotion_image}")
+                fetch_image(bench.docker_client, demotion_image, output=output)
                 frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
                 # Leftover code trees from an earlier mount life are STALE vs the
-                # deployed tag; keeping them would break "code on disk == running
+                # deployed image; keeping them would break "code on disk == running
                 # code". Stash them aside (never delete) and extract fresh.
                 stash = stash_conflicting_seed_paths(frappe_bench_dir, output=output)
                 if stash:
                     output.warning(
-                        f"Existing workspace code was stale vs {demotion_tag}; moved to {stash} -- review and delete it.",
+                        f"Existing workspace code was stale vs {demotion_image}; moved to {stash} -- review and delete it.",
                     )
                 extracted = materialize_workspace_from_image(
-                    bench.docker_client, demotion_tag, frappe_bench_dir, output=output
+                    bench.docker_client, demotion_image, frappe_bench_dir, output=output
                 )
                 output.print(
                     f"Extracted from image: {', '.join(extracted) if extracted else 'nothing (already present)'}"
@@ -564,7 +564,7 @@ def update(
                 bench.docker_client.compose.up(detach=True, force_recreate=True, pull="never")
                 bench.workers.docker_client.compose.up(services=[], detach=True, pull="never", stream=False)
 
-                output.print(f"Switched runtime to mount (workspace from {demotion_tag})")
+                output.print(f"Switched runtime to mount (workspace from {demotion_image})")
                 # Persisted the moment the demotion completes, like the NewRelic block below.
                 # The workspace is extracted and the containers already run it, and the one refusal
                 # still ahead of us -- an incompatible --python/--node -- can only be checked

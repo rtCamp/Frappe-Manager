@@ -286,7 +286,7 @@ def test_log_paths_omit_files_that_were_never_created(tmp_path):
 # =========================================================================== BenchInfo: apps guards
 
 
-def test_get_bench_apps_image_runtime_without_a_tag_never_touches_docker(tmp_path):
+def test_get_bench_apps_image_runtime_without_a_deploy_never_touches_docker(tmp_path):
     """No deploy yet (or no docker client): the apps list is empty rather than a label read."""
     docker = MagicMock()
     info = _info(tmp_path, bench_config=_config(runtime=BenchRuntime.image), docker_client=docker)
@@ -295,7 +295,7 @@ def test_get_bench_apps_image_runtime_without_a_tag_never_touches_docker(tmp_pat
 
     info = _info(
         tmp_path,
-        bench_config=_config(runtime=BenchRuntime.image, deploy_state=SimpleNamespace(current_tag="r:t")),
+        bench_config=_config(runtime=BenchRuntime.image, deploy_state=SimpleNamespace(current_image="r:t")),
         docker_client=None,
     )
     assert info.get_bench_apps() == []
@@ -306,7 +306,7 @@ def test_get_bench_apps_image_runtime_survives_a_malformed_label(tmp_path):
     docker.image_labels.return_value = {"fm.apps": "{not json"}
     info = _info(
         tmp_path,
-        bench_config=_config(runtime=BenchRuntime.image, deploy_state=SimpleNamespace(current_tag="r:t")),
+        bench_config=_config(runtime=BenchRuntime.image, deploy_state=SimpleNamespace(current_image="r:t")),
         docker_client=docker,
     )
     assert info.get_bench_apps() == []
@@ -550,7 +550,7 @@ def test_display_info_apps_label_only_on_the_first_row_and_em_dash_for_a_missing
     assert rows[2] == "?  [fm.muted]—  [/fm.muted]"
 
 
-def test_display_info_mount_runtime_shows_base_and_seed_images_not_a_tag(tmp_path, card_spy):
+def test_display_info_mount_runtime_shows_base_and_seed_images_not_an_image_ref(tmp_path, card_spy):
     info = _displayable(tmp_path)
     info.bench_config.base_image = "ghcr.io/acme/base:1"
     info.bench_config.seed_image = "ghcr.io/acme/seed:1"
@@ -559,7 +559,7 @@ def test_display_info_mount_runtime_shows_base_and_seed_images_not_a_tag(tmp_pat
     (card,) = card_spy.made
     assert card.facts["base"] == "ghcr.io/acme/base:1"
     assert card.facts["seeded"] == "ghcr.io/acme/seed:1"
-    assert "tag" not in card.facts
+    assert "image" not in card.facts
     assert "deploys" not in card.sections
 
 
@@ -570,34 +570,34 @@ def test_display_info_image_runtime_without_a_deploy_reports_not_yet_deployed(tm
     info.display_info()
 
     (card,) = card_spy.made
-    assert card.facts["tag"] == "[fm.muted]N/A (not yet deployed)[/fm.muted]"
+    assert card.facts["image"] == "[fm.muted]N/A (not yet deployed)[/fm.muted]"
     assert "base" not in card.facts
     assert "previous" not in card.facts
 
 
-def test_display_info_image_runtime_shows_current_and_previous_tag(tmp_path, card_spy):
+def test_display_info_image_runtime_shows_current_and_previous_image(tmp_path, card_spy):
     info = _displayable(tmp_path)
     info.bench_config.runtime = BenchRuntime.image
-    info.bench_config.deploy_state = SimpleNamespace(current_tag="r:new", previous_tag="r:old", history=[])
+    info.bench_config.deploy_state = SimpleNamespace(current_image="r:new", previous_image="r:old", history=[])
     info.display_info()
 
     (card,) = card_spy.made
-    assert card.facts["tag"] == "r:new"
+    assert card.facts["image"] == "r:new"
     assert card.facts["previous"] == "r:old"
     assert "deploys" not in card.sections  # empty history: no section at all
 
 
-def _deploy_entry(tag, status, backups=None):
-    return SimpleNamespace(tag=tag, deployed_at="2026-01-02T03:04:05", migrate_status=status, backups=backups or {})
+def _deploy_entry(image, status, backups=None):
+    return SimpleNamespace(image=image, deployed_at="2026-01-02T03:04:05", migrate_status=status, backups=backups or {})
 
 
 def test_display_info_deploy_history_is_newest_first_and_marks_current_once(tmp_path, card_spy):
-    """The same tag can appear twice (redeploy); only the newest occurrence is '● current'."""
+    """The same image can appear twice (redeploy); only the newest occurrence is '● current'."""
     info = _displayable(tmp_path)
     info.bench_config.runtime = BenchRuntime.image
     info.bench_config.deploy_state = SimpleNamespace(
-        current_tag="r:2",
-        previous_tag=None,
+        current_image="r:2",
+        previous_image=None,
         history=[
             _deploy_entry("r:1", "migrated"),
             _deploy_entry("r:2", "failed", {"a.localhost": "/dump.sql"}),
@@ -624,8 +624,8 @@ def test_display_info_deploy_history_counts_the_dumps_it_recorded(tmp_path, card
     info = _displayable(tmp_path)
     info.bench_config.runtime = BenchRuntime.image
     info.bench_config.deploy_state = SimpleNamespace(
-        current_tag="r:2",
-        previous_tag="r:1",
+        current_image="r:2",
+        previous_image="r:1",
         history=[
             _deploy_entry("r:1", "migrated", {"a.localhost": "/one.sql"}),
             _deploy_entry("r:2", "migrated", {"a.localhost": "/a.sql", "shop.a.localhost": "/shop.sql"}),
@@ -1125,23 +1125,23 @@ def test_list_benches_data_falls_back_to_the_config_app_names(tmp_path):
 
     assert row["apps"] == ["frappe", "erp"]
     assert row["status"] == "inactive"
-    assert (row["deployed_tag"], row["previous_tag"]) == (None, None)
+    assert (row["deployed_image"], row["previous_image"]) == (None, None)
     assert row["alias_domains"] == []
 
 
-def test_list_benches_data_reports_the_deployed_tags_for_an_image_bench(tmp_path):
+def test_list_benches_data_reports_the_deployed_images_for_an_image_bench(tmp_path):
     path = _bench_dir(tmp_path, "a.localhost")
     bench = _listable_bench(
         path,
         "a.localhost",
         runtime=BenchRuntime.image,
-        deploy_state=SimpleNamespace(current_tag="r:new", previous_tag="r:old"),
+        deploy_state=SimpleNamespace(current_image="r:new", previous_image="r:old"),
         aliases=["alias.localhost"],
     )
     with patch.object(BenchService, "get_bench", return_value=bench):
         (row,) = _service(tmp_path).list_benches_data()
 
-    assert (row["runtime"], row["deployed_tag"], row["previous_tag"]) == ("image", "r:new", "r:old")
+    assert (row["runtime"], row["deployed_image"], row["previous_image"]) == ("image", "r:new", "r:old")
     assert row["alias_domains"] == ["alias.localhost"]
 
 
@@ -1227,7 +1227,7 @@ def test_list_benches_view_warns_about_a_broken_bench_and_draws_no_card(tmp_path
             "environment": "prod",
             "restart_policy": "always",
             "apps": [],
-            "deployed_tag": None,
+            "deployed_image": None,
             "base_image": None,
             "seed_image": None,
             "alias_domains": [],
@@ -1243,7 +1243,7 @@ def test_list_benches_view_warns_about_a_broken_bench_and_draws_no_card(tmp_path
     assert card.link == "http://a.localhost"
     assert card.facts["apps"] == "-"  # empty app list renders as a dash, never blank
     assert card.facts["dir"] == "[fm.muted]/benches/a.localhost[/fm.muted]"
-    assert "tag" not in card.facts
+    assert "image" not in card.facts
     assert "base" not in card.facts
     assert "domains" not in card.facts
 
@@ -1260,7 +1260,7 @@ def test_list_benches_view_adds_image_and_alias_facts_only_when_set(tmp_path, mo
         "environment": "prod",
         "restart_policy": "no",
         "apps": ["frappe", "hrms"],
-        "deployed_tag": "r:new",
+        "deployed_image": "r:new",
         "base_image": "ghcr.io/acme/base:1",
         "seed_image": "ghcr.io/acme/seed:1",
         "alias_domains": ["alias.localhost", "b.localhost"],
@@ -1272,7 +1272,7 @@ def test_list_benches_view_adds_image_and_alias_facts_only_when_set(tmp_path, mo
     assert card is card_spy.made[0]
     assert card.active is False
     assert card.facts["apps"] == "frappe, hrms"
-    assert card.facts["tag"] == "r:new"
+    assert card.facts["image"] == "r:new"
     assert card.facts["base"] == "ghcr.io/acme/base:1"
     assert card.facts["seeded"] == "ghcr.io/acme/seed:1"
     assert card.facts["domains"] == "alias.localhost, b.localhost"
