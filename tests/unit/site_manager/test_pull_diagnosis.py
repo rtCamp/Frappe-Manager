@@ -7,9 +7,9 @@ real fix, and registries make that harder than it sounds. Verified against real 
     docker.io   pull access denied ... or may require 'docker login'
     ghcr.io     manifest unknown
 
-GHCR's answer to an anonymous request for a private image is indistinguishable from a tag
+GHCR's answer to an anonymous request for a private image is indistinguishable from an image
 that was never pushed, so an operator who is merely not logged in goes hunting through the
-registry UI for a bad tag. fm can tell the difference, because `docker login` records the
+registry UI for a bad image. fm can tell the difference, because `docker login` records the
 host in `~/.docker/config.json` even when the secret lives in a helper.
 
 The diagnosis therefore comes first and the registry's words last: readers stop at the
@@ -45,7 +45,7 @@ def _docker_error(stderr: str) -> DockerException:
 
 class TestRegistryHost:
     @pytest.mark.parametrize(
-        ("tag", "host"),
+        ("image", "host"),
         [
             ("ghcr.io/acme/app:v1", "ghcr.io"),
             ("registry.example.com:5000/acme/app:v1", "registry.example.com:5000"),
@@ -56,8 +56,8 @@ class TestRegistryHost:
             ("ubuntu:24.04", "docker.io"),
         ],
     )
-    def test_the_host_is_read_by_dockers_own_rule(self, tag, host):
-        assert registry_host(tag) == host
+    def test_the_host_is_read_by_dockers_own_rule(self, image, host):
+        assert registry_host(image) == host
 
 
 class TestLoggedInDetection:
@@ -104,12 +104,12 @@ class TestLoggedInDetection:
 
 
 class TestTheMessage:
-    def _fail(self, tag, stderr, logged_in):
+    def _fail(self, image, stderr, logged_in):
         docker = MagicMock()
         docker.images.return_value = []
         docker.pull.side_effect = _docker_error(stderr)
         with patch(f"{MODULE}.logged_in_to", return_value=logged_in), pytest.raises(TransportError) as excinfo:
-            fetch_image(docker, tag)
+            fetch_image(docker, image)
         return str(excinfo.value)
 
     def test_a_logged_out_pull_names_the_login_command(self):
@@ -118,12 +118,12 @@ class TestTheMessage:
         assert "docker login ghcr.io" in message
 
     def test_the_action_comes_before_the_registry_text(self):
-        """`manifest unknown` first would send the reader after a bad tag."""
+        """`manifest unknown` first would send the reader after a bad image."""
         message = self._fail("ghcr.io/acme/app:v1", "manifest unknown", logged_in=False)
 
         assert message.index("docker login") < message.index("manifest unknown")
 
-    def test_a_logged_in_pull_points_at_the_tag_instead(self):
+    def test_a_logged_in_pull_points_at_the_image_instead(self):
         """Blaming auth when they are authenticated would send them in a circle."""
         message = self._fail("ghcr.io/acme/app:v1", "manifest unknown", logged_in=True)
 

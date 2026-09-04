@@ -1751,6 +1751,30 @@ class BenchConfig(BaseModel):
         if deploy_state_data and isinstance(deploy_state_data, dict):
             history_data = deploy_state_data.get("history", []) or []
             history = [DeployStateEntry(**dict(entry)) for entry in history_data if isinstance(entry, dict)]
+            # `current_tag`/`previous_tag` are the pre-rename spellings of `current_image`/
+            # `previous_image`. Reading them with `.get()` rather than splatting into the model
+            # means `extra="forbid"` never sees them, so a stale top-level key would otherwise be
+            # dropped in total silence -- the bench would load with an EMPTY deploy_state, which
+            # reads exactly like a bench that has never been deployed, not one whose history fm
+            # can no longer see. `fm list`/`fm bake`/`fm switch` skip the migration gate, so this
+            # must warn rather than raise; it never reads the old value into the new field, and
+            # it is the only tolerance of the old shape this reader has.
+            stale_keys = {"current_tag", "previous_tag"} & deploy_state_data.keys()
+            if stale_keys:
+                message = (
+                    f"Bench '{domain}': \\[deploy_state] still has {', '.join(sorted(stale_keys))} "
+                    "from before the image/tag rename; its deploy history cannot be read, so "
+                    "`fm switch --previous` will report no previous image as if this bench had "
+                    "never been deployed. Recreate the bench and redeploy to restore rollback."
+                )
+                from frappe_manager.output_manager import get_global_output_handler, has_global_output_handler
+
+                if has_global_output_handler():
+                    get_global_output_handler().warning(message)
+                else:
+                    from frappe_manager.logger import get_logger
+
+                    get_logger(component="bench_config").warning(message)
             deploy_state_obj = DeployState(
                 current_image=deploy_state_data.get("current_image"),
                 previous_image=deploy_state_data.get("previous_image"),

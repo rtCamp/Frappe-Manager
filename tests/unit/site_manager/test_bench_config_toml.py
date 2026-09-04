@@ -94,6 +94,64 @@ class TestDeployStateImportGuard:
         assert [e.image for e in reimported.deploy_state.history] == ["v2"]
 
 
+class TestStaleDeployStateKeysWarnLoudly:
+    """`current_tag`/`previous_tag` are the pre-rename spellings. Reading the new names with
+    ``.get()`` (rather than splatting into ``DeployState``) means ``extra="forbid"`` never sees
+    a stale top-level key, so import must announce it rather than silently loading an empty
+    (indistinguishable from never-deployed) deploy_state.
+    """
+
+    _OLD_SHAPED = (
+        "\n[deploy_state]\n"
+        'current_tag = "local/mybench:v2"\n'
+        'previous_tag = "local/mybench:v1"\n'
+        'last_deploy_at = "2026-01-01T00:00:00"\n'
+    )
+
+    def test_import_survives_and_yields_an_empty_but_present_deploy_state(self, tmp_path):
+        bc = _import(tmp_path, _BASE + self._OLD_SHAPED)
+
+        assert isinstance(bc.deploy_state, DeployState)
+        assert bc.deploy_state.current_image is None
+        assert bc.deploy_state.previous_image is None
+        assert bc.deploy_state.history == []
+
+    def test_a_warning_names_the_bench_and_the_stale_keys(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.base import OutputHandler
+
+        handler = MagicMock(spec=OutputHandler)
+        set_global_output_handler(handler)
+        try:
+            _import(tmp_path, _BASE + self._OLD_SHAPED)
+        finally:
+            set_global_output_handler(None)
+
+        handler.warning.assert_called_once()
+        message = handler.warning.call_args.args[0]
+        assert "dev.localhost" in message
+        assert "current_tag" in message
+        assert "previous_tag" in message
+        assert "rollback" in message
+
+    def test_no_warning_when_the_keys_are_already_current(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.base import OutputHandler
+
+        handler = MagicMock(spec=OutputHandler)
+        set_global_output_handler(handler)
+        try:
+            _import(tmp_path, _BASE + _DEPLOY_STATE)
+        finally:
+            set_global_output_handler(None)
+
+        handler.warning.assert_not_called()
+
+
 class TestCreateTimeOnlyFieldsAreNeverSerialized:
     """`exclude=True` keeps runtime-only create inputs out of every dump of the model."""
 
