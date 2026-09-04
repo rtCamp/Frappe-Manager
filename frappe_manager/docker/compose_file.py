@@ -41,7 +41,7 @@ def _image_report(image: str) -> dict[str, str | None]:
     """
     ref = ImageRef.parse(image)
     tag = ref.tag if ref.has_tag else (None if ref.is_digest_pinned else "latest")
-    return {"name": ref.repo, "tag": tag, "digest": ref.digest, "image": image}
+    return {"name": ref.name, "tag": tag, "digest": ref.digest, "image": image}
 
 
 class ComposeFile:
@@ -1183,7 +1183,7 @@ class ComposeFile:
                 f"exact content, so it has no floating tag to rewrite. Deploy a tag reference to "
                 f"this service instead of retagging a digest pin."
             )
-        self.yml["services"][service]["image"] = f"{ref.repo}:{new_tag}"
+        self.yml["services"][service]["image"] = f"{ref.name}:{new_tag}"
 
         should_save = auto_save if auto_save is not None else self._auto_save
         if should_save:

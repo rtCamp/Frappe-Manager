@@ -512,21 +512,25 @@ def save_dict_to_file(config: dict, json_file_path: Path):
 
 @dataclass(frozen=True)
 class ImageRef:
-    """A parsed ``[registry[:port]/]path[:tag][@digest]`` docker image reference.
+    """A parsed ``[domain[:port]/]path[:tag][@digest]`` docker image reference.
 
     The one place fm decomposes an image reference. Every caller that used to
-    re-derive an answer with its own ``rpartition``/``split`` (registry host, tag
+    re-derive an answer with its own ``rpartition``/``split`` (domain, tag
     presence, digest presence, the reference minus its tag) now asks ``ImageRef``
     instead, so every site agrees on the same parse.
 
-    ``registry`` is the explicit host this reference names, or ``None`` when it
-    names none (use ``registry_host`` for the docker-default-applied form).
-    ``path`` is the repository path alone: no registry, tag, or digest. ``tag``
+    Field names follow docker's own ``distribution/reference`` grammar and its
+    ``Domain()``/``Path()``/``Name()``/``Tag()``/``Digest()`` accessors:
+    ``reference := name [":" tag] ["@" digest]``, ``name := [domain "/"] path``.
+
+    ``domain`` is the explicit host this reference names, or ``None`` when it
+    names none (use ``normalized_domain`` for the docker-default-applied form).
+    ``path`` is the repository path alone: no domain, tag, or digest. ``tag``
     and ``digest`` are ``None`` when absent; a reference may carry both at once
-    (``repo:tag@sha256:...``), tag first then digest, which is docker's own order.
+    (``name:tag@sha256:...``), tag first then digest, which is docker's own order.
     """
 
-    registry: str | None
+    domain: str | None
     path: str
     tag: str | None
     digest: str | None
@@ -535,21 +539,21 @@ class ImageRef:
     def parse(cls, image_ref: str) -> "ImageRef":
         """Split ``image_ref`` the way docker does, in the order docker's own grammar
         requires: the digest first (``@`` always trails everything else, if present
-        at all), then the registry -- the first ``/``-separated segment counts as a
+        at all), then the domain -- the first ``/``-separated segment counts as a
         host only when it contains a ``.`` or a ``:``, or is exactly ``localhost``;
-        every other reference is a Docker Hub name with no explicit registry -- then
+        every other reference is a Docker Hub name with no explicit domain -- then
         the tag, which like the digest can only attach to the LAST path segment,
-        never to a registry ``host:port``.
+        never to a domain ``host:port``.
         """
         without_digest, has_digest, digest = image_ref.partition("@")
         digest = digest if has_digest else None
 
-        registry = None
+        domain = None
         rest = without_digest
         if "/" in without_digest:
             first, remainder = without_digest.split("/", 1)
             if "." in first or ":" in first or first == "localhost":
-                registry = first
+                domain = first
                 rest = remainder
 
         head, sep, last = rest.rpartition("/")
@@ -559,7 +563,7 @@ class ImageRef:
             tag = None
         path = f"{head}/{last}" if sep else last
 
-        return cls(registry=registry, path=path, tag=tag, digest=digest)
+        return cls(domain=domain, path=path, tag=tag, digest=digest)
 
     @property
     def has_tag(self) -> bool:
@@ -581,14 +585,22 @@ class ImageRef:
         return self.has_tag or self.is_digest_pinned
 
     @property
-    def registry_host(self) -> str:
-        """The registry this reference pulls from, defaulting to ``docker.io`` like docker does."""
-        return self.registry or "docker.io"
+    def normalized_domain(self) -> str:
+        """The domain this reference pulls from, defaulting to ``docker.io`` like docker's own
+        ``ParseNormalizedNamed`` does. Distinct from ``domain``: a bare ``app`` (``domain`` is
+        ``None``) is a different, local-image-eligible reference from an explicit
+        ``docker.io/library/app``, and this accessor deliberately erases that difference for
+        callers that only care where a pull would land.
+        """
+        return self.domain or "docker.io"
 
     @property
-    def repo(self) -> str:
-        """The reference minus its tag and digest: ``registry/path``, or just ``path`` with none."""
-        return f"{self.registry}/{self.path}" if self.registry else self.path
+    def name(self) -> str:
+        """The reference minus its tag and digest: ``domain/path``, or just ``path`` with none.
+
+        Docker's own ``Name()``: the domain, when present, folded together with the path.
+        """
+        return f"{self.domain}/{self.path}" if self.domain else self.path
 
 
 def digest_pinned_refusal(image_ref: str) -> str:

@@ -29,7 +29,7 @@ from frappe_manager.site_manager.modules.transport import (
     _registry_said,
     fetch_image,
     logged_in_to,
-    registry_host,
+    normalized_domain,
 )
 
 MODULE = "frappe_manager.site_manager.modules.transport"
@@ -43,7 +43,7 @@ def _docker_error(stderr: str) -> DockerException:
     )
 
 
-class TestRegistryHost:
+class TestNormalizedDomain:
     @pytest.mark.parametrize(
         ("image", "host"),
         [
@@ -57,7 +57,7 @@ class TestRegistryHost:
         ],
     )
     def test_the_host_is_read_by_dockers_own_rule(self, image, host):
-        assert registry_host(image) == host
+        assert normalized_domain(image) == host
 
 
 class TestLoggedInDetection:

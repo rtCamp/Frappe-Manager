@@ -29,15 +29,16 @@ class TransportError(FrappeManagerException):
     """Raised when an image transport step fails."""
 
 
-def registry_host(image: str) -> str:
-    """The registry ``image`` pulls from, by docker's own rule.
+def normalized_domain(image: str) -> str:
+    """The domain ``image`` pulls from, by docker's own rule, defaulted like
+    ``ParseNormalizedNamed`` does when ``image`` names none.
 
     Delegates to ``ImageRef.parse``: the first path segment is a host only when it
     looks like one -- it contains a dot or a port, or is exactly ``localhost``.
     Otherwise the reference is a Docker Hub short name (``erpnext/app``), whose
-    host is ``docker.io``.
+    domain is ``docker.io``.
     """
-    return ImageRef.parse(image).registry_host
+    return ImageRef.parse(image).normalized_domain
 
 
 def logged_in_to(host: str) -> bool:
@@ -98,7 +99,7 @@ def _pull_failure_message(image: str, error: object) -> str:
     The actionable sentence comes first and the registry's words last, because the reader
     stops at the first line.
     """
-    host = registry_host(image)
+    host = normalized_domain(image)
     cause = _auth_cause(
         host,
         when_in=(
@@ -125,7 +126,7 @@ def _push_failure_message(image: str, error: object, pushed: list[str]) -> str:
     about before chasing the registry error, so it is named first here rather than left to
     a bare ``docker push`` traceback.
     """
-    host = registry_host(image)
+    host = normalized_domain(image)
     cause = _auth_cause(
         host,
         when_in=(

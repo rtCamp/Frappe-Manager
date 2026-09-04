@@ -1,10 +1,10 @@
-"""ImageRef: the one place fm decomposes a ``[registry[:port]/]path[:tag][@digest]`` reference.
+"""ImageRef: the one place fm decomposes a ``[domain[:port]/]path[:tag][@digest]`` reference.
 
-Table-driven over the shapes that matter: a bare repo, a Docker Hub short name, a fully
-qualified registry reference, a multi-segment path, and a ``host:port`` registry -- each with
+Table-driven over the shapes that matter: a bare name, a Docker Hub short name, a
+domain-qualified reference, a multi-segment path, and a ``host:port`` domain -- each with
 and without a tag -- plus digest forms both bare and combined with a tag. Every row is checked
 against every question a caller asks (``has_tag``, ``is_digest_pinned``, ``is_pinned``,
-``registry_host``, ``repo``), so a change to the parser shows up as a diff in exactly the
+``normalized_domain``, ``name``), so a change to the parser shows up as a diff in exactly the
 cells it should touch, per fm's shape matrix contract (#digest-refs).
 """
 
@@ -12,7 +12,7 @@ import pytest
 
 from frappe_manager.utils.helpers import ImageRef, has_explicit_tag, is_digest_pinned
 
-# columns: image_ref, registry, path, tag, digest
+# columns: image_ref, domain, path, tag, digest
 SHAPES = [
     ("app", None, "app", None, None),
     ("app:v1", None, "app", "v1", None),
@@ -29,9 +29,9 @@ SHAPES = [
 ]
 
 
-@pytest.mark.parametrize(("ref", "registry", "path", "tag", "digest"), SHAPES, ids=[s[0] for s in SHAPES])
-def test_parse_decomposes_every_shape(ref, registry, path, tag, digest):
-    assert ImageRef.parse(ref) == ImageRef(registry=registry, path=path, tag=tag, digest=digest)
+@pytest.mark.parametrize(("ref", "domain", "path", "tag", "digest"), SHAPES, ids=[s[0] for s in SHAPES])
+def test_parse_decomposes_every_shape(ref, domain, path, tag, digest):
+    assert ImageRef.parse(ref) == ImageRef(domain=domain, path=path, tag=tag, digest=digest)
 
 
 @pytest.mark.parametrize(
@@ -52,8 +52,8 @@ def test_parse_decomposes_every_shape(ref, registry, path, tag, digest):
     ],
     ids=[s[0] for s in SHAPES],
 )
-def test_registry_host_defaults_to_docker_hub(ref, expected_host):
-    assert ImageRef.parse(ref).registry_host == expected_host
+def test_normalized_domain_defaults_to_docker_hub(ref, expected_host):
+    assert ImageRef.parse(ref).normalized_domain == expected_host
 
 
 @pytest.mark.parametrize(
@@ -113,7 +113,7 @@ def test_is_pinned_accepts_either_tag_or_digest(ref, expected):
 
 
 @pytest.mark.parametrize(
-    ("ref", "expected_repo"),
+    ("ref", "expected_name"),
     [
         ("app:v1", "app"),
         ("org/app:v1", "org/app"),
@@ -124,5 +124,5 @@ def test_is_pinned_accepts_either_tag_or_digest(ref, expected):
         ("ghcr.io/org/app:v1@sha256:abc", "ghcr.io/org/app"),
     ],
 )
-def test_repo_is_the_reference_minus_tag_and_digest(ref, expected_repo):
-    assert ImageRef.parse(ref).repo == expected_repo
+def test_name_is_the_reference_minus_tag_and_digest(ref, expected_name):
+    assert ImageRef.parse(ref).name == expected_name

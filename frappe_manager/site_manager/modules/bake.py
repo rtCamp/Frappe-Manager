@@ -256,12 +256,12 @@ class BakeManager:
     def nginx_image_ref(image: str) -> str:
         """Derive the nginx companion image reference from the app image reference.
 
-        ``image`` is a FULL reference (``[registry/]repo:tag``), not a bare tag --
-        the registry host and any leading path segments pass through untouched.
-        ``[registry/]repo:tag`` -> ``[registry/]repo-nginx:tag``.
+        ``image`` is a FULL reference (``name:tag``), not a bare tag -- docker's ``name``
+        already folds in any domain and leading path segments, and they pass through
+        untouched. ``name:tag`` -> ``name-nginx:tag``.
 
         Refuses rather than mangles when the input cannot produce a valid result:
-        a digest reference (``repo@sha256:...``) can never work here in principle
+        a digest reference (``name@sha256:...``) can never work here in principle
         (the companion is a DIFFERENT image, and a digest is a content hash of one
         specific image, so its digest is not derivable from another image's), and a
         reference with no explicit tag has nothing for the companion to share.
@@ -271,7 +271,7 @@ class BakeManager:
             raise BakeError(digest_pinned_refusal(image))
         if not ref.has_tag:
             raise BakeError(f"Malformed image reference (missing an explicit ':tag'): {image}")
-        return f"{ref.repo}-nginx:{ref.tag}"
+        return f"{ref.name}-nginx:{ref.tag}"
 
     def _seed_bench_skeleton(self, frappe_bench_dir: Path, base_image: str) -> None:
         """Create the minimal frappe-bench skeleton provisioning expects.

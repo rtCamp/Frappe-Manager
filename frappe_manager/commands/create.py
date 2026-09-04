@@ -141,14 +141,14 @@ def _apply_base_image(bc: BenchConfig, base_image: str) -> None:
     runtimes. There is no ``--image`` here, because on ``fm bake`` that word means the image being
     PRODUCED, and one word cannot point both ways. The runtimes persist it differently, which is the
     only reason this is code and not another row in ``_FLAG_TO_CONFIG``: mount keeps the whole ref in
-    top-level ``base_image`` and nothing ever rewrites it, while image runtime keeps the repo in
+    top-level ``base_image`` and nothing ever rewrites it, while image runtime keeps the name in
     ``image`` and the full image in ``[deploy_state].current_image``, which ``fm switch`` moves on every
     deploy. Image validation belongs to ``BenchConfig.assert_runtime_coherent``.
     """
     if bc.runtime != BenchRuntime.image:
         bc.base_image = base_image
         return
-    bc.image = ImageRef.parse(base_image).repo or None
+    bc.image = ImageRef.parse(base_image).name or None
     bc.deploy_state = DeployState(current_image=base_image)
     bc.base_image = None
 

@@ -335,7 +335,7 @@ def apply_specs(compose_file_manager, specs: tuple[ServiceSpec, ...], sites: Seq
             # (a digest's hex lands in "tag"), so route it through ImageRef -- the one canonical
             # parser -- and hand `set_all_images` the real name/tag/digest instead of a guess.
             ref = ImageRef.parse(spec.image)
-            images[spec.name] = {"name": ref.repo, "tag": ref.tag, "digest": ref.digest}
+            images[spec.name] = {"name": ref.name, "tag": ref.tag, "digest": ref.digest}
         if not spec.managed_binds:
             continue
         existing = compose_file_manager.get_service_volumes(spec.name)
