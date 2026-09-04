@@ -525,7 +525,7 @@ class BakeManager:
             nginx_tag = self._build_nginx_image(frappe_bench_dir, tag, platform=platform)
 
             if self._should_push(push):
-                self._push_images([t for t in (tag, nginx_tag) if t])
+                self._push_images([tag, nginx_tag])
 
             # NOTE: local tag pruning is opt-in via `fm prune` / `--keep N` on deploy/switch.
             return tag
@@ -585,8 +585,19 @@ class BakeManager:
         cmd.append(str(context))
         run_command_with_exit_code(cmd, stream=False, capture_output=False)
 
-    def _build_nginx_image(self, frappe_bench_dir: Path, tag: str, platform: str | None = None) -> str | None:
+    def _build_nginx_image(self, frappe_bench_dir: Path, tag: str, platform: str | None = None) -> str:
         """Build the app-nginx assets image (``<repo>-nginx:<tag>``).
+
+        Every baked app image gets one, unconditionally: ``ImageShape.image("nginx")``
+        derives this exact tag and an image-mode deploy pins compose to it before
+        checking anything exists, so a companion this build skipped would leave compose
+        pinned to an image that was never built (and the deploy's health-gate rollback
+        never sees a "no such image" failure to catch, because that throws before the
+        gate runs). A bench with no built assets at all (``--bench-only``, or a
+        ``[build].source = "workspace"`` snapshot that never ran ``bench build``) still
+        gets a real companion; the Dockerfile's ``COPY sites/assets ...`` just resolves
+        an empty staged directory, and nginx serves nothing under ``/assets`` rather
+        than the image not existing.
 
         The nginx Dockerfile's ``app-assets`` target COPYs the built
         ``sites/assets`` into the image at nginx's configured root. We build with
@@ -595,13 +606,6 @@ class BakeManager:
         base-stage COPYs resolve from the same single context.
         """
         assets_dir = frappe_bench_dir / "sites" / "assets"
-        if not assets_dir.is_dir():
-            self.output.warning(
-                "No sites/assets in the baked bench; skipping app-nginx image build. "
-                "Assets will not be served by the image-mode nginx.",
-            )
-            return None
-
         nginx_dockerfile = self._nginx_dockerfile()
         nginx_tag = self.nginx_image_tag(tag)
 
@@ -610,7 +614,15 @@ class BakeManager:
         # has no `apps/`, so the symlink would dangle at runtime (assets 404).
         staging = Path(tempfile.mkdtemp(prefix="fm-bake-nginx-"))
         try:
-            self._materialize_assets(assets_dir, frappe_bench_dir, staging / "sites" / "assets")
+            if assets_dir.is_dir():
+                self._materialize_assets(assets_dir, frappe_bench_dir, staging / "sites" / "assets")
+            else:
+                # No built assets at all: stage an empty dir anyway so the Dockerfile's
+                # `COPY sites/assets ...` has something to resolve. `nginx`'s `try_files`
+                # under `/assets` falls through to the webserver per-request either way,
+                # so an empty root at boot is harmless (verified: nginx starts and does
+                # not emerg-exit with no `sites/assets` content).
+                (staging / "sites" / "assets").mkdir(parents=True, exist_ok=True)
             for fname in ("template.conf", "502.html", "entrypoint.sh"):
                 src = nginx_dockerfile.parent / fname
                 if not src.exists():

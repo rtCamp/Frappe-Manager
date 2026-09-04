@@ -104,3 +104,71 @@ class TestOutputHandlerIsNotNeeded:
             mgr._buildx(dockerfile=Path("/d"), tag="t:1", context=Path("/c"), platform=None, extra=[])
 
         mgr.output.assert_not_called()
+
+
+class TestNginxCompanionBuild:
+    """Fix 1a: `_build_nginx_image` is unconditional now. Every baked app image gets a
+    companion, even an assetless bench, because `ImageShape.image("nginx")` derives that
+    tag unconditionally and an image-mode deploy pins compose to it with no existence
+    check -- a companion this build skipped would leave compose pinned to an image that
+    was never built.
+    """
+
+    def _mgr(self):
+        mgr = _manager()
+        mgr.output = MagicMock()
+        return mgr
+
+    def test_an_assetless_bench_still_produces_a_companion_tag(self, tmp_path):
+        """No `sites/assets` at all (bench-only, or a workspace snapshot that never ran
+        `bench build`) must still return a resolvable `-nginx` tag rather than `None`."""
+        frappe_bench_dir = tmp_path / "workspace" / "frappe-bench"
+        frappe_bench_dir.mkdir(parents=True)  # sites/assets deliberately absent
+
+        mgr = self._mgr()
+        with patch(RUNNER) as runner:
+            nginx_tag = mgr._build_nginx_image(frappe_bench_dir, "ghcr.io/acme/erp:v1")
+
+        assert nginx_tag == "ghcr.io/acme/erp-nginx:v1"
+        argv = runner.call_args.args[0]
+        assert argv[argv.index("-t") + 1] == nginx_tag
+
+    def test_the_staged_context_has_an_empty_assets_dir_so_the_copy_resolves(self, tmp_path):
+        """The Dockerfile's `app-assets` stage does `COPY sites/assets ...`: docker refuses
+        that build if the source path does not exist at all, so an empty dir has to be
+        staged even when the bench built nothing (staging is cleaned up in a `finally`
+        right after the build call, so it must be inspected from inside the mocked call)."""
+        frappe_bench_dir = tmp_path / "workspace" / "frappe-bench"
+        frappe_bench_dir.mkdir(parents=True)
+        seen = {}
+
+        def _capture(cmd, **kwargs):
+            assets_dir = Path(cmd[-1]) / "sites" / "assets"
+            seen["is_dir"] = assets_dir.is_dir()
+            seen["contents"] = sorted(p.name for p in assets_dir.iterdir()) if assets_dir.is_dir() else None
+
+        mgr = self._mgr()
+        with patch(RUNNER, side_effect=_capture):
+            mgr._build_nginx_image(frappe_bench_dir, "ghcr.io/acme/erp:v1")
+
+        assert seen["is_dir"] is True
+        assert seen["contents"] == []
+
+    def test_a_bench_with_assets_still_materializes_them(self, tmp_path):
+        """Regression guard: the always-build change must not skip materialization when
+        assets DO exist."""
+        frappe_bench_dir = tmp_path / "workspace" / "frappe-bench"
+        assets = frappe_bench_dir / "sites" / "assets"
+        assets.mkdir(parents=True)
+        (assets / "assets.json").write_text("{}")
+        seen = {}
+
+        def _capture(cmd, **kwargs):
+            assets_dir = Path(cmd[-1]) / "sites" / "assets"
+            seen["assets_json"] = (assets_dir / "assets.json").read_text()
+
+        mgr = self._mgr()
+        with patch(RUNNER, side_effect=_capture):
+            mgr._build_nginx_image(frappe_bench_dir, "ghcr.io/acme/erp:v1")
+
+        assert seen["assets_json"] == "{}"

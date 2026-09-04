@@ -158,15 +158,25 @@ class TestTheMessage:
         assert _registry_said(RuntimeError("socket hung up")) == "socket hung up"
 
 
-class TestTheNginxImageIsStillOptional:
-    def test_a_missing_assets_image_stays_a_warning(self):
-        """The diagnosis must not promote the optional image's failure to fatal."""
+class TestTheCompanionImageIsNoLongerOptional:
+    """Reversed contract (was `TestTheNginxImageIsStillOptional`): `fm bake` now always
+    builds the `-nginx` companion (bake.py's `_build_nginx_image` no longer skips it for an
+    assetless bench), so its absence here means a real problem -- never pushed, wrong
+    registry, no permission -- not an optional extra. Tolerating it used to let compose get
+    pinned to a tag that was never built; the recreate-swap that later discovered that threw
+    past the deploy's health-gate rollback entirely (that net only catches an unhealthy swap
+    that succeeded, never one that raised). So a companion pull failure is fatal now, exactly
+    like the app image's, with the same diagnosis.
+    """
+
+    def test_a_missing_companion_image_is_now_fatal(self):
         docker = MagicMock()
         docker.images.return_value = [{"Repository": "ghcr.io/acme/app", "Tag": "v1"}]
         docker.pull.side_effect = _docker_error("manifest unknown")
         output = MagicMock()
 
-        with patch(f"{MODULE}.logged_in_to", return_value=False):
+        with patch(f"{MODULE}.logged_in_to", return_value=False), pytest.raises(TransportError) as err:
             fetch_image(docker, "ghcr.io/acme/app:v1", output=output)
 
-        assert output.warning.call_count == 1
+        assert "ghcr.io/acme/app-nginx:v1" in str(err.value)
+        output.warning.assert_not_called()

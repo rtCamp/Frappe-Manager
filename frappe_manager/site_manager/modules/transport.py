@@ -77,6 +77,16 @@ def _registry_said(error: object) -> str:
     return text.replace("Error response from daemon:", "").strip() or str(error)
 
 
+def _auth_cause(host: str, *, when_out: str, when_in: str) -> str:
+    """Word the login half of a transport failure -- shared fact, different conclusions.
+
+    Pull and push both learn only one thing from docker: whether this host has ever run
+    `docker login` (or has a credential helper configured) for ``host``. Each then draws a
+    different conclusion from that same fact, so the two clauses are supplied by the caller.
+    """
+    return when_in if logged_in_to(host) else when_out
+
+
 def _pull_failure_message(image: str, error: object) -> str:
     """Why a pull failed, leading with what to do about it.
 
@@ -90,18 +100,55 @@ def _pull_failure_message(image: str, error: object) -> str:
     stops at the first line.
     """
     host = registry_host(image)
-    if logged_in_to(host):
-        cause = (
+    cause = _auth_cause(
+        host,
+        when_in=(
             f"this host is logged in to {host}, so check the image was actually pushed "
             f"(fm bake --push) and that this account can read it"
-        )
-    else:
-        cause = (
+        ),
+        when_out=(
             f"no docker login for {host} was found. If that image is private, run "
             f"`docker login {host}` here and retry: fm uses the daemon's own credentials "
             f"and holds none itself"
-        )
+        ),
+    )
     return f"Could not pull {image}: {cause}. The registry said: {_registry_said(error)}"
+
+
+def _push_failure_message(image: str, error: object, pushed: list[str]) -> str:
+    """Why a push failed, leading with what already landed and what to do about it.
+
+    ``fm bake --push`` pushes the app image first, and it is a SEPARATE repository from
+    its ``-nginx`` companion that follows -- so a registry that happily accepted the first
+    can still refuse the second (most registries do not auto-create a repository on push,
+    and even ones that do often gate it per account), leaving the app image live with its
+    companion missing. That half-published state is exactly what an operator needs to know
+    about before chasing the registry error, so it is named first here rather than left to
+    a bare ``docker push`` traceback.
+    """
+    host = registry_host(image)
+    cause = _auth_cause(
+        host,
+        when_in=(
+            f"this host is logged in to {host}, so the push was denied rather than "
+            f"unauthenticated: most likely the repository does not exist there yet, and "
+            f"this registry either does not auto-create one on push or this account is not "
+            f"permitted to"
+        ),
+        when_out=(
+            f"no docker login for {host} was found. fm uses the daemon's own credentials "
+            f"and holds none itself, so run `docker login {host}` here and retry"
+        ),
+    )
+    repo = image.rpartition(":")[0]
+    if repo.endswith("-nginx"):
+        base_repo = repo.removesuffix("-nginx")
+        cause += (
+            f". Note {repo} is a SEPARATE repository from {base_repo}: being authorized "
+            f"for one does not authorize the other"
+        )
+    already = f" ({', '.join(pushed)} already pushed successfully)" if pushed else ""
+    return f"Could not push {image}{already}: {cause}. The registry said: {_registry_said(error)}"
 
 
 def image_present(docker: DockerClient, image: str) -> bool:
@@ -120,7 +167,13 @@ def fetch_image(docker: DockerClient, image: str, output=None) -> None:
     """Ensure ``image`` (+ its derived nginx image) is present on the target daemon.
 
     Present already (built here, or shipped by hand) means nothing to do. Anything
-    missing is pulled with the daemon's own registry credentials.
+    missing is pulled with the daemon's own registry credentials. The companion nginx
+    image is not optional: ``fm bake`` always builds one (even for an assetless bench),
+    so a missing companion here is a real problem -- never pushed, wrong registry, no
+    read permission -- and its pull failure is fatal exactly like the app image's, with
+    the same diagnosis. This runs before the deploy pipeline renders compose or touches
+    anything else, so raising here catches a missing companion before compose is ever
+    pinned to it.
     """
     from frappe_manager.docker import DockerException
     from frappe_manager.site_manager.modules.bake import BakeManager
@@ -136,22 +189,31 @@ def fetch_image(docker: DockerClient, image: str, output=None) -> None:
         try:
             docker.pull(i, stream=False)
         except DockerException as e:
-            # The nginx image is optional (absent when the bench has no assets).
-            if i == nginx_image:
-                if output is not None:
-                    output.warning(f"Could not pull nginx image {i} (continuing): {e}")
-                continue
             raise TransportError(_pull_failure_message(i, e)) from e
 
 
 def push_images(docker: DockerClient, images: list[str], output=None) -> None:
-    """``docker push`` each image in ``images``, with the daemon's own credentials."""
+    """``docker push`` each image in ``images``, with the daemon's own credentials.
+
+    The app image goes first and its ``-nginx`` companion second, and they are separate
+    repositories, so a failure on the second leaves the first live on the registry. A raw
+    ``DockerException`` here would surface only the registry's own text with none of that
+    context, so a failure is re-raised as a ``TransportError`` naming what already pushed.
+    """
+    from frappe_manager.docker import DockerException
+
     images = [i for i in images if i]
     if not images:
         return
+    pushed: list[str] = []
     for image in images:
         if output is not None:
             output.change_head(f"Pushing {image}")
-        docker.push(image, stream=False)
+        try:
+            docker.push(image, stream=False)
+        except DockerException as e:
+            raise TransportError(_push_failure_message(image, e, pushed)) from e
         if output is not None:
             output.print(f"Pushed {image}", emoji_code=":white_check_mark:")
+        pushed.append(image)
+

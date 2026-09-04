@@ -9,9 +9,10 @@ transport helpers, the BenchService facade) cannot silently change behaviour:
   from the certificate, admin-password precedence, the image-vs-mount runtime facts, the
   deploy-history "current" marker, and the live container-state gathering (which swallows
   a DockerException for workers and any Exception for admin tools).
-- ``transport``: which missing tags are pulled and
-  which pull failure is survivable (nginx) versus fatal, and why a ``save_load``
-  distribution refuses to pull instead of guessing.
+- ``transport``: which missing tags are pulled, that BOTH the app image's and its
+  ``-nginx`` companion's pull failures are fatal (the companion is no longer optional:
+  ``fm bake`` always builds one), that a push failure is fatal too and says what already
+  pushed, and why a ``save_load`` distribution refuses to pull instead of guessing.
 - ``BenchService``: the guards -- delete without ``--yes`` delegates instead of removing,
   a missing config falls back to the cleanup bench, discovery ignores anything without a
   compose file, and a broken bench is *listed* rather than raised.
@@ -852,17 +853,22 @@ def test_fetch_image_pulls_both_tags_when_neither_is_present():
     assert [c.args[0] for c in docker.pull.call_args_list] == ["r:t", "r-nginx:t"]
 
 
-def test_fetch_image_tolerates_a_missing_nginx_image():
-    """The assets image is optional, so only its pull failure is downgraded to a warning."""
+def test_fetch_image_raises_when_the_companion_image_pull_fails():
+    """Reversed contract (was `test_fetch_image_tolerates_a_missing_nginx_image`): the
+    companion is no longer optional -- `fm bake` always builds one for every app image,
+    even an assetless bench -- so its pull failure is fatal exactly like the app image's,
+    with the same diagnosis, instead of a warning fm used to swallow.
+    """
     docker = MagicMock()
     docker.images.return_value = [{"Repository": "r", "Tag": "t"}]
     docker.pull.side_effect = _docker_exc()
     output = MagicMock()
 
-    fetch_image(docker, "r:t", output=output)
+    with pytest.raises(TransportError) as err:
+        fetch_image(docker, "r:t", output=output)
 
-    assert output.warning.call_count == 1
-    assert "r-nginx:t" in output.warning.call_args.args[0]
+    assert "r-nginx:t" in str(err.value)
+    output.warning.assert_not_called()
 
 
 def test_fetch_image_raises_when_the_app_image_pull_fails():
@@ -895,6 +901,57 @@ def test_push_images_pushes_every_tag_in_order():
     push_images(docker, ["r:t", "", "r-nginx:t"], output)
     assert docker.push.call_args_list == [call("r:t", stream=False), call("r-nginx:t", stream=False)]
     assert [c.args[0] for c in output.print.call_args_list] == ["Pushed r:t", "Pushed r-nginx:t"]
+
+
+def test_push_images_raises_and_names_the_failed_image_the_host_and_what_already_pushed():
+    """The app image goes first and its `-nginx` companion (a SEPARATE repository) second,
+    so a failure on the second must say the first already landed: that half-published
+    state is the operator's real problem, not just the registry's raw text."""
+    docker = MagicMock()
+    docker.push.side_effect = [None, _docker_exc("docker push ghcr.io/acme/erp-nginx:t")]
+
+    with (
+        patch("frappe_manager.site_manager.modules.transport.logged_in_to", return_value=True),
+        pytest.raises(TransportError) as err,
+    ):
+        push_images(docker, ["ghcr.io/acme/erp:t", "ghcr.io/acme/erp-nginx:t"])
+
+    message = str(err.value)
+    assert "ghcr.io/acme/erp-nginx:t" in message  # the image that failed
+    assert "ghcr.io/acme/erp:t already pushed successfully" in message  # half-published state
+    assert "ghcr.io" in message  # the registry host
+    assert "SEPARATE repository" in message  # the erp vs erp-nginx trap
+
+
+def test_push_images_distinguishes_logged_out_from_logged_in_but_denied():
+    docker = MagicMock()
+    docker.push.side_effect = _docker_exc("docker push r:t")
+
+    with (
+        patch("frappe_manager.site_manager.modules.transport.logged_in_to", return_value=False),
+        pytest.raises(TransportError) as logged_out,
+    ):
+        push_images(docker, ["r:t"])
+    assert "docker login" in str(logged_out.value)
+
+    docker.push.side_effect = _docker_exc("docker push r:t")
+    with (
+        patch("frappe_manager.site_manager.modules.transport.logged_in_to", return_value=True),
+        pytest.raises(TransportError) as logged_in,
+    ):
+        push_images(docker, ["r:t"])
+    assert "docker login" not in str(logged_in.value)
+    assert "denied" in str(logged_in.value)
+
+
+def test_push_images_stops_at_the_first_failure():
+    docker = MagicMock()
+    docker.push.side_effect = _docker_exc("docker push r:t")
+
+    with pytest.raises(TransportError):
+        push_images(docker, ["r:t", "r-nginx:t"])
+
+    docker.push.assert_called_once()
 
 
 # =========================================================================== BenchService: facade
