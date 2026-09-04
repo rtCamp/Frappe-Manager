@@ -202,7 +202,7 @@ class ImageShape:
         if service == "nginx":
             from frappe_manager.site_manager.modules.bake import BakeManager
 
-            return BakeManager.nginx_image_tag(self.image_ref)
+            return BakeManager.nginx_image_ref(self.image_ref)
         return self.image_ref
 
     def binds(self) -> list[VolumeBind]:

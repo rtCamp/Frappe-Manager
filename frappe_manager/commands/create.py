@@ -43,6 +43,7 @@ from frappe_manager.utils.callbacks import (
     apps_list_validation_callback,
     create_command_sitename_callback,
 )
+from frappe_manager.utils.helpers import ImageRef
 from frappe_manager.utils.site import validate_sitename
 
 # Rich help panels for `fm create --help`. The FIRST word of every title is the segment of the
@@ -147,7 +148,7 @@ def _apply_base_image(bc: BenchConfig, base_image: str) -> None:
     if bc.runtime != BenchRuntime.image:
         bc.base_image = base_image
         return
-    bc.image = base_image.rpartition(":")[0] or None
+    bc.image = ImageRef.parse(base_image).repo or None
     bc.deploy_state = DeployState(current_image=base_image)
     bc.base_image = None
 

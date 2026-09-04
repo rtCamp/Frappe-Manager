@@ -88,9 +88,18 @@ def test_base_image_flag_does_not_imply_image_runtime():
     assert base_image == "ghcr.io/acme/frappe-custom:v15"
 
 
-def test_mount_base_image_requires_tag():
-    with pytest.raises(typer.BadParameter, match="base_image must include a tag"):
+def test_mount_base_image_requires_pinning():
+    with pytest.raises(typer.BadParameter, match="base_image must be pinned to a specific version"):
         _resolve(base_image="ghcr.io/acme/frappe-custom")
+
+
+def test_mount_base_image_accepts_a_digest_pin():
+    """MountShape.image() uses base_image directly (no name-derived companion), so a digest is
+    serviceable and must not be refused."""
+    digest_ref = "ghcr.io/acme/frappe-custom@sha256:" + "a" * 64
+    mode, image_repo, current_image, base_image = _resolve(base_image=digest_ref)
+    assert mode == BenchRuntime.mount
+    assert base_image == digest_ref
 
 
 def test_image_runtime_requires_a_prebuilt_image():
@@ -115,6 +124,17 @@ def test_base_image_serves_both_runtimes_from_one_flag():
 def test_image_runtime_requires_tag():
     with pytest.raises(typer.BadParameter):
         _resolve(runtime=BenchRuntime.image, base_image="ghcr.io/acme/mybench")
+
+
+def test_image_runtime_base_image_refuses_a_digest_with_the_reason():
+    """`fm create --runtime image --base-image <digest>` used to sail through:
+    `_apply_base_image` wrote a malformed `bc.image` and the old `has_explicit_tag` bug let
+    the digest-carrying `deploy_state.current_image` past `assert_runtime_coherent` -- reaching
+    `nginx_image_tag`'s malformed derivation. Now refused up front, naming the reason: the
+    companion is derived by name and a digest cannot supply one."""
+    digest_ref = "ghcr.io/acme/mybench@sha256:" + "a" * 64
+    with pytest.raises(typer.BadParameter, match="content hash of ONE image"):
+        _resolve(runtime=BenchRuntime.image, base_image=digest_ref)
 
 
 def test_image_runtime_rejects_apps():
@@ -148,6 +168,12 @@ def test_has_explicit_tag_ignores_host_port():
     assert has_explicit_tag("localhost:5000/repo:v1") is True
     assert has_explicit_tag("ghcr.io/acme/x:tag") is True
     assert has_explicit_tag("repo") is False
+
+
+def test_has_explicit_tag_is_false_for_a_bare_digest_reference():
+    """A digest's colon (`@sha256:...`) used to be mistaken for a tag's, since it also lands
+    after the last '/'. `has_explicit_tag` now tells the two apart via `ImageRef`."""
+    assert has_explicit_tag("ghcr.io/acme/x@sha256:" + "a" * 64) is False
 
 
 def test_created_image_bench_persists_deploy_fields(tmp_path):
@@ -208,9 +234,17 @@ def test_seed_image_rejects_image_runtime():
         _build(runtime=BenchRuntime.image, seed_image=_TAGGED_SEED)
 
 
-def test_seed_image_requires_explicit_tag():
-    with pytest.raises(typer.BadParameter, match="tag"):
+def test_seed_image_requires_pinning():
+    with pytest.raises(typer.BadParameter, match="seed_image must be pinned"):
         _build(seed_image="localhost:5000/repo")
+
+
+def test_seed_image_accepts_a_digest_pin():
+    """A one-shot mount-workspace extraction never derives a companion by name, so a digest is
+    serviceable and must not be refused."""
+    digest_ref = "ghcr.io/acme/erp@sha256:" + "b" * 64
+    bc = _build(seed_image=digest_ref)
+    assert bc.seed_image == digest_ref
 
 
 def test_seed_image_valid_contract_passes():
@@ -313,8 +347,8 @@ def test_mount_only_inputs_are_refused_whichever_way_the_runtime_was_spelled(mou
 @pytest.mark.parametrize(
     ("overlay", "expected"),
     [
-        ('seed_image = "ghcr.io/acme/erp"', "seed_image requires an explicit"),
-        ('base_image = "ghcr.io/acme/frappe"', "base_image must include a tag"),
+        ('seed_image = "ghcr.io/acme/erp"', "seed_image must be pinned"),
+        ('base_image = "ghcr.io/acme/frappe"', "base_image must be pinned"),
         ('runtime = "image"\nimage = "ghcr.io/acme/app"', "needs a pre-built image"),
     ],
 )

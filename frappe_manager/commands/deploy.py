@@ -9,7 +9,7 @@ from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_config import BenchRuntime
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError, DeployOrchestrator
 from frappe_manager.site_manager.site import Bench
-from frappe_manager.utils.helpers import has_explicit_tag
+from frappe_manager.utils.helpers import digest_pinned_refusal, has_explicit_tag, is_digest_pinned
 
 
 def _load_image_bench(ctx: typer.Context, benchname: str) -> Bench:
@@ -27,6 +27,18 @@ def _load_image_bench(ctx: typer.Context, benchname: str) -> Bench:
     return bench
 
 
+def _switch_target_shape_error(image: str) -> str | None:
+    """Why ``image`` cannot be a switch target, or ``None`` when it is a valid full reference."""
+    if is_digest_pinned(image):
+        return digest_pinned_refusal(image)
+    if not has_explicit_tag(image):
+        return (
+            f"'{image}' is not a full image reference: pass repo:tag (e.g. "
+            f"ghcr.io/acme/mybench:v15.2.1), not a bare tag."
+        )
+    return None
+
+
 def _resolve_switch_image(state, image: str | None, previous: bool) -> tuple[str | None, str | None]:
     """(target_image, error) for ``fm switch``: explicit IMAGE xor ``--previous``."""
     if image and previous:
@@ -38,11 +50,9 @@ def _resolve_switch_image(state, image: str | None, previous: bool) -> tuple[str
         return prev, None
     if not image:
         return None, "Missing target: pass an image reference or --previous."
-    if not has_explicit_tag(image):
-        return None, (
-            f"'{image}' is not a full image reference: pass repo:tag (e.g. "
-            f"ghcr.io/acme/mybench:v15.2.1), not a bare tag."
-        )
+    error = _switch_target_shape_error(image)
+    if error:
+        return None, error
     return image, None
 
 

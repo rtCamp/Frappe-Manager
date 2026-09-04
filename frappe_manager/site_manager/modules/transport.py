@@ -22,6 +22,7 @@ import os
 
 from frappe_manager.docker import DockerClient
 from frappe_manager.exceptions import FrappeManagerException
+from frappe_manager.utils.helpers import ImageRef
 
 
 class TransportError(FrappeManagerException):
@@ -31,14 +32,12 @@ class TransportError(FrappeManagerException):
 def registry_host(image: str) -> str:
     """The registry ``image`` pulls from, by docker's own rule.
 
-    The first path segment is a host only when it looks like one: it contains a dot or a
-    port, or is exactly ``localhost``. Otherwise the reference is a Docker Hub short name
-    (``erpnext/app``), whose host is ``docker.io``.
+    Delegates to ``ImageRef.parse``: the first path segment is a host only when it
+    looks like one -- it contains a dot or a port, or is exactly ``localhost``.
+    Otherwise the reference is a Docker Hub short name (``erpnext/app``), whose
+    host is ``docker.io``.
     """
-    first = image.split("/", 1)[0] if "/" in image else ""
-    if first and ("." in first or ":" in first or first == "localhost"):
-        return first
-    return "docker.io"
+    return ImageRef.parse(image).registry_host
 
 
 def logged_in_to(host: str) -> bool:
@@ -178,7 +177,7 @@ def fetch_image(docker: DockerClient, image: str, output=None) -> None:
     from frappe_manager.docker import DockerException
     from frappe_manager.site_manager.modules.bake import BakeManager
 
-    nginx_image = BakeManager.nginx_image_tag(image)
+    nginx_image = BakeManager.nginx_image_ref(image)
     missing = [i for i in (image, nginx_image) if not image_present(docker, i)]
     if not missing:
         return

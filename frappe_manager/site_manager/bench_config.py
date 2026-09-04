@@ -18,7 +18,13 @@ from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.dns_provider import DNSProviderConfig
 from frappe_manager.ssl_manager.letsencrypt_certificate import CERTIFICATE_ADAPTER
 from frappe_manager.utils import toml_document
-from frappe_manager.utils.helpers import get_bench_connection_config, get_container_name_prefix, has_explicit_tag
+from frappe_manager.utils.helpers import (
+    ImageRef,
+    digest_pinned_refusal,
+    get_bench_connection_config,
+    get_container_name_prefix,
+    has_explicit_tag,
+)
 
 
 def extract_app_python_module_name(app_path: Path) -> str:
@@ -1530,9 +1536,10 @@ class BenchConfig(BaseModel):
         readable by every ``fm`` command at once. Callers that ACCEPT input invoke this; loading does
         not. Raises ``ValueError``, which the CLI layer turns into its own refusal.
         """
-        if self.base_image and not has_explicit_tag(self.base_image):
+        if self.base_image and not ImageRef.parse(self.base_image).is_pinned:
             raise ValueError(
-                f"base_image must include a tag, e.g. 'ghcr.io/acme/frappe-custom:v15' (got {self.base_image!r})."
+                f"base_image must be pinned to a specific version, e.g. 'ghcr.io/acme/frappe-custom:v15' "
+                f"or an '@sha256:...' digest (got {self.base_image!r})."
             )
 
         if self.seed_image:
@@ -1540,8 +1547,11 @@ class BenchConfig(BaseModel):
                 raise ValueError(
                     "seed_image seeds a MOUNT workspace; an image runtime bench already runs the image it is given (use base_image)."
                 )
-            if not has_explicit_tag(self.seed_image):
-                raise ValueError(f"seed_image requires an explicit ':tag' (got {self.seed_image!r}).")
+            if not ImageRef.parse(self.seed_image).is_pinned:
+                raise ValueError(
+                    f"seed_image must be pinned to a specific version: an explicit ':tag' or an "
+                    f"'@sha256:...' digest (got {self.seed_image!r})."
+                )
 
         if self.runtime != BenchRuntime.image:
             return
@@ -1551,6 +1561,8 @@ class BenchConfig(BaseModel):
             raise ValueError(
                 "image runtime needs a pre-built image: set base_image <repo:tag>, or top-level image plus [deploy_state].current_image."
             )
+        if ImageRef.parse(current_image).is_digest_pinned:
+            raise ValueError(digest_pinned_refusal(current_image))
         if not has_explicit_tag(current_image):
             raise ValueError(f"the image runtime image must be a full reference with a tag (got {current_image!r}).")
         if self.developer_mode:

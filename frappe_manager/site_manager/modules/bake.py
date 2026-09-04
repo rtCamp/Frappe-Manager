@@ -33,6 +33,7 @@ from frappe_manager.site_manager.modules.bench_app import BenchAppManager
 from frappe_manager.site_manager.modules.transport import push_images
 from frappe_manager.site_manager.provisioner import provision
 from frappe_manager.utils.docker import host_run_cp, run_command_with_exit_code
+from frappe_manager.utils.helpers import ImageRef, digest_pinned_refusal
 from frappe_manager.utils.site import read_bench_app_refs, read_bench_node_version, read_bench_python_version
 
 
@@ -123,12 +124,23 @@ class BakeManager:
     def resolve_tag(self) -> str:
         """``<repo>:<UTC timestamp>-<git short sha|nogit>``.
 
-        ``<repo>`` comes from the top-level ``image`` and is required.
+        ``<repo>`` comes from the top-level ``image`` and is required, and must be a
+        BARE repo: this generates the tag, so a value that already carries one
+        (``:tag`` or ``@digest``) would silently produce ``repo:tag:ts-sha`` --
+        refused instead, since that is a config that only ever looked like it worked.
         """
         repo = self.bench_config.image
         if not repo:
             raise BakeError(
                 "No image configured. Set top-level image (or pass --image) before baking.",
+            )
+        ref = ImageRef.parse(repo)
+        if ref.is_pinned:
+            raise BakeError(
+                f"top-level image must be a bare repository, not {repo!r}: fm bake generates its "
+                f"own tag from a timestamp and git sha, so a value already carrying a ':tag' or "
+                f"'@digest' would silently produce '{repo}:<timestamp>-<sha>'. Drop the tag/digest, "
+                f"or pass a full reference to fm bake's --image instead.",
             )
         timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
         return f"{repo}:{timestamp}-{self._git_short_sha()}"
@@ -241,15 +253,25 @@ class BakeManager:
         )
 
     @staticmethod
-    def nginx_image_tag(tag: str) -> str:
-        """Derive the app-nginx (assets) tag from the frappe app tag.
+    def nginx_image_ref(image: str) -> str:
+        """Derive the nginx companion image reference from the app image reference.
 
-        ``<repo>:<tagpart>`` -> ``<repo>-nginx:<tagpart>``.
+        ``image`` is a FULL reference (``[registry/]repo:tag``), not a bare tag --
+        the registry host and any leading path segments pass through untouched.
+        ``[registry/]repo:tag`` -> ``[registry/]repo-nginx:tag``.
+
+        Refuses rather than mangles when the input cannot produce a valid result:
+        a digest reference (``repo@sha256:...``) can never work here in principle
+        (the companion is a DIFFERENT image, and a digest is a content hash of one
+        specific image, so its digest is not derivable from another image's), and a
+        reference with no explicit tag has nothing for the companion to share.
         """
-        repo, _, tagpart = tag.rpartition(":")
-        if not repo:
-            raise BakeError(f"Malformed image tag (missing ':'): {tag}")
-        return f"{repo}-nginx:{tagpart}"
+        ref = ImageRef.parse(image)
+        if ref.is_digest_pinned:
+            raise BakeError(digest_pinned_refusal(image))
+        if not ref.has_tag:
+            raise BakeError(f"Malformed image reference (missing an explicit ':tag'): {image}")
+        return f"{ref.repo}-nginx:{ref.tag}"
 
     def _seed_bench_skeleton(self, frappe_bench_dir: Path, base_image: str) -> None:
         """Create the minimal frappe-bench skeleton provisioning expects.
@@ -607,7 +629,7 @@ class BakeManager:
         """
         assets_dir = frappe_bench_dir / "sites" / "assets"
         nginx_dockerfile = self._nginx_dockerfile()
-        nginx_tag = self.nginx_image_tag(tag)
+        nginx_tag = self.nginx_image_ref(tag)
 
         # Build from a staging context with app assets resolved to REAL files. Each
         # `sites/assets/<app>` symlinks into `apps/<app>/.../public`, but the nginx image

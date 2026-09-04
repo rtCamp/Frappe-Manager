@@ -809,6 +809,20 @@ def test_image_present_is_false_for_an_untagged_name():
     assert image_present(docker, "erp") is False
 
 
+def test_image_present_is_false_for_a_digest_reference():
+    """DELIBERATELY left unchanged (#digest-refs): `rpartition(':')` splits a digest reference
+    on the digest's own colon (``repo@sha256`` / ``abc123``), which never matches a real
+    `Repository`/`Tag` pair either -- always False, same as an untagged name above. Routing
+    this through `ImageRef` would not improve it: `docker images()` reports Repository/Tag
+    pairs, and a digest-only pulled image has no tag to match against regardless of how
+    correctly the reference is parsed. A digest can no longer reach this function anyway --
+    `fm switch` and `assert_runtime_coherent` both refuse one before it becomes
+    `deploy_state.current_image` -- so real digest presence-detection is out of scope."""
+    docker = MagicMock()
+    docker.images.return_value = [{"Repository": "ghcr.io/acme/erp", "Tag": "<none>"}]
+    assert image_present(docker, "ghcr.io/acme/erp@sha256:" + "a" * 64) is False
+
+
 def test_image_present_treats_a_daemon_error_as_absent():
     docker = MagicMock()
     docker.images.side_effect = RuntimeError("daemon down")

@@ -1543,7 +1543,7 @@ class DeployOrchestrator:
         from frappe_manager.site_manager.modules.bake import BakeManager
 
         for image in pruned_images:
-            summary["images"].extend([image, BakeManager.nginx_image_tag(image)])
+            summary["images"].extend([image, BakeManager.nginx_image_ref(image)])
 
         if dry_run:
             return summary

@@ -1889,7 +1889,7 @@ class TestFetchImage:
         -- not a ``TransportError``. Untranslated it sails past the CLI's ``except DeployError``
         and the operator gets a Python traceback for a typo."""
         orch = make_orch(tmp_path)
-        with pytest.raises(DeployError, match=r"Malformed image tag \(missing ':'\): local/mybench"):
+        with pytest.raises(DeployError, match=r"Malformed image reference \(missing an explicit ':tag'\): local/mybench"):
             orch._fetch_image("local/mybench")
 
 
@@ -2065,7 +2065,7 @@ class TestPruneReleases:
         from frappe_manager.site_manager.modules.bake import BakeError
 
         orch = self._pruner(tmp_path, ["untagged", "repo:b"], keep_releases=1)
-        with pytest.raises(BakeError, match="Malformed image tag"):
+        with pytest.raises(BakeError, match="Malformed image reference"):
             orch.prune_releases()
 
     def test_a_pruned_tag_is_removed_together_with_its_nginx_pair(self, tmp_path):

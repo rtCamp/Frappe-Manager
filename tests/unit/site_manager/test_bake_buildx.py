@@ -172,3 +172,46 @@ class TestNginxCompanionBuild:
             mgr._build_nginx_image(frappe_bench_dir, "ghcr.io/acme/erp:v1")
 
         assert seen["assets_json"] == "{}"
+
+
+class TestNginxImageRef:
+    """`BakeManager.nginx_image_ref` (renamed from `nginx_image_tag`, #digest-refs): derives
+    the companion image reference from the app image reference BY NAME, so it refuses rather
+    than mangles when that cannot work -- a digest reference (no second image's digest is
+    derivable from another image's) or a reference with no explicit tag at all.
+    """
+
+    @pytest.mark.parametrize(
+        ("image", "expected"),
+        [
+            ("app:v1", "app-nginx:v1"),
+            ("org/app:v1", "org/app-nginx:v1"),
+            ("ghcr.io/org/app:v1", "ghcr.io/org/app-nginx:v1"),
+            ("ghcr.io/org/team/app:v1", "ghcr.io/org/team/app-nginx:v1"),
+            ("localhost:5000/app:v1", "localhost:5000/app-nginx:v1"),
+        ],
+    )
+    def test_tagged_references_derive_the_companion_by_name(self, image, expected):
+        assert BakeManager.nginx_image_ref(image) == expected
+
+    @pytest.mark.parametrize("image", ["app", "org/app", "ghcr.io/org/app", "ghcr.io/org/team/app"])
+    def test_a_bare_repo_with_no_tag_is_refused(self, image):
+        with pytest.raises(BakeError, match="missing an explicit"):
+            BakeManager.nginx_image_ref(image)
+
+    def test_an_untagged_host_port_reference_is_refused_not_mangled(self):
+        """Regression: `rpartition(":")` used to split on the registry PORT colon here,
+        silently returning 'localhost-nginx:5000/app' -- a different, wrong repository --
+        instead of raising anything. `localhost:5000/app` has no tag at all; ImageRef knows
+        the host:port colon does not name one, so this must refuse like any other bare repo."""
+        with pytest.raises(BakeError, match="missing an explicit"):
+            BakeManager.nginx_image_ref("localhost:5000/app")
+
+    @pytest.mark.parametrize("image", ["app@sha256:abc", "ghcr.io/org/app:v1@sha256:abc"])
+    def test_a_digest_reference_is_refused_with_the_reason(self, image):
+        """A digest reference used to be silently mangled ('app@sha256-nginx:abc') instead of
+        refused. The companion is a DIFFERENT image, so its digest cannot be derived from the
+        app image's; the message says exactly that."""
+        with pytest.raises(BakeError, match="content hash of ONE image") as excinfo:
+            BakeManager.nginx_image_ref(image)
+        assert image in str(excinfo.value)

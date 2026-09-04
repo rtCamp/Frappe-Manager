@@ -120,7 +120,9 @@ def test_tagless_base_image_is_rejected(cli, baked):
     result = _invoke(cli, "--image", "ghcr.io/acme/mysite", "--base-image", "ghcr.io/acme/frappe-custom")
 
     assert result.exit_code != 0
-    assert "--base-image must include a tag" in result.output
+    # The rich error box word-wraps at terminal width; assert a substring that stays on one
+    # rendered line rather than "...specific version..." which straddles the wrap.
+    assert "--base-image must be pinned to a specific" in result.output
     # Refused at parse time, so no bake is attempted.
     assert baked == {}
 
@@ -130,8 +132,23 @@ def test_base_image_host_port_alone_is_not_a_tag(cli, baked):
     result = _invoke(cli, "--image", "ghcr.io/acme/mysite", "--base-image", "localhost:5000/frappe-custom")
 
     assert result.exit_code != 0
-    assert "--base-image must include a tag" in result.output
+    assert "--base-image must be pinned to a specific" in result.output
     assert baked == {}
+
+
+def test_digest_pinned_base_image_is_accepted(cli, baked):
+    """--base-image is only ever the Dockerfile FROM, never something whose companion is
+    derived by name, so a digest pin is safe and must not be refused."""
+    result = _invoke(
+        cli,
+        "--image",
+        "ghcr.io/acme/mysite",
+        "--base-image",
+        "ghcr.io/acme/frappe-custom@sha256:" + "a" * 64,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert baked["bench_config"].build.base_image == "ghcr.io/acme/frappe-custom@sha256:" + "a" * 64
 
 
 def test_tag_option_is_gone(cli, baked):

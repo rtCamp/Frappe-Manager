@@ -8,6 +8,7 @@ import secrets
 import shutil
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
@@ -509,12 +510,116 @@ def save_dict_to_file(config: dict, json_file_path: Path):
         json.dump(final_config, f)
 
 
-def has_explicit_tag(image_ref: str) -> bool:
-    """True when ``image_ref`` carries a ``:tag``.
+@dataclass(frozen=True)
+class ImageRef:
+    """A parsed ``[registry[:port]/]path[:tag][@digest]`` docker image reference.
 
-    The colon has to come after the last ``/``, so a registry host-port like
-    ``localhost:5000/repo`` is a bare repo, not a repo tagged ``5000/repo``.
-    A docker reference cannot hold a colon in its final path segment for any
-    other reason, which makes this total: a ref either names a tag or does not.
+    The one place fm decomposes an image reference. Every caller that used to
+    re-derive an answer with its own ``rpartition``/``split`` (registry host, tag
+    presence, digest presence, the reference minus its tag) now asks ``ImageRef``
+    instead, so every site agrees on the same parse.
+
+    ``registry`` is the explicit host this reference names, or ``None`` when it
+    names none (use ``registry_host`` for the docker-default-applied form).
+    ``path`` is the repository path alone: no registry, tag, or digest. ``tag``
+    and ``digest`` are ``None`` when absent; a reference may carry both at once
+    (``repo:tag@sha256:...``), tag first then digest, which is docker's own order.
     """
-    return ":" in image_ref.rsplit("/", 1)[-1]
+
+    registry: str | None
+    path: str
+    tag: str | None
+    digest: str | None
+
+    @classmethod
+    def parse(cls, image_ref: str) -> "ImageRef":
+        """Split ``image_ref`` the way docker does, in the order docker's own grammar
+        requires: the digest first (``@`` always trails everything else, if present
+        at all), then the registry -- the first ``/``-separated segment counts as a
+        host only when it contains a ``.`` or a ``:``, or is exactly ``localhost``;
+        every other reference is a Docker Hub name with no explicit registry -- then
+        the tag, which like the digest can only attach to the LAST path segment,
+        never to a registry ``host:port``.
+        """
+        without_digest, has_digest, digest = image_ref.partition("@")
+        digest = digest if has_digest else None
+
+        registry = None
+        rest = without_digest
+        if "/" in without_digest:
+            first, remainder = without_digest.split("/", 1)
+            if "." in first or ":" in first or first == "localhost":
+                registry = first
+                rest = remainder
+
+        head, sep, last = rest.rpartition("/")
+        if ":" in last:
+            last, _, tag = last.rpartition(":")
+        else:
+            tag = None
+        path = f"{head}/{last}" if sep else last
+
+        return cls(registry=registry, path=path, tag=tag, digest=digest)
+
+    @property
+    def has_tag(self) -> bool:
+        """True when the reference names an explicit ``:tag``."""
+        return self.tag is not None
+
+    @property
+    def is_digest_pinned(self) -> bool:
+        """True when the reference names an explicit ``@digest``."""
+        return self.digest is not None
+
+    @property
+    def is_pinned(self) -> bool:
+        """True when the reference is pinned to something specific, tag or digest or both.
+
+        The opposite of a floating repository, which docker resolves to whatever
+        ``latest`` happens to mean on the day it is pulled.
+        """
+        return self.has_tag or self.is_digest_pinned
+
+    @property
+    def registry_host(self) -> str:
+        """The registry this reference pulls from, defaulting to ``docker.io`` like docker does."""
+        return self.registry or "docker.io"
+
+    @property
+    def repo(self) -> str:
+        """The reference minus its tag and digest: ``registry/path``, or just ``path`` with none."""
+        return f"{self.registry}/{self.path}" if self.registry else self.path
+
+
+def digest_pinned_refusal(image_ref: str) -> str:
+    """Why ``image_ref`` (a digest reference) cannot serve as an image-runtime app image.
+
+    The one explanation, reused verbatim by every refusal path (the ``fm switch``
+    guard, ``fm create --base-image`` on image runtime, ``nginx_image_ref``'s own
+    boundary check) so an operator sees identical reasoning wherever they hit it.
+    Image runtime derives the nginx companion image from the app image's reference
+    BY NAME (``<repo>-nginx:<tag>``), and a digest is a content hash of exactly one
+    image, so no second image's digest is derivable from the app image's -- this is
+    not a validation gap to widen, it is impossible in principle.
+    """
+    return (
+        f"{image_ref!r} is a digest reference: image runtime derives the nginx companion image "
+        f"by NAME (<repo>-nginx:<tag>), and a digest is a content hash of ONE image, so the "
+        f"companion's digest cannot be derived from the app image's. Pass a tag reference instead "
+        f"(e.g. ghcr.io/acme/mybench:v15.2.1)."
+    )
+
+
+def has_explicit_tag(image_ref: str) -> bool:
+    """True when ``image_ref`` carries an explicit ``:tag`` in its final path segment.
+
+    Delegates to ``ImageRef.parse``. A digest reference (``repo@sha256:...``) also
+    puts a colon in that segment, but names a content hash, not a tag, so this is
+    False for a bare digest even though the raw text contains a colon there.
+    """
+    return ImageRef.parse(image_ref).has_tag
+
+
+def is_digest_pinned(image_ref: str) -> bool:
+    """True when ``image_ref`` carries an explicit ``@digest``."""
+    return ImageRef.parse(image_ref).is_digest_pinned

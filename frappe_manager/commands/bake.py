@@ -24,7 +24,7 @@ from frappe_manager.utils.callbacks import (
     sitename_callback,
     sites_autocompletion_callback,
 )
-from frappe_manager.utils.helpers import has_explicit_tag
+from frappe_manager.utils.helpers import ImageRef, has_explicit_tag
 
 
 def _bake_name(image: str | None) -> str:
@@ -38,9 +38,16 @@ def _bake_name(image: str | None) -> str:
 
 
 def _base_image_callback(value: str | None) -> str | None:
-    """``--base-image`` pins a specific base, so a bare repo is almost certainly a mistake."""
-    if value and not has_explicit_tag(value):
-        raise typer.BadParameter("--base-image must include a tag, e.g. 'ghcr.io/acme/frappe-custom:v15'.")
+    """``--base-image`` pins a specific base, so a floating repo is almost certainly a mistake.
+
+    A digest is accepted too: this only ever becomes the Dockerfile ``FROM``, never something
+    whose companion image is derived by name, so pinning it by digest is perfectly safe.
+    """
+    if value and not ImageRef.parse(value).is_pinned:
+        raise typer.BadParameter(
+            "--base-image must be pinned to a specific version: an explicit ':tag' or an "
+            "'@sha256:...' digest, e.g. 'ghcr.io/acme/frappe-custom:v15'.",
+        )
     return value
 
 

@@ -270,7 +270,7 @@ class BenchDockerOps:
 
         self.compose_file_manager.write_to_file()
         self.output.print(f"Rendered image-mode compose pinned to {deploy_image}")
-        return BakeManager.nginx_image_tag(deploy_image)
+        return BakeManager.nginx_image_ref(deploy_image)
 
     def _seed_nginx_conf(self, conf_dir: Path, nginx_image: str) -> None:
         """Lay the nginx image's `/etc/nginx` onto the host without clobbering fm's overlays.

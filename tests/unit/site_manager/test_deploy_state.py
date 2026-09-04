@@ -228,6 +228,28 @@ class TestSwitchResolvers:
         assert target is None
         assert "not a full image reference" in error
 
+    def test_a_digest_reference_is_refused_before_any_docker_call(self):
+        """A digest reference used to slip through (`has_explicit_tag` mistook the digest's
+        colon for a tag's), reaching `nginx_image_tag`'s malformed rpartition and dying on a
+        confusing pull error since #00c2ccfb made that fatal. The resolver now refuses it up
+        front -- a pure function, so 'before any Docker call' just means the daemon is never
+        touched by this path -- with a message naming the shape and the reason."""
+        from frappe_manager.commands.deploy import _resolve_switch_image
+
+        target, error = _resolve_switch_image(self._state(), "ghcr.io/acme/mybench@sha256:" + "a" * 64, False)
+        assert target is None
+        assert "digest reference" in error
+        assert "content hash of ONE image" in error
+
+    def test_a_digest_reference_is_refused_even_when_it_also_carries_a_tag(self):
+        """`repo:tag@sha256:...` has an explicit tag, so a naive `has_explicit_tag`-only guard
+        would let it through; the digest still makes it unusable, so this must refuse too."""
+        from frappe_manager.commands.deploy import _resolve_switch_image
+
+        target, error = _resolve_switch_image(self._state(), "ghcr.io/acme/mybench:v1@sha256:" + "a" * 64, False)
+        assert target is None
+        assert "digest reference" in error
+
     def test_backups_found_for_current_deploy(self):
         # Every site's dump, not just the primary's: a rollback that restored one schema
         # would leave the rest migrated against the code being rolled back under them.
