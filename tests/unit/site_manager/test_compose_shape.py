@@ -269,6 +269,31 @@ def test_apply_specs_mount_mode_round_trip(tmp_path):
     assert cfm.yml["services"]["frappe"]["image"] == default_code_image()  # stock pin applied
 
 
+def test_apply_specs_preserves_a_digest_pinned_base_image(tmp_path):
+    """`MountShape.base_image` can legitimately be a digest pin (`fm create --base-image
+    app@sha256:...`, accepted because `assert_runtime_coherent` only requires `is_pinned`, tag
+    OR digest). A naive `image.rpartition(":")` reconstructs the same string here by luck (it
+    always finds the digest's colon), but mislabels the digest's hex as a "tag"; routing through
+    ImageRef must still land the exact same reference in the compose file.
+    """
+    cfm = _cfm(tmp_path)
+    digest_ref = "app@sha256:" + "a" * 64
+    cfg = _cfg(BenchRuntime.mount, base_image=digest_ref)
+    apply_specs(cfm, bench_service_specs(cfg), cfg.site_names)
+    assert cfm.yml["services"]["frappe"]["image"] == digest_ref
+
+
+def test_apply_specs_preserves_a_registry_host_port_in_the_image_reference(tmp_path):
+    """`localhost:5000/app:v1` is a legal `fm switch` target (shape matrix, #digest-refs): the
+    naive `image.rpartition(":")` this repo used to use for compose "images" happens to find the
+    tag's colon correctly here too, but confirm ImageRef-routed apply_specs keeps it exact.
+    """
+    cfm = _cfm(tmp_path)
+    cfg = _cfg(BenchRuntime.image, tag="localhost:5000/app:v1")
+    apply_specs(cfm, bench_service_specs(cfg), cfg.site_names)
+    assert cfm.yml["services"]["frappe"]["image"] == "localhost:5000/app:v1"
+
+
 def test_apply_specs_switch_image_to_mount_restores_workspace(tmp_path):
     cfm = _cfm(tmp_path)
     apply_specs(cfm, bench_service_specs(_cfg(BenchRuntime.image, tag="r:t")), ["s.localhost"])

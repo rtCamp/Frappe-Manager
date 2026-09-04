@@ -558,6 +558,122 @@ class TestMigrateImages:
 
                 assert cf.yml["services"]["frappe"]["image"] == "frappe:v14"
 
+    def test_migrate_images_drops_a_stale_digest_when_retagging(self, temp_compose_yml):
+        """Retagging is an explicit request to move onto a new tag; keeping the old digest
+        alongside it would reconstruct "repo:new_tag@old_digest", pinning to content that
+        predates (and does not match) the tag just set."""
+        sample = {"version": "3", "services": {"frappe": {"image": "app@sha256:" + "a" * 64}}}
+        with (
+            patch("builtins.open", mock_open()),
+            patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample),
+        ):
+            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            cf.migrate_images({"frappe": "v14"}, auto_save=False)
+
+        assert cf.yml["services"]["frappe"]["image"] == "app:v14"
+
+
+class TestGetAllImages:
+    """get_all_images decomposes each service's image via ImageRef (#digest-refs): a registry
+    host:port, a bare digest pin, and a combined tag+digest reference must all be reported
+    correctly, not just the plain repo:tag shape every other test here uses."""
+
+    def test_registry_port_is_not_mistaken_for_a_second_colon_split(self, temp_compose_yml):
+        """`image.split(":")` used to raise ValueError on `localhost:5000/app:v1` (3 parts, 2
+        colons) reached whenever an image-runtime bench is switched to a host:port registry."""
+        sample = {"services": {"frappe": {"image": "localhost:5000/app:v1"}}}
+        with (
+            patch("builtins.open", mock_open()),
+            patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample),
+        ):
+            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            images = cf.get_all_images()
+
+        assert images["frappe"] == {
+            "name": "localhost:5000/app",
+            "tag": "v1",
+            "digest": None,
+            "image": "localhost:5000/app:v1",
+        }
+
+    def test_digest_pinned_image_reports_the_digest_not_a_fake_tag(self, temp_compose_yml):
+        """A digest's colon used to be mistaken for a tag's (`app@sha256:aaaa` -> name
+        `app@sha256`, tag `aaaa`); reachable via a mount-runtime `base_image` pin."""
+        sample = {"services": {"frappe": {"image": "app@sha256:aaaa"}}}
+        with (
+            patch("builtins.open", mock_open()),
+            patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample),
+        ):
+            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            images = cf.get_all_images()
+
+        assert images["frappe"] == {"name": "app", "tag": None, "digest": "sha256:aaaa", "image": "app@sha256:aaaa"}
+
+    def test_tag_and_digest_together_do_not_crash(self, temp_compose_yml):
+        sample = {"services": {"frappe": {"image": "ghcr.io/acme/app:v1@sha256:aaaa"}}}
+        with (
+            patch("builtins.open", mock_open()),
+            patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample),
+        ):
+            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            images = cf.get_all_images()
+
+        assert images["frappe"] == {
+            "name": "ghcr.io/acme/app",
+            "tag": "v1",
+            "digest": "sha256:aaaa",
+            "image": "ghcr.io/acme/app:v1@sha256:aaaa",
+        }
+
+    def test_untagged_image_still_defaults_to_latest(self, temp_compose_yml, sample_yml_content):
+        """A floating bare repo has no explicit tag, but docker itself resolves it to `latest`,
+        so the report keeps saying so -- existing callers compare against that literal."""
+        sample_yml_content["services"]["frappe"]["image"] = "frappe"
+        with (
+            patch("builtins.open", mock_open()),
+            patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content),
+        ):
+            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            images = cf.get_all_images()
+
+        assert images["frappe"] == {"name": "frappe", "tag": "latest", "digest": None, "image": "frappe"}
+
+
+class TestSetAllImages:
+    """set_all_images reconstructs the compose "image:" string from name/tag/digest -- the
+    inverse of get_all_images/apply_specs, so a digest must round-trip and a caller that only
+    ever supplied name/tag (every caller before #digest-refs) must see no behaviour change."""
+
+    def test_legacy_name_and_tag_only_shape_is_unchanged(self, temp_compose_yml, sample_yml_content):
+        with (
+            patch("builtins.open", mock_open()),
+            patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content),
+        ):
+            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            cf.set_all_images({"frappe": {"name": "frappe", "tag": "v9"}})
+
+        assert cf.yml["services"]["frappe"]["image"] == "frappe:v9"
+
+    def test_digest_only_is_written_without_a_bogus_tag(self, temp_compose_yml, sample_yml_content):
+        with (
+            patch("builtins.open", mock_open()),
+            patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content),
+        ):
+            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            cf.set_all_images({"frappe": {"name": "app", "tag": None, "digest": "sha256:aaaa"}})
+
+        assert cf.yml["services"]["frappe"]["image"] == "app@sha256:aaaa"
+
+    def test_tag_and_digest_together_are_both_written(self, temp_compose_yml, sample_yml_content):
+        with (
+            patch("builtins.open", mock_open()),
+            patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content),
+        ):
+            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            cf.set_all_images({"frappe": {"name": "app", "tag": "v1", "digest": "sha256:aaaa"}})
+
+        assert cf.yml["services"]["frappe"]["image"] == "app:v1@sha256:aaaa"
+
 
 class TestUpdateHelperMethods:
     """Test update helper methods (update_env, delete_env, update_label, update_image_tag)"""
@@ -673,6 +789,40 @@ class TestUpdateHelperMethods:
 
                 assert cf.yml["services"]["frappe"]["image"] == "frappe/frappe-socketio:v14"
 
+    def test_update_image_tag_preserves_a_registry_host_port(self, temp_compose_yml, sample_yml_content):
+        """`current_image.split(":")[0]` used to grab up to the FIRST colon, turning
+        `localhost:5000/app:v1` into `localhost:v2` -- not a malformed string but a bench
+        silently pointed at a DIFFERENT image (the registry host kept as the whole name, the
+        port and the path both discarded). Reachable: `fm switch localhost:5000/app:v1` is a
+        legal target by design."""
+        with (
+            patch("builtins.open", mock_open()),
+            patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content),
+        ):
+            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            cf.yml["services"]["frappe"]["image"] = "localhost:5000/app:v1"
+
+            cf.update_image_tag("frappe", "v2", auto_save=False)
+
+        assert cf.yml["services"]["frappe"]["image"] == "localhost:5000/app:v2"
+
+    def test_update_image_tag_refuses_a_digest_pinned_image(self, temp_compose_yml, sample_yml_content):
+        """A digest names exact content; there is no floating tag on it to move. The naive split
+        used to silently truncate it (`app@sha256:aaaa` -> name `app@sha256`, "tag" the hex), so
+        this must refuse instead of guessing."""
+        digest_ref = "app@sha256:" + "a" * 64
+        with (
+            patch("builtins.open", mock_open()),
+            patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content),
+        ):
+            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            cf.yml["services"]["frappe"]["image"] = digest_ref
+
+            with pytest.raises(ValueError, match="digest"):
+                cf.update_image_tag("frappe", "v2", auto_save=False)
+
+        assert cf.yml["services"]["frappe"]["image"] == digest_ref  # left untouched
+
     def test_update_helper_methods_chaining(self, temp_compose_yml, sample_yml_content):
         """Test that helper methods can be chained"""
         with patch("builtins.open", mock_open()):
@@ -740,6 +890,34 @@ services:
             assert images["db"]["tag"] == "14"
             assert images["app"]["name"] == "myapp"
             assert images["app"]["tag"] == "latest"  # Default tag
+
+    def test_get_template_images_reports_registry_ports_and_digests(self, tmp_path):
+        """Templates are fm's own and never carry these shapes today, but get_template_images
+        shares `_image_report` with get_all_images, so it must handle them the same way rather
+        than crash on `image.split(":")` producing 3 parts."""
+        template_yml = """
+version: '3'
+services:
+  registry-port:
+    image: localhost:5000/app:v1
+  digest-pinned:
+    image: app@sha256:aaaa
+"""
+        template_file = tmp_path / "test-template.yml"
+        template_file.write_text(template_yml)
+
+        with patch("frappe_manager.docker.compose_file.get_template_path", return_value=template_file):
+            images = ComposeFile.get_template_images("test-template.yml", str(tmp_path))
+
+            assert images["registry-port"] == {
+                "name": "localhost:5000/app",
+                "tag": "v1",
+                "digest": None,
+                "image": "localhost:5000/app:v1",
+            }
+            assert images["digest-pinned"]["name"] == "app"
+            assert images["digest-pinned"]["tag"] is None
+            assert images["digest-pinned"]["digest"] == "sha256:aaaa"
 
     def test_get_template_services_returns_list(self, tmp_path):
         """Test that get_template_services returns service names"""

@@ -1653,7 +1653,9 @@ class TestRemoveContainersAndDirs:
 
     def test_root_owned_files_are_chowned_in_a_container_then_removed(self, harness):
         bench = self._bench(harness)
-        bench.compose_file_manager.get_all_images.return_value = {"frappe": {"name": "ghcr.io/fm/frappe", "tag": "v1"}}
+        bench.compose_file_manager.get_all_images.return_value = {
+            "frappe": {"name": "ghcr.io/fm/frappe", "tag": "v1", "digest": None, "image": "ghcr.io/fm/frappe:v1"}
+        }
         calls = []
         with patch(
             "frappe_manager.site_manager.site.shutil.rmtree",
@@ -1665,6 +1667,24 @@ class TestRemoveContainersAndDirs:
         assert rmtree.call_count == 2
         assert calls[0]["image"] == "ghcr.io/fm/frappe:v1"
         assert calls[0]["volume"] == [f"{harness.path}/workspace:/workspace"]
+
+    def test_a_digest_pinned_frappe_image_is_used_verbatim_for_chown(self, harness):
+        """`get_all_images` reports `tag: None` for a digest pin (mount-runtime `base_image`),
+        so reconstructing `f"{name}:{tag}"` would have built `repo:None`. Using the full
+        reference `get_all_images` already returns avoids that entirely."""
+        bench = self._bench(harness)
+        bench.compose_file_manager.get_all_images.return_value = {
+            "frappe": {"name": "app", "tag": None, "digest": "sha256:aaaa", "image": "app@sha256:aaaa"}
+        }
+        calls = []
+        with patch(
+            "frappe_manager.site_manager.site.shutil.rmtree",
+            side_effect=[PermissionError("root owned"), None],
+        ):
+            harness.docker_client.run.side_effect = lambda **kw: calls.append(kw)
+            bench.remove_containers_and_dirs()
+
+        assert calls[0]["image"] == "app@sha256:aaaa"
 
     def test_a_permission_error_with_no_frappe_image_is_swallowed_and_nothing_is_removed(self, harness):
         # SUSPICION: with no frappe image to chown with, the inner block completes

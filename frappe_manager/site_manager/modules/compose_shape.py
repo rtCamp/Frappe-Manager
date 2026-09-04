@@ -40,6 +40,7 @@ from urllib.parse import parse_qs, urlparse
 
 from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
 from frappe_manager.site_manager.modules import db_tls
+from frappe_manager.utils.helpers import ImageRef
 
 # Registry of fm bench code services and their mode-varying roles.
 # rolling: web services scaled 2->1 during the rolling swap (shed container_name).
@@ -327,8 +328,14 @@ def apply_specs(compose_file_manager, specs: tuple[ServiceSpec, ...], sites: Seq
         if spec.env:
             compose_file_manager.set_envs(spec.name, dict(spec.env), append=True)
         if spec.image:
-            repo, _, tagpart = spec.image.rpartition(":")
-            images[spec.name] = {"name": repo, "tag": tagpart}
+            # spec.image is the FULL reference (MountShape.base_image can legitimately be a
+            # digest pin, e.g. `fm create --base-image app@sha256:...`; ImageShape.image_ref
+            # can carry a registry host:port). A naive `rpartition(":")` happens to reconstruct
+            # the same compose "image:" string for any of those, but it labels the split wrong
+            # (a digest's hex lands in "tag"), so route it through ImageRef -- the one canonical
+            # parser -- and hand `set_all_images` the real name/tag/digest instead of a guess.
+            ref = ImageRef.parse(spec.image)
+            images[spec.name] = {"name": ref.repo, "tag": ref.tag, "digest": ref.digest}
         if not spec.managed_binds:
             continue
         existing = compose_file_manager.get_service_volumes(spec.name)

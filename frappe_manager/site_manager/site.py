@@ -839,8 +839,11 @@ class Bench:
             try:
                 images = self.compose_file_manager.get_all_images()
                 if "frappe" in images:
-                    frappe_image = images["frappe"]
-                    frappe_image = f"{frappe_image['name']}:{frappe_image['tag']}"
+                    # `get_all_images` already carries the exact original reference under
+                    # "image" -- reconstructing it from "name"/"tag" is both redundant and
+                    # wrong for anything ImageRef.parse doesn't reduce to a plain tag (a digest
+                    # pin has no "tag" to rejoin with, so that used to build "repo:None").
+                    frappe_image = images["frappe"]["image"]
                     self.docker_client.run(
                         image=frappe_image,
                         entrypoint="/bin/sh",

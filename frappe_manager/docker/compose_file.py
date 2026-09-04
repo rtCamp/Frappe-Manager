@@ -16,7 +16,7 @@ from frappe_manager.docker.compose_exceptions import (
 )
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.utils.helpers import get_template_path, represent_null_empty, get_docker_image_tag
+from frappe_manager.utils.helpers import ImageRef, get_docker_image_tag, get_template_path, represent_null_empty
 from frappe_manager.utils.site import parse_docker_volume
 
 yaml = YAML(typ="rt")
@@ -25,6 +25,23 @@ yaml.representer.ignore_aliases = lambda *args: True
 # Set the default flow style to None to preserve the null representation
 yaml.default_flow_style = False
 yaml.default_style = None
+
+
+def _image_report(image: str) -> dict[str, str | None]:
+    """Decompose ``image`` into the ``{name, tag, digest, image}`` shape ``get_all_images`` and
+    ``get_template_images`` report to their callers, via ``ImageRef`` -- the one place fm parses
+    a docker image reference -- rather than each re-deriving it with its own naive ``split``.
+
+    This is a READ-ONLY report, so a floating untagged reference (no ``:tag``, no ``@digest``)
+    reports the tag docker would actually resolve it to, the literal string ``"latest"``:
+    existing callers compare against exactly that. A DIGEST reference is a different case: it
+    has no tag at all, floating or otherwise, so ``"latest"`` would be a lie about what it is
+    pinned to -- ``tag`` stays ``None`` there and the real pin surfaces through ``digest``
+    instead, which is legitimate information a caller may want (e.g. to refuse retagging it).
+    """
+    ref = ImageRef.parse(image)
+    tag = ref.tag if ref.has_tag else (None if ref.is_digest_pinned else "latest")
+    return {"name": ref.repo, "tag": tag, "digest": ref.digest, "image": image}
 
 
 class ComposeFile:
@@ -639,16 +656,16 @@ class ComposeFile:
         Retrieves all the images for each service in the Compose file.
 
         Returns:
-            dict: A dictionary containing the service names as keys and their respective image names and tags as values.
+            dict: A dictionary containing the service names as keys and their respective image
+            names, tags, digests and full references as values (see ``_image_report``).
         """
         images = {}
         for service in self.yml["services"].keys():
             try:
                 image = self.yml["services"][service]["image"]
-                name, tag = image.split(":") if ":" in image else (image, "latest")
-                images[service] = {"name": name, "tag": tag, "image": image}
             except KeyError:
-                pass
+                continue
+            images[service] = _image_report(image)
         return images
 
     def set_all_images(self, images: dict):
@@ -656,10 +673,21 @@ class ComposeFile:
         Sets the image for all services in the ComposeFile.
 
         Args:
-            images (dict): A dictionary containing the service names as keys and the image names and tags as values.
+            images (dict): Service name -> ``{"name": repo, "tag": tag|None, "digest": digest|None}``
+            (``tag``/``digest`` are optional keys; a caller with only ``name``/``tag``, the shape
+            ``get_all_images`` has always returned, still works unchanged). A reference needs at
+            most one of ``tag``/``digest`` in practice, but both are appended when both are given
+            (docker itself allows ``repo:tag@digest``), so nothing here silently drops a digest a
+            caller explicitly kept (see ``migrate_images``, which drops it on purpose instead).
         """
         for service, image_info in images.items():
-            image = f'{image_info["name"]}:{image_info["tag"]}'
+            image = image_info["name"]
+            tag = image_info.get("tag")
+            digest = image_info.get("digest")
+            if tag:
+                image += f":{tag}"
+            if digest:
+                image += f"@{digest}"
             if service in self.yml["services"]:
                 self.yml["services"][service]["image"] = image
 
@@ -1009,6 +1037,10 @@ class ComposeFile:
         for service, new_tag in tag_updates.items():
             if service in images:
                 images[service]["tag"] = new_tag
+                # Retagging moves the service OFF whatever digest it may have carried: keeping
+                # both would make set_all_images reconstruct "repo:new_tag@old_digest", pinning
+                # to content that predates (and does not match) the tag we just set.
+                images[service]["digest"] = None
 
         self.set_all_images(images)
 
@@ -1140,8 +1172,18 @@ class ComposeFile:
             raise KeyError(f"Service {service} has no image defined")
 
         current_image = self.yml["services"][service]["image"]
-        image_name = current_image.split(":")[0] if ":" in current_image else current_image
-        self.yml["services"][service]["image"] = f"{image_name}:{new_tag}"
+        ref = ImageRef.parse(current_image)
+        if ref.is_digest_pinned:
+            # A digest names exact content; there is no "tag" on it to move. Appending
+            # ":<new_tag>" the naive way used to silently truncate the digest into a bogus repo
+            # name instead (`repo@sha256` became the "name", the digest's hex became the "tag").
+            # Refuse instead of guessing what the caller meant.
+            raise ValueError(
+                f"Service {service!r} image {current_image!r} is pinned by digest: a digest names "
+                f"exact content, so it has no floating tag to rewrite. Deploy a tag reference to "
+                f"this service instead of retagging a digest pin."
+            )
+        self.yml["services"][service]["image"] = f"{ref.repo}:{new_tag}"
 
         should_save = auto_save if auto_save is not None else self._auto_save
         if should_save:
@@ -1196,9 +1238,7 @@ class ComposeFile:
         images = {}
         for service in yml.get("services", {}).keys():
             if "image" in yml["services"][service]:
-                image = yml["services"][service]["image"]
-                name, tag = image.split(":") if ":" in image else (image, "latest")
-                images[service] = {"name": name, "tag": tag, "image": image}
+                images[service] = _image_report(yml["services"][service]["image"])
 
         return images
 
