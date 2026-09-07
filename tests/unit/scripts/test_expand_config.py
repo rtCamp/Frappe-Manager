@@ -1,9 +1,9 @@
 """Contract for scripts/expand-config.py, the CI config expander.
 
 It exists so a config file can live in the repo while its secrets live in the
-environment. The three rules below are all reactions to how the expansion already inside
-fm behaves (`transport.py` runs `os.path.expandvars` over the `[registry]` credentials),
-so they are the point of the script rather than incidental:
+environment. The three rules below are reactions to how `os.path.expandvars` itself
+behaves, not to anything fm does, so they are the point of the script rather than
+incidental:
 
 - only `FM_ACTION_*` names are substituted, because `expandvars` rewrites anything and a `$HOME`
   or `$PATH` inside a config value is a legitimate thing to write,
