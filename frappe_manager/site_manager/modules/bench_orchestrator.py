@@ -317,6 +317,10 @@ class BenchOrchestrator:
 
         base_image = bench.bench_config.base_image
         if base_image:
+            # Same blind spot as `transport.image_present`: this matches only `Repository` and
+            # `Tag`, so a digest-pinned `base_image` (mount runtime accepts one, e.g.
+            # `--base-image app@sha256:...`) is never recognized as already present. Non-fatal
+            # here: worst case is a redundant pull below, not a failure.
             repo, _, tag = base_image.rpartition(":")
             present = any(
                 img.get("Repository") == repo and img.get("Tag") == tag for img in bench.docker_client.images()
