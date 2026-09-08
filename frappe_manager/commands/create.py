@@ -775,7 +775,7 @@ def create(
             rich_help_panel=_PANEL_MOUNT,
         ),
     ] = EnableDisableOptionsEnum.disable,
-    bench_only: Annotated[bool, typer.Option(help="Create the bench (config, directory, containers) with no site in it. Sites are added afterwards with 'fm create BENCH/SITE'. Every Site Option is ignored: there is no site yet for them to describe.")] = False,
+    bench_only: Annotated[bool, typer.Option(help="Create the bench (config, directory, workspace or image, and containers) with no site in it. 'fm create BENCH/SITE' adds a site afterwards, into the workspace and containers already there. Every Site Option is ignored: there is no site yet for them to describe.")] = False,
     github_token: Annotated[
         str | None,
         typer.Option(

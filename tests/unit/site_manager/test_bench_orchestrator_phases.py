@@ -310,7 +310,7 @@ class _Harness:
             "_phase5_finalize": None,
             "_phase6_install_apps": True,
             "_skip_phase6_for_attach": True,
-            "_create_bench_only": None,
+            "_report_bench_only_created": None,
             "_create_image_bench": None,
             "_recheck_external_schema": None,
             "_provision_external_schema": None,
@@ -451,13 +451,15 @@ def test_the_create_pipeline_applies_the_configured_upload_limit(tmp_path):
     harness.bench.apply_upload_limit.assert_called_once_with()
 
 
-def test_a_bench_only_create_never_reaches_the_upload_limit_step(tmp_path):
-    """A bench with no site serves no domain, so there is nothing to apply it to."""
+def test_a_bench_only_create_still_applies_the_upload_limit(tmp_path):
+    """`apply_upload_limit` already no-ops when there is no site config to act on (see its own
+    docstring), so phase 5 runs it unconditionally rather than special-casing bench-only: nothing
+    left to skip here that the method does not already skip itself."""
     harness = _Harness(_config(tmp_path), tmp_path)
 
     harness.orchestrator(real=("_phase5_finalize",)).create_bench(bench_only=True)
 
-    assert harness.events.has("apply_upload_limit") is False
+    harness.bench.apply_upload_limit.assert_called_once_with()
 
 
 def test_the_create_pipeline_applies_the_configured_hsts_override(tmp_path):
@@ -473,13 +475,14 @@ def test_the_create_pipeline_applies_the_configured_hsts_override(tmp_path):
     harness.bench.apply_hsts.assert_called_once_with()
 
 
-def test_a_bench_only_create_never_reaches_the_hsts_step(tmp_path):
-    """A bench with no site serves no domain, so there is nothing to apply it to."""
+def test_a_bench_only_create_still_applies_hsts(tmp_path):
+    """Same reasoning as the upload limit: `apply_hsts` already no-ops before the proxy's vhostd
+    dir exists, so bench-only calls it too rather than duplicating that no-op decision here."""
     harness = _Harness(_config(tmp_path), tmp_path)
 
     harness.orchestrator(real=("_phase5_finalize",)).create_bench(bench_only=True)
 
-    assert harness.events.has("apply_hsts") is False
+    harness.bench.apply_hsts.assert_called_once_with()
 
 
 def test_the_image_check_happens_outside_the_try_so_it_is_not_a_creation_failure(tmp_path):
@@ -496,14 +499,56 @@ def test_the_image_check_happens_outside_the_try_so_it_is_not_a_creation_failure
     orchestrator._handle_creation_failure.assert_not_called()
 
 
-def test_a_bench_only_create_stops_after_phase_one(tmp_path):
-    """Phase 1 still runs -- a bench is directories and a compose file -- but the gate,
-    every later phase and site creation do not."""
+def test_a_bench_only_create_runs_bench_setup_but_stops_before_the_site(tmp_path):
+    """Phase 1, phase 2 and phase 3 all still run: the workspace, the cloned apps and the running
+    containers ARE the bench, and `fm create BENCH/SITE` afterwards needs them already there --
+    there is no later code path that runs phase 2. Only the site-dependent steps (the gate,
+    phase 4, phase 6) are skipped."""
     harness = _Harness(_config(tmp_path), tmp_path)
 
     harness.reraising_orchestrator().create_bench(bench_only=True)
 
-    assert list(harness.events) == ["check_images", "phase1_prepare_structure", "create_bench_only"]
+    assert list(harness.events) == [
+        "check_images",
+        "phase1_prepare_structure",
+        "phase2_initialize_bench",
+        "phase3_start_and_verify_bench(site_dir_exists=False)",
+        "phase5_finalize",
+        "report_bench_only_created",
+    ]
+
+
+def test_bench_only_calls_phase_three_and_five_exactly_like_a_full_create_would(tmp_path):
+    """Decision: phase 3 takes no `bench_only` flag at all. Its health check already treats a
+    site that is not there YET (every normal create, before phase 4 runs) and a site that will
+    never exist THIS RUN (bench-only) identically -- both resolve to the same `IncorrectSitePath`
+    404 (see the docstring on `_phase3_start_and_verify_bench`). Phase 5's stricter `200 OK`
+    check is the one that needs to know the difference, so it alone takes the flag."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+    orchestrator = harness.reraising_orchestrator()
+
+    orchestrator.create_bench(bench_only=True)
+
+    orchestrator._phase3_start_and_verify_bench.assert_called_once_with()
+    orchestrator._phase5_finalize.assert_called_once_with(bench_only=True)
+
+
+def test_bench_only_clones_requested_apps_but_never_installs_them_into_a_site(tmp_path, monkeypatch):
+    """`--apps` cloning is `provision`'s job in phase 2 (bench-level: `apps/`, the venv, built
+    assets), and phase 2 still runs on a bench-only create. Installing an app INTO a site is
+    phase 6's job, and phase 6 never runs here because there is no site to install into."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+    provisioned: list[str] = []
+    monkeypatch.setattr(
+        "frappe_manager.site_manager.modules.bench_orchestrator.provision",
+        lambda _app_manager, apps_list, **_kw: provisioned.extend(a.name for a in apps_list),
+    )
+
+    harness.reraising_orchestrator(real=("_phase2_initialize_bench",)).create_bench(bench_only=True)
+
+    assert "erpnext" in provisioned
+    assert harness.events.has("phase6_install_apps") is False
+    assert harness.bench.app_manager.install_apps_to_site.called is False
 
 
 def test_a_bench_only_create_ignores_an_external_database_entry(tmp_path):
@@ -1594,6 +1639,29 @@ def test_a_kept_image_bench_is_described_instead(tmp_path, monkeypatch):
     harness.events.before("remove_bench(default_choice=False)", "info")
 
 
+def test_an_image_bench_only_create_fetches_the_image_but_stops_before_the_site(tmp_path, monkeypatch):
+    """Image runtime has no clone or venv to build, but there IS an image to fetch and containers
+    to bring up, so bench-only still runs them. The external-database gate, the site-dir
+    pre-create, phase 4 and phase 6 are all site-scoped and skipped."""
+    harness = _Harness(_config(tmp_path, runtime="image"), tmp_path)
+    transport = _fake_image_transport(monkeypatch)
+
+    harness.reraising_orchestrator(real=("_create_image_bench",)).create_bench(bench_only=True)
+
+    assert transport == ["fetch_image", "host_run_cp(site_dir_exists=False)"]
+    assert list(harness.events) == [
+        "check_images",
+        "phase1_prepare_structure",
+        "common_site_config",
+        "setup_supervisor",
+        "phase3_start_and_verify_bench(site_dir_exists=False)",
+        "phase5_finalize",
+        "workers_up",
+        "report_bench_only_created",
+    ]
+    assert (harness.sites_dir / SITE).is_dir() is False
+
+
 # --------------------------------------------------------------------------- phase 2, seeded
 
 
@@ -1712,14 +1780,15 @@ def test_phase_five_stamps_the_current_fm_version_as_the_migration_state(tmp_pat
     assert state.last_migration_date
 
 
-def test_a_bench_only_create_is_stamped_and_saved_too(tmp_path):
-    """The bench-only path skips phase 5 entirely, so it does its own version stamp."""
+def test_a_bench_only_create_is_stamped_and_saved_by_phase_five(tmp_path):
+    """Bench-only runs phase 5 for real now, so the migration stamp and the config save are its
+    job -- not a second copy inside a bench-only-only helper that could drift from it."""
     harness = _Harness(_config(tmp_path), tmp_path)
 
-    harness.reraising_orchestrator(real=("_create_bench_only",)).create_bench(bench_only=True)
+    harness.reraising_orchestrator(real=("_phase5_finalize",)).create_bench(bench_only=True)
 
     assert harness.config.migration_state is not None
-    harness.events.before("sync_common_site_config", "save_bench_config(migrate=None)")
+    harness.events.before("sync_workers_compose", "save_bench_config(migrate=None)")
 
 
 def test_phase_six_installs_the_apps_then_migrates(tmp_path):

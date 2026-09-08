@@ -23,7 +23,7 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `-e, --environment`: Bench environment; sets the dev-mode and restart defaults.
 * `-a, --apps`: App to install: appname or owner/repo, optional :branch (repeatable). Frappe is always first.
 * `--developer-mode`: Let DocType edits write app source files. Already on for a dev-environment bench.
-* `--bench-only`: Create the bench (config, directory, containers) with no site in it. Sites are added afterwards with 'fm create BENCH/SITE'. Every Site Option is ignored: there is no site yet for them to describe.
+* `--bench-only`: Create the bench (config, directory, workspace or image, and containers) with no site in it. 'fm create BENCH/SITE' adds a site afterwards, into the workspace and containers already there. Every Site Option is ignored: there is no site yet for them to describe.
 * `-t, --github-token`: Token for cloning private app repos.
 * `--python`: Python version, e.g. '3.11'. Auto-detected by default.
 * `--node`: Node version, e.g. '20'. Auto-detected by default.

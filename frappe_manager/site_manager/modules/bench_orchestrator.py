@@ -141,7 +141,7 @@ class BenchOrchestrator:
             - Graceful failure (bench remains functional if app installation fails)
 
         Args:
-            bench_only: If True, creates the bench (config, directory, containers) with no site in it
+            bench_only: If True, creates the bench (config, directory, workspace/image and containers) with no site in it. `fm create BENCH/SITE` adds a site into it afterwards.
 
         Raises:
             Exception: If any step in the creation process fails
@@ -167,28 +167,39 @@ class BenchOrchestrator:
 
         None means there is no verdict: a bench-only create has no phase 6, and a phase that raised
         was already reported and cleaned up after by `_handle_creation_failure`.
+
+        `bench_only` stops the pipeline before SITE creation (phase 4), not before bench
+        initialization. The workspace, the cloned/seeded apps and the running containers are the
+        BENCH; `fm create BENCH/SITE` afterwards finds them already there and has no code path
+        that runs phase 2 later, so skipping it here would leave that promise permanently broken.
+        Only the site-dependent steps are skipped: the external-database gate (there is no site
+        yet for it to decide a flow for), phase 4 itself, and phase 6 (nothing to install apps
+        into). The image runtime honours the same predicate in `_create_image_bench`.
         """
         bench = self.bench
 
         try:
             self._phase1_prepare_structure()
 
-            if bench_only:
-                self._create_bench_only()
-                return None
-
             if bench.bench_config.runtime == BenchRuntime.image:
-                return self._create_image_bench()
+                return self._create_image_bench(bench_only=bench_only)
 
-            # Between phase 1 and phase 2, and the placement is the whole point. See
-            # `_external_database_gate`. No-op for a bench on the `global-db` container.
-            self._external_database_gate()
+            if not bench_only:
+                # Between phase 1 and phase 2, and the placement is the whole point. See
+                # `_external_database_gate`. No-op for a bench on the `global-db` container.
+                self._external_database_gate()
 
             if bench.bench_config.seed_image:
                 self._phase2_seed_from_image()
             else:
                 self._phase2_initialize_bench()
             self._phase3_start_and_verify_bench()
+
+            if bench_only:
+                self._phase5_finalize(bench_only=True)
+                self._report_bench_only_created()
+                return None
+
             self._phase4_create_site()
             self._phase5_finalize()
 
@@ -228,12 +239,19 @@ class BenchOrchestrator:
             if not remove_status:
                 bench.info()
 
-    def _create_image_bench(self) -> bool:
+    def _create_image_bench(self, *, bench_only: bool = False) -> bool | None:
         """Bootstrap an image-mode bench from a pre-built app image.
 
         No provisioning: the image already carries app code, Python/Node and
         baked assets. Phase 1/5 generation projects the image shape (compose_shape),
         so this path only creates the site and installs the image's baked apps.
+
+        `bench_only` honours the same predicate `_run_creation` uses for the mount runtime,
+        stopping before SITE creation rather than before bench preparation: there is no clone
+        or venv to build here, but there IS an image to fetch and containers to bring up, so
+        those still run. Skipped: the external-database gate and the site directory pre-create
+        (both site-scoped -- there is no site yet to gate or make room for), phase 4, and phase
+        6.
         """
         from frappe_manager.site_manager.bench_config import AppConfig
         from frappe_manager.site_manager.modules.transport import fetch_image
@@ -256,26 +274,36 @@ class BenchOrchestrator:
         baked = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
         bench.bench_config.apps_list = [AppConfig.from_string(n) for n in baked]
 
-        # The same gate the mount runtime runs between phase 1 and phase 2, placed at the first
-        # point this path can run a container at all: there is no phase 2 here, and the probe
-        # goes through `compose run --rm` on the `frappe` service, whose image is the app image
-        # `fetch_image` just made local. Still ahead of the containers, the site and every write,
-        # and `apps_list` is already the baked set the attach parity check compares against.
-        self._external_database_gate()
+        if not bench_only:
+            # The same gate the mount runtime runs between phase 1 and phase 2, placed at the first
+            # point this path can run a container at all: there is no phase 2 here, and the probe
+            # goes through `compose run --rm` on the `frappe` service, whose image is the app image
+            # `fetch_image` just made local. Still ahead of the containers, the site and every write,
+            # and `apps_list` is already the baked set the attach parity check compares against.
+            self._external_database_gate()
 
-        # Pre-create the site dir (frappe-owned) so the per-site bind isn't auto-created
-        # root-owned by `compose up`; new-site --force then populates that existing empty
-        # dir. (The compose was already projected to the image shape in phase 1.)
-        (bench.path / "workspace" / "frappe-bench" / "sites" / bench.site_name).mkdir(parents=True, exist_ok=True)
+            # Pre-create the site dir (frappe-owned) so the per-site bind isn't auto-created
+            # root-owned by `compose up`; new-site --force then populates that existing empty
+            # dir. (The compose was already projected to the image shape in phase 1.)
+            (bench.path / "workspace" / "frappe-bench" / "sites" / bench.site_name).mkdir(
+                parents=True, exist_ok=True
+            )
+
         self._phase3_start_and_verify_bench()
-        self._phase4_create_site(force=True)
 
-        apps_installed = self._skip_phase6_for_attach() if self._attaching else self._phase6_install_apps()
+        apps_installed: bool | None = None
+        if not bench_only:
+            self._phase4_create_site(force=True)
+            apps_installed = self._skip_phase6_for_attach() if self._attaching else self._phase6_install_apps()
 
         self._phase5_finalize()
 
         # Workers compose was generated image-shaped in phase 5; just bring them up.
         bench.workers.docker_client.compose.up(services=[], detach=True, pull="never", wait=True, stream=False)
+
+        if bench_only:
+            self._report_bench_only_created()
+            return None
 
         self._report_created_bench(apps_installed)
         return apps_installed
@@ -424,7 +452,16 @@ class BenchOrchestrator:
         self.bench.app_manager.graft_apps(overrides, stash=False, use_run=True)
 
     def _phase3_start_and_verify_bench(self) -> None:
-        """Phase 3: Start containers and verify bench server responding"""
+        """Phase 3: Start containers and verify bench server responding.
+
+        Runs identically whether a site exists yet or not, including on a `bench_only` create
+        that will never reach one this run: `verify_bench_server_responding` below already
+        treats a 404 as healthy, which is exactly what a Host that resolves to no site directory
+        produces (`IncorrectSitePath`, a 404, from Frappe's own site resolution) -- "no site yet"
+        and "no site ever, this run" fail the same way and are accepted the same way. Only phase
+        5's `is_bench_created` demands a literal `200 OK`, which is why THAT check, not this one,
+        is the one skipped for `bench_only` (see `_phase5_finalize`).
+        """
         bench = self.bench
 
         self.output.change_head("Starting bench services")
@@ -462,6 +499,12 @@ class BenchOrchestrator:
                 status_code = "".join(result.stdout).strip()
 
                 if status_code in ["200", "404"]:
+                    # 404 is healthy, not just tolerated: at this point in EVERY create the named
+                    # site's directory does not exist yet -- or, on `bench_only`, will never exist
+                    # this run -- so the Host-less request above resolves to a site Frappe cannot
+                    # find and 404s. A 200 covers the rarer case of an already-serving domain
+                    # answering immediately. Either way gunicorn is up and answering, which is
+                    # everything this check claims to verify.
                     self.output.print("Bench server is responding correctly")
                     return
 
@@ -968,8 +1011,14 @@ class BenchOrchestrator:
 
         self.output.print(f"Dropped schema {database.name} and login {database.login_user} on {database.host}")
 
-    def _phase5_finalize(self) -> None:
-        """Phase 5: Finalize bench infrastructure"""
+    def _phase5_finalize(self, *, bench_only: bool = False) -> None:
+        """Phase 5: Finalize bench infrastructure.
+
+        `bench_only` skips only the final web verification below. Workers, the upload limit and
+        the HSTS override all run unconditionally: `apply_upload_limit`/`apply_hsts` already
+        no-op gracefully when there is no site config or domain yet (see their own docstrings),
+        which is exactly the site-less shape a bench-only create leaves them in.
+        """
         bench = self.bench
 
         self.output.change_head("Configuring bench workers")
@@ -980,7 +1029,7 @@ class BenchOrchestrator:
         )
         self.output.print("Configured bench workers")
 
-        # The site exists by now, so site_config.json and the proxy vhost can both take the limit,
+        # A site's site_config.json and the proxy vhost can both take the limit once one exists,
         # and the proxy vhost can take the HSTS override too. Without this a new bench advertised
         # its configured upload_limit and hsts while nginx served its own 1M default and the
         # bench's own hardcoded STS header unstripped, so both values only became true after an
@@ -1005,7 +1054,13 @@ class BenchOrchestrator:
         bench.save_bench_config()
 
         self.output.change_head("Verifying bench infrastructure")
-        if not bench.is_bench_created():
+        # `is_bench_created` demands a literal `HTTP/1.1 200 OK` -- a served homepage -- which
+        # only exists once phase 4 has created a site; unlike phase 3's probe (see its
+        # docstring), this one does NOT already tolerate a site-less bench. There is nothing new
+        # to verify here for one either: phase 3 already confirmed supervisord is up and the
+        # containers are answering, which is the only "bench infrastructure" a site-less bench
+        # has.
+        if not bench_only and not bench.is_bench_created():
             raise Exception("Bench site is inactive or unresponsive.")
 
         self.output.print("Bench infrastructure ready")
@@ -1094,25 +1149,16 @@ class BenchOrchestrator:
         else:
             return True
 
-    def _create_bench_only(self):
-        """Create the bench with no site in it (config and directory only, no site setup)."""
-        bench = self.bench
-        bench.sync_bench_common_site_config()
+    def _report_bench_only_created(self) -> None:
+        """The bench-only tail, shared by both runtimes.
 
-        from datetime import datetime
-
-        from frappe_manager.migration_manager.version import Version
-        from frappe_manager.site_manager.bench_config import MigrationState
-        from frappe_manager.utils.helpers import get_current_fm_version
-
-        current_fm_version = Version(get_current_fm_version())
-        bench.bench_config.migration_state = MigrationState(
-            migrated_to=str(current_fm_version.version),
-            last_migration_date=datetime.now().isoformat(),
-        )
-
-        bench.save_bench_config()
-        self.output.print(f"Created bench: {bench.name}", emoji_code=":white_check_mark:")
+        Phase 2 (or its seed/image equivalent) and phase 5 already did the real work: the
+        workspace or image, the containers, the migration stamp and the config save are all in
+        place by the time this runs. What is left is only the message -- `_report_created_bench`
+        assumes a site (it offers to tear the bench down when phase 6's apps did not install),
+        which has no meaning on a create that never reached phase 6.
+        """
+        self.output.print(f"Created bench: {self.bench.name}", emoji_code=":white_check_mark:")
 
     def _handle_creation_failure(self, exception: Exception):
         """Handle failures during bench creation with cleanup."""
