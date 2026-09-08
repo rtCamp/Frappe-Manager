@@ -414,8 +414,14 @@ def _validated_ca(db_ca: Path) -> str:
     # Absolute but deliberately not resolved: a certbot-style live/ symlink is the
     # rotation idiom, and `fm update --db-ca` records the path the same way.
     absolute = db_ca.expanduser().absolute()
+    # is_file() rather than exists(): also catches a directory passed here, which click's own
+    # dir_okay=True default would otherwise let through as "valid".
     if not absolute.is_file():
         raise typer.BadParameter(f"--db-ca: no such file: {db_ca}")
+    # Reachable only because the Option below declares readable=False: click's own implicit
+    # readable=True check would otherwise stat the RAW (unexpanded) argument and fail first, with
+    # its own wording, for every path except a literal-tilde one (click's stat on an unexpanded
+    # "~/..." string fails outright, and exists=False lets that through unchecked to here).
     if not os.access(absolute, os.R_OK):
         raise typer.BadParameter(f"--db-ca: file is not readable: {db_ca}")
     return str(absolute)
@@ -992,6 +998,10 @@ def create(
             "--db-ca",
             help="Host path to the CA bundle signing the server certificate. Required whenever the server enforces TLS.",
             show_default=False,
+            # click's Path(readable=True) default stats the file itself and fails with its own
+            # wording before this command body -- and _validated_ca()'s os.access check below --
+            # ever runs. Disabled so a typo consistently gets fm's message, not click's.
+            readable=False,
             rich_help_panel=_PANEL_DATABASE,
         ),
     ] = None,

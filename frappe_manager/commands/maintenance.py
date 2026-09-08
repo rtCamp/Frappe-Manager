@@ -1,5 +1,6 @@
 import html as html_module
 import ipaddress
+import os
 import re
 import secrets
 import sys
@@ -318,6 +319,10 @@ def maintenance(
             "--page",
             help="HTML file served as the page, instead of --message. A bench's configs/maintenance.html is used automatically.",
             show_default=False,
+            # click's implicit readable=True would fail with its own wording before the hand
+            # checks below (and _resolve_page_html's read) ever run; silenced so fm's own
+            # messages are what an operator sees for both a missing and an unreadable file.
+            readable=False,
         ),
     ] = None,
     rotate_token: Annotated[
@@ -391,6 +396,9 @@ def maintenance(
 
     if page is not None and not page.exists():
         output.error(f"--page file not found: {page}", exception=typer.Exit(code=1))
+
+    if page is not None and not os.access(page, os.R_OK):
+        output.error(f"--page file is not readable: {page}", exception=typer.Exit(code=1))
 
     for ip in allow_ip:
         try:

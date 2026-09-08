@@ -130,17 +130,21 @@ def add_certificate(
     ] = False,
     cert: Annotated[
         Path | None,
-        typer.Option("--cert", help="Certificate file (PEM). --custom only."),
+        # readable=False on all three: click's implicit readable=True would fail with its own
+        # wording before the "file not found" check below, or CustomCertificateService._read_file's
+        # own readability wrapping, ever runs.
+        typer.Option("--cert", help="Certificate file (PEM). --custom only.", readable=False),
     ] = None,
     key: Annotated[
         Path | None,
-        typer.Option("--key", help="Private key file (PEM), unencrypted. --custom only."),
+        typer.Option("--key", help="Private key file (PEM), unencrypted. --custom only.", readable=False),
     ] = None,
     ca: Annotated[
         Path | None,
         typer.Option(
             "--ca",
             help="CA bundle file (PEM). Optional; when given, bench containers trust it for outbound self-calls once you run 'fm start BENCH' to apply the updated compose. --custom only.",
+            readable=False,
         ),
     ] = None,
     behind_proxy: Annotated[

@@ -125,7 +125,13 @@ def remove_site_tls(bench_path: Path, site: str) -> None:
 
 
 def _validated_ca_source(ca_source: Path) -> Path:
-    """Fail on the operator's own path, before anything is written."""
+    """Fail on the operator's own path, before anything is written.
+
+    Reached from two directions: `bench_orchestrator.py` calls `install_site_ca` directly at
+    create time (never through Click), and `fm update --db-ca` declares its Option with
+    `readable=False` specifically so THIS PermissionError -- not click's own "is not readable"
+    wording -- is what an operator sees for an unreadable CA file.
+    """
     if not ca_source.exists():
         raise FileNotFoundError(f"CA file not found: {ca_source}")
     if not ca_source.is_file():

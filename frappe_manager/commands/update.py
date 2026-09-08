@@ -270,6 +270,9 @@ def update(
             "--db-ca",
             help="Reinstall the external database CA after a rotation: the site PEM, the bench ca-bundle.pem the dumps use, and the recorded path are refreshed together.",
             show_default=False,
+            # Same reason as create's --db-ca: click's implicit readable=True would fail with its
+            # own wording before db_tls.install_site_ca's PermissionError check ever gets a turn.
+            readable=False,
             rich_help_panel=_PANEL_SITE,
         ),
     ] = None,
