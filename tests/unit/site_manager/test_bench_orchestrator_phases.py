@@ -20,6 +20,7 @@ Two layers:
   (directories before compose, site file before new-site, re-check before provisioning) is pinned.
 """
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -37,6 +38,7 @@ from frappe_manager.site_manager.bench_config import (
 from frappe_manager.site_manager.exceptions import BenchException, BenchOperationException
 from frappe_manager.site_manager.modules import db_probe, db_tls
 from frappe_manager.site_manager.modules.bench_orchestrator import BenchOrchestrator
+from frappe_manager.site_manager.site import Bench
 
 SITE = "app.example.com"
 SCHEMA = "app_prod"
@@ -934,6 +936,28 @@ def test_the_gate_marks_the_provisioning_path_in_the_site_file(tmp_path, monkeyp
     assert adopting.written_site_configs[0]["db_name"] == SCHEMA
 
 
+def test_an_external_db_provision_create_sets_no_default_site_before_phase_four(tmp_path, monkeypatch):
+    """The live-run finding, pinned cheaply with the mocked pipeline (no real database needed).
+
+    A provision create writes `sites/<site>/site_config.json` with real credentials in the gate,
+    between phase 1 and phase 2, but the schema behind it has no tables until `new-site` runs in
+    phase 4. Setting `default_site` any earlier makes phase 3's Host-less probe stop 404ing and
+    route into a real `frappe.init()` against that half-provisioned site instead -- measured on a
+    live server as an `AttributeError: is_ajax` crash, a 500 on every retry, and a phase-3 timeout
+    before `new-site` is ever reached. Local-database mount creates are not at risk (no
+    `site_config.json` exists before phase 4 there either) and neither is attach (its schema
+    already holds real tables); this pins only the flow that is genuinely fragile.
+    """
+    harness = _Harness(_config(tmp_path, external=True), tmp_path)
+    harness.config.db_admin_user = ADMIN_USER
+    harness.config.db_admin_password = ADMIN_PASSWORD
+    harness.stage_one_returns(monkeypatch, ABSENT)
+
+    harness.reraising_orchestrator(real=("_phase1_prepare_structure", "_external_database_gate")).create_bench()
+
+    assert not [c for c in harness.bench.set_common_bench_config.call_args_list if "default_site" in c[0][0]]
+
+
 def test_the_gate_withholds_a_password_fm_minted_itself_from_the_probe(tmp_path, monkeypatch):
     """Only a password the OPERATOR supplied can be authenticated. Offering fm's own generated one
     would fail the credentials check and suppress the refusal that catches a pre-existing login."""
@@ -1433,6 +1457,57 @@ def test_attach_phase_four_builds_only_the_directories(attach_harness):
         "create_site_dirs"
     ]
     harness.events.before("create_site_dirs", "sync_bench_config_configuration")
+
+
+def test_attach_writes_default_site_to_a_real_common_site_config(attach_harness):
+    """Every other path gets `default_site` for free from `create_bench_site`'s own `bench use
+    <site>`, run right after `new-site` (bench_site.py's `set_default` block). Attach never
+    calls `create_bench_site` at all -- that is the one thing it must never run -- so nothing
+    else records which site this bench serves, and phase 5's `is_bench_created` would have no
+    site to route an unqualified request to without this.
+
+    Bound to the REAL `Bench.set_common_bench_config` against a real temp file rather than the
+    `MagicMock` stub, which "succeeds" whether or not a file backs it -- exactly the shape of bug
+    that let a previous, now-removed attempt at this (seeded in phase 1) hide for so long. This
+    proves the key actually reaches disk, not just that a mock recorded a call.
+    """
+    harness = attach_harness()
+    common_site_config = harness.sites_dir / "common_site_config.json"
+    common_site_config.parent.mkdir(parents=True, exist_ok=True)
+    common_site_config.write_text("{}")  # already exists by phase 4: create_compose_dirs and phase 2 both ran first
+    harness.bench.set_common_bench_config.side_effect = lambda config: Bench.set_common_bench_config(
+        harness.bench, config
+    )
+
+    harness.reraising_orchestrator(
+        real=("_external_database_gate", "_phase4_create_site", "_recheck_external_schema", "_attach_existing_site")
+    ).create_bench()
+
+    assert json.loads(common_site_config.read_text())["default_site"] == SITE
+
+
+def test_attach_still_calls_is_bench_created_unlike_bench_only(attach_harness):
+    """`_phase5_finalize` skips the web check only for `bench_only` (`self._phase5_finalize()`
+    with no argument defaults it to False), and attach is not that: `_run_creation` calls it the
+    same way every full create does. An attached bench that fails to serve must still fail the
+    create instead of reporting success on a bench nothing ever verified."""
+    harness = attach_harness()
+    harness.bench.is_bench_created.return_value = False
+
+    orchestrator = harness.orchestrator(
+        real=(
+            "_external_database_gate",
+            "_phase4_create_site",
+            "_recheck_external_schema",
+            "_attach_existing_site",
+            "_phase5_finalize",
+        )
+    )
+    orchestrator.create_bench()
+
+    assert harness.bench.is_bench_created.called is True
+    orchestrator._handle_creation_failure.assert_called_once()
+    assert "inactive or unresponsive" in str(orchestrator._handle_creation_failure.call_args[0][0])
 
 
 def test_attach_skips_phase_six_and_calls_that_a_success(attach_harness):
@@ -2010,6 +2085,61 @@ def test_a_kept_bench_is_described_after_a_failure(tmp_path):
     harness.events.before("remove_bench(default_choice=False)", "info")
 
 
+def test_a_non_interactive_failure_leaves_the_bench_with_a_message_instead_of_crashing(tmp_path):
+    """`remove_bench`'s own confirmation (`_confirm_removal`) sets `required_flag`, which
+    `prompt_ask` checks ahead of any default, so it raises `NonInteractiveError` regardless of
+    `default_choice` whenever there is no TTY. That used to propagate straight out of failure
+    handling itself: an uncontrolled crash from deep inside `remove_bench`, with the half-created
+    bench left on disk and nothing said about it anywhere. Declining is now the deliberate
+    non-interactive answer, same as `_offer_to_drop_provisioned_schema` above it, but the bench
+    being kept must be announced -- silence is the orphan this method exists to prevent. It still
+    re-raises the ORIGINAL exception afterwards (see the next test): a message on its own does
+    not fail the command, and a script or CI job reads the exit code, not this warning.
+    """
+    harness = _Harness(_config(tmp_path), tmp_path)
+    orchestrator = harness.orchestrator(real=("_handle_creation_failure",))
+    harness.output.is_interactive.return_value = False
+
+    with pytest.raises(RuntimeError, match="phase 5 died"):
+        _fail(orchestrator, "phase 5 died")
+
+    assert harness.events.has("remove_bench") is False
+    warned = " ".join(str(call) for call in harness.output.warning.call_args_list)
+    assert "Non-interactive" in warned
+    assert str(harness.bench.path) in warned
+    assert f"fm delete {SITE} --yes" in warned
+
+
+def test_a_non_interactive_failed_create_does_not_report_success(tmp_path):
+    """Pin the actual regression a live run caught: printing the warning above is not enough on
+    its own. Before this, `_handle_creation_failure` returning normally let `_run_creation`'s
+    `except` swallow the failure, `create_bench` return as if nothing had happened, and `fm
+    create` exit 0 for a bench it never finished building. Assert on what carries the failure
+    outward -- the exception `create_bench` itself now raises -- not on any printed text.
+    """
+    harness = _Harness(_config(tmp_path), tmp_path)
+    orchestrator = harness.orchestrator(real=("_handle_creation_failure",))
+    harness.output.is_interactive.return_value = False
+    orchestrator._phase5_finalize = MagicMock(side_effect=RuntimeError("phase 5 died"))
+
+    with pytest.raises(RuntimeError, match="phase 5 died"):
+        orchestrator.create_bench()
+
+    assert harness.events.has("remove_bench") is False
+
+
+def test_an_interactive_failure_still_offers_to_remove_the_bench(tmp_path):
+    """The non-interactive branch must not swallow the ordinary, TTY-backed path above it."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+    orchestrator = harness.orchestrator(real=("_handle_creation_failure",))
+    harness.output.is_interactive.return_value = True
+
+    _fail(orchestrator, "phase 5 died")
+
+    assert harness.events.only("remove_bench") == ["remove_bench(default_choice=False)"]
+    assert harness.output.warning.called is False
+
+
 # --------------------------------------------------------------------------- start_bench
 #
 # The other ordered workflow in this module. Same contract shape: which optional step runs under
@@ -2381,50 +2511,3 @@ def test_a_full_service_restart_regenerates_the_compose_between_stop_and_up(tmp_
     harness.events.before("compose_up", "admin_tools_enable(force_recreate_container=True)")
     harness.events.before("admin_tools_enable", "wait_for_services")
     harness.events.before("wait_for_services", "workers_up")
-
-
-def test_phase_one_records_the_default_site_after_the_compose_file_exists(tmp_path):
-    """`default_site` is seeded here, and the ORDER is the whole point.
-
-    `bench use` writes it too, but not until `create_bench_site` runs, and `bench.site_name` is
-    read before that for the "Creating bench site <x>" head line. In that window the sites table
-    is recorded while the key is absent, so the resolver fell back to guessing from the bench name
-    for the one bench whose answer was never in doubt.
-
-    It has to land AFTER `generate_compose`, which is what creates `common_site_config.json`;
-    writing earlier has nothing to write into.
-    """
-    harness = _Harness(_config(tmp_path), tmp_path)
-
-    harness.reraising_orchestrator(real=("_phase1_prepare_structure",)).create_bench()
-
-    (call,) = [c for c in harness.bench.set_common_bench_config.call_args_list if "default_site" in c[0][0]]
-    assert call[0][0]["default_site"] == SITE
-    harness.events.before("generate_compose(bench_dir_exists=True)", "create_compose_dirs")
-
-
-def test_phase_one_records_no_default_site_when_the_primary_is_ambiguous(tmp_path):
-    """Two sites, neither named after the bench: recording a guess would put fm's choice beyond
-    the operator's sight, and `fm shell BENCH/SITE` is what resolves it instead."""
-    config = _config(tmp_path)
-    config.sites = {
-        "a.example.com": SiteConfig(),
-        "b.example.com": SiteConfig(),
-    }
-    config.name = "acme"
-    harness = _Harness(config, tmp_path)
-
-    harness.reraising_orchestrator(real=("_phase1_prepare_structure",)).create_bench()
-
-    assert not [c for c in harness.bench.set_common_bench_config.call_args_list if "default_site" in c[0][0]]
-
-
-def test_phase_one_survives_an_unwritable_common_site_config(tmp_path):
-    """Best effort by design: the site does not exist yet, nothing downstream depends on this
-    having landed, and `bench use` writes it again a few steps later. A create must not fail here."""
-    harness = _Harness(_config(tmp_path), tmp_path)
-    harness.bench.set_common_bench_config.side_effect = OSError("read-only")
-
-    harness.reraising_orchestrator(real=("_phase1_prepare_structure",)).create_bench()
-
-    assert harness.root.is_dir()

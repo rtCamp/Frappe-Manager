@@ -1,5 +1,3 @@
-import contextlib
-
 """
 BenchOrchestrator - Complex workflow orchestration for bench operations
 
@@ -326,23 +324,6 @@ class BenchOrchestrator:
 
         bench.generate_compose(compose_inputs)
 
-        # `default_site` as soon as the file exists, which `generate_compose` above just made.
-        # `bench use` writes it too, but not until `create_bench_site` runs, and `bench.site_name`
-        # is read before that (the head line for "Creating bench site <x>"). In that window the
-        # sites table is already recorded while the key is absent, so the resolver had to fall back
-        # to guessing from the bench's name for the one bench where the answer was never in doubt.
-        # Writing it here means a fm-created bench carries the recorded answer from the start, and
-        # an absent key comes to mean only "created before fm wrote it", which the migration fills.
-        #
-        # `primary_site_or_none`, not `primary_site`: a bench whose primary is genuinely ambiguous
-        # must not have a guess recorded for it, and must not fail here either.
-        seed_default = bench.bench_config.primary_site_or_none()
-        if seed_default:
-            with contextlib.suppress(Exception):
-                # Best effort by design. The site does not exist yet, so nothing downstream depends
-                # on this having landed; `bench use` writes it again a few steps later.
-                bench.set_common_bench_config({"default_site": seed_default})
-
         base_image = bench.bench_config.base_image
         if base_image:
             # Same blind spot as `transport.image_present`: this matches only `Repository` and
@@ -361,6 +342,14 @@ class BenchOrchestrator:
         bench.create_compose_dirs(
             copy_runtimes=bench.bench_config.runtime != BenchRuntime.image and not bench.bench_config.seed_image
         )
+
+        # Do NOT seed `default_site` here, even best-effort. Measured on a live server: setting
+        # it this early makes phase 3's Host-less probe stop 404ing and route into a real
+        # `frappe.init()` against a site whose `site_config.json` exists (external-db creates
+        # write it before phase 2) but whose schema has no tables until phase 4 -- an
+        # AttributeError: is_ajax crash, a 500 on every retry, and the create times out before
+        # `new-site` ever runs. `_attach_existing_site` sets `default_site` itself, safely,
+        # because by then phase 4 has already passed.
 
     def _phase2_initialize_bench(self) -> None:
         """Phase 2: Initialize bench using docker compose run (no persistent containers)"""
@@ -894,6 +883,22 @@ class BenchOrchestrator:
             f"Created the site directories for {bench.site_name}. Nothing was written to {database.name} on {database.host}."
         )
 
+        # Record which site this bench serves. Every other path gets `default_site` for free
+        # from `create_bench_site`'s own `bench use <site>` call, run right after `new-site`
+        # (bench_site.py, the `set_default` block) -- attach never calls `create_bench_site` at
+        # all, since running it is the one thing attach must never do (it wraps `new-site` /
+        # `bootstrap_database`, which DROPs core tables before repopulating them, against a
+        # schema this path promises not to touch). `_phase1_prepare_structure` deliberately does
+        # NOT seed this early (see its own comment: doing so 500s a provision create, since the
+        # schema has no tables yet when phase 3 probes it), so nothing sets `default_site` before
+        # this point on the attach path. Left unset, phase 5's `is_bench_created` has no site to
+        # route an unqualified request to and fails a bench that is otherwise completely healthy.
+        # Safe here specifically because attach's schema already holds real tables and phase 4
+        # (this method) has already run -- the same probe that 500s a provisioning create simply
+        # serves the real site instead.
+        bench.set_common_bench_config({"default_site": bench.site_name})
+        self.output.print(f"Recorded {bench.site_name} as the bench's default site")
+
     def _disable_migrate_for_attach(self) -> None:
         """Turn `[switch].migrate` off as soon as the attach decision is made.
 
@@ -1181,10 +1186,39 @@ class BenchOrchestrator:
 
         self._offer_to_drop_provisioned_schema()
 
-        if bench.exists:
-            remove_status = bench.remove_bench(default_choice=False)
-            if not remove_status:
-                bench.info()
+        if not bench.exists:
+            return
+
+        if not self.output.is_interactive():
+            # No TTY, or the global --non-interactive flag. `remove_bench`'s own confirmation
+            # (`_confirm_removal`) sets `required_flag`, which `prompt_ask` checks ahead of any
+            # default, so it ALWAYS raises `NonInteractiveError` here regardless of
+            # `default_choice` -- and that exception was propagating straight out of failure
+            # handling itself, a second unhandled crash on top of the one that triggered this
+            # method, with the half-created bench left on disk and no message about it at all.
+            #
+            # Matching `_offer_to_drop_provisioned_schema` just above: declining is the
+            # deliberate non-interactive answer for a destructive action taken with nobody
+            # watching, not a silent auto-yes -- an unattended `fm create` must not choose to
+            # delete a directory an operator cannot see being deleted. The difference from the
+            # old crash is that the choice is announced and actionable, so "orphaned with no
+            # message" cannot happen: the bench stays, and exactly where it is and how to remove
+            # it are printed.
+            #
+            # Still re-raises `exception` below, deliberately: printing a warning and returning
+            # cleanly let `_run_creation`'s `except` swallow it, `create_bench` return normally,
+            # and `fm create` exit 0 on a create that built nothing -- a script or CI job reads
+            # the exit code, not this message. Re-raising is what makes this path fail the
+            # command the way phase 6's failures already do, instead of only reporting one.
+            self.output.warning(
+                f"Non-interactive: leaving the failed bench {bench.name!r} at {bench.path} for "
+                f"inspection. Remove it with: fm delete {bench.name} --yes"
+            )
+            raise exception
+
+        remove_status = bench.remove_bench(default_choice=False)
+        if not remove_status:
+            bench.info()
 
     def start_bench(
         self,
