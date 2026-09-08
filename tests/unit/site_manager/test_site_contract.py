@@ -499,12 +499,12 @@ class TestLifecycleSequencing:
     def test_create_delegates_the_bench_only_flag_to_the_orchestrator(self, harness):
         harness.bench.orchestrator = MagicMock()
         harness.bench.create(bench_only=True)
-        harness.bench.orchestrator.create_bench.assert_called_once_with(True)
+        harness.bench.orchestrator.create_bench.assert_called_once_with(True, remove_on_failure=False)
 
     def test_create_defaults_to_a_full_bench(self, harness):
         harness.bench.orchestrator = MagicMock()
         harness.bench.create()
-        harness.bench.orchestrator.create_bench.assert_called_once_with(False)
+        harness.bench.orchestrator.create_bench.assert_called_once_with(False, remove_on_failure=False)
 
     def test_create_failure_propagates_rather_than_being_swallowed(self, harness):
         harness.bench.orchestrator = MagicMock()

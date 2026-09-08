@@ -121,6 +121,7 @@ class BenchService:
         bench_name: str,
         bench_config: BenchConfig,
         bench_only: bool = False,
+        remove_on_failure: bool = False,
     ) -> Bench:
         """
         Create a new bench.
@@ -135,6 +136,9 @@ class BenchService:
             bench_name: Name for the new bench
             bench_config: Configuration for the bench
             bench_only: Build the bench and stop, with no site in it
+            remove_on_failure: If True, a failed create removes the bench directory and its
+                containers without prompting instead of asking or declining. Never touches a
+                schema on an external database host.
 
         Returns:
             Created Bench instance
@@ -161,7 +165,7 @@ class BenchService:
             output_handler=self.output,
         )
 
-        bench.create(bench_only=bench_only)
+        bench.create(bench_only=bench_only, remove_on_failure=remove_on_failure)
         return bench
 
     def delete_bench(

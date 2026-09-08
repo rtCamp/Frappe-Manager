@@ -24,6 +24,7 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `-a, --apps`: App to install: appname or owner/repo, optional :branch (repeatable). Frappe is always first.
 * `--developer-mode`: Let DocType edits write app source files. Already on for a dev-environment bench.
 * `--bench-only`: Create the bench (config, directory, workspace or image, and containers) with no site in it. 'fm create BENCH/SITE' adds a site afterwards, into the workspace and containers already there. Every Site Option is ignored: there is no site yet for them to describe.
+* `--remove-on-failure`: On failure, skip the removal prompt and remove the bench directory and its containers, interactively or not, instead of asking (interactive) or declining and reporting (non-interactive). The command still exits non-zero either way: this cleans up, it does not turn the failure into success. Never drops a schema on an external database (--db-host); that stays declined whether this is passed or not.
 * `-t, --github-token`: Token for cloning private app repos.
 * `--python`: Python version, e.g. '3.11'. Auto-detected by default.
 * `--node`: Node version, e.g. '20'. Auto-detected by default.
@@ -102,6 +103,14 @@ Pass --db-admin-user with --db-admin-password instead of --db-password to have f
 
 ```bash
 fm create mybench --db-host db.example.com --db-name app_prod --db-password - --db-ca /etc/ssl/rds-bundle.pem
+```
+
+### Clean up automatically in CI
+
+Pair with fm's own global -n: fm -n create mybench --apps erpnext --remove-on-failure removes the bench and its containers on failure instead of leaving them, and still exits non-zero either way.
+
+```bash
+fm create mybench --apps erpnext --remove-on-failure
 ```
 
 ## Related

@@ -738,6 +738,12 @@ def _resolve_external_options(
     detail="Pass --db-admin-user with --db-admin-password instead of --db-password to have fm create the schema, the user and the grant.",
     benchname="mybench",
 )
+@example(
+    "Clean up automatically in CI",
+    "{benchname} --apps erpnext --remove-on-failure",
+    detail="Pair with fm's own global -n: fm -n create {benchname} --apps erpnext --remove-on-failure removes the bench and its containers on failure instead of leaving them, and still exits non-zero either way.",
+    benchname="mybench",
+)
 def create(
     ctx: typer.Context,
     address: Annotated[
@@ -776,6 +782,14 @@ def create(
         ),
     ] = EnableDisableOptionsEnum.disable,
     bench_only: Annotated[bool, typer.Option(help="Create the bench (config, directory, workspace or image, and containers) with no site in it. 'fm create BENCH/SITE' adds a site afterwards, into the workspace and containers already there. Every Site Option is ignored: there is no site yet for them to describe.")] = False,
+    remove_on_failure: Annotated[
+        bool,
+        typer.Option(
+            "--remove-on-failure",
+            help="On failure, skip the removal prompt and remove the bench directory and its containers, interactively or not, instead of asking (interactive) or declining and reporting (non-interactive). The command still exits non-zero either way: this cleans up, it does not turn the failure into success. Never drops a schema on an external database (--db-host); that stays declined whether this is passed or not.",
+            show_default=False,
+        ),
+    ] = False,
     github_token: Annotated[
         str | None,
         typer.Option(
@@ -1201,4 +1215,4 @@ def create(
         output.warning("    Containers will not auto-recover from failures or system reboots")
 
     with spinner(output, "Creating bench"):
-        bench_service.create_bench(address, bench_config, bench_only=bench_only)
+        bench_service.create_bench(address, bench_config, bench_only=bench_only, remove_on_failure=remove_on_failure)

@@ -501,13 +501,16 @@ class Bench:
     def exists(self):
         return self.path.exists()
 
-    def create(self, bench_only: bool = False):
+    def create(self, bench_only: bool = False, remove_on_failure: bool = False):
         """
         Create this bench.
 
         Args:
             bench_only: If True, build the bench and stop: no site is created in it. Sites are added
                 afterwards with `fm create BENCH/SITE`.
+            remove_on_failure: If True, a failed create removes the bench directory and its
+                containers without prompting, interactively or not, instead of asking or declining.
+                Never touches a schema on an external database host; see `BenchOrchestrator.create_bench`.
 
         Returns:
             None
@@ -515,7 +518,7 @@ class Bench:
         extra = {"operation": "bench_create", "bench_name": self.name, "bench_only": bench_only}
         self.logger.debug(f"Starting bench creation: {self.name}", extra_fields=extra)
         try:
-            self.orchestrator.create_bench(bench_only)
+            self.orchestrator.create_bench(bench_only, remove_on_failure=remove_on_failure)
             self.logger.info(f"Bench created successfully: {self.name}", extra_fields=extra)
         except Exception as e:
             extra["error"] = str(e)

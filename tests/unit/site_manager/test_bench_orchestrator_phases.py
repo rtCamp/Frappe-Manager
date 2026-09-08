@@ -340,7 +340,7 @@ class _Harness:
         it. Re-raise so a broken fake surfaces instead of a silently truncated pipeline."""
         orchestrator = self.orchestrator(real=real)
 
-        def _reraise(exception: Exception):
+        def _reraise(exception: Exception, *, remove_on_failure: bool = False):
             self.events.append(f"handle_creation_failure({type(exception).__name__})")
             raise exception
 
@@ -404,13 +404,13 @@ def _fake_image_transport(monkeypatch, apps: str = "frappe\nerpnext\n") -> _Even
     return calls
 
 
-def _fail(orchestrator: BenchOrchestrator, message: str) -> None:
+def _fail(orchestrator: BenchOrchestrator, message: str, *, remove_on_failure: bool = False) -> None:
     """Drive `_handle_creation_failure` the way `create_bench` does: from inside an `except`
     block, because it formats the live traceback."""
     try:
         raise RuntimeError(message)
     except RuntimeError as exception:
-        orchestrator._handle_creation_failure(exception)
+        orchestrator._handle_creation_failure(exception, remove_on_failure=remove_on_failure)
 
 
 # --------------------------------------------------------------------------- skeleton: phase order
@@ -2138,6 +2138,81 @@ def test_an_interactive_failure_still_offers_to_remove_the_bench(tmp_path):
 
     assert harness.events.only("remove_bench") == ["remove_bench(default_choice=False)"]
     assert harness.output.warning.called is False
+
+
+# --------------------------------------------------------------------------- --remove-on-failure
+#
+# The flag only changes the two `remove_on_failure=True` cells below; the two `remove_on_failure=
+# False` (default) cells are already pinned above by
+# `test_an_interactive_failure_still_offers_to_remove_the_bench` (interactive: prompts) and
+# `test_a_non_interactive_failure_leaves_the_bench_with_a_message_instead_of_crashing`
+# (non-interactive: declines and reports). The exit code stays non-zero in every one of the four
+# cells: cleaning up on request is not the same as recovering.
+
+
+def test_remove_on_failure_skips_the_interactive_prompt_and_removes(tmp_path):
+    """Interactive, flag present: removed without asking, and the command still fails."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+    orchestrator = harness.orchestrator(real=("_handle_creation_failure",))
+    harness.output.is_interactive.return_value = True
+
+    with pytest.raises(RuntimeError, match="phase 5 died"):
+        _fail(orchestrator, "phase 5 died", remove_on_failure=True)
+
+    assert harness.bench.remove_bench.call_args.kwargs == {"prompt": False, "delete_db_from_global_db": True}
+    assert harness.output.prompt_ask.called is False
+
+
+
+
+def test_remove_on_failure_removes_non_interactively_and_reports(tmp_path):
+    """Non-interactive, flag present: removed, what was removed is reported, and the command
+    still fails -- the opposite of the no-flag decline just above, which leaves the bench and
+    only reports where it is."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+    orchestrator = harness.orchestrator(real=("_handle_creation_failure",))
+    harness.output.is_interactive.return_value = False
+
+    with pytest.raises(RuntimeError, match="phase 5 died"):
+        _fail(orchestrator, "phase 5 died", remove_on_failure=True)
+
+    assert harness.bench.remove_bench.call_args.kwargs == {"prompt": False, "delete_db_from_global_db": True}
+    warned = " ".join(str(call) for call in harness.output.warning.call_args_list)
+    assert "removed" in warned
+    assert str(harness.bench.path) in warned
+    assert "Non-interactive: leaving" not in warned
+
+
+def test_remove_on_failure_never_reaches_a_kept_bench(tmp_path):
+    """`bench.exists` still gates the flag exactly like the two branches it short-circuits: a
+    create that never wrote a directory has nothing for the flag to remove either."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+    harness.bench.exists = False
+    orchestrator = harness.orchestrator(real=("_handle_creation_failure",))
+
+    _fail(orchestrator, "phase 1 died", remove_on_failure=True)
+
+    assert harness.events.has("remove_bench") is False
+
+
+def test_remove_on_failure_still_leaves_an_external_schema_declined(tmp_path):
+    """The judgement call: `--remove-on-failure` covers only the bench directory and its
+    containers. A schema on a server fm does not own is a second, more dangerous prompt
+    (`_offer_to_drop_provisioned_schema`), and it stays on its own non-interactive default --
+    declined -- whether this flag is passed or not."""
+    harness = _Harness(_config(tmp_path, external=True), tmp_path)
+    harness.config.db_admin_user = ADMIN_USER
+    harness.config.db_admin_password = ADMIN_PASSWORD
+    orchestrator = harness.orchestrator(real=("_handle_creation_failure",))
+    orchestrator._provisioned = harness.config.get_database_config(SITE)
+    harness.output.is_interactive.return_value = False
+
+    with pytest.raises(RuntimeError, match="phase 5 died"):
+        _fail(orchestrator, "phase 5 died", remove_on_failure=True)
+
+    left = " ".join(str(call) for call in harness.output.print.call_args_list)
+    assert f"Left schema {SCHEMA}" in left
+    assert harness.bench.site_manager._container_exec_argv.called is False
 
 
 # --------------------------------------------------------------------------- start_bench

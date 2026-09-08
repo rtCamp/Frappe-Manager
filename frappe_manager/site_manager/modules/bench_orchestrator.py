@@ -100,7 +100,7 @@ class BenchOrchestrator:
         # admin credentials and has no business dropping anything.
         self._provisioned: DatabaseConfig | None = None
 
-    def create_bench(self, bench_only: bool = False) -> None:
+    def create_bench(self, bench_only: bool = False, remove_on_failure: bool = False) -> None:
         """
         Orchestrate the complete bench creation workflow using 5-phase approach.
 
@@ -140,6 +140,7 @@ class BenchOrchestrator:
 
         Args:
             bench_only: If True, creates the bench (config, directory, workspace/image and containers) with no site in it. `fm create BENCH/SITE` adds a site into it afterwards.
+            remove_on_failure: If True, `_handle_creation_failure` removes the bench directory and its containers without prompting, interactively or not, instead of asking (interactive) or declining and reporting (non-interactive). Never reaches the external-schema offer above it in `_handle_creation_failure`, which stays prompt-or-decline regardless.
 
         Raises:
             Exception: If any step in the creation process fails
@@ -148,7 +149,7 @@ class BenchOrchestrator:
 
         bench.docker_ops.check_required_docker_images_available()
 
-        apps_installed = self._run_creation(bench_only)
+        apps_installed = self._run_creation(bench_only, remove_on_failure=remove_on_failure)
 
         if apps_installed is False:
             # The teardown was already offered (and possibly declined); what is left is to fail.
@@ -160,7 +161,7 @@ class BenchOrchestrator:
                 message="Bench creation failed: the site was not fully set up. See the warning above.",
             )
 
-    def _run_creation(self, bench_only: bool) -> bool | None:
+    def _run_creation(self, bench_only: bool, *, remove_on_failure: bool = False) -> bool | None:
         """Run the creation pipeline and hand back phase 6's verdict.
 
         None means there is no verdict: a bench-only create has no phase 6, and a phase that raised
@@ -218,7 +219,7 @@ class BenchOrchestrator:
             return apps_installed
 
         except Exception as e:
-            self._handle_creation_failure(e)
+            self._handle_creation_failure(e, remove_on_failure=remove_on_failure)
             return None
 
     def _report_created_bench(self, apps_installed: bool) -> None:
@@ -1165,7 +1166,7 @@ class BenchOrchestrator:
         """
         self.output.print(f"Created bench: {self.bench.name}", emoji_code=":white_check_mark:")
 
-    def _handle_creation_failure(self, exception: Exception):
+    def _handle_creation_failure(self, exception: Exception, *, remove_on_failure: bool = False):
         """Handle failures during bench creation with cleanup."""
         from frappe_manager import CLI_DIR
         from frappe_manager.utils.helpers import capture_and_format_exception
@@ -1188,6 +1189,24 @@ class BenchOrchestrator:
 
         if not bench.exists:
             return
+
+        if remove_on_failure:
+            # Short-circuits BOTH branches below: the interactive prompt and the non-interactive
+            # decline. It answers only the question this method itself asks -- remove the bench
+            # directory and its containers -- never the one `_offer_to_drop_provisioned_schema`
+            # already asked above: a schema on a server fm does not own stays declined, flag or
+            # no flag. The schema THIS bench owns on the fm-managed global-db container is
+            # different: it is the bench's own data, the same thing an ordinary `fm delete`
+            # already drops by default, so `delete_db_from_global_db=True` is passed explicitly
+            # rather than left for `_resolve_site_schema` to ask about -- unanswered, that prompt
+            # would raise `NonInteractiveError` from inside `remove_bench` with nobody there to
+            # answer it, defeating the one promise this flag makes.
+            bench.remove_bench(prompt=False, delete_db_from_global_db=True)
+            self.output.warning(
+                f"--remove-on-failure: removed the failed bench {bench.name!r} and its containers "
+                f"from {bench.path}. The create still failed."
+            )
+            raise exception
 
         if not self.output.is_interactive():
             # No TTY, or the global --non-interactive flag. `remove_bench`'s own confirmation

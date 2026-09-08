@@ -1015,7 +1015,7 @@ def test_create_bench_wires_the_compose_path_then_runs_creation(tmp_path):
     set_ctx.assert_called_once_with(bench="a.localhost", operation="create")
     assert bench_cls.call_args.kwargs["path"] == tmp_path / "a.localhost"
     assert bench_cls.call_args.kwargs["bench_config"] is config
-    got.create.assert_called_once_with(bench_only=True)
+    got.create.assert_called_once_with(bench_only=True, remove_on_failure=False)
     assert got is bench_cls.return_value
 
 
