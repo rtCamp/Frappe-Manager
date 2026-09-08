@@ -104,6 +104,19 @@ class FMNetworkConfig(BaseModel):
         return bool(self.subnet_cidr and self.proxy_ip)
 
 
+def recognised_fm_config_keys() -> frozenset[str]:
+    """Every top-level fm_config.toml key `FMConfigManager.import_from_toml` treats as meaningful.
+
+    Derived from `FMConfigManager.model_fields` rather than listed a second time, for the same
+    reason as `recognised_bench_config_keys` in bench_config.py: a field added or renamed here
+    changes the recognised set for free. Three names are not fields and are added by hand:
+    `ssl` (the table `dns_providers` is read out of), `migration_state` (kept in `_raw_config`,
+    never a pydantic field), and the pre-0.20.0 top-level `[cloudflare]` table this reader still
+    folds into `dns_providers` by hand.
+    """
+    return frozenset(FMConfigManager.model_fields) | {"ssl", "migration_state", "cloudflare"}
+
+
 class FMConfigManager(BaseModel):
     root_path: Path
     version: Version
@@ -213,6 +226,21 @@ class FMConfigManager(BaseModel):
 
         if path.exists():
             data = tomlkit.parse(path.read_text())
+
+            # A misspelled top-level key or table header (e.g. `[validaton]`) parses cleanly here
+            # and is simply never looked at below, exactly the same silent-drop hazard as the
+            # bench-side reader. This host's global config is read by every `fm` command, so a
+            # typo warns rather than raises.
+            unknown_keys = set(data.keys()) - recognised_fm_config_keys()
+            if unknown_keys:
+                from frappe_manager.output_manager import warn_or_log
+
+                warn_or_log(
+                    "metadata_manager",
+                    f"fm_config.toml has unrecognised key(s) {', '.join(sorted(unknown_keys))}; "
+                    "check for a typo, since fm will not use them.",
+                )
+
             input_data["version"] = Version(data.get("version", get_current_fm_version()))
 
             input_data["ngrok_auth_token"] = data.get("ngrok_auth_token", None)

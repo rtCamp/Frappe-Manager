@@ -408,8 +408,9 @@ alias_domains = ["www.mybench.com", "alt.mybench.com"]
 !!! warning "Per site, not per bench"
     This key belongs to a site's table. A bench serving several sites has to say which one an
     alias reaches, because a hostname routes to exactly one schema. Written at the TOP LEVEL of
-    `bench_config.toml` it is silently ignored: the file loads, and the alias simply does not
-    exist. `fm migrate` moves a top-level list from an older bench under its primary site.
+    `bench_config.toml` it does nothing: the alias simply does not exist, though fm now warns
+    about the unrecognised key rather than loading it in silence. `fm migrate` moves a top-level
+    list from an older bench under its primary site.
 
 **Change via:** `fm update BENCH/SITE --add-alias www.example.com,alt.example.com` / `--remove-alias www.example.com`
 

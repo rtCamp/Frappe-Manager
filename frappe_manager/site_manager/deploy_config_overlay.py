@@ -17,6 +17,7 @@ from pathlib import Path
 import tomlkit
 
 from frappe_manager.exceptions import FrappeManagerException
+from frappe_manager.site_manager.bench_config import recognised_bench_config_keys, recognised_deploy_state_keys
 from frappe_manager.utils import toml_document
 
 
@@ -34,6 +35,22 @@ def resolve_source(value: str) -> str:
     except OSError:
         pass
     return value
+
+
+def _unrecognised_keys(overlay: dict) -> list[str]:
+    """Overlay keys ``BenchConfig.import_from_toml`` would never look at: an unrecognised
+    top-level key, or one inside ``[deploy_state]`` if the overlay sets that table.
+
+    Checked against `bench_config`'s own recognised-key derivation (not a second list), and
+    checked HERE rather than left to the eventual bench-config load, because this seam serves one
+    interactive command with an operator present to fix a typo before it lands on disk, unlike a
+    later `fm list`/`fm bake`/`fm switch` run that must not fail loudly over one bad file.
+    """
+    unrecognised = sorted(set(overlay) - recognised_bench_config_keys())
+    deploy_state = overlay.get("deploy_state")
+    if isinstance(deploy_state, dict):
+        unrecognised += sorted(f"deploy_state.{key}" for key in set(deploy_state) - recognised_deploy_state_keys())
+    return unrecognised
 
 
 def deep_merge(base, overlay: dict) -> None:
@@ -58,6 +75,12 @@ def merge_overlays(base_toml: str, configs: list[str]) -> str:
             raise ConfigOverlayError(f"Could not parse --config value as TOML ({value!r}): {e}") from e
         if not isinstance(overlay, dict):
             raise ConfigOverlayError(f"--config value is not a TOML table ({value!r})")
+        unrecognised = _unrecognised_keys(overlay)
+        if unrecognised:
+            raise ConfigOverlayError(
+                f"--config value ({value!r}) has unrecognised key(s) {', '.join(unrecognised)}; "
+                "check for a typo."
+            )
         deep_merge(doc, overlay)
     return tomlkit.dumps(doc)
 

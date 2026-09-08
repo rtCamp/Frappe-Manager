@@ -504,3 +504,72 @@ class TestHstsSurvivesTheTomlRoundTrip:
         assert BenchConfig.import_from_toml(out).get_primary_certificate().hsts == (
             "max-age=31536000; includeSubDomains"
         )
+
+
+class TestUnrecognisedKeysWarnRatherThanVanish:
+    """A key `import_from_toml` does not read used to disappear with no signal at all: the input
+    dict below names every key it wants and silently drops the rest. `fm list`/`fm bake`/`fm
+    switch`/`fm maintenance` skip the migration gate, so this must warn rather than raise --
+    the same tradeoff `TestStaleDeployStateKeysWarnLoudly` already makes for the deploy_state
+    rename.
+    """
+
+    def _warn(self, tmp_path, text: str):
+        from unittest.mock import MagicMock
+
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.base import OutputHandler
+
+        handler = MagicMock(spec=OutputHandler)
+        set_global_output_handler(handler)
+        try:
+            bc = _import(tmp_path, text)
+        finally:
+            set_global_output_handler(None)
+        return bc, handler
+
+    def test_an_unknown_top_level_key_warns(self, tmp_path):
+        bc, handler = self._warn(tmp_path, _BASE + "typoed_kee = true\n")
+
+        assert bc.name == "dev.localhost"  # loads regardless
+        handler.warning.assert_called_once()
+        message = handler.warning.call_args.args[0]
+        assert "dev.localhost" in message
+        assert "typoed_kee" in message
+
+    def test_a_misspelled_table_name_warns(self, tmp_path):
+        bc, handler = self._warn(tmp_path, _BASE + "[swithc]\nmigrate = true\n")
+
+        assert bc.switch is None  # the misspelled table is never read into the real field
+        handler.warning.assert_called_once()
+        assert "swithc" in handler.warning.call_args.args[0]
+
+    def test_no_warning_for_an_ordinary_config(self, tmp_path):
+        _, handler = self._warn(tmp_path, _BASE + "[switch]\nmigrate = true\n")
+
+        handler.warning.assert_not_called()
+
+    def test_a_retired_key_and_the_retired_table_do_not_warn(self, tmp_path):
+        """`REMOVED_CONFIG_TABLES`/`REMOVED_CONFIG_KEYS` exist so a bench that has not been
+        migrated yet keeps loading quietly; this warning must not turn that quiet toleration
+        into fresh noise on every single load."""
+        bc, handler = self._warn(
+            tmp_path,
+            _BASE + '[switch]\nmigrate = true\nsearch_replace = true\n\n[registry]\nregistry = "ghcr.io/acme"\n',
+        )
+
+        assert bc.switch.migrate is True
+        handler.warning.assert_not_called()
+
+    def test_an_unknown_deploy_state_key_warns(self, tmp_path):
+        """The same hole one level down: `[deploy_state]` is read the same hand-written way."""
+        bc, handler = self._warn(
+            tmp_path,
+            _BASE + '\n[deploy_state]\ncurrent_image = "v1"\ncurent_image = "typo"\n',
+        )
+
+        assert bc.deploy_state.current_image == "v1"
+        handler.warning.assert_called_once()
+        message = handler.warning.call_args.args[0]
+        assert "deploy_state" in message
+        assert "curent_image" in message

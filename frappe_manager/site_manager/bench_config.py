@@ -1080,6 +1080,51 @@ NOT_WRITTEN_TO_DISK: frozenset[str] = frozenset(
 READ_ONLY_INPUT_KEYS: frozenset[str] = frozenset({"apps", "apps_list", "admin_pass"})
 
 
+def recognised_bench_config_keys() -> frozenset[str]:
+    """Every top-level bench_config.toml key `import_from_toml` (and the `--config` overlay
+    seam ahead of it, see deploy_config_overlay.py) treats as meaningful -- including a table
+    this version no longer models but still loads without complaint.
+
+    Derived from `BenchConfig.model_fields` rather than listed a second time: every field name is
+    a legitimate on-disk spelling by definition, which already covers `NOT_WRITTEN_TO_DISK`
+    (fields like `db_password` a hand-written file may still name, even though fm never writes
+    them back) and `READ_ONLY_INPUT_KEYS` (`apps_list`/`admin_pass`, both real field names) without
+    naming either set again here -- the one way this cannot drift from the model is to read it
+    off the model. Three on-disk spellings are NOT field names and are added by hand: `environment`
+    (the field is `environment_type`), `apps` (the field is `apps_list`), and `ssl` (the table
+    `ssl_certificates`/`dns_providers` are read out of; neither is itself a top-level TOML key).
+
+    `REMOVED_CONFIG_TABLES` is unioned in, not excluded: a retired table already cannot reach
+    `BenchConfig` (nothing in `import_from_toml` reads it), so including it here only decides
+    whether a bench that still carries `[registry]` gets a fresh "unrecognised key" warning on
+    every load or the quiet toleration `REMOVED_CONFIG_TABLES` was introduced to provide. A typo
+    is a name that was NEVER valid; a retired table is a name that was, on purpose, and remains
+    the migration's job to remove, not this warning's.
+    """
+    return frozenset(BenchConfig.model_fields) | {"environment", "apps", "ssl"} | REMOVED_CONFIG_TABLES
+
+
+# Pre-rename spellings `import_from_toml` still tolerates inside `[deploy_state]`, with a warning
+# (see the stale-tag handling in `import_from_toml`). Named once so that warning and the recognised
+# set below cannot say two different things about the same two keys.
+_DEPLOY_STATE_STALE_KEYS: frozenset[str] = frozenset({"current_tag", "previous_tag"})
+
+
+def recognised_deploy_state_keys() -> frozenset[str]:
+    """Every `[deploy_state]` key `import_from_toml` looks at: `DeployState`'s own fields,
+    `history` (read by hand -- it is a list of `DeployStateEntry`, not a scalar `DeployState`
+    field), the pre-rename `current_tag`/`previous_tag` spellings the stale-tag warning already
+    tolerates, and any key `REMOVED_CONFIG_KEYS` retires from this table specifically (silently
+    tolerated, same reasoning as `REMOVED_CONFIG_TABLES` above -- none today, but a future
+    retirement from `DeployState` should not have to duplicate this exemption by hand)."""
+    return (
+        frozenset(DeployState.model_fields)
+        | {"history"}
+        | _DEPLOY_STATE_STALE_KEYS
+        | REMOVED_CONFIG_KEYS.get("deploy_state", frozenset())
+    )
+
+
 def _filter_removed(table: Any, name: str) -> dict:
     """`table` as a plain dict, minus any key removed from that model in this version."""
     removed = REMOVED_CONFIG_KEYS.get(name, frozenset())
@@ -1737,6 +1782,21 @@ class BenchConfig(BaseModel):
         data["root_path"] = str(path)
         domain: str = data.get("name", "")
 
+        # A key or table name fm does not recognise otherwise vanishes here with no signal: the
+        # dict built below names every key it wants and ignores everything else, so a typo'd
+        # top-level scalar or table header (e.g. `[swithc]`) parses cleanly and is simply never
+        # seen. `fm list`/`fm bake`/`fm switch`/`fm maintenance` skip the migration gate, so this
+        # warns rather than raises -- the same tradeoff as the stale deploy_state keys below.
+        unknown_keys = set(data.keys()) - recognised_bench_config_keys()
+        if unknown_keys:
+            from frappe_manager.output_manager import warn_or_log
+
+            warn_or_log(
+                "bench_config",
+                f"Bench '{domain}': bench_config.toml has unrecognised key(s) "
+                f"{', '.join(sorted(unknown_keys))}; check for a typo, since fm will not use them.",
+            )
+
         # [ssl] → ssl_certificates + dns_providers (internal fields)
         ssl_data = data.get("ssl") or {}
         ssl_certificates_list: list[SSLCertificate] = []
@@ -1771,22 +1831,28 @@ class BenchConfig(BaseModel):
             # can no longer see. `fm list`/`fm bake`/`fm switch` skip the migration gate, so this
             # must warn rather than raise; it never reads the old value into the new field, and
             # it is the only tolerance of the old shape this reader has.
-            stale_keys = {"current_tag", "previous_tag"} & deploy_state_data.keys()
+            from frappe_manager.output_manager import warn_or_log
+
+            stale_keys = _DEPLOY_STATE_STALE_KEYS & deploy_state_data.keys()
             if stale_keys:
-                message = (
+                warn_or_log(
+                    "bench_config",
                     f"Bench '{domain}': \\[deploy_state] still has {', '.join(sorted(stale_keys))} "
                     "from before the image/tag rename; its deploy history cannot be read, so "
                     "`fm switch --previous` will report no previous image as if this bench had "
-                    "never been deployed. Recreate the bench and redeploy to restore rollback."
+                    "never been deployed. Recreate the bench and redeploy to restore rollback.",
                 )
-                from frappe_manager.output_manager import get_global_output_handler, has_global_output_handler
 
-                if has_global_output_handler():
-                    get_global_output_handler().warning(message)
-                else:
-                    from frappe_manager.logger import get_logger
-
-                    get_logger(component="bench_config").warning(message)
+            # Same hole one level down: `current_image`/`previous_image`/`last_deploy_at`/`history`
+            # are read the same hand-written way, so a typo inside `[deploy_state]` that is not one
+            # of the two stale spellings above would otherwise be just as invisible.
+            unknown_deploy_state_keys = set(deploy_state_data.keys()) - recognised_deploy_state_keys()
+            if unknown_deploy_state_keys:
+                warn_or_log(
+                    "bench_config",
+                    f"Bench '{domain}': [deploy_state] has unrecognised key(s) "
+                    f"{', '.join(sorted(unknown_deploy_state_keys))}; check for a typo, since fm will not use them.",
+                )
             deploy_state_obj = DeployState(
                 current_image=deploy_state_data.get("current_image"),
                 previous_image=deploy_state_data.get("previous_image"),

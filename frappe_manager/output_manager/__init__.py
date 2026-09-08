@@ -36,4 +36,25 @@ __all__ = [
     "spinner",
     "spinner_or_pass",
     "temporary_stop",
+    "warn_or_log",
 ]
+
+
+def warn_or_log(component: str, message: str) -> None:
+    """Warn through the interactive output handler when one is attached, else the named
+    component's own logger.
+
+    Shared by the config readers (`BenchConfig.import_from_toml`, `FMConfigManager.import_from_toml`)
+    for an unrecognised key: those run inside `fm list`/`fm bake`/`fm switch`/`fm maintenance`,
+    which skip the migration gate, so one bench with a stale or misspelled key must surface a
+    warning rather than take down a command every bench on the host shares. Never raises: the
+    logger fallback writes to the rotating file handler only (no console handler unless one was
+    explicitly configured), so this stays silent on stdout for a shell completion that loads a
+    bench config with no output handler attached.
+    """
+    if has_global_output_handler():
+        get_global_output_handler().warning(message)
+    else:
+        from frappe_manager.logger import get_logger
+
+        get_logger(component=component).warning(message)

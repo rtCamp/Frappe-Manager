@@ -14,11 +14,20 @@ than an oversight.
 """
 
 import ast
+import inspect
 import re
+import textwrap
 from functools import lru_cache
 from pathlib import Path
 
 import pytest
+
+from frappe_manager.metadata_manager import FMConfigManager, recognised_fm_config_keys
+from frappe_manager.site_manager.bench_config import (
+    BenchConfig,
+    recognised_bench_config_keys,
+    recognised_deploy_state_keys,
+)
 
 # Every module declaring a table a bench_config.toml can set. `DNSProviderConfig` lives in
 # ssl_manager because bench_config imports FMConfigManager from metadata_manager, so metadata_manager
@@ -119,3 +128,88 @@ def test_allowlisted_fields_still_exist(entry):
     cls, field = entry.rsplit(".", 1)
 
     assert (cls, field) in _model_fields(), f"{entry} is allowlisted but no longer defined"
+
+
+def _keys_read_from(receiver: str, source: str) -> frozenset[str]:
+    """Every string-literal key `receiver.get("key", ...)`, `receiver["key"]`, or `"key" in
+    receiver` names in `source`, found by walking the AST rather than scanning text -- the same
+    reasoning as `_attribute_names_read` above: a comment mentioning a key must not count as a
+    read, and a text scan cannot tell `data.get(...)` from `ssl_data.get(...)` apart, which is
+    exactly the distinction between a bench_config.toml top-level key and a `[ssl]` one.
+    """
+    tree = ast.parse(source)
+    keys: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == receiver
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            keys.add(node.args[0].value)
+        elif (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == receiver
+            and isinstance(node.slice, ast.Constant)
+            and isinstance(node.slice.value, str)
+        ):
+            keys.add(node.slice.value)
+        elif isinstance(node, ast.Compare):
+            left = node.left
+            for op, comparator in zip(node.ops, node.comparators, strict=True):
+                if (
+                    isinstance(op, (ast.In, ast.NotIn))
+                    and isinstance(comparator, ast.Name)
+                    and comparator.id == receiver
+                    and isinstance(left, ast.Constant)
+                    and isinstance(left.value, str)
+                ):
+                    keys.add(left.value)
+                left = comparator
+    return frozenset(keys)
+
+
+def test_recognised_bench_config_keys_covers_every_key_the_reader_touches():
+    """Guards the derivation this fix relies on: if `import_from_toml` starts reading a new
+    top-level key that `recognised_bench_config_keys()` does not know about, the loader would warn
+    about the very key it just consumed. That drift is the failure mode of this whole design, so
+    it gets its own test rather than trusting the two to be kept in sync by hand.
+    """
+    source = textwrap.dedent(inspect.getsource(BenchConfig.import_from_toml))
+    keys_read = _keys_read_from("data", source)
+
+    assert keys_read, "the AST scan found nothing, so this test is not testing anything"
+    missing = keys_read - recognised_bench_config_keys()
+    assert not missing, (
+        f"import_from_toml reads {sorted(missing)} but recognised_bench_config_keys() does not "
+        "know them -- add the spelling there, next to the other hand-added aliases."
+    )
+
+
+def test_recognised_deploy_state_keys_covers_every_key_the_reader_touches():
+    source = textwrap.dedent(inspect.getsource(BenchConfig.import_from_toml))
+    keys_read = _keys_read_from("deploy_state_data", source)
+
+    assert keys_read, "the AST scan found nothing, so this test is not testing anything"
+    missing = keys_read - recognised_deploy_state_keys()
+    assert not missing, (
+        f"import_from_toml reads {sorted(missing)} from [deploy_state] but "
+        "recognised_deploy_state_keys() does not know them."
+    )
+
+
+def test_recognised_fm_config_keys_covers_every_key_the_reader_touches():
+    source = textwrap.dedent(inspect.getsource(FMConfigManager.import_from_toml))
+    keys_read = _keys_read_from("data", source)
+
+    assert keys_read, "the AST scan found nothing, so this test is not testing anything"
+    missing = keys_read - recognised_fm_config_keys()
+    assert not missing, (
+        f"FMConfigManager.import_from_toml reads {sorted(missing)} but "
+        "recognised_fm_config_keys() does not know them."
+    )

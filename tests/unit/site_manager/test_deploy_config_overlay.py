@@ -4,6 +4,8 @@ Each --config value is a file path or inline TOML; multiple overlays deep-merge
 left-to-right (later wins) into the bench config, persisted.
 """
 
+import re
+
 import pytest
 import tomlkit
 
@@ -80,3 +82,34 @@ def test_invalid_toml_raises(tmp_path):
     bench.write_text('name = "x"\n')
     with pytest.raises(ConfigOverlayError):
         apply_config_overlays(bench, ["[[[not valid"])
+
+
+def test_an_unknown_top_level_key_is_refused():
+    """The same silent-drop hazard `BenchConfig.import_from_toml` warns about instead: this seam
+    serves one interactive command with an operator present, so it refuses outright."""
+    with pytest.raises(ConfigOverlayError, match="typoed_kee"):
+        merge_overlays('name = "x"\n', ["typoed_kee = true"])
+
+
+def test_an_unknown_deploy_state_key_is_refused():
+    with pytest.raises(ConfigOverlayError, match=re.escape("deploy_state.curent_image")):
+        merge_overlays('name = "x"\n', ['[deploy_state]\ncurent_image = "v2"\n'])
+
+
+def test_a_retired_table_is_not_refused():
+    """`[registry]` is gone from the model but still tolerated on load; the overlay seam must
+    agree, not refuse a bench config that `BenchConfig.import_from_toml` itself accepts."""
+    merged = merge_overlays('name = "x"\n', ['[registry]\nregistry = "ghcr.io/acme"\n'])
+    assert tomlkit.parse(merged)["registry"]["registry"] == "ghcr.io/acme"
+
+
+def test_apply_persists_nothing_when_an_overlay_is_refused(tmp_path):
+    """A refused overlay must not partially land on disk."""
+    bench = tmp_path / "bench_config.toml"
+    original = 'name = "x"\nimage = "a"\n'
+    bench.write_text(original)
+
+    with pytest.raises(ConfigOverlayError):
+        apply_config_overlays(bench, ['image = "b"', "typoed_kee = true"])
+
+    assert bench.read_text() == original
