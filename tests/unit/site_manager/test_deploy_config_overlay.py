@@ -96,11 +96,32 @@ def test_an_unknown_deploy_state_key_is_refused():
         merge_overlays('name = "x"\n', ['[deploy_state]\ncurent_image = "v2"\n'])
 
 
+def test_an_unknown_ssl_key_is_refused():
+    """`[ssl]` is the third hand-read table (`bench_config.py:1799-1815` reads
+    `certificates`/`dns_providers` by hand), so a typo there must be caught here too, matching
+    `[deploy_state]` above -- not silently dropped when `fm bake --config` writes it to disk."""
+    with pytest.raises(ConfigOverlayError, match=re.escape("ssl.certificatess")):
+        merge_overlays('name = "x"\n', ["[ssl]\ncertificatess = []\n"])
+
+
+def test_a_recognised_ssl_key_is_not_refused():
+    merged = merge_overlays('name = "x"\n', ["[ssl]\ncertificates = []\n"])
+    assert tomlkit.parse(merged)["ssl"]["certificates"] == []
+
+
 def test_a_retired_table_is_not_refused():
     """`[registry]` is gone from the model but still tolerated on load; the overlay seam must
     agree, not refuse a bench config that `BenchConfig.import_from_toml` itself accepts."""
     merged = merge_overlays('name = "x"\n', ['[registry]\nregistry = "ghcr.io/acme"\n'])
     assert tomlkit.parse(merged)["registry"]["registry"] == "ghcr.io/acme"
+
+
+def test_a_relocated_key_is_not_refused():
+    """`alias_domains` is a top-level name `migrate_0_20_0` relocates (not retires); the overlay
+    seam must agree with `recognised_bench_config_keys()`, same as the retired-table case above,
+    or `fm bake --config` would refuse a value fm's own pre-migration files carry."""
+    merged = merge_overlays('name = "x"\n', ['alias_domains = ["a.example.com"]\n'])
+    assert tomlkit.parse(merged)["alias_domains"] == ["a.example.com"]
 
 
 def test_apply_persists_nothing_when_an_overlay_is_refused(tmp_path):

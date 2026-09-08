@@ -1048,6 +1048,33 @@ REMOVED_CONFIG_KEYS: dict[str, frozenset[str]] = {
 # off disk so it stops being carried forward and re-read by a future version.
 REMOVED_CONFIG_TABLES: frozenset[str] = frozenset({"registry"})
 
+# Top-level bench_config.toml keys `migrate_0_20_0` RELOCATES to a new home elsewhere in the
+# file (into [auth], under [sites."<bench>"], or one level down to [sites."<site>".database])
+# rather than retiring them outright. Homed here rather than in the migration module because
+# migrate_0_20_0.py already imports REMOVED_CONFIG_KEYS/REMOVED_CONFIG_TABLES from this module --
+# bench_config.py has no import back into migration_manager, so this is the only direction with
+# no circular import, and it keeps every "what can legitimately sit at the top level right now"
+# fact in one file rather than splitting it across the reader and the migration.
+#
+# 0.20.0 is unreleased, so every bench on a host is still pre-migration: `list`/`bake`/`switch`/
+# `maintenance`, which read a bench's config before offering to run the migration, see these
+# names at the top level on every single one of them. Tolerated the same way
+# `REMOVED_CONFIG_TABLES` is, except the migration MOVES the name instead of deleting it, and
+# `migrate_0_20_0.MigrationV0200._verify_relocated_keys_gone` asserts none of these survive
+# `migrate_bench` at the top level, so the migration's own behaviour and this tolerance list
+# cannot drift apart silently the way `recognised_bench_config_keys()` and the migration already
+# did once (see the four names below -- fm wrote every one of them at 0.19.x or earlier and
+# `migrate_0_20_0` is what relocates them; this constant used to hand-list none of them, which is
+# the bug this fixes).
+RELOCATED_CONFIG_KEYS: frozenset[str] = frozenset(
+    {
+        "admin_tools_username",  # -> [auth].user             (_move_admin_tools_credentials)
+        "admin_tools_password",  # -> [auth].password          (_move_admin_tools_credentials)
+        "alias_domains",  # -> [sites."<bench>"].alias_domains (_write_sites_table)
+        "database",  # -> [sites."<site>".database]            (_write_sites_table)
+    }
+)
+
 # BenchConfig fields that never reach bench_config.toml: create-time inputs, derived values, secrets
 # the design keeps out of the file, and the two written by hand under [ssl]. Shared with the example
 # generator (scripts/gen_config_example.py) so the documented schema cannot claim a key fm refuses to
@@ -1100,8 +1127,28 @@ def recognised_bench_config_keys() -> frozenset[str]:
     every load or the quiet toleration `REMOVED_CONFIG_TABLES` was introduced to provide. A typo
     is a name that was NEVER valid; a retired table is a name that was, on purpose, and remains
     the migration's job to remove, not this warning's.
+
+    `RELOCATED_CONFIG_KEYS` is unioned in for the same reason, one step earlier: a name
+    `migrate_0_20_0` has not relocated off the top level yet is not a typo either, it is a
+    pre-migration bench, and every bench is one until that migration ships.
     """
-    return frozenset(BenchConfig.model_fields) | {"environment", "apps", "ssl"} | REMOVED_CONFIG_TABLES
+    return (
+        frozenset(BenchConfig.model_fields)
+        | {"environment", "apps", "ssl"}
+        | REMOVED_CONFIG_TABLES
+        | RELOCATED_CONFIG_KEYS
+    )
+
+
+# Every key `import_from_toml` reads out of `[ssl]` by hand (like `[deploy_state]` below, not
+# splatted into a model): `certificates`/`dns_providers` are the two TOML-facing names, distinct
+# from the internal field names `BenchConfig` stores them under (`ssl_certificates`/
+# `dns_providers` -- the latter happens to match, the former does not).
+def recognised_ssl_keys() -> frozenset[str]:
+    """Every `[ssl]` key `import_from_toml` looks at: `certificates` (a list of certificate
+    tables, read into `ssl_certificates`) and `dns_providers` (labelled DNS-01 credential sets).
+    """
+    return frozenset({"certificates", "dns_providers"})
 
 
 # Pre-rename spellings `import_from_toml` still tolerates inside `[deploy_state]`, with a warning
@@ -1799,6 +1846,22 @@ class BenchConfig(BaseModel):
 
         # [ssl] → ssl_certificates + dns_providers (internal fields)
         ssl_data = data.get("ssl") or {}
+
+        # Same hole one level down as the top-level check above: `certificates`/`dns_providers`
+        # are read by hand rather than splatted into a model (there is no SSLConfig to forbid an
+        # extra key), so a typo inside [ssl] (e.g. `certificatess = []`) parses cleanly and is
+        # simply never looked at, with nothing to raise on it either.
+        if isinstance(ssl_data, dict):
+            unknown_ssl_keys = set(ssl_data.keys()) - recognised_ssl_keys()
+            if unknown_ssl_keys:
+                from frappe_manager.output_manager import warn_or_log
+
+                warn_or_log(
+                    "bench_config",
+                    f"Bench '{domain}': [ssl] has unrecognised key(s) "
+                    f"{', '.join(sorted(unknown_ssl_keys))}; check for a typo, since fm will not use them.",
+                )
+
         ssl_certificates_list: list[SSLCertificate] = []
         for cert_data in ssl_data.get("certificates") or []:
             if isinstance(cert_data, dict):
@@ -1811,7 +1874,6 @@ class BenchConfig(BaseModel):
         for provider_name, provider_data in (ssl_data.get("dns_providers") or {}).items():
             if isinstance(provider_data, dict):
                 dns_providers_dict[provider_name] = DNSProviderConfig.import_from_toml_doc(provider_data)
-
 
         migration_state_data = data.get("migration_state", None)
         migration_state_obj = None

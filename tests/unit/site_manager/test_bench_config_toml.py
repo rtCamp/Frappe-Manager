@@ -573,3 +573,136 @@ class TestUnrecognisedKeysWarnRatherThanVanish:
         message = handler.warning.call_args.args[0]
         assert "deploy_state" in message
         assert "curent_image" in message
+
+    def test_an_unknown_ssl_key_warns(self, tmp_path):
+        """The same hole one level down as [deploy_state]: [ssl] is read the same hand-written
+        way (`certificates`/`dns_providers`), so a typo there needs the identical guard."""
+        bc, handler = self._warn(tmp_path, _BASE + "\n[ssl]\ncertificatess = []\n")
+
+        assert bc.ssl_certificates == []  # the misspelled key is never read
+        handler.warning.assert_called_once()
+        message = handler.warning.call_args.args[0]
+        assert "ssl" in message
+        assert "certificatess" in message
+
+
+class TestPreMigrationBenchConfigNeverWarns:
+    """The regression this fixes: `admin_tools_username`/`admin_tools_password`,
+    `alias_domains`, and `[database]` are all top-level names fm itself wrote at 0.19.x or
+    earlier, relocated (not retired) by the unreleased `migrate_0_20_0` migration. Every
+    existing host is pre-migration while that migration is unreleased, and `fm list`/`fm bake`/
+    `fm switch`/`fm maintenance` read a bench's config before offering to run it -- so each of
+    these four names used to produce a fabricated "check for a typo" warning on the very first
+    load of every bench on a host.
+    """
+
+    # The shape `migrate_0_19_0.py` actually produces: `alias_domains` written at the top level
+    # (`_add_new_config_fields`), `admin_tools_username`/`admin_tools_password` from an even
+    # earlier version untouched by that migration, and a site-keyed `[database]` table
+    # (`_write_sites_table`'s docstring: "the [database] table already had a site as its key").
+    _PRE_0_20_0_SHAPED = (
+        _BASE
+        + 'admin_tools_username = "admin"\n'
+        + 'admin_tools_password = "secret123"\n'
+        + 'alias_domains = ["alias.example.com"]\n'
+        + '\n[database."dev.localhost"]\n'
+        + 'host = "10.0.0.5"\n'
+        + 'name = "dev_localhost"\n'
+    )
+
+    def test_loads_with_zero_warnings(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.base import OutputHandler
+
+        handler = MagicMock(spec=OutputHandler)
+        set_global_output_handler(handler)
+        try:
+            bc = _import(tmp_path, self._PRE_0_20_0_SHAPED)
+        finally:
+            set_global_output_handler(None)
+
+        assert bc.name == "dev.localhost"  # loads regardless
+        handler.warning.assert_not_called()
+
+    def test_a_genuinely_unknown_key_still_warns_alongside_them(self, tmp_path):
+        """The tolerance must not swallow an actual typo sitting next to the four relocated
+        names. Inserted before the `[database]` table header: TOML scopes a bare `key = value`
+        to whichever table header precedes it, so appended after `[database...]` it would land
+        as a `[database]` sub-key instead of a top-level one."""
+        from unittest.mock import MagicMock
+
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.base import OutputHandler
+
+        shaped_with_typo = self._PRE_0_20_0_SHAPED.replace(
+            '\n[database."dev.localhost"]', '\ntypoed_kee = true\n\n[database."dev.localhost"]'
+        )
+        handler = MagicMock(spec=OutputHandler)
+        set_global_output_handler(handler)
+        try:
+            bc = _import(tmp_path, shaped_with_typo)
+        finally:
+            set_global_output_handler(None)
+
+        assert bc.name == "dev.localhost"
+        handler.warning.assert_called_once()
+        assert "typoed_kee" in handler.warning.call_args.args[0]
+
+
+class TestNoWarningReachesTheTerminalDuringShellCompletion:
+    """`warn_or_log`'s old premise -- that no output handler is attached during completion -- is
+    false: `cli_entrypoint()` (main.py) installs a `RichOutputHandler` before `app()` runs, and
+    completion dispatches from inside `app()`. So an unrecognised key used to repaint a warning
+    into the operator's shell prompt on every single TAB. `_FM_COMPLETE`, the env var click/typer
+    set while dispatching a completion request, not "no handler", is what has to silence it.
+    """
+
+    def test_import_from_toml_is_silent_on_both_streams_during_completion(self, tmp_path, monkeypatch, capsys):
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.rich_output import RichOutputHandler
+
+        monkeypatch.setenv("_FM_COMPLETE", "zsh_complete")
+
+        # The real handler cli_entrypoint() attaches, not a mock: a mock would hide that a
+        # handler being attached is exactly what used to leak this warning.
+        set_global_output_handler(RichOutputHandler())
+        try:
+            bc = _import(tmp_path, _BASE + "typoed_kee = true\n")
+        finally:
+            set_global_output_handler(None)
+
+        assert bc.name == "dev.localhost"  # still loads regardless
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
+
+    def test_the_real_completion_callback_stays_silent_too(self, tmp_path, monkeypatch, capsys):
+        """Drives the actual function click/typer call for `fm auth BENCH/<TAB>`
+        (`bench_site_autocompletion_callback`), which loads the bench's config on the way to
+        listing its sites -- the exact path the review reproduced the leak on.
+        """
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.rich_output import RichOutputHandler
+        from frappe_manager.utils import callbacks
+
+        bench_dir = tmp_path / "leaky.localhost"
+        bench_dir.mkdir()
+        (bench_dir / "bench_config.toml").write_text(
+            'name = "leaky.localhost"\ndeveloper_mode = true\nadmin_tools = true\n'
+            'environment = "dev"\ntypoed_kee = true\n\n[sites."leaky.localhost"]\n'
+        )
+        monkeypatch.setattr(callbacks, "CLI_BENCHES_DIRECTORY", tmp_path)
+        monkeypatch.setenv("_FM_COMPLETE", "zsh_complete")
+
+        set_global_output_handler(RichOutputHandler())
+        try:
+            suggestions = callbacks.bench_site_autocompletion_callback("leaky.localhost/")
+        finally:
+            set_global_output_handler(None)
+
+        assert suggestions == ["leaky.localhost/leaky.localhost"]  # completion still works
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""

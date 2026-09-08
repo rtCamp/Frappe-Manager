@@ -4,7 +4,15 @@ annotation is ``click.Path(exists=False, readable=True, ...)``, and click's own 
 the file and fails with ITS OWN wording ("Path '<p>' is not readable.") before the command body --
 and any hand-written check in it -- ever runs. Every one of these commands has its own curated
 validation for exactly this case; declaring ``readable=False`` on the Option is what lets that
-hand-written check actually fire.
+hand-written check actually fire. The ``*ReadableGate`` classes below pin exactly that: an
+existing, unreadable file must reach fm's own check, not click's.
+
+The ``*ExistenceGuard`` classes alongside them pin a DIFFERENT thing that happens to share the
+same fixtures: ``create``'s ``_validated_ca`` and ``update``'s ``db_tls._validated_ca_source``
+also refuse a missing path or a directory, entirely independent of ``readable=False`` (click's
+own ``exists=False`` default lets both through unblocked regardless of that flag). No other test
+in the suite drives those two hand checks through the CLI, so they are kept here rather than
+deleted, filed separately from the readable-gate cases they do not exercise.
 
 Exercised through the real Typer app via CliRunner: this is a CLI-argument-parsing-layer defect,
 invisible to a test that calls the command function directly with an already-typed ``Path`` value
@@ -16,10 +24,7 @@ ends in "is not readable." (capitalized, trailing period). fm's own refusals nev
 """
 
 import os
-import tempfile
 from contextlib import contextmanager
-from pathlib import Path
-from typing import Annotated
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -83,7 +88,12 @@ def _invoke_create(cli, tmp_path, db_ca_arg):
     return result, bench_service_cls
 
 
-class TestCreateDbCaReadableGate:
+class TestCreateDbCaExistenceGuard:
+    """``_validated_ca``'s existence check, not the readable=False fix: click's own
+    ``exists=False`` default lets a missing path or a directory through unblocked regardless of
+    ``readable``, so these two do not discriminate that flag. Kept anyway because no other test
+    drives ``_validated_ca`` through the CLI at all."""
+
     def test_missing_file_is_refused_by_fm_not_click(self, create_cli, tmp_path):
         result, bench_service_cls = _invoke_create(create_cli, tmp_path, tmp_path / "nope.pem")
 
@@ -105,6 +115,8 @@ class TestCreateDbCaReadableGate:
         assert "no such file" in result.output
         assert bench_service_cls.return_value.create_bench.called is False
 
+
+class TestCreateDbCaReadableGate:
     @requires_non_root
     def test_an_unreadable_existing_file_is_refused_by_fm_not_click(self, create_cli, tmp_path):
         """The actual defect: an existing, unreadable file used to fail at argument parsing with
@@ -173,9 +185,12 @@ def _invoke_update(update_world, db_ca_arg):
     )
 
 
-class TestUpdateDbCaReadableGate:
-    """``db_tls._validated_ca_source`` is the hand check; it used to be dead via the CLI for the
-    same reason create's was: click's implicit readable=True intercepted first."""
+class TestUpdateDbCaExistenceGuard:
+    """``db_tls._validated_ca_source``'s existence check, not the readable=False fix: click's own
+    ``exists=False`` default lets a missing path or a directory through unblocked regardless of
+    ``readable``, so these two do not discriminate that flag. Kept anyway because no other test
+    drives ``install_site_ca``'s real validation through the CLI; everywhere else in the suite
+    ``install_site_ca`` is mocked out."""
 
     def test_missing_file_is_refused_by_fm_not_click(self, update_world, tmp_path):
         result = _invoke_update(update_world, tmp_path / "nope.pem")
@@ -193,6 +208,11 @@ class TestUpdateDbCaReadableGate:
         assert result.exit_code != 0
         assert not _is_click_path_failure(result.output)
         assert "CA path is not a file" in result.output
+
+
+class TestUpdateDbCaReadableGate:
+    """``db_tls._validated_ca_source`` is the hand check; it used to be dead via the CLI for the
+    same reason create's was: click's implicit readable=True intercepted first."""
 
     @requires_non_root
     def test_an_unreadable_existing_file_is_refused_by_fm_not_click(self, update_world, tmp_path):
@@ -242,17 +262,6 @@ class TestSslAddCertReadableGate:
     is pinned at this layer is that the CLI stops BLOCKING it: an unreadable --cert must reach
     ``_add_bench_certificate``, not die at argument parsing with click's own message.
     """
-
-    def test_a_missing_cert_is_refused_by_fm_not_click(self, ssl_add_cli, tmp_path):
-        key = tmp_path / "a.key"
-        key.write_text("k")
-
-        result, issue = _invoke_ssl_add(ssl_add_cli, tmp_path / "nope.crt", key)
-
-        assert result.exit_code != 0
-        assert not _is_click_path_failure(result.output)
-        assert "--cert file not found" in result.output
-        issue.assert_not_called()
 
     @requires_non_root
     def test_an_unreadable_existing_cert_reaches_the_certificate_import_not_click(self, ssl_add_cli, tmp_path):
@@ -305,16 +314,10 @@ def _invoke_maintenance(maintenance_world, page_arg):
 
 
 class TestMaintenancePageReadableGate:
-    """``--page`` had only an existence check ("--page file not found"); a readability check is
-    added alongside it here so silencing click's implicit gate does not turn an unreadable page
-    file into a raw, uncaught ``PermissionError`` traceback."""
-
-    def test_missing_file_is_refused_by_fm_not_click(self, maintenance_world, tmp_path):
-        result = _invoke_maintenance(maintenance_world, tmp_path / "nope.html")
-
-        assert result.exit_code != 0
-        assert not _is_click_path_failure(result.output)
-        assert "--page file not found" in result.output
+    """``--page`` had only an existence check ("--page file not found"), already pinned via the
+    CLI by ``test_auth_migrate_shell_maintenance_contract.py``; a readability check is added
+    alongside it here so silencing click's implicit gate does not turn an unreadable page file
+    into a raw, uncaught ``PermissionError`` traceback."""
 
     @requires_non_root
     def test_an_unreadable_existing_file_is_refused_by_fm_not_click(self, maintenance_world, tmp_path):
@@ -330,57 +333,3 @@ class TestMaintenancePageReadableGate:
         assert not _is_click_path_failure(result.output)
         assert "--page file is not readable" in result.output
 
-
-# --------------------------------------------------------------------- the tilde escape
-
-# The dossier flags one pre-existing escape from click's implicit readable gate: a LITERAL-TILDE
-# path. click's Path.convert stats the RAW, unexpanded argument string; `os.stat("~/x")` fails
-# outright (there is no file literally named "~"), and with the default exists=False that OSError
-# short-circuits BEFORE the readable check ever runs -- independent of whether readable is True or
-# False. fm expands `~` itself downstream, so a tilde path already reached fm's own check before
-# any of the readable=False changes above; those changes generalise the SAME outcome to every
-# other path shape, they do not touch the tilde case at all.
-
-
-def _readable_gate_probe(readable: bool) -> typer.Typer:
-    app = typer.Typer()
-
-    @app.command()
-    def cmd(p: Annotated[Path, typer.Option("--p", readable=readable)]):
-        absolute = p.expanduser().absolute()
-        if not absolute.is_file():
-            typer.echo(f"fm: no such file: {p}")
-            raise typer.Exit(1)
-        if not os.access(absolute, os.R_OK):
-            typer.echo(f"fm: file is not readable: {p}")
-            raise typer.Exit(1)
-        typer.echo("fm: ok")
-
-    return app
-
-
-@requires_non_root
-def test_tilde_escape_is_unaffected_by_readable_false(tmp_path, monkeypatch):
-    home = tempfile.mkdtemp()
-    monkeypatch.setenv("HOME", home)
-    target = Path(home) / "secret-ca.pem"
-    target.write_text("x")
-    target.chmod(0o000)
-    try:
-        for readable in (True, False):
-            app = _readable_gate_probe(readable)
-            result = runner.invoke(app, ["--p", "~/secret-ca.pem"])
-            assert result.exit_code == 1, (readable, result.output)
-            assert "fm: file is not readable" in result.output, (readable, result.output)
-
-            absolute_result = runner.invoke(app, ["--p", str(target)])
-            if readable:
-                # This is the defect this whole change fixes: today's default intercepts the
-                # absolute (already-expanded) path with click's own message.
-                assert absolute_result.exit_code == 2
-                assert _is_click_path_failure(absolute_result.output)
-            else:
-                assert absolute_result.exit_code == 1
-                assert "fm: file is not readable" in absolute_result.output
-    finally:
-        target.chmod(0o644)

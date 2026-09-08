@@ -17,7 +17,11 @@ from pathlib import Path
 import tomlkit
 
 from frappe_manager.exceptions import FrappeManagerException
-from frappe_manager.site_manager.bench_config import recognised_bench_config_keys, recognised_deploy_state_keys
+from frappe_manager.site_manager.bench_config import (
+    recognised_bench_config_keys,
+    recognised_deploy_state_keys,
+    recognised_ssl_keys,
+)
 from frappe_manager.utils import toml_document
 
 
@@ -39,7 +43,7 @@ def resolve_source(value: str) -> str:
 
 def _unrecognised_keys(overlay: dict) -> list[str]:
     """Overlay keys ``BenchConfig.import_from_toml`` would never look at: an unrecognised
-    top-level key, or one inside ``[deploy_state]`` if the overlay sets that table.
+    top-level key, or one inside ``[deploy_state]``/``[ssl]`` if the overlay sets that table.
 
     Checked against `bench_config`'s own recognised-key derivation (not a second list), and
     checked HERE rather than left to the eventual bench-config load, because this seam serves one
@@ -50,6 +54,9 @@ def _unrecognised_keys(overlay: dict) -> list[str]:
     deploy_state = overlay.get("deploy_state")
     if isinstance(deploy_state, dict):
         unrecognised += sorted(f"deploy_state.{key}" for key in set(deploy_state) - recognised_deploy_state_keys())
+    ssl = overlay.get("ssl")
+    if isinstance(ssl, dict):
+        unrecognised += sorted(f"ssl.{key}" for key in set(ssl) - recognised_ssl_keys())
     return unrecognised
 
 

@@ -27,6 +27,7 @@ from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     recognised_bench_config_keys,
     recognised_deploy_state_keys,
+    recognised_ssl_keys,
 )
 
 # Every module declaring a table a bench_config.toml can set. `DNSProviderConfig` lives in
@@ -188,6 +189,21 @@ def test_recognised_bench_config_keys_covers_every_key_the_reader_touches():
     assert not missing, (
         f"import_from_toml reads {sorted(missing)} but recognised_bench_config_keys() does not "
         "know them -- add the spelling there, next to the other hand-added aliases."
+    )
+
+
+def test_recognised_ssl_keys_covers_every_key_the_reader_touches():
+    """The third hand-read table, same drift risk as `[deploy_state]` above: `[ssl]` is read by
+    hand (`ssl_data.get(...)`), not splatted into a model, so a key `import_from_toml` starts
+    reading there needs the identical guard or the loader would warn about the very key it just
+    consumed."""
+    source = textwrap.dedent(inspect.getsource(BenchConfig.import_from_toml))
+    keys_read = _keys_read_from("ssl_data", source)
+
+    assert keys_read, "the AST scan found nothing, so this test is not testing anything"
+    missing = keys_read - recognised_ssl_keys()
+    assert not missing, (
+        f"import_from_toml reads {sorted(missing)} from [ssl] but recognised_ssl_keys() does not know them."
     )
 
 
