@@ -31,6 +31,7 @@ from unittest.mock import patch
 import pytest
 
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager import external_domain_manager as edm
 from frappe_manager.ssl_manager.certificate import RETIRED_CERTIFICATE_KEYS
 from frappe_manager.ssl_manager.external_domain_manager import ExternalDomainConfig, ExternalDomainConfigManager
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -310,3 +311,129 @@ class TestRoundTripThroughStorage:
 
         assert manager.get_domain(DOMAIN).delegation_cname is None
         assert type(manager.to_ssl_certificate(DOMAIN)) is LetsencryptSSLCertificate
+
+
+# --------------------------------------------------------------------------------------
+# stray/unknown keys must never cost a whole entry
+# --------------------------------------------------------------------------------------
+#
+# `ExternalDomainConfig` used to be a plain dataclass: `ExternalDomainConfig(**value)` raises
+# TypeError on any keyword it does not declare, so `_load` caught that and skipped the WHOLE
+# entry, and the next `add_domain`/`remove_domain` -- which rebuilds `external_domains.toml`
+# from six named keys per entry -- deleted it from disk outright. `extra="allow"` fixes the
+# parse; these tests pin that the fix also survives the rebuild, warns instead of staying silent,
+# and that a certificate the entry describes is still discoverable for renewal.
+
+
+def _write_stray_key_entry(tmp_path: Path, extra_line: str = 'mistyped_field = "oops"\n') -> Path:
+    config_path = tmp_path / "nginx-proxy" / "external_domains.toml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        "[domains.stray_example_com]\n"
+        f'domain = "{DOMAIN}"\n'
+        'ssl_type = "letsencrypt"\n'
+        f'added_at = "{ADDED_AT}"\n'
+        'challenge_type = "http01"\n'
+        'acme_client = "acme.sh"\n' + extra_line
+    )
+    return config_path
+
+
+class TestStrayKeyRetention:
+    def test_stray_key_survives_an_unrelated_add_domain_and_remove_domain(self, tmp_path):
+        config_path = _write_stray_key_entry(tmp_path)
+        manager = ExternalDomainConfigManager(config_path)
+
+        manager.add_domain(_config(domain="other.example.com"))
+        after_add = config_path.read_text()
+        assert 'mistyped_field = "oops"' in after_add
+        assert f'domain = "{DOMAIN}"' in after_add
+
+        manager.remove_domain("other.example.com")
+        after_remove = config_path.read_text()
+        assert 'mistyped_field = "oops"' in after_remove
+        assert f'domain = "{DOMAIN}"' in after_remove
+
+        # every real field, not just the domain, is intact
+        config = manager.get_domain(DOMAIN)
+        assert config.domain == DOMAIN
+        assert config.ssl_type == "letsencrypt"
+        assert config.added_at == ADDED_AT
+        assert config.challenge_type == "http01"
+        assert config.acme_client == "acme.sh"
+        assert config.model_extra == {"mistyped_field": "oops"}
+
+    def test_stray_key_warns_the_operator_and_never_touches_stdout(self, tmp_path, capsys, monkeypatch):
+        calls = []
+        real_warn_or_log = edm.warn_or_log
+
+        def spy(component, message):
+            calls.append((component, message))
+            real_warn_or_log(component, message)
+
+        monkeypatch.setattr(edm, "warn_or_log", spy)
+
+        config_path = _write_stray_key_entry(tmp_path)
+        manager = ExternalDomainConfigManager(config_path)
+        manager.get_domain(DOMAIN)
+
+        assert any("mistyped_field" in message for _component, message in calls)
+        assert calls[0][0] == "external_domain_manager"
+        # warn_or_log never prints; it goes through the output handler or the file logger only
+        assert capsys.readouterr().out == ""
+
+    def test_stray_key_entry_stays_discoverable_for_renewal(self, tmp_path):
+        """Mirrors what `commands/ssl/external_helpers.py`'s renew path checks before renewing:
+        `domain_exists` then `to_ssl_certificate` for a single domain, `list_domains` for 'all'.
+        """
+        config_path = _write_stray_key_entry(tmp_path)
+        manager = ExternalDomainConfigManager(config_path)
+
+        assert manager.domain_exists(DOMAIN) is True
+        assert DOMAIN in [d.domain for d in manager.list_domains()]
+
+        cert = manager.to_ssl_certificate(DOMAIN)
+        assert cert is not None
+        assert cert.domain == DOMAIN
+
+
+class TestMalformedEntryPreservation:
+    """A required field missing (no `domain` key at all) cannot be turned into an
+    `ExternalDomainConfig` no matter how permissive the model is. fm keeps skipping it for
+    `get_domain`/`domain_exists`/renewal, but -- unlike before this fix -- the raw entry is
+    preserved verbatim across an unrelated write, and the operator is warned once per read
+    instead of the entry silently vanishing on the next `add_domain`/`remove_domain`.
+    """
+
+    def _write_malformed_entry(self, tmp_path: Path) -> Path:
+        config_path = tmp_path / "nginx-proxy" / "external_domains.toml"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(
+            "[domains.broken_example_com]\n"
+            'ssl_type = "letsencrypt"\n'
+            f'added_at = "{ADDED_AT}"\n'
+            'challenge_type = "http01"\n'
+        )
+        return config_path
+
+    def test_malformed_entry_survives_an_unrelated_add_domain(self, tmp_path):
+        config_path = self._write_malformed_entry(tmp_path)
+        manager = ExternalDomainConfigManager(config_path)
+
+        manager.add_domain(_config(domain="fine.example.com"))
+
+        raw = config_path.read_text()
+        assert "[domains.broken_example_com]" in raw
+        assert 'ssl_type = "letsencrypt"' in raw
+        assert manager.domain_exists("fine.example.com") is True
+
+    def test_malformed_entry_warns_and_is_not_resolvable_for_renewal(self, tmp_path, monkeypatch):
+        calls = []
+        monkeypatch.setattr(edm, "warn_or_log", lambda component, message: calls.append(message))
+
+        config_path = self._write_malformed_entry(tmp_path)
+        manager = ExternalDomainConfigManager(config_path)
+
+        assert manager.domain_exists("broken.example.com") is False
+        assert manager.list_domains() == []
+        assert any("broken_example_com" in message for message in calls)
