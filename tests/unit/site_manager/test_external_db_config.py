@@ -24,6 +24,7 @@ from frappe_manager.site_manager.bench_config import (
     FMBenchEnvType,
     RedisConfig,
 )
+from frappe_manager.utils.config_keys import collect_unknown_keys
 
 _SITE = "x.localhost"
 _OTHER = "other.localhost"
@@ -163,17 +164,20 @@ def test_runtime_only_credentials_are_never_persisted(tmp_path):
     assert back.encryption_key is None
 
 
-# ------------------------------------------------------------------------ extra=forbid
+# ------------------------------------------------------------------------ extra=allow
 
 
-def test_database_entry_rejects_an_unknown_key():
-    with pytest.raises(ValidationError):
-        DatabaseConfig(host="db.example", name="app_prod", require_tls=True)
+def test_database_entry_retains_an_unknown_key_instead_of_rejecting_it():
+    db = DatabaseConfig(host="db.example", name="app_prod", require_tls=True)
+
+    assert db.check_hostname is True  # the real (differently-named) field is untouched
+    assert collect_unknown_keys(db) == ["require_tls"]
 
 
-def test_redis_rejects_an_unknown_key():
-    with pytest.raises(ValidationError):
-        RedisConfig(cache="redis://r.example:6379/0", queue="redis://r.example:6379/1", socketio="redis://r:6379/2")
+def test_redis_retains_an_unknown_key_instead_of_rejecting_it():
+    redis = RedisConfig(cache="redis://r.example:6379/0", queue="redis://r.example:6379/1", socketio="redis://r:6379/2")
+
+    assert collect_unknown_keys(redis) == ["socketio"]
 
 
 # ------------------------------------------------------------------ site_config.json

@@ -27,6 +27,7 @@ from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateGenerateFailed,
     SSLCertificateManualRenewalRequired,
 )
+from frappe_manager.utils.config_keys import declared_field
 from frappe_manager.utils.helpers import format_ssl_certificate_time_remaining
 
 
@@ -97,9 +98,18 @@ class CustomCertificateService:
         refused at the CLI (there is no staging server to rehearse against), so this is never
         actually invoked with `dry_run=True` in production.
         """
-        cert_path = getattr(certificate, "cert_source", None)
-        key_path = getattr(certificate, "key_source", None)
-        ca_path = getattr(certificate, "ca_source", None)
+        # `cert_source`/`key_source`/`ca_source` are declared only on `CustomCertificate`. Dispatch
+        # into this service is by `ssl_type == "custom"` value, not `isinstance`, and every
+        # construction path that produces that value today (`fm ssl add --custom`'s own
+        # `CustomCertificate(...)`, and `CERTIFICATE_ADAPTER.validate_python` on read) already
+        # narrows to the real subclass -- but a bare `SSLCertificate(ssl_type=...)` IS how fm builds
+        # the dev and disabled variants elsewhere (bench_helpers.py, bench_config.py), so nothing
+        # stops a future custom path from doing the same. `declared_field` keeps a stray `cert_source`
+        # retained on a non-`CustomCertificate` from ever being read as though the operator had
+        # supplied that file, defensive today rather than closing a currently reachable hole.
+        cert_path = declared_field(certificate, "cert_source")
+        key_path = declared_field(certificate, "key_source")
+        ca_path = declared_field(certificate, "ca_source")
 
         if not cert_path or not key_path:
             # Reachable only when this certificate is NOT the one `fm ssl add --custom` just built

@@ -109,19 +109,33 @@ def test_a_recognised_ssl_key_is_not_refused():
     assert tomlkit.parse(merged)["ssl"]["certificates"] == []
 
 
-def test_a_retired_table_is_not_refused():
-    """`[registry]` is gone from the model but still tolerated on load; the overlay seam must
-    agree, not refuse a bench config that `BenchConfig.import_from_toml` itself accepts."""
-    merged = merge_overlays('name = "x"\n', ['[registry]\nregistry = "ghcr.io/acme"\n'])
-    assert tomlkit.parse(merged)["registry"]["registry"] == "ghcr.io/acme"
+def test_a_retired_table_is_refused():
+    """`[registry]` is gone from the model but still tolerated on a plain READ (retained and
+    version-gated, the same as any other stray). The `--config` overlay seam is a DIFFERENT
+    origin: a key the human is typing right now, so severity-by-origin refuses it here even
+    though a bench that already carries it on disk loads without complaint."""
+    with pytest.raises(ConfigOverlayError, match="registry"):
+        merge_overlays('name = "x"\n', ['[registry]\nregistry = "ghcr.io/acme"\n'])
 
 
-def test_a_relocated_key_is_not_refused():
-    """`alias_domains` is a top-level name `migrate_0_20_0` relocates (not retires); the overlay
-    seam must agree with `recognised_bench_config_keys()`, same as the retired-table case above,
-    or `fm bake --config` would refuse a value fm's own pre-migration files carry."""
-    merged = merge_overlays('name = "x"\n', ['alias_domains = ["a.example.com"]\n'])
-    assert tomlkit.parse(merged)["alias_domains"] == ["a.example.com"]
+def test_a_relocated_key_is_refused():
+    """`alias_domains` used to be exempted here via `RELOCATED_CONFIG_KEYS`, tolerated because a
+    pre-migration bench legitimately carries it at the top level. That list is gone (Phase 5): a
+    `--config` overlay is authored NOW, at the current schema, where the top level is not where
+    `alias_domains` belongs (`[sites."<name>"].alias_domains` is), so this origin refuses it even
+    though the same name loaded from an old FILE would only warn."""
+    with pytest.raises(ConfigOverlayError, match="alias_domains"):
+        merge_overlays('name = "x"\n', ['alias_domains = ["a.example.com"]\n'])
+
+
+def test_a_switch_table_stray_is_refused():
+    """The shallow top-level-plus-two-tables check used to miss this entirely: `SwitchConfig` is
+    `extra="allow"`, so a stray inside `[switch]` was retained rather than raising, and nothing
+    here ever looked past the top level and `[ssl]`/`[deploy_state]` to notice. Running the
+    merged document through `BenchConfig`'s own collector (see `_refused_keys`) is what catches
+    it now."""
+    with pytest.raises(ConfigOverlayError, match=r"switch\.typoed_stray"):
+        merge_overlays('name = "x"\n', ["[switch]\ntypoed_stray = true\n"])
 
 
 def test_apply_persists_nothing_when_an_overlay_is_refused(tmp_path):
@@ -134,3 +148,94 @@ def test_apply_persists_nothing_when_an_overlay_is_refused(tmp_path):
         apply_config_overlays(bench, ['image = "b"', "typoed_kee = true"])
 
     assert bench.read_text() == original
+
+
+def test_apply_succeeds_on_pre_migration_base_and_overlay_still_lands(tmp_path):
+    """0.20.0 is unreleased, so every bench on disk right now still carries pre-migration shape:
+    a top-level `alias_domains` and a `[registry]` table `BenchConfig` no longer recognises. The
+    old bug ran the refusal check on the WHOLE merged document, so these pre-existing strays got
+    blamed on whatever `--config` value happened to be applied, refusing a bake this seam exists
+    to allow. The refusal must look only at what THIS overlay contributed."""
+    bench = tmp_path / "bench_config.toml"
+    bench.write_text('name = "x"\nalias_domains = ["a.example.com"]\n\n[registry]\nregistry = "ghcr.io/acme"\n')
+
+    apply_config_overlays(bench, ['image = "x"'])
+
+    doc = tomlkit.parse(bench.read_text())
+    assert doc["image"] == "x"  # the overlay landed
+    assert doc["alias_domains"] == ["a.example.com"]  # pre-migration stray still retained
+    assert doc["registry"]["registry"] == "ghcr.io/acme"  # pre-migration table still retained
+
+
+def test_a_stray_already_on_disk_is_not_refused():
+    """The same pre-migration strays as above, but through `merge_overlays` directly: an overlay
+    that never touches `alias_domains`/`[registry]` must not be refused because of them -- their
+    origin is the file, not this invocation, so a plain read of the same file would only warn."""
+    base = 'name = "x"\nalias_domains = ["a.example.com"]\n\n[registry]\nregistry = "ghcr.io/acme"\n'
+    merged = merge_overlays(base, ['image = "x"'])
+    doc = tomlkit.parse(merged)
+    assert doc["image"] == "x"
+    assert doc["alias_domains"] == ["a.example.com"]
+    assert doc["registry"]["registry"] == "ghcr.io/acme"
+
+
+def test_a_stray_the_overlay_introduces_is_still_refused_key_named(tmp_path):
+    """A pre-migration base already carries unrelated strays; the overlay introduces a genuinely
+    NEW one. Only the new key is named -- the diff against the base's unknown set must not let
+    pre-existing strays drown out or get confused with what this overlay actually added."""
+    base = 'name = "x"\nalias_domains = ["a.example.com"]\n\n[registry]\nregistry = "ghcr.io/acme"\n'
+    with pytest.raises(ConfigOverlayError, match=re.escape("typoed_kee")) as excinfo:
+        merge_overlays(base, ["typoed_kee = true"])
+    assert "alias_domains" not in str(excinfo.value)
+    assert "registry" not in str(excinfo.value)
+
+
+def test_an_overlay_resetting_an_already_unknown_keys_value_is_not_refused():
+    """Edge case: the operator's overlay DOES type this key, but the key's name was already
+    unrecognised on disk before this overlay touched it -- only its value is new. Severity here
+    tracks whether the NAME is new, not who last supplied the value: a plain read of the base file
+    already retains-and-warns about this same name regardless of who wrote it, so refusing it here
+    just because this invocation happened to repeat it would make the refusal stricter than the
+    warning it exists to agree with."""
+    base = 'name = "x"\nalias_domains = ["a.example.com"]\n'
+    merged = merge_overlays(base, ['alias_domains = ["b.example.com"]'])
+    assert tomlkit.parse(merged)["alias_domains"] == ["b.example.com"]  # overlay's value won
+
+
+def test_an_overlay_stray_beside_a_preexisting_different_stray_is_refused_precisely():
+    """Edge case: the base already has one stray inside `[switch]`; the overlay adds a DIFFERENT
+    stray inside the same table. `_refused_keys` reports dotted per-field paths, not per-table
+    membership, so the pre-existing stray and the newly-introduced one are distinct set members
+    and the diff isolates exactly the one this overlay added."""
+    base = 'name = "x"\n\n[switch]\nold_typo = true\n'
+    with pytest.raises(ConfigOverlayError, match=re.escape("switch.new_typo")) as excinfo:
+        merge_overlays(base, ["[switch]\nnew_typo = true\n"])
+    assert "old_typo" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "overlay_text",
+    [
+        pytest.param("ssl = 5", id="scalar-where-ssl-table-belongs"),
+        pytest.param("switch = 5", id="scalar-where-switch-table-belongs"),
+        pytest.param("sites = 5", id="scalar-where-sites-table-belongs"),
+        pytest.param("ssl = [1, 2, 3]", id="list-where-ssl-table-belongs"),
+        pytest.param('switch = "x"', id="string-where-switch-table-belongs"),
+        pytest.param("[sites.mysite]\ndatabase = 5\n", id="nested-wrong-shape-sites-database"),
+    ],
+)
+def test_a_hostile_overlay_shape_is_refused_not_a_traceback(overlay_text):
+    """`_refused_keys` runs the real reader, which does `.get`/`.items()`/`dict(...)` assuming a
+    dict; a hostile overlay can hand it a scalar, list, or string instead, and the old guard only
+    caught pydantic's `ValidationError` -- these shapes crash before validation is ever reached,
+    as plain `AttributeError`/`TypeError`/`ValueError`, and escaped as a traceback instead of this
+    seam's `ConfigOverlayError`."""
+    with pytest.raises(ConfigOverlayError):
+        merge_overlays('name = "x"\n', [overlay_text])
+
+
+def test_an_empty_table_overlay_is_not_a_hostile_shape():
+    """Sanity check for the widened guard: an empty `[ssl]` table is a valid (if pointless)
+    overlay, not a hostile shape, and must not be swept up by the wider exception net."""
+    merged = merge_overlays('name = "x"\n', ["[ssl]\n"])
+    assert "ssl" in tomlkit.parse(merged)

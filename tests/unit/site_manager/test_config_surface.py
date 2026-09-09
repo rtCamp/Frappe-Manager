@@ -48,11 +48,11 @@ DYNAMIC_OR_INDIRECT: dict[str, str] = {
     "SwitchHookScripts.after_restart": "getattr(hooks, name)",
     "SwitchHookScripts.before_migrate": "getattr(hooks, name)",
     "SwitchHookScripts.after_migrate": "getattr(hooks, name)",
-    # The migration gate reads these from raw TOML on purpose, so it stays
-    # schema-tolerant enough to run against a config it is about to migrate
-    # (see bench_migration_state, line 48).
-    "MigrationState.migrated_to": "raw TOML read in bench_migration_state.py",
-    "MigrationState.last_migration_date": "raw TOML read in bench_migration_state.py",
+    # `MigrationState.migrated_to`/`last_migration_date` used to be exempted here (raw-TOML read
+    # in bench_migration_state.py, never a `.field` access) -- now mutated via plain attribute
+    # assignment (`config.migration_state.migrated_to = ...`) in bench_migration_state.py and
+    # bench_orchestrator.py instead of being reconstructed, so the AST scan finds them like any
+    # other field and neither needs the exemption any more.
     # SSLConfig, the one entry this list used to carry, is gone: it was never constructed, and while
     # it existed its `dns_challenge_providers` field shared a name with the live FMConfigManager one,
     # so a name-keyed reader scan could not tell them apart and reported the dead field as read.
@@ -176,45 +176,50 @@ def _keys_read_from(receiver: str, source: str) -> frozenset[str]:
 
 
 def test_recognised_bench_config_keys_covers_every_key_the_reader_touches():
-    """Guards the derivation this fix relies on: if `import_from_toml` starts reading a new
+    """Guards the derivation this fix relies on: if `collect_from_data` starts reading a new
     top-level key that `recognised_bench_config_keys()` does not know about, the loader would warn
     about the very key it just consumed. That drift is the failure mode of this whole design, so
     it gets its own test rather than trusting the two to be kept in sync by hand.
+
+    Scans `BenchConfig.collect_from_data`, not `import_from_toml`: the latter is now a thin
+    wrapper (parse, delegate, then decide what to do with the two lists collect_from_data
+    returns), and every `data.get(...)`/`data[...]` read that matters lives in the method that
+    actually does it.
     """
-    source = textwrap.dedent(inspect.getsource(BenchConfig.import_from_toml))
+    source = textwrap.dedent(inspect.getsource(BenchConfig.collect_from_data))
     keys_read = _keys_read_from("data", source)
 
     assert keys_read, "the AST scan found nothing, so this test is not testing anything"
     missing = keys_read - recognised_bench_config_keys()
     assert not missing, (
-        f"import_from_toml reads {sorted(missing)} but recognised_bench_config_keys() does not "
+        f"collect_from_data reads {sorted(missing)} but recognised_bench_config_keys() does not "
         "know them -- add the spelling there, next to the other hand-added aliases."
     )
 
 
 def test_recognised_ssl_keys_covers_every_key_the_reader_touches():
     """The third hand-read table, same drift risk as `[deploy_state]` above: `[ssl]` is read by
-    hand (`ssl_data.get(...)`), not splatted into a model, so a key `import_from_toml` starts
+    hand (`ssl_data.get(...)`), not splatted into a model, so a key `collect_from_data` starts
     reading there needs the identical guard or the loader would warn about the very key it just
     consumed."""
-    source = textwrap.dedent(inspect.getsource(BenchConfig.import_from_toml))
+    source = textwrap.dedent(inspect.getsource(BenchConfig.collect_from_data))
     keys_read = _keys_read_from("ssl_data", source)
 
     assert keys_read, "the AST scan found nothing, so this test is not testing anything"
     missing = keys_read - recognised_ssl_keys()
     assert not missing, (
-        f"import_from_toml reads {sorted(missing)} from [ssl] but recognised_ssl_keys() does not know them."
+        f"collect_from_data reads {sorted(missing)} from [ssl] but recognised_ssl_keys() does not know them."
     )
 
 
 def test_recognised_deploy_state_keys_covers_every_key_the_reader_touches():
-    source = textwrap.dedent(inspect.getsource(BenchConfig.import_from_toml))
+    source = textwrap.dedent(inspect.getsource(BenchConfig.collect_from_data))
     keys_read = _keys_read_from("deploy_state_data", source)
 
     assert keys_read, "the AST scan found nothing, so this test is not testing anything"
     missing = keys_read - recognised_deploy_state_keys()
     assert not missing, (
-        f"import_from_toml reads {sorted(missing)} from [deploy_state] but "
+        f"collect_from_data reads {sorted(missing)} from [deploy_state] but "
         "recognised_deploy_state_keys() does not know them."
     )
 

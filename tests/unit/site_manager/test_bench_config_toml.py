@@ -21,12 +21,15 @@ Three things are defended here.
    omitting the key from a fixed kwarg list, so both are pinned across a full write/read cycle.
 """
 
+import datetime
+
 import pytest
 
 from frappe_manager.site_manager.bench_config import BenchConfig, DeployState
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import RETIRED_CERTIFICATE_KEYS
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
+from frappe_manager.utils.config_keys import collect_unknown_keys
 
 _BASE = 'name = "dev.localhost"\ndeveloper_mode = true\nadmin_tools = true\nenvironment = "dev"\n'
 
@@ -96,8 +99,8 @@ class TestDeployStateImportGuard:
 
 class TestStaleDeployStateKeysWarnLoudly:
     """`current_tag`/`previous_tag` are the pre-rename spellings. Reading the new names with
-    ``.get()`` (rather than splatting into ``DeployState``) means ``extra="forbid"`` never sees
-    a stale top-level key, so import must announce it rather than silently loading an empty
+    ``.get()`` (rather than splatting into ``DeployState``) means a stale top-level key never
+    reaches the model at all, so import must announce it rather than silently loading an empty
     (indistinguishable from never-deployed) deploy_state.
     """
 
@@ -430,15 +433,16 @@ def test_a_bench_config_carrying_keys_removed_in_0_20_0_still_loads(tmp_path):
     """Keys and tables deleted from the models must not break benches that still carry them.
 
     `[switch].search_replace` was removed as a key, and `[registry]` as a whole table, in
-    0.20.0. The models are `extra="forbid"` and `import_from_toml` splats each TOML table
-    into its model, so a stale KEY would otherwise make every command that loads the bench
-    die with a pydantic ValidationError. `search_replace` was deleted once before on the
-    grounds that nothing read it, and it took down `fm info` and `fm ssl list` on a live
-    bench whose config carried `search_replace = true`.
-
-    A removed TABLE is safer by construction: the loader names the tables it reads, so an
-    unknown one never reaches a model. It is still stripped by the migration, so it stops
-    being carried forward into a version that might reuse the name for something else.
+    0.20.0. `import_from_toml` splats each TOML table into its model, so a stale KEY used to make
+    every command that loads the bench die with a pydantic ValidationError while the models were
+    `extra="forbid"` (now `extra="allow"`, so a stale key is simply retained as an unknown extra
+    rather than raising). `REMOVED_CONFIG_KEYS`/`REMOVED_CONFIG_TABLES` no longer filter either
+    one out of the read path -- retention plus the version-gated warning covers that now, the
+    same as any other stray -- they only drive `_drop_removed_config_keys`'s on-disk strip during
+    the actual 0.20.0 migration (`migrate_0_20_0.py`). `search_replace` was deleted once before
+    on the grounds that nothing read it, and it took down `fm info` and `fm ssl list` on a live
+    bench whose config carried `search_replace = true`; `[registry]` went entirely, since every
+    field in it existed only to run `docker login`, which docker already owns.
     """
     path = tmp_path / "bench_config.toml"
     path.write_text(
@@ -449,18 +453,26 @@ def test_a_bench_config_carrying_keys_removed_in_0_20_0_still_loads(tmp_path):
 
     assert cfg.switch is not None
     assert cfg.switch.migrate is True
-    assert not hasattr(cfg.switch, "search_replace")
-    assert not hasattr(cfg, "registry"), "the table is gone from the model, not merely emptied"
+    # Retained, not filtered: a pre-migration bench that still carries either one keeps it on the
+    # next save (`fm never deletes a key it does not understand`), and the version-gated warning
+    # is silent about both until `migrated_to` catches up.
+    assert collect_unknown_keys(cfg.switch) == ["search_replace"]
+    assert collect_unknown_keys(cfg) == ["registry", "switch.search_replace"]
 
 
-def test_switch_config_still_rejects_a_genuinely_unknown_key():
-    """The compatibility field must not become a licence to accept typos."""
-    from pydantic import ValidationError
+def test_switch_config_now_retains_a_genuinely_unknown_key_instead_of_rejecting_it(tmp_path):
+    """`SwitchConfig` moved from `extra="forbid"` to `extra="allow"`: a key that is not one of the
+    compatibility names above, and not in `REMOVED_CONFIG_KEYS`, is retained rather than rejected.
+    The `--config` overlay refusing a typo before it ever reaches this model is a later phase's
+    concern; this only pins that the model itself no longer raises.
+    """
+    path = tmp_path / "bench_config.toml"
+    path.write_text(_BASE + "[switch]\nmigrate = true\nserch_replace = true\n")
 
-    from frappe_manager.site_manager.bench_config import SwitchConfig
+    cfg = BenchConfig.import_from_toml(path)
 
-    with pytest.raises(ValidationError):
-        SwitchConfig(serch_replace=True)
+    assert cfg.switch.migrate is True
+    assert collect_unknown_keys(cfg.switch) == ["serch_replace"]
 
 
 _SSL_WITH_HSTS = (
@@ -512,7 +524,16 @@ class TestUnrecognisedKeysWarnRatherThanVanish:
     switch`/`fm maintenance` skip the migration gate, so this must warn rather than raise --
     the same tradeoff `TestStaleDeployStateKeysWarnLoudly` already makes for the deploy_state
     rename.
+
+    Every fixture that expects a warning stamps `[migration_state].migrated_to` at fm's current
+    version: the warning itself is version-gated (Phase 5), silent on a bench that has simply
+    never been migrated, so proving "a typo warns" needs a bench the gate treats as current.
     """
+
+    def _current(self) -> str:
+        from frappe_manager.utils.helpers import get_current_fm_version
+
+        return f'\n[migration_state]\nmigrated_to = "{get_current_fm_version()}"\n'
 
     def _warn(self, tmp_path, text: str):
         from unittest.mock import MagicMock
@@ -529,7 +550,7 @@ class TestUnrecognisedKeysWarnRatherThanVanish:
         return bc, handler
 
     def test_an_unknown_top_level_key_warns(self, tmp_path):
-        bc, handler = self._warn(tmp_path, _BASE + "typoed_kee = true\n")
+        bc, handler = self._warn(tmp_path, _BASE + "typoed_kee = true\n" + self._current())
 
         assert bc.name == "dev.localhost"  # loads regardless
         handler.warning.assert_called_once()
@@ -538,7 +559,7 @@ class TestUnrecognisedKeysWarnRatherThanVanish:
         assert "typoed_kee" in message
 
     def test_a_misspelled_table_name_warns(self, tmp_path):
-        bc, handler = self._warn(tmp_path, _BASE + "[swithc]\nmigrate = true\n")
+        bc, handler = self._warn(tmp_path, _BASE + "[swithc]\nmigrate = true\n" + self._current())
 
         assert bc.switch is None  # the misspelled table is never read into the real field
         handler.warning.assert_called_once()
@@ -550,9 +571,11 @@ class TestUnrecognisedKeysWarnRatherThanVanish:
         handler.warning.assert_not_called()
 
     def test_a_retired_key_and_the_retired_table_do_not_warn(self, tmp_path):
-        """`REMOVED_CONFIG_TABLES`/`REMOVED_CONFIG_KEYS` exist so a bench that has not been
-        migrated yet keeps loading quietly; this warning must not turn that quiet toleration
-        into fresh noise on every single load."""
+        """A bench that has not been migrated yet keeps loading quietly, whatever it still
+        carries: the version gate (Phase 5) is silent about EVERY unrecognised key while
+        `migrated_to` is behind fm's current version, not just `REMOVED_CONFIG_KEYS`/
+        `REMOVED_CONFIG_TABLES` (which now only drive the migration's own on-disk strip). No
+        `[migration_state]` here at all, which is every un-migrated bench's actual shape."""
         bc, handler = self._warn(
             tmp_path,
             _BASE + '[switch]\nmigrate = true\nsearch_replace = true\n\n[registry]\nregistry = "ghcr.io/acme"\n',
@@ -565,7 +588,7 @@ class TestUnrecognisedKeysWarnRatherThanVanish:
         """The same hole one level down: `[deploy_state]` is read the same hand-written way."""
         bc, handler = self._warn(
             tmp_path,
-            _BASE + '\n[deploy_state]\ncurrent_image = "v1"\ncurent_image = "typo"\n',
+            _BASE + '\n[deploy_state]\ncurrent_image = "v1"\ncurent_image = "typo"\n' + self._current(),
         )
 
         assert bc.deploy_state.current_image == "v1"
@@ -577,7 +600,7 @@ class TestUnrecognisedKeysWarnRatherThanVanish:
     def test_an_unknown_ssl_key_warns(self, tmp_path):
         """The same hole one level down as [deploy_state]: [ssl] is read the same hand-written
         way (`certificates`/`dns_providers`), so a typo there needs the identical guard."""
-        bc, handler = self._warn(tmp_path, _BASE + "\n[ssl]\ncertificatess = []\n")
+        bc, handler = self._warn(tmp_path, _BASE + "\n[ssl]\ncertificatess = []\n" + self._current())
 
         assert bc.ssl_certificates == []  # the misspelled key is never read
         handler.warning.assert_called_once()
@@ -594,12 +617,22 @@ class TestPreMigrationBenchConfigNeverWarns:
     `fm switch`/`fm maintenance` read a bench's config before offering to run it -- so each of
     these four names used to produce a fabricated "check for a typo" warning on the very first
     load of every bench on a host.
+
+    Phase 5 replaced the hand-list that used to exempt exactly these four spellings
+    (`RELOCATED_CONFIG_KEYS`) with a version check: silent while `[migration_state].migrated_to`
+    is behind fm's current version, regardless of WHICH names are unrecognised, because the
+    operator's next instruction is `fm migrate` and naming a key that command is about to move or
+    strip is noise. That is strictly more general than the four-name list it replaced -- a fifth
+    pre-migration name never hand-added to a list cannot be missed, because nothing is looked up
+    by name any more.
     """
 
     # The shape `migrate_0_19_0.py` actually produces: `alias_domains` written at the top level
     # (`_add_new_config_fields`), `admin_tools_username`/`admin_tools_password` from an even
     # earlier version untouched by that migration, and a site-keyed `[database]` table
     # (`_write_sites_table`'s docstring: "the [database] table already had a site as its key").
+    # No `[migration_state]` at all: a bench that has never been migrated, which is every bench
+    # while 0.20.0 is unreleased.
     _PRE_0_20_0_SHAPED = (
         _BASE
         + 'admin_tools_username = "admin"\n'
@@ -625,30 +658,88 @@ class TestPreMigrationBenchConfigNeverWarns:
 
         assert bc.name == "dev.localhost"  # loads regardless
         handler.warning.assert_not_called()
+        # Retained, not dropped: the version gate silences the WARNING, not the data. A bench
+        # that never migrates keeps every one of these on the next save, same as any other typo.
+        assert collect_unknown_keys(bc) == ["admin_tools_password", "admin_tools_username", "alias_domains", "database"]
 
-    def test_a_genuinely_unknown_key_still_warns_alongside_them(self, tmp_path):
-        """The tolerance must not swallow an actual typo sitting next to the four relocated
-        names. Inserted before the `[database]` table header: TOML scopes a bare `key = value`
-        to whichever table header precedes it, so appended after `[database...]` it would land
-        as a `[database]` sub-key instead of a top-level one."""
+    def test_at_current_version_every_stray_including_the_legacy_ones_warns_together(self, tmp_path):
+        """Once `migrated_to` reaches fm's current version, the silence lifts for ALL of them at
+        once, in one message alongside a genuine typo sitting next to them -- there is no name
+        left on this side that gets special treatment, because the gate is on the bench's
+        version, never on which key it is."""
         from unittest.mock import MagicMock
 
         from frappe_manager.output_manager import set_global_output_handler
         from frappe_manager.output_manager.base import OutputHandler
+        from frappe_manager.utils.helpers import get_current_fm_version
 
-        shaped_with_typo = self._PRE_0_20_0_SHAPED.replace(
+        shaped = self._PRE_0_20_0_SHAPED.replace(
             '\n[database."dev.localhost"]', '\ntypoed_kee = true\n\n[database."dev.localhost"]'
         )
+        shaped += f'\n[migration_state]\nmigrated_to = "{get_current_fm_version()}"\n'
+
         handler = MagicMock(spec=OutputHandler)
         set_global_output_handler(handler)
         try:
-            bc = _import(tmp_path, shaped_with_typo)
+            bc = _import(tmp_path, shaped)
         finally:
             set_global_output_handler(None)
 
         assert bc.name == "dev.localhost"
         handler.warning.assert_called_once()
-        assert "typoed_kee" in handler.warning.call_args.args[0]
+        message = handler.warning.call_args.args[0]
+        for key in ("admin_tools_password", "admin_tools_username", "alias_domains", "database", "typoed_kee"):
+            assert key in message
+
+
+class TestVersionGateIsolatesATypoFromMigrationNoise:
+    """The finding that motivated Phase 5: a bench that has simply never been migrated must not
+    have its typo-detection swamped by (or conflated with) the pre-migration shape it is still
+    carrying. Same file, two versions: silent while behind, and naming only the ACTUAL typo once
+    current -- not the version bump itself, which is not a key at all.
+    """
+
+    _CLEAN_CURRENT_SCHEMA = _BASE + "[switch]\nmigrate = true\n"
+
+    def test_a_legacy_un_migrated_config_produces_zero_warnings(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.base import OutputHandler
+
+        handler = MagicMock(spec=OutputHandler)
+        set_global_output_handler(handler)
+        try:
+            _import(tmp_path, self._CLEAN_CURRENT_SCHEMA)
+        finally:
+            set_global_output_handler(None)
+
+        handler.warning.assert_not_called()
+
+    def test_the_same_file_at_current_version_with_a_typo_warns_about_the_typo_only(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.base import OutputHandler
+        from frappe_manager.utils.helpers import get_current_fm_version
+
+        shaped = (
+            _BASE
+            + "typoed_stray = true\n"
+            + f'\n[migration_state]\nmigrated_to = "{get_current_fm_version()}"\n'
+            + "\n[switch]\nmigrate = true\n"
+        )
+        handler = MagicMock(spec=OutputHandler)
+        set_global_output_handler(handler)
+        try:
+            _import(tmp_path, shaped)
+        finally:
+            set_global_output_handler(None)
+
+        handler.warning.assert_called_once()
+        assert handler.warning.call_args.args[0].endswith(
+            "has unrecognised key(s) typoed_stray; check for a typo, since fm will not use them."
+        )
 
 
 class TestNoWarningReachesTheTerminalDuringShellCompletion:
@@ -706,3 +797,282 @@ class TestNoWarningReachesTheTerminalDuringShellCompletion:
         captured = capsys.readouterr()
         assert captured.out == ""
         assert captured.err == ""
+
+
+class TestUnknownKeysRoundTripLosslessly:
+    """`extra="allow"` means an unknown key is retained data, not a dropped one: `fm` never
+    deletes a line it does not understand, because pruning it would erase the evidence an
+    operator needs to find and fix their own typo. This is a property of `export_to_toml`
+    calling `model_dump()`, which includes `model_extra` by default -- there is no separate
+    prune step of fm's own that could start dropping it, so a future switch to
+    `model_dump(exclude_unset=True)` or an explicit `exclude` would silently break the guarantee
+    these tests pin.
+
+    Every test here asserts the stray survives against the ORIGINAL source text, never only
+    cycle-to-cycle: a key deleted during the FIRST cycle makes cycle one and cycle two
+    byte-identical, so `first == second` alone would pass on a reader that silently drops the
+    key just as readily as on one that keeps it. `[ssl]`/`[deploy_state]` are exactly the shape
+    that mistake would hide, since neither is a model-backed field the way `[switch]` and
+    `[[ssl.certificates]]` already were -- both needed their own retention mechanism (see
+    `_ssl_unknown` and `DeployState`'s retained remainder in bench_config.py), and a test that
+    only checked the fixed point would have passed before that mechanism existed too.
+    """
+
+    def test_a_switch_table_stray_key_survives_two_load_save_cycles_unchanged(self, tmp_path):
+        path = tmp_path / "bench_config.toml"
+        original = _BASE + "[switch]\nmigrate = true\nswitch_typo_key = 'stray-in-switch'\n"
+        path.write_text(original)
+
+        BenchConfig.import_from_toml(path).export_to_toml(path)
+        first = path.read_text()
+        BenchConfig.import_from_toml(path).export_to_toml(path)
+        second = path.read_text()
+
+        assert "switch_typo_key" in first, "must survive against the ORIGINAL, not just cycle-to-cycle"
+        assert first == second, "a stray key must not drift position across repeated saves"
+        assert collect_unknown_keys(BenchConfig.import_from_toml(path).switch) == ["switch_typo_key"]
+
+    def test_a_certificate_stray_key_survives_while_its_retired_neighbour_is_dropped(self, tmp_path):
+        # `api_token` is RETIRED_CERTIFICATE_KEYS: dropped by `_drop_retired_keys` regardless of
+        # extra="allow". `cert_typo_key` is not retired: it must survive both fields sitting in
+        # the same table, proving the retired-key stripper does not over-reach onto a neighbour.
+        path = tmp_path / "bench_config.toml"
+        path.write_text(
+            _BASE + "[[ssl.certificates]]\n"
+            'domain = "dev.localhost"\n'
+            'ssl_type = "letsencrypt"\n'
+            'challenge_type = "http01"\n'
+            'api_token = "should-be-dropped"\n'
+            "cert_typo_key = 'stray-should-survive'\n"
+        )
+
+        BenchConfig.import_from_toml(path).export_to_toml(path)
+        first = path.read_text()
+        BenchConfig.import_from_toml(path).export_to_toml(path)
+        second = path.read_text()
+
+        assert "cert_typo_key" in first, "must survive against the ORIGINAL, not just cycle-to-cycle"
+        assert "api_token" not in first
+        assert first == second
+        cert = BenchConfig.import_from_toml(path).ssl_certificates[0]
+        assert not hasattr(cert, "api_token")
+        assert collect_unknown_keys(cert) == ["cert_typo_key"]
+
+    def test_an_ssl_table_stray_key_survives_two_load_save_cycles_unchanged(self, tmp_path):
+        """The hand-read table with no model of its own (`_ssl_unknown`): `ssl_table` in
+        `export_to_toml` is rebuilt from `ssl_certificates`/`dns_providers` alone, which is
+        exactly the prune that erased this stray before `_ssl_unknown` existed -- a two-cycle
+        fixed point alone would not have caught that, since a bench with the bug reaches the
+        same (wrong) fixed point on its very first save.
+        """
+        path = tmp_path / "bench_config.toml"
+        path.write_text(_BASE + "[ssl]\ncertificatess = []\n")
+
+        BenchConfig.import_from_toml(path).export_to_toml(path)
+        first = path.read_text()
+        BenchConfig.import_from_toml(path).export_to_toml(path)
+        second = path.read_text()
+
+        assert "certificatess" in first, "must survive against the ORIGINAL, not just cycle-to-cycle"
+        assert first == second
+        assert BenchConfig.import_from_toml(path).hand_read_unknown_keys() == ["ssl.certificatess"]
+
+    def test_a_deploy_state_stray_key_survives_two_load_save_cycles_unchanged(self, tmp_path):
+        """`DeployState` is built from four named kwargs, not a splat -- before its retained
+        remainder existed, a stray here never reached the model at all, so `export_to_toml`
+        (which rebuilds `[deploy_state]` from the model) silently dropped it on the FIRST save.
+        Asserted against the original for the same reason as the `[ssl]` case above.
+        """
+        path = tmp_path / "bench_config.toml"
+        path.write_text(_BASE + '[deploy_state]\ncurrent_image = "repo:tag"\nds_typo = "boom"\n')
+
+        BenchConfig.import_from_toml(path).export_to_toml(path)
+        first = path.read_text()
+        BenchConfig.import_from_toml(path).export_to_toml(path)
+        second = path.read_text()
+
+        assert "ds_typo" in first, "must survive against the ORIGINAL, not just cycle-to-cycle"
+        assert first == second
+        assert collect_unknown_keys(BenchConfig.import_from_toml(path).deploy_state) == ["ds_typo"]
+
+    def test_a_dns_provider_label_with_only_a_typo_survives_two_load_save_cycles_unchanged(self, tmp_path):
+        """`export_to_toml` used to gate a label's emission on `provider_config.exists` alone (a
+        real credential, `api_token` or `api_key`), so a label whose ONLY content is a typo'd
+        field name had no real credential, was never written, and vanished on the very first
+        save -- the identical defect the equivalent gate in metadata_manager.py had. Widened to
+        `exists or model_extra`, mirroring that fix so the two readers cannot diverge.
+        """
+        path = tmp_path / "bench_config.toml"
+        path.write_text(_BASE + '[ssl.dns_providers.acct_a]\ntypo_only_field = "boom"\n')
+
+        BenchConfig.import_from_toml(path).export_to_toml(path)
+        first = path.read_text()
+        BenchConfig.import_from_toml(path).export_to_toml(path)
+        second = path.read_text()
+
+        assert "typo_only_field" in first, "must survive against the ORIGINAL, not just cycle-to-cycle"
+        assert first == second
+        cfg = BenchConfig.import_from_toml(path)
+        assert collect_unknown_keys(cfg.dns_providers["acct_a"]) == ["typo_only_field"]
+
+    def test_a_top_level_stray_of_every_awkward_toml_shape_survives_two_load_save_cycles_unchanged(self, tmp_path):
+        """Exercises `unwrap_toml_value` at the top-level retained remainder against every shape
+        named in its own docstring: a quoted string, a sub-table, an array of tables, a datetime,
+        and a dotted key. Asserted against the ORIGINAL text, not only a cycle-to-cycle fixed
+        point, for the same reason as every other test in this class -- and asserted by EXACT
+        type on the reloaded model, not just by text presence: a value still wrapped in a
+        tomlkit `Item` would pass every text assertion below unchanged (tomlkit's `Item` types
+        already subclass their plain equivalents), so only the type check would catch
+        `unwrap_toml_value` reverted to a no-op.
+        """
+        path = tmp_path / "bench_config.toml"
+        original = (
+            _BASE
+            + 'stray_str = "hello \\"world\\" quoted"\n'
+            + "stray_dt = 1979-05-27T07:32:00Z\n"
+            + '"stray.dotted.key" = "dotted-value"\n'
+            + "\n[stray_sub]\na = 1\nb = 'nested'\n"
+            + "\n[[stray_aot]]\nx = 1\n[[stray_aot]]\nx = 2\n"
+        )
+        path.write_text(original)
+
+        BenchConfig.import_from_toml(path).export_to_toml(path)
+        first = path.read_text()
+        BenchConfig.import_from_toml(path).export_to_toml(path)
+        second = path.read_text()
+
+        for marker in ("stray_str", "hello", "stray_dt", "1979-05-27", "stray.dotted.key", "stray_sub", "stray_aot"):
+            assert marker in first, f"{marker!r} must survive against the ORIGINAL, not just cycle-to-cycle"
+        assert first == second
+
+        extra = BenchConfig.import_from_toml(path).model_extra or {}
+        assert type(extra["stray_str"]) is str
+        assert extra["stray_str"] == 'hello "world" quoted'
+        assert type(extra["stray_dt"]) is datetime.datetime
+        assert extra["stray_dt"] == datetime.datetime(1979, 5, 27, 7, 32, tzinfo=datetime.UTC)
+        assert type(extra["stray.dotted.key"]) is str
+        assert extra["stray.dotted.key"] == "dotted-value"
+        assert type(extra["stray_sub"]) is dict
+        assert extra["stray_sub"] == {"a": 1, "b": "nested"}
+        assert type(extra["stray_aot"]) is list
+        assert extra["stray_aot"] == [{"x": 1}, {"x": 2}]
+        assert collect_unknown_keys(BenchConfig.import_from_toml(path)) == sorted(
+            ["stray_str", "stray_dt", "stray.dotted.key", "stray_sub", "stray_aot"]
+        )
+
+
+class TestVersionGateNeverRaisesOnAnOddMigratedTo:
+    """The version gate replacing `RELOCATED_CONFIG_KEYS` (`TestVersionGateIsolatesATypoFromMigrationNoise`
+    above) reads `[migration_state].migrated_to` on every load that reaches `_bench_is_pre_migration`, on
+    every command that skips the migration gate (`fm list`/`bake`/`switch`/`maintenance`). Two crash sites
+    fed off the same untrusted value: `packaging.version.Version` raised `InvalidVersion` on anything not
+    PEP 440, and `MigrationState.migrated_to: str | None` rejected a TOML-native non-string value (a bare
+    date, a bool, a nested table...) with a `pydantic.ValidationError` before the gate was even reached.
+    One bad `migrated_to` in one bench's file used to take every bench on the host down. An unparseable or
+    oddly-typed version is treated exactly like an ABSENT one: fm cannot tell whether it is ahead of or
+    behind, so it stays silent -- never raises, never warns -- until `fm migrate` writes one it can parse.
+    """
+
+    def _loads_silently(self, tmp_path, migration_state_body: str) -> BenchConfig:
+        from unittest.mock import MagicMock
+
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.base import OutputHandler
+
+        handler = MagicMock(spec=OutputHandler)
+        set_global_output_handler(handler)
+        try:
+            bc = _import(tmp_path, _BASE + "typo_key = true\n\n[migration_state]\n" + migration_state_body)
+        finally:
+            set_global_output_handler(None)
+        assert bc.name == "dev.localhost"  # loaded, never raised
+        handler.warning.assert_not_called()
+        return bc
+
+    def test_a_free_text_migrated_to_loads_and_warns_nothing(self, tmp_path):
+        """The exact scenario reported: an unrecognised key AND a non-PEP-440 `migrated_to`."""
+        self._loads_silently(tmp_path, 'migrated_to = "nightly"\n')
+
+    def test_a_bare_toml_date_loads_and_warns_nothing(self, tmp_path):
+        """tomlkit hands a bare (unquoted) TOML date back as `datetime.date`, not `str`."""
+        self._loads_silently(tmp_path, "migrated_to = 2024-01-15\n")
+
+    def test_a_bare_toml_datetime_loads_and_warns_nothing(self, tmp_path):
+        self._loads_silently(tmp_path, "migrated_to = 2024-01-15T10:00:00\n")
+
+    def test_a_boolean_migrated_to_loads_and_warns_nothing(self, tmp_path):
+        self._loads_silently(tmp_path, "migrated_to = true\n")
+
+    def test_a_nested_table_migrated_to_loads_and_warns_nothing(self, tmp_path):
+        """A stray `[migration_state.migrated_to]` sub-table, e.g. a fat-fingered nested key."""
+        self._loads_silently(tmp_path, "[migration_state.migrated_to]\nx = 1\n")
+
+    def test_an_array_migrated_to_loads_and_warns_nothing(self, tmp_path):
+        self._loads_silently(tmp_path, "migrated_to = [1, 2]\n")
+
+    def test_migration_state_present_but_empty_loads_and_warns_nothing(self, tmp_path):
+        self._loads_silently(tmp_path, "")
+
+    def test_an_empty_string_migrated_to_loads_and_warns_nothing(self, tmp_path):
+        self._loads_silently(tmp_path, 'migrated_to = ""\n')
+
+    def test_an_epoch_and_a_local_segment_version_compare_without_raising(self, tmp_path):
+        """Both are valid PEP 440 (an epoch marker, a local version segment) and never touch the
+        except branch at all -- included to prove the try/except addition does not change
+        behaviour for a version `Version()` actually accepts. Both sit far below any released fm
+        version, so the comparison lands deterministically on the silent, pre-migration side.
+        """
+        from unittest.mock import MagicMock
+
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.base import OutputHandler
+
+        for label, migrated_to in (("epoch", "0!0.0.1"), ("local", "0.0.1+local")):
+            sub = tmp_path / label
+            sub.mkdir()
+            handler = MagicMock(spec=OutputHandler)
+            set_global_output_handler(handler)
+            try:
+                bc = _import(
+                    sub,
+                    _BASE + f'typo_key = true\n\n[migration_state]\nmigrated_to = "{migrated_to}"\n',
+                )
+            finally:
+                set_global_output_handler(None)
+            assert bc.name == "dev.localhost"
+            handler.warning.assert_not_called()
+
+    def test_last_migration_date_as_a_bare_toml_date_does_not_raise(self, tmp_path):
+        """The sibling field on the same model, coerced the same way. A real (parseable, current)
+        `migrated_to` keeps the gate itself out of this assertion."""
+        from unittest.mock import MagicMock
+
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.base import OutputHandler
+        from frappe_manager.utils.helpers import get_current_fm_version
+
+        handler = MagicMock(spec=OutputHandler)
+        set_global_output_handler(handler)
+        try:
+            bc = _import(
+                tmp_path,
+                _BASE + "\n[migration_state]\n"
+                f'migrated_to = "{get_current_fm_version()}"\n'
+                "last_migration_date = 2024-01-15\n",
+            )
+        finally:
+            set_global_output_handler(None)
+        assert bc.name == "dev.localhost"
+        handler.warning.assert_not_called()  # no unrecognised key here, only the odd type
+        assert bc.migration_state.last_migration_date == "2024-01-15"  # coerced, not dropped
+
+    def test_an_odd_migrated_to_type_is_retained_as_its_string_form_not_dropped(self, tmp_path):
+        """fm never deletes a key it does not understand: an odd TYPE on a recognised key is
+        coerced to a string it can round-trip, not silently blanked to None."""
+        path = tmp_path / "bench_config.toml"
+        path.write_text(_BASE + "\n[migration_state]\nmigrated_to = 2024-01-15\n")
+
+        bc = BenchConfig.import_from_toml(path)
+
+        assert bc.migration_state is not None
+        assert bc.migration_state.migrated_to == "2024-01-15"

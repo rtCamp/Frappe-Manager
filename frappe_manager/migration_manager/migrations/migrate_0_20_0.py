@@ -63,7 +63,6 @@ from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager.context_managers import spinner
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, MariaDBManager
 from frappe_manager.site_manager.bench_config import (
-    RELOCATED_CONFIG_KEYS,
     REMOVED_CONFIG_KEYS,
     REMOVED_CONFIG_TABLES,
     resolve_primary_site,
@@ -175,12 +174,6 @@ class MigrationV0200(MigrationBase):
         # table it reads has to be written already.
         self._backfill_default_site(bench)
         self._drop_removed_config_keys(bench)
-        # Every relocation step above is what recognised_bench_config_keys() trusts to empty
-        # RELOCATED_CONFIG_KEYS out of the top level; if one of them survives migrate_bench, that
-        # trust is broken and a bench would go on being silently tolerated forever instead of
-        # ending up migrated. Raising here, not warning, because unlike a bench that has simply
-        # not been migrated yet, this is the migration itself failing at the one thing it is for.
-        self._verify_relocated_keys_gone(bench)
 
         compose_path = bench.path / "docker-compose.admin-tools.yml"
         if not compose_path.exists():
@@ -402,29 +395,6 @@ class MigrationV0200(MigrationBase):
 
         toml_document.save(config_path, doc)
         self.output.print(f"Dropped removed config {', '.join(dropped)} for {bench.name}")
-
-    def _verify_relocated_keys_gone(self, bench: MigrationBench):
-        """Raise if a step above left one of ``RELOCATED_CONFIG_KEYS`` at the top level.
-
-        ``recognised_bench_config_keys()`` tolerates ``admin_tools_username``/
-        ``admin_tools_password``/``alias_domains``/``database`` at the top level ONLY because
-        this migration is what relocates them off it; that tolerance's whole premise is that
-        ``migrate_bench`` finishes the job. A bench that reaches the end of ``migrate_bench``
-        still carrying one of them would keep being silently tolerated by the loader forever,
-        which is exactly the shape of bug the two lists (this method's set and the reader's) were
-        introduced to catch instead of hand-listing the same names twice and hoping they agree.
-        """
-        config_path = bench.path / "bench_config.toml"
-        if not config_path.exists():
-            return
-
-        doc = tomlkit.parse(config_path.read_text())
-        leftover = RELOCATED_CONFIG_KEYS & set(doc)
-        if leftover:
-            raise ValueError(
-                f"migrate_0_20_0 left relocated key(s) {', '.join(sorted(leftover))} at the top "
-                f"level of {bench.name}'s bench_config.toml"
-            )
 
     def _write_sites_table(self, bench: MigrationBench):
         """Give every bench a `[sites."<site>"]` entry, and move `[database."<site>"]` under it.

@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
-from frappe_manager.ssl_manager.certificate import CustomCertificate
+from frappe_manager.ssl_manager.certificate import CustomCertificate, DevCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateGenerateFailed,
     SSLCertificateManualRenewalRequired,
@@ -130,6 +130,22 @@ class TestGenerateCertificateFileValidation:
 
         with pytest.raises(SSLCertificateManualRenewalRequired):
             svc.generate_certificate(cert)
+
+    def test_stray_source_paths_on_a_non_custom_certificate_are_never_read(self, tmp_path, valid_pair):
+        """`cert_source`/`key_source` are declared only on `CustomCertificate`. A DIFFERENT variant
+        that happens to retain a stray key with one of those names (`extra="allow"`) must not have
+        it read as though the operator had supplied that file for THIS certificate -- it must
+        refuse exactly like a real `CustomCertificate` with no source paths does, even though real
+        cert/key files exist at the stray paths.
+        """
+        cert_path, key_path = valid_pair
+        stray_cert = DevCertificate.model_validate(
+            {"domain": "app.example.com", "cert_source": str(cert_path), "key_source": str(key_path)}
+        )
+        svc = make_service(tmp_path)
+
+        with pytest.raises(SSLCertificateManualRenewalRequired):
+            svc.generate_certificate(stray_cert)
 
 
 @pytest.mark.unit

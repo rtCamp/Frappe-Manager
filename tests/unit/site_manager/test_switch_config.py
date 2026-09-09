@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from frappe_manager.site_manager.bench_config import SwitchConfig
+from frappe_manager.utils.config_keys import collect_unknown_keys
 
 
 def test_defaults():
@@ -23,12 +24,13 @@ def test_rollback_db_with_backup_db_is_valid():
     assert sc.rollback_db is True
 
 
-def test_old_field_names_are_rejected():
-    # extra="forbid": stale keys fail loudly instead of being silently ignored.
-    with pytest.raises(ValueError):
-        SwitchConfig(backups=True)
-    with pytest.raises(ValueError):
-        SwitchConfig(restore_on_failure=True)
+def test_old_field_names_are_retained_as_unknown_extras():
+    # extra="allow": a stale key is retained (collectible) rather than raising or vanishing.
+    sc = SwitchConfig(backups=True)
+    assert collect_unknown_keys(sc) == ["backups"]
+
+    sc = SwitchConfig(restore_on_failure=True)
+    assert collect_unknown_keys(sc) == ["restore_on_failure"]
 
 
 def test_backup_db_auto_accepted():
@@ -63,22 +65,23 @@ def test_keep_releases_default():
     assert SwitchConfig().keep_releases == 7
 
 
-def test_old_keep_releases_name_is_rejected():
-    # Renamed from releases_retain_limit; extra="forbid" fails loudly so users
-    # fix their config instead of the key being silently ignored.
-    with pytest.raises(ValueError):
-        SwitchConfig(releases_retain_limit=3)
+def test_old_keep_releases_name_is_retained_as_an_unknown_extra():
+    # Renamed from releases_retain_limit; extra="allow" retains the stale key (collectible)
+    # rather than silently coercing it into the new field or raising.
+    sc = SwitchConfig(releases_retain_limit=3)
+    assert sc.keep_releases == 7  # the real field keeps its default, untouched by the old name
+    assert collect_unknown_keys(sc) == ["releases_retain_limit"]
 
 
 def test_search_replace_is_gone_from_the_model():
     # `search_replace` advertised "run search-and-replace in DB after restore" and was never
     # read: _restore_db only ever imports fm's OWN dump of THIS site, so there is no other
     # site's URL to rewrite. It was deleted once on that reasoning alone, which broke every
-    # command that loaded a bench carrying `search_replace = true` (observed live: it took
-    # down `fm info` and `fm ssl list`), because SwitchConfig is extra="forbid". It is gone
-    # again in 0.20.0, this time with the loader filtering the stale key and the bench
-    # migration stripping it from disk. The model itself is strict again, as it should be:
-    # the compatibility lives in BenchConfig.import_from_toml, not here.
+    # command that loaded a bench carrying `search_replace = true` while SwitchConfig was
+    # extra="forbid" (observed live: it took down `fm info` and `fm ssl list`). It is gone again
+    # in 0.20.0, this time with the loader filtering the stale key at the `--config` overlay seam
+    # and the bench migration stripping it from disk; the model itself now tolerates it too
+    # (extra="allow"), retaining it as an unknown key for a caller to act on rather than raising.
     # See test_bench_config_toml.py::test_a_bench_config_carrying_keys_removed_in_0_20_0_still_loads.
-    with pytest.raises(ValueError):
-        SwitchConfig(search_replace=True)
+    sc = SwitchConfig(search_replace=True)
+    assert collect_unknown_keys(sc) == ["search_replace"]

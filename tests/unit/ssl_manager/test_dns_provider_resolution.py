@@ -16,7 +16,7 @@ import pytest
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.ssl_manager import DNS_PROVIDER, LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
-from frappe_manager.ssl_manager.certificate import SSLCertificate
+from frappe_manager.ssl_manager.certificate import DevCertificate, SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLDNSChallengeCredentailsNotFound,
     SSLDNSProviderNotConfigured,
@@ -24,6 +24,7 @@ from frappe_manager.ssl_manager.certificate_exceptions import (
 from frappe_manager.ssl_manager.dns_provider import DNSProviderConfig
 from frappe_manager.ssl_manager.letsencrypt_certificate import build_letsencrypt_certificate
 from frappe_manager.ssl_manager.ssl_utils import get_dns_credentials_for_certificate, resolve_dns_provider
+from frappe_manager.utils.config_keys import collect_unknown_keys
 
 
 def _global_config(tmp_path, body: str = ""):
@@ -155,3 +156,25 @@ def test_no_bench_config_at_all_uses_the_global_scope(tmp_path):
 
     with _global_config(tmp_path, body):
         assert get_dns_credentials_for_certificate(_cert()) == {"CF_Token": "tok-GLOBAL"}
+
+
+def test_a_dev_certificate_stray_named_dns_provider_is_never_resolved(tmp_path):
+    """`extra="allow"` retains a stray, but a stray must never become live input to a probe.
+
+    `dns_provider` is declared only on `LetsencryptSSLCertificate`. Loaded onto a `dev` certificate
+    it lands in `model_extra`, not the real field: `type(cert).model_fields` never contains it for
+    `DevCertificate`. Before the fix, plain `getattr(cert, "dns_provider", None)` resolved the extra
+    key anyway (`BaseModel.__getattr__` falls through to `__pydantic_extra__`), so this label would
+    have been looked up and, being configured nowhere, raised `SSLDNSProviderNotConfigured` -- the
+    exact symptom the finding describes. The label is retained (still collectible below) but must
+    never reach the resolver.
+    """
+    dev_cert = DevCertificate.model_validate({"domain": "a.example.com", "dns_provider": "acct-b"})
+
+    assert collect_unknown_keys(dev_cert) == ["dns_provider"]
+    assert "dns_provider" not in type(dev_cert).model_fields
+
+    with _global_config(tmp_path):
+        # Nothing is configured anywhere; a resolved stray label would raise. The base default
+        # ("cloudflare") is also unconfigured, so the un-shadowed read is a quiet None, not a crash.
+        assert resolve_dns_provider(dev_cert, _bench(tmp_path)) is None

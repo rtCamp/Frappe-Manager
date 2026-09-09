@@ -144,6 +144,43 @@ def _remove_dns_credentials(
     output.print(f"✅ Removed global [fm.ok]{target}[/fm.ok] credentials")
 
 
+def _upsert_dns_provider_entry(
+    entries: dict[str, DNSProviderConfig],
+    label: str,
+    *,
+    email: str | None,
+    api_token: str | None,
+    api_key: str | None,
+) -> None:
+    """Write a labelled credential set in place, at either scope.
+
+    A reconfigure of an EXISTING label is the operator deliberately overwriting that label's
+    credentials, so the four named fields are always replaced with what was just given -- including
+    clearing one back to None when it was omitted, since a field the operator can never clear again
+    is not a real overwrite. What must NOT happen is rebuilding the entry from those four kwargs
+    alone: DNSProviderConfig is extra="allow", so a stray key already retained inside it (a mistyped
+    credential field from a hand edit, say) is still the operator's data and belongs to the ruling
+    that fm never deletes a key it does not understand -- reconfiguring one label's known fields is
+    not the operator asking to erase an unrelated key in the same table. Mutating the loaded instance
+    carries any such stray forward for free; constructing DNSProviderConfig(**named kwargs) instead
+    would have no way to see it and would silently drop it, same as the old code. Neither
+    DNSProviderConfig nor its four fields have validators that make attribute assignment unsafe.
+    """
+    existing = entries.get(label)
+    if existing is not None:
+        existing.provider = DNS_PROVIDER.cloudflare
+        existing.email = email
+        existing.api_token = api_token
+        existing.api_key = api_key
+    else:
+        entries[label] = DNSProviderConfig(
+            provider=DNS_PROVIDER.cloudflare,
+            email=email,
+            api_token=api_token,
+            api_key=api_key,
+        )
+
+
 def _configure_dns_credentials(
     ctx: typer.Context,
     provider_name: str,
@@ -169,11 +206,8 @@ def _configure_dns_credentials(
         if not bench.bench_config.dns_providers:
             bench.bench_config.dns_providers = {}
 
-        bench.bench_config.dns_providers[label] = DNSProviderConfig(
-            provider=DNS_PROVIDER.cloudflare,
-            email=email,
-            api_token=api_token,
-            api_key=api_key,
+        _upsert_dns_provider_entry(
+            bench.bench_config.dns_providers, label, email=email, api_token=api_token, api_key=api_key
         )
 
         # Save bench config
@@ -200,12 +234,7 @@ def _configure_dns_credentials(
     if not fm_config.dns_providers:
         fm_config.dns_providers = {}
 
-    fm_config.dns_providers[label] = DNSProviderConfig(
-        provider=DNS_PROVIDER.cloudflare,
-        email=email,
-        api_token=api_token,
-        api_key=api_key,
-    )
+    _upsert_dns_provider_entry(fm_config.dns_providers, label, email=email, api_token=api_token, api_key=api_key)
     fm_config.export_to_toml()
 
     output.print(f"✅ Global [fm.ok]{provider_name}[/fm.ok] credentials '{label}' configured")

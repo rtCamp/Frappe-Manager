@@ -34,6 +34,7 @@ from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.migrations import migrate_0_20_0 as migrate_mod
 from frappe_manager.migration_manager.migrations.migrate_0_20_0 import MigrationV0200
 from frappe_manager.site_manager.bench_config import BenchConfig
+from frappe_manager.utils.config_keys import collect_unknown_keys
 from frappe_manager.utils.helpers import get_template_path
 
 SITE = "shop.localhost"
@@ -208,12 +209,14 @@ def test_an_existing_per_site_alias_list_wins_over_a_stale_top_level_one(step, t
     config = BenchConfig.import_from_toml(path)
 
     assert config.sites[SITE].alias_domains == ["current.example.com"]
-    # The stale top-level copy is never read: `import_from_toml` builds its input key by key, so an
-    # unrecognised top-level `alias_domains` cannot reach the model. The step also means to delete
-    # it, and in this one shape (no `[database]` table at all, `[sites."<bench>"]` already present)
-    # it does not, because the early return skips the save that would have persisted the delete.
-    # Reported as a production gap rather than pinned here; it is cosmetic, not routing.
-    assert not hasattr(config, "alias_domains")
+    # The stale top-level copy is never USED (nothing reads a top-level `alias_domains` any
+    # more), but it is no longer invisible either: `BenchConfig` is `extra="allow"` at the top
+    # level, so an unrecognised key here is retained rather than silently dropped, the same as
+    # any other stray. The step also means to delete it, and in this one shape (no `[database]`
+    # table at all, `[sites."<bench>"]` already present) it does not, because the early return
+    # skips the save that would have persisted the delete -- reported as a production gap rather
+    # than pinned here; it is cosmetic, not routing.
+    assert config.model_extra == {"alias_domains": ["stale.example.com"]}
 
 
 def test_an_empty_top_level_alias_list_is_just_dropped(step, tmp_path):
@@ -327,9 +330,11 @@ The pipeline used to dump one database per deploy and record `backup = "<path>"`
 per site, because every site has its own schema, and records `backups = {"<site>" = "<path>"}`. A
 rollback that restored one site of three would put the bench at two points in time.
 
-`DeployStateEntry` forbids extra keys, so a row still spelling `backup` does not load with a stale
-field: it refuses the whole config. That makes this step load-bearing rather than tidying, and it
-is why every test here asserts the result LOADS and not merely that the file changed.
+`DeployStateEntry` is `extra="allow"`, so a row still spelling `backup` no longer refuses the whole
+config on load: the stale key is retained (collectible by `collect_unknown_keys`) instead. That
+makes this rewrite step worth running for correctness (the stale key would otherwise sit there
+forever, unread by anything) rather than for survival, which is why every test here also asserts
+the result LOADS and not merely that the file changed.
 """
 
 HISTORY = """
@@ -403,14 +408,19 @@ def test_the_rewritten_history_loads(step, tmp_path):
     assert config.deploy_state.history[2].backups == {}
 
 
-def test_the_old_spelling_does_not_load_at_all(tmp_path):
-    # Why the rewrite is required rather than optional: `extra="forbid"` means a surviving
-    # `backup` key takes the whole bench config down, not just that row.
+def test_the_old_spelling_no_longer_prevents_loading_but_is_retained_as_unknown(tmp_path):
+    # `DeployStateEntry` moved to extra="allow": a surviving `backup` key is retained rather than
+    # taking the whole bench config down. The rewrite step is still what makes it disappear.
     path = tmp_path / "bench_config.toml"
     path.write_text(BASE + f'\n[sites."{SITE}"]\n' + HISTORY)
 
-    with pytest.raises(Exception, match="backup"):
-        BenchConfig.import_from_toml(path)
+    config = BenchConfig.import_from_toml(path)
+
+    assert config.deploy_state.history[0].migrate_status == "migrated"
+    assert collect_unknown_keys(config.deploy_state) == [
+        "history[0].backup",
+        "history[1].backup",
+    ]
 
 
 def test_the_step_is_idempotent(step, tmp_path):

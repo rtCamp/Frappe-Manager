@@ -11,11 +11,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from frappe_manager.ssl_manager.certificate import DevCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateNotDueForRenewalError,
     SSLCertificateNotFoundError,
 )
 from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
+from frappe_manager.utils.config_keys import collect_unknown_keys
 
 
 class TestSSLCertificateManagerInitialization:
@@ -374,6 +376,30 @@ class TestSSLCertificateManagerAddCertificate:
         # Verify callback was called
         mock_callback.assert_called_once()
 
+    def test_add_certificate_fallback_ignores_a_stray_acme_client(self, ssl_certificate_manager):
+        """A stray named `acme_client` on a `dev` certificate must never reach `link_certificate`.
+
+        `acme_client` is declared only on `LetsencryptSSLCertificate`. The exception-path fallback
+        (`declared_field(certificate, "acme_client", "letsencrypt")`) fires here because the mocked
+        service returns an absolute path outside `storage_config.ssl_dir`, exactly like
+        `test_add_certificate_success` above. Before the fix, plain `getattr` resolved the stray
+        straight through and would have handed `link_certificate` a directory ("zerossl") fm never
+        created on disk.
+        """
+        stray_cert = DevCertificate.model_validate({"domain": "stray-dev.com", "acme_client": "zerossl"})
+        assert collect_unknown_keys(stray_cert) == ["acme_client"]
+
+        mock_service = MagicMock()
+        mock_service.generate_certificate.return_value = (Path("/key.pem"), Path("/fullchain.pem"))
+        ssl_certificate_manager.service_factory = MagicMock(return_value=mock_service)
+        ssl_certificate_manager.vhost_manager = MagicMock()
+
+        ssl_certificate_manager.add_certificate(stray_cert)
+
+        assert ssl_certificate_manager.link_manager.link_certificate.call_args.kwargs["cert_type"] == "letsencrypt"
+        # Tolerating the stray at load is the design: it must still be there afterwards.
+        assert collect_unknown_keys(stray_cert) == ["acme_client"]
+
 
 class TestSSLCertificateManagerRemoveCertificate:
     """Tests for SSLCertificateManager.remove_certificate_by_domain method."""
@@ -647,6 +673,29 @@ class TestSSLCertificateManagerRenewCertificate:
 
         # Verify nginx was still restarted
         ssl_certificate_manager.nginx_controller.restart.assert_called_once()
+
+    def test_renew_certificate_fallback_ignores_a_stray_acme_client(self, mocker, ssl_certificate_manager):
+        """Same hazard as `add_certificate`, on the renewal path's fallback in `_renew_single_certificate`."""
+        stray_cert = DevCertificate.model_validate({"domain": "example.com", "acme_client": "zerossl"})
+        ssl_certificate_manager.certificates[0] = stray_cert
+
+        mocker.patch.object(ssl_certificate_manager, "needs_renewal", return_value=True)
+        expiry_date = datetime.now() + timedelta(days=10)
+        mocker.patch.object(ssl_certificate_manager, "get_certificate_expiry", return_value=expiry_date)
+        mocker.patch.object(
+            ssl_certificate_manager,
+            "get_certificate_paths",
+            return_value=(Path("/key.pem"), Path("/fullchain.pem")),
+        )
+
+        mock_service = MagicMock()
+        ssl_certificate_manager.services[stray_cert.domain] = mock_service
+
+        ssl_certificate_manager.renew_certificate()
+
+        assert ssl_certificate_manager.link_manager.link_certificate.call_args.kwargs["cert_type"] == "letsencrypt"
+        # Tolerating the stray at load is the design: it must still be there afterwards.
+        assert collect_unknown_keys(stray_cert) == ["acme_client"]
 
 
 class TestSSLCertificateManagerRenewAllCertificates:

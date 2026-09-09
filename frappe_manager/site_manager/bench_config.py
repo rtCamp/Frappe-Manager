@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 import tomlkit
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from packaging.version import InvalidVersion
+from packaging.version import Version as PackagingVersion
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from tomlkit.items import Array as TOMLArray
 
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
@@ -18,11 +20,13 @@ from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.dns_provider import DNSProviderConfig
 from frappe_manager.ssl_manager.letsencrypt_certificate import CERTIFICATE_ADAPTER
 from frappe_manager.utils import toml_document
+from frappe_manager.utils.config_keys import collect_unknown_keys, unwrap_toml_value
 from frappe_manager.utils.helpers import (
     ImageRef,
     digest_pinned_refusal,
     get_bench_connection_config,
     get_container_name_prefix,
+    get_current_fm_version,
     has_explicit_tag,
 )
 
@@ -410,6 +414,14 @@ class AppConfig(BaseModel):
     - Full URL: "https://github.com/frappe/erpnext:version-15"
     - Subdirectory: "frappe/frappe:version-15#apps/frappe"
     """
+
+    # extra="allow": the last splatted model still on pydantic's default "ignore" -- an unknown
+    # key inside an [[apps]] entry was silently dropped rather than retained. Same reasoning as
+    # every other model here (certificate.py:19-23): retained and collectible instead of vanishing.
+    # `apps`/`apps_list` is a READ_ONLY_INPUT_KEY (export_to_toml never rewrites it from the
+    # model; see `toml_document.apply`'s `keep=`), so this is purely about making the drop
+    # visible, not a new round-trip risk: the on-disk table was already left untouched on save.
+    model_config = ConfigDict(extra="allow")
 
     name: str = Field(..., description="App name (e.g., 'erpnext')")
     repo: str = Field(..., description="GitHub repo (e.g., 'frappe/erpnext')")
@@ -841,14 +853,48 @@ def ssl_certificates_to_toml_array(certs: list[SSLCertificate]) -> TOMLArray:
 
 
 class MigrationState(BaseModel):
+    """Migration bookkeeping (`[migration_state]`); splatted directly, like every model below.
+
+    # extra="allow": this was the one model in the file Phase 1's forbid -> allow sweep missed,
+    # because it was never "forbid" to begin with -- it had no model_config at all, which is
+    # pydantic's default "ignore". "ignore" is worse than "forbid" here, not better: a stray key
+    # does not raise, but it also does not round-trip, so it is silently deleted on the very next
+    # save. That is the one outcome the Phase 1 ruling forbids (fm never deletes a key it does
+    # not understand), so this model gets the same flag as DeployStateEntry and every sibling
+    # (certificate.py:19-23) rather than staying the outlier.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
     migrated_to: str | None = Field(None, description="Version bench is migrated to (e.g., '0.19.0')")
     last_migration_date: str | None = Field(None, description="ISO timestamp of last migration")
+
+    # Both fields are `str | None`, but a hand-edited file can carry either as a bare TOML-native
+    # date/datetime/int/bool (tomlkit hands those back as `Date`/`DateTime`/`Integer`/`bool`, none
+    # of which pydantic coerces to `str`) or even a stray `[migration_state.migrated_to]`
+    # sub-table. `MigrationState(**migration_state_data)` in `import_from_toml`/`collect_from_data`
+    # runs on every command that skips the migration gate, and it used to raise a
+    # `pydantic.ValidationError` on any of those -- one bad TYPE for a recognised key took the
+    # whole host down exactly like the `InvalidVersion` crash `_bench_is_pre_migration` guards
+    # against below, just one step earlier in the same load. Coerced to its string form here
+    # rather than rejected: fm never deletes a key it does not understand, and an odd TYPE on a
+    # recognised key earns the same tolerance an odd NAME already gets.
+    @field_validator("migrated_to", "last_migration_date", mode="before")
+    @classmethod
+    def _coerce_non_string_scalar(cls, value: Any) -> Any:
+        if value is None or isinstance(value, str):
+            return value
+        return str(unwrap_toml_value(value))
 
 
 class DeployStateEntry(BaseModel):
     """One recorded image deploy (appended to :class:`DeployState.history`)."""
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="allow", not "forbid": an unknown key here used to raise, which takes down every
+    # command that skips the migration gate (fm list/bake/switch/maintenance). The key is now
+    # retained and reported by the collector with its dotted path; the caller decides refuse vs
+    # warn. See certificate.py:19-23 for the incident that made forbid-on-read the wrong default.
+    model_config = ConfigDict(extra="allow")
 
     image: str = Field(..., description="Image deployed (full reference, e.g. repo:tag).")
     deployed_at: str = Field(..., description="ISO timestamp of the deploy.")
@@ -864,7 +910,8 @@ class DeployStateEntry(BaseModel):
 class DeployState(BaseModel):
     """Image deploy state (`[deploy_state]` in bench_config.toml)."""
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="allow": same reasoning as DeployStateEntry just above (certificate.py:19-23).
+    model_config = ConfigDict(extra="allow")
 
     current_image: str | None = Field(None, description="Currently deployed image (full reference).")
     previous_image: str | None = Field(None, description="Previously deployed image (rollback target).")
@@ -882,7 +929,9 @@ class BenchRuntime(str, Enum):
 class BuildHookScripts(BaseModel):
     """Per-app build hooks for a single location (container or host)."""
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23). AppBuildHooks
+    # inherits this model_config; do not re-forbid on the subclass.
+    model_config = ConfigDict(extra="allow")
 
     before_deps: str | None = Field(None, description="Before this app's dependency install (uv pip install -e).")
     after_deps: str | None = Field(None, description="After this app's dependency install.")
@@ -899,7 +948,9 @@ class AppBuildHooks(BuildHookScripts):
 class SwitchHookScripts(BaseModel):
     """Switch-phase hooks for a single location (container or host)."""
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23). SwitchHooks
+    # inherits this model_config; do not re-forbid on the subclass.
+    model_config = ConfigDict(extra="allow")
 
     before_restart: str | None = Field(None, description="Before the container swap.")
     after_restart: str | None = Field(None, description="After the swap (finalize).")
@@ -927,7 +978,9 @@ class WebAuthConfig(BaseModel):
     state an ignored value is a config that lies to whoever reads it.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23). AuthConfig
+    # inherits this model_config; do not re-forbid on the subclass.
+    model_config = ConfigDict(extra="allow")
 
     user: str = Field("admin", description="Basic auth username for this scope.")
     password: str | None = Field(None, description="Basic auth password; generated on first enable when unset.")
@@ -959,7 +1012,8 @@ class WorkersConfig(BaseModel):
     """Worker-care configuration (``[workers]``): how ``fm restart`` and the ``fm switch``
     pipeline treat RQ workers and their in-flight jobs."""
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    model_config = ConfigDict(extra="allow")
 
     drain: bool = Field(True, description="Drain RQ workers (suspend + wait for in-flight jobs) before cycling them.")
     drain_timeout: int = Field(
@@ -977,7 +1031,8 @@ class WorkersConfig(BaseModel):
 class SwitchConfig(BaseModel):
     """Switch/migrate pipeline configuration (`[switch]` in bench_config.toml)."""
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    model_config = ConfigDict(extra="allow")
 
     migrate: bool = Field(
         True,
@@ -1027,53 +1082,28 @@ class SwitchConfig(BaseModel):
         return self
 
 
-# Keys that used to be valid in a config table and no longer exist on its model.
-# Removing a field from any model below means adding ONE line here: the loader
-# filters the key so a bench that still carries it keeps loading, and the 0.20.0
-# bench migration (which reads this same table) strips it from the file.
+# Keys that used to be valid in a config table and no longer exist on its model. Removing a field
+# from any model below means adding ONE line here: `_drop_removed_config_keys` (migrate_0_20_0.py)
+# strips it off disk during the 0.20.0 migration, so the file stops carrying a name a future
+# version might reuse for something else.
 #
-# Both halves are needed. These models are ``extra="forbid"`` and
-# ``import_from_toml`` splats the whole TOML table into them, so a leftover key
-# makes EVERY command that loads the bench die on a pydantic error, and the gate
-# that offers to migrate is skipped for whitelisted commands (``list``, ``bake``,
-# ``switch``) -- one un-migrated bench would take `fm list` down for all of them.
-# The migration is what stops the key propagating, since ``export_to_toml`` cannot
-# write a field the model does not have.
+# NOT used to filter the read path any more (it once was, via `_filter_removed`/`_table` below):
+# these models are `extra="allow"` (Phase 1), so a leftover key is retained as an unknown extra
+# like any other stray, and the version-gated warning in `import_from_toml` (silent while the
+# bench is behind `migrated_to`, warns once it is current) is what a per-key read-path exemption
+# here used to be needed for. A key still present at 0.19.x is one the migration has not gotten
+# to yet, not a typo; one still present once the bench is current is worth the same warning a
+# genuine typo gets.
 REMOVED_CONFIG_KEYS: dict[str, frozenset[str]] = {
     "switch": frozenset({"search_replace"}),
 }
 
-# Whole tables that no longer exist. `import_from_toml` builds its input explicitly, so a
-# leftover table is already ignored at load; this is what tells the migration to take it
-# off disk so it stops being carried forward and re-read by a future version.
+# Whole tables that no longer exist. `import_from_toml` builds its input explicitly, so a leftover
+# table was already never read into any model; `_drop_removed_config_keys` is what takes it off
+# disk. Also purely a migration-strip list now, for the same reason as `REMOVED_CONFIG_KEYS`
+# above: a bench still carrying `[registry]` is retained and version-gated like any other stray,
+# not exempted from the warning by name.
 REMOVED_CONFIG_TABLES: frozenset[str] = frozenset({"registry"})
-
-# Top-level bench_config.toml keys `migrate_0_20_0` RELOCATES to a new home elsewhere in the
-# file (into [auth], under [sites."<bench>"], or one level down to [sites."<site>".database])
-# rather than retiring them outright. Homed here rather than in the migration module because
-# migrate_0_20_0.py already imports REMOVED_CONFIG_KEYS/REMOVED_CONFIG_TABLES from this module --
-# bench_config.py has no import back into migration_manager, so this is the only direction with
-# no circular import, and it keeps every "what can legitimately sit at the top level right now"
-# fact in one file rather than splitting it across the reader and the migration.
-#
-# 0.20.0 is unreleased, so every bench on a host is still pre-migration: `list`/`bake`/`switch`/
-# `maintenance`, which read a bench's config before offering to run the migration, see these
-# names at the top level on every single one of them. Tolerated the same way
-# `REMOVED_CONFIG_TABLES` is, except the migration MOVES the name instead of deleting it, and
-# `migrate_0_20_0.MigrationV0200._verify_relocated_keys_gone` asserts none of these survive
-# `migrate_bench` at the top level, so the migration's own behaviour and this tolerance list
-# cannot drift apart silently the way `recognised_bench_config_keys()` and the migration already
-# did once (see the four names below -- fm wrote every one of them at 0.19.x or earlier and
-# `migrate_0_20_0` is what relocates them; this constant used to hand-list none of them, which is
-# the bug this fixes).
-RELOCATED_CONFIG_KEYS: frozenset[str] = frozenset(
-    {
-        "admin_tools_username",  # -> [auth].user             (_move_admin_tools_credentials)
-        "admin_tools_password",  # -> [auth].password          (_move_admin_tools_credentials)
-        "alias_domains",  # -> [sites."<bench>"].alias_domains (_write_sites_table)
-        "database",  # -> [sites."<site>".database]            (_write_sites_table)
-    }
-)
 
 # BenchConfig fields that never reach bench_config.toml: create-time inputs, derived values, secrets
 # the design keeps out of the file, and the two written by hand under [ssl]. Shared with the example
@@ -1109,8 +1139,7 @@ READ_ONLY_INPUT_KEYS: frozenset[str] = frozenset({"apps", "apps_list", "admin_pa
 
 def recognised_bench_config_keys() -> frozenset[str]:
     """Every top-level bench_config.toml key `import_from_toml` (and the `--config` overlay
-    seam ahead of it, see deploy_config_overlay.py) treats as meaningful -- including a table
-    this version no longer models but still loads without complaint.
+    seam ahead of it, see deploy_config_overlay.py) treats as meaningful.
 
     Derived from `BenchConfig.model_fields` rather than listed a second time: every field name is
     a legitimate on-disk spelling by definition, which already covers `NOT_WRITTEN_TO_DISK`
@@ -1121,23 +1150,15 @@ def recognised_bench_config_keys() -> frozenset[str]:
     (the field is `environment_type`), `apps` (the field is `apps_list`), and `ssl` (the table
     `ssl_certificates`/`dns_providers` are read out of; neither is itself a top-level TOML key).
 
-    `REMOVED_CONFIG_TABLES` is unioned in, not excluded: a retired table already cannot reach
-    `BenchConfig` (nothing in `import_from_toml` reads it), so including it here only decides
-    whether a bench that still carries `[registry]` gets a fresh "unrecognised key" warning on
-    every load or the quiet toleration `REMOVED_CONFIG_TABLES` was introduced to provide. A typo
-    is a name that was NEVER valid; a retired table is a name that was, on purpose, and remains
-    the migration's job to remove, not this warning's.
-
-    `RELOCATED_CONFIG_KEYS` is unioned in for the same reason, one step earlier: a name
-    `migrate_0_20_0` has not relocated off the top level yet is not a typo either, it is a
-    pre-migration bench, and every bench is one until that migration ships.
+    A retired table (`[registry]`) or a not-yet-relocated pre-migration name
+    (`admin_tools_username`, `alias_domains`, a top-level `database`, ...) is deliberately NOT
+    unioned in here: `BenchConfig` is `extra="allow"`, so either kind is retained as an unknown
+    key exactly like a genuine typo, and the two are told apart by the version-gated warning in
+    `import_from_toml`, not by this set. A bench behind `migrated_to` stays silent about all of
+    them; one at the current version gets the same "unrecognised key" warning a typo would, which
+    is the right answer for a name the migration should already have moved or stripped by then.
     """
-    return (
-        frozenset(BenchConfig.model_fields)
-        | {"environment", "apps", "ssl"}
-        | REMOVED_CONFIG_TABLES
-        | RELOCATED_CONFIG_KEYS
-    )
+    return frozenset(BenchConfig.model_fields) | {"environment", "apps", "ssl"}
 
 
 # Every key `import_from_toml` reads out of `[ssl]` by hand (like `[deploy_state]` below, not
@@ -1158,35 +1179,104 @@ _DEPLOY_STATE_STALE_KEYS: frozenset[str] = frozenset({"current_tag", "previous_t
 
 
 def recognised_deploy_state_keys() -> frozenset[str]:
-    """Every `[deploy_state]` key `import_from_toml` looks at: `DeployState`'s own fields,
-    `history` (read by hand -- it is a list of `DeployStateEntry`, not a scalar `DeployState`
-    field), the pre-rename `current_tag`/`previous_tag` spellings the stale-tag warning already
-    tolerates, and any key `REMOVED_CONFIG_KEYS` retires from this table specifically (silently
-    tolerated, same reasoning as `REMOVED_CONFIG_TABLES` above -- none today, but a future
-    retirement from `DeployState` should not have to duplicate this exemption by hand)."""
-    return (
-        frozenset(DeployState.model_fields)
-        | {"history"}
-        | _DEPLOY_STATE_STALE_KEYS
-        | REMOVED_CONFIG_KEYS.get("deploy_state", frozenset())
-    )
+    """Every `[deploy_state]` key `import_from_toml` looks at without raising: `DeployState`'s own
+    fields (including `history`, read by hand as a list of `DeployStateEntry` rather than a scalar
+    field) and the pre-rename `current_tag`/`previous_tag` spellings the stale-tag warning already
+    tolerates.
+
+    Also the exclusion set `collect_from_data` uses to build `DeployState`'s retained-extra remainder: a
+    key in neither group is passed straight through (`extra="allow"`), so `collect_unknown_keys`
+    finds it structurally instead of needing its own hand-list the way `[ssl]` still does.
+    `REMOVED_CONFIG_KEYS` is deliberately NOT unioned in any more: a key this table used to hold
+    and no longer does is retained and version-gated like any other stray, not silently exempted
+    by name.
+    """
+    return frozenset(DeployState.model_fields) | _DEPLOY_STATE_STALE_KEYS
 
 
-def _filter_removed(table: Any, name: str) -> dict:
-    """`table` as a plain dict, minus any key removed from that model in this version."""
-    removed = REMOVED_CONFIG_KEYS.get(name, frozenset())
-    return {k: v for k, v in dict(table).items() if k not in removed}
+# Per-process de-duplication for the unrecognised-key warning below: an ordinary invocation reads
+# a bench's config at least twice (a parameter callback like `bench_site_callback` resolves the
+# address before the command body loads the same file again via `Bench.get_object`), and warning
+# about the same typo twice in one run reads like two different problems. Keyed by the exact
+# unknown-key list found this time, not by path alone: a long-lived process that reads a file, has
+# the operator fix it mid-run, and reads it again must warn exactly as many times as the CONTENT
+# actually changed -- never stuck silent by a stale entry, and never silent about a NEW typo that
+# happens to land at the same path. That claim only holds if a CLEAN load also touches this cache:
+# `_forget_stale_warning` below is what a clean load calls, so an entry never outlives the content
+# that earned it.
+_warned_unknown_keys: dict[str, tuple[str, ...]] = {}
 
 
-def _table(data: dict, name: str) -> dict:
-    """``data[name]`` as a plain dict, minus any key removed in this version."""
-    return _filter_removed(data[name], name)
+def _should_warn_once(path: Path, unknown_keys: list[str]) -> bool:
+    """True the first time this exact `unknown_keys` list is seen for `path` in this process.
+
+    Only ever called with a non-empty `unknown_keys` (see `import_from_toml`): the empty case is
+    `_forget_stale_warning`'s job, not this function's, because forgetting must run whether or not
+    the bench is pre-migration, while recording a signature here must not (see `import_from_toml`'s
+    call site: recording during the silent pre-migration window would make the eventual
+    current-version load think it already warned about a typo the operator never actually saw).
+    """
+    key = str(path)
+    signature = tuple(unknown_keys)
+    if _warned_unknown_keys.get(key) == signature:
+        return False
+    _warned_unknown_keys[key] = signature
+    return True
+
+
+def _forget_stale_warning(path: Path) -> None:
+    """Drop any dedup entry for `path`: called on every load that found zero unknown keys.
+
+    Without this, a load that happens to find nothing never touches `_warned_unknown_keys` at
+    all (the old code only called `_should_warn_once` when `unknown_keys` was non-empty), so a
+    signature from an EARLIER typo survives untouched. The operator then fixes the file, reloads
+    clean, re-introduces the exact same typo, and gets silence instead of a second warning --
+    the same stale-entry failure the keyed-by-content design above exists to prevent, just
+    reached from the other side. Popping here also caps the dict at one entry per path that
+    currently has something to warn about, rather than one entry per path ever loaded.
+    """
+    _warned_unknown_keys.pop(str(path), None)
+
+
+def _bench_is_pre_migration(data: Any) -> bool:
+    """True when `[migration_state].migrated_to` is behind fm's current version, absent, or
+    unparseable.
+
+    Severity by origin, applied to time rather than a file: a key read from a bench that has not
+    been migrated yet is not a typo, it is a shape `fm migrate` is about to rewrite, so warning
+    about it is noise the operator cannot act on until they run that command anyway.
+
+    `packaging.version.Version` compares directly here rather than
+    `frappe_manager.migration_manager.version.Version`: this module has no import back into
+    `migration_manager` (see the comment on `REMOVED_CONFIG_KEYS` above), and the comparison
+    itself needs nothing that thin wrapper adds over `packaging`.
+
+    `migrated_to` is untrusted, hand-editable file content, not a value fm itself ever writes
+    wrong: a fork or nightly build string, a bare TOML date (tomlkit hands that back as a `date`/
+    `datetime`, not a `str`), a stray `[migration_state.migrated_to]` sub-table, or any other non
+    PEP 440 text all make `PackagingVersion` raise `InvalidVersion`. This is read on every command
+    that skips the migration gate (`fm list`, `bake`, `switch`, `maintenance`), so letting that
+    propagate takes down every bench on the host over one bad value in one bench's file -- the
+    exact failure mode this whole version gate exists to replace. An unrecognisable version is
+    treated exactly like an absent one: fm cannot tell whether it is ahead of or behind the
+    current release, so it stays silent (never raise, never warn) until `fm migrate` gives the
+    file a version fm can actually parse.
+    """
+    migration_state = data.get("migration_state")
+    migrated_to = migration_state.get("migrated_to") if isinstance(migration_state, dict) else None
+    if not migrated_to:
+        return True
+    try:
+        return PackagingVersion(str(migrated_to)) < PackagingVersion(get_current_fm_version())
+    except InvalidVersion:
+        return True
 
 
 class BuildConfig(BaseModel):
     """Image build configuration for `fm bake` (`[build]`)."""
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    model_config = ConfigDict(extra="allow")
 
     base_image: str | None = Field(None, description="Base image for the runtime Dockerfile FROM.")
     source: str = Field(
@@ -1217,7 +1307,8 @@ class BuildConfig(BaseModel):
 class NewRelicConfig(BaseModel):
     """NewRelic APM settings (`[monitoring.newrelic]`)."""
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    model_config = ConfigDict(extra="allow")
 
     enabled: bool = Field(False, description="Enable NewRelic APM monitoring for the web process.")
     license_key: str | None = Field(None, description="NewRelic ingest license key.")
@@ -1226,7 +1317,8 @@ class NewRelicConfig(BaseModel):
 class MonitoringConfig(BaseModel):
     """Observability integrations (`[monitoring]`)."""
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    model_config = ConfigDict(extra="allow")
 
     newrelic: NewRelicConfig | None = Field(None, description="NewRelic APM.")
 
@@ -1238,7 +1330,8 @@ class DatabaseConfig(BaseModel):
     there is no separate boolean.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    model_config = ConfigDict(extra="allow")
 
     host: str = Field(..., description="Database server hostname or IP. Any MariaDB; MySQL is not supported.")
     port: int = Field(3306, description="Database server port.")
@@ -1412,7 +1505,8 @@ class SiteConfig(BaseModel):
     two doors into the same room.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    model_config = ConfigDict(extra="allow")
 
     database: DatabaseConfig | None = Field(
         None,
@@ -1441,7 +1535,8 @@ class SiteConfig(BaseModel):
 class RedisConfig(BaseModel):
     """External redis for the whole bench (`[redis]`; absent means fm-managed redis containers)."""
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    model_config = ConfigDict(extra="allow")
 
     cache: str = Field(..., description="Redis URL for the framework cache (e.g. 'redis://r.example:6379/0').")
     queue: str = Field(..., description="Redis URL for the queue and realtime (e.g. 'redis://r.example:6379/1').")
@@ -1483,10 +1578,62 @@ def requests_immutable_runtime_inputs(
 
 
 class BenchConfig(BaseModel):
+    # extra="allow": a nested stray (e.g. inside [switch]) already retains and round-trips per
+    # Phase 1; a TOP-LEVEL stray (a mistyped table header or bare key) used to be the one
+    # asymmetry left over -- warned about below, then dropped, because `import_from_toml` builds
+    # `input_data` by hand and simply never named it. Two typos a user would call identical
+    # behaved differently. Fixed by retaining it here too (see the `unknown_keys` handling in
+    # `import_from_toml`): fm never deletes a key it does not understand, at any depth.
+    model_config = ConfigDict(extra="allow")
+
     name: str = Field(..., description="The name of the bench")
     developer_mode: bool = Field(..., description="Whether developer mode is enabled")
     admin_tools: bool = Field(..., description="Whether admin tools are enabled")
     environment_type: FMBenchEnvType = Field(..., description="The type of environment")
+
+    # Populated by `collect_from_data` for [ssl]: the one hand-read table left with no model of its own to
+    # hold a stray key as `model_extra` (`ssl_certificates`/`dns_providers` are separate typed
+    # fields, not one table-shaped field -- unlike `[deploy_state]`, which now retains its own
+    # remainder directly on `DeployState`, extra="allow", and needs no side channel any more). A
+    # PrivateAttr, not a Field: it is per-load reader metadata (just the dotted NAMES, for the
+    # warning), not part of the bench's schema, so it must never appear in `model_fields`,
+    # `model_dump()`, or become a recognised top-level TOML key the way a real field would.
+    _hand_read_unknown_keys: list[str] = PrivateAttr(default_factory=list)
+
+    # The [ssl] remainder itself (name -> raw value), not just its names: `hand_read_unknown_keys`
+    # above only has to report a stray for the warning, but `export_to_toml` has to WRITE it back
+    # or the next save silently deletes the very evidence the warning just pointed at (`ssl_table`
+    # is rebuilt from `ssl_certificates`/`dns_providers` alone, so a key with no field to live on
+    # would otherwise never reach it). Also a PrivateAttr, for the same reason as above, and its
+    # survival across a save is a property of THIS model instance, not a promise pydantic makes on
+    # its own: `model_dump()` never sees a private attribute at all (verified, not assumed), so it
+    # cannot travel through a rebuild the way a `model_extra` field can (extras survive
+    # `model_dump()`, `exclude_none=True`, and even `exclude_unset=True`, since pydantic counts an
+    # extra as set; only an explicit `exclude=` or a full RECONSTRUCTION loses one).
+    #
+    # The narrow guarantee this actually holds: every writer today (`set_bench_migration_version`,
+    # `Bench`'s own save, the ssl dns_helpers paths, `deploy_orchestrator`) mutates the field on,
+    # or `model_copy()`s, the very instance `import_from_toml` returned, and both were VERIFIED
+    # (not assumed) to preserve private attributes. What a future writer must NOT do: build a
+    # fresh `BenchConfig(...)` from a named-kwarg list or from `model_dump()` between a load and
+    # a save -- that is reconstruction, not mutation, and it drops this silently. Global config's
+    # `[migration_state]` has the identical shape (a private `_raw_config` set only during import,
+    # so it is a live gap for any `FMConfigManager` instance built some other way), which is the
+    # evidence this limitation is worth stating precisely rather than claiming as a general one.
+    _ssl_unknown: dict[str, Any] = PrivateAttr(default_factory=dict)
+
+    def hand_read_unknown_keys(self) -> list[str]:
+        """Dotted paths for a stray key inside [ssl], in the same shape `collect_unknown_keys`
+        produces (e.g. `"ssl.certificatess"`).
+
+        A caller wanting the complete picture combines this with `collect_unknown_keys(self)`:
+        a top-level stray, one inside `[sites."<name>"]` (including its nested `database`/`auth`
+        tables), and one inside `[deploy_state]` are all retained as real `model_extra`
+        (extra="allow" all the way down), so `collect_unknown_keys` already finds those on its
+        own; only `[ssl]` has no whole-table model to hold its remainder in, so it alone still
+        needs this side channel.
+        """
+        return list(self._hand_read_unknown_keys)
 
     # Deploy model (#323): runtime + image identity + config tables
     runtime: BenchRuntime = Field(
@@ -1801,7 +1948,11 @@ class BenchConfig(BaseModel):
         if self.dns_providers:
             dns = tomlkit.table()
             for provider_name, provider_config in self.dns_providers.items():
-                if provider_config.exists:
+                # `or provider_config.model_extra`: a label whose only content is a typo has no
+                # real credential (`exists` is False), so without this the label was never
+                # written and the stray was deleted on the very next save. Mirrors the identical
+                # gate in metadata_manager.py so the two readers cannot diverge.
+                if provider_config.exists or provider_config.model_extra:
                     dns[provider_name] = provider_config.get_toml_doc()
             if len(dns) > 0:
                 ssl_table["dns_providers"] = dns
@@ -1809,6 +1960,11 @@ class BenchConfig(BaseModel):
             certs_array = ssl_certificates_to_toml_array(self.ssl_certificates)
             if len(certs_array) > 0:
                 ssl_table["certificates"] = certs_array
+        # A stray [ssl] key survives here, not just the warning that reported it: `ssl_table` is
+        # rebuilt from `ssl_certificates`/`dns_providers` alone above, which is exactly the prune
+        # that would otherwise erase it on the very next save (see `_ssl_unknown`'s own comment).
+        for key, value in self._ssl_unknown.items():
+            ssl_table[key] = value
         if len(ssl_table) > 0:
             desired["ssl"] = ssl_table
 
@@ -1823,26 +1979,31 @@ class BenchConfig(BaseModel):
         toml_document.save(path, toml_doc)
 
     @classmethod
-    def import_from_toml(cls, path: Path) -> "BenchConfig":
-        """Import from TOML (new schema; see export_to_toml)."""
-        data = tomlkit.parse(path.read_text())
-        data["root_path"] = str(path)
+    def collect_from_data(cls, data: Mapping[str, Any]) -> tuple["BenchConfig", list[str], list[str]]:
+        """Build a BenchConfig from parsed TOML-shaped data (dict-like; no file I/O, no warnings),
+        plus every unknown key found in it and any deploy_state stale-tag spelling still present.
+
+        The one place the top-level table, `[ssl]`, `[deploy_state]` and `[sites]` are read into
+        the model. `import_from_toml` calls this and then decides what to do with the two lists it
+        returns: a version-gated combined warning for the unknown keys (see `migrated_to` there),
+        an unconditional one for the stale tags. `deploy_config_overlay`'s `--config` refusal check
+        calls it on a merged overlay document instead and refuses on a non-empty unknown-key list,
+        so a refusal and a warning about the same document can never name a different set of keys.
+        """
         domain: str = data.get("name", "")
 
         # A key or table name fm does not recognise otherwise vanishes here with no signal: the
         # dict built below names every key it wants and ignores everything else, so a typo'd
         # top-level scalar or table header (e.g. `[swithc]`) parses cleanly and is simply never
-        # seen. `fm list`/`fm bake`/`fm switch`/`fm maintenance` skip the migration gate, so this
-        # warns rather than raises -- the same tradeoff as the stale deploy_state keys below.
+        # seen.
         unknown_keys = set(data.keys()) - recognised_bench_config_keys()
-        if unknown_keys:
-            from frappe_manager.output_manager import warn_or_log
-
-            warn_or_log(
-                "bench_config",
-                f"Bench '{domain}': bench_config.toml has unrecognised key(s) "
-                f"{', '.join(sorted(unknown_keys))}; check for a typo, since fm will not use them.",
-            )
+        # Dotted paths for a stray key inside [ssl], the one hand-read table with no model of its
+        # own to hold it as `model_extra`; see `hand_read_unknown_keys()`.
+        hand_read_unknown: list[str] = []
+        # Retained, not merely warned about: `BenchConfig` is `extra="allow"`, so a top-level
+        # stray round-trips the same way a nested one already does (fm never deletes a key it
+        # does not understand, at any depth).
+        retained_top_level = {key: unwrap_toml_value(data[key]) for key in unknown_keys}
 
         # [ssl] → ssl_certificates + dns_providers (internal fields)
         ssl_data = data.get("ssl") or {}
@@ -1850,17 +2011,13 @@ class BenchConfig(BaseModel):
         # Same hole one level down as the top-level check above: `certificates`/`dns_providers`
         # are read by hand rather than splatted into a model (there is no SSLConfig to forbid an
         # extra key), so a typo inside [ssl] (e.g. `certificatess = []`) parses cleanly and is
-        # simply never looked at, with nothing to raise on it either.
+        # simply never looked at. Reported by name AND by value: the name for the warning, the
+        # value so `export_to_toml` can write it back (see `_ssl_unknown`).
+        ssl_unknown_values: dict[str, Any] = {}
         if isinstance(ssl_data, dict):
             unknown_ssl_keys = set(ssl_data.keys()) - recognised_ssl_keys()
-            if unknown_ssl_keys:
-                from frappe_manager.output_manager import warn_or_log
-
-                warn_or_log(
-                    "bench_config",
-                    f"Bench '{domain}': [ssl] has unrecognised key(s) "
-                    f"{', '.join(sorted(unknown_ssl_keys))}; check for a typo, since fm will not use them.",
-                )
+            hand_read_unknown.extend(f"ssl.{key}" for key in unknown_ssl_keys)
+            ssl_unknown_values = {key: unwrap_toml_value(ssl_data[key]) for key in unknown_ssl_keys}
 
         ssl_certificates_list: list[SSLCertificate] = []
         for cert_data in ssl_data.get("certificates") or []:
@@ -1882,44 +2039,36 @@ class BenchConfig(BaseModel):
 
         deploy_state_data = data.get("deploy_state", None)
         deploy_state_obj = None
+        stale_keys: list[str] = []
         if deploy_state_data and isinstance(deploy_state_data, dict):
             history_data = deploy_state_data.get("history", []) or []
             history = [DeployStateEntry(**dict(entry)) for entry in history_data if isinstance(entry, dict)]
             # `current_tag`/`previous_tag` are the pre-rename spellings of `current_image`/
-            # `previous_image`. Reading them with `.get()` rather than splatting into the model
-            # means `extra="forbid"` never sees them, so a stale top-level key would otherwise be
-            # dropped in total silence -- the bench would load with an EMPTY deploy_state, which
-            # reads exactly like a bench that has never been deployed, not one whose history fm
-            # can no longer see. `fm list`/`fm bake`/`fm switch` skip the migration gate, so this
-            # must warn rather than raise; it never reads the old value into the new field, and
-            # it is the only tolerance of the old shape this reader has.
-            from frappe_manager.output_manager import warn_or_log
+            # `previous_image`. Reported back to the caller, which warns unconditionally: reading
+            # them with `.get()` below rather than splatting means the model never sees them under
+            # either name, so a stale top-level key would otherwise be dropped in total silence --
+            # the bench would load with an EMPTY deploy_state, which reads exactly like a bench
+            # that has never been deployed, not one whose history fm can no longer see. This is the
+            # only tolerance of the old shape this reader has.
+            stale_keys = sorted(_DEPLOY_STATE_STALE_KEYS & deploy_state_data.keys())
 
-            stale_keys = _DEPLOY_STATE_STALE_KEYS & deploy_state_data.keys()
-            if stale_keys:
-                warn_or_log(
-                    "bench_config",
-                    f"Bench '{domain}': \\[deploy_state] still has {', '.join(sorted(stale_keys))} "
-                    "from before the image/tag rename; its deploy history cannot be read, so "
-                    "`fm switch --previous` will report no previous image as if this bench had "
-                    "never been deployed. Recreate the bench and redeploy to restore rollback.",
-                )
-
-            # Same hole one level down: `current_image`/`previous_image`/`last_deploy_at`/`history`
-            # are read the same hand-written way, so a typo inside `[deploy_state]` that is not one
-            # of the two stale spellings above would otherwise be just as invisible.
-            unknown_deploy_state_keys = set(deploy_state_data.keys()) - recognised_deploy_state_keys()
-            if unknown_deploy_state_keys:
-                warn_or_log(
-                    "bench_config",
-                    f"Bench '{domain}': [deploy_state] has unrecognised key(s) "
-                    f"{', '.join(sorted(unknown_deploy_state_keys))}; check for a typo, since fm will not use them.",
-                )
+            # Everything else that is not a real DeployState field (or one of the stale spellings
+            # just handled) is passed straight through as an extra kwarg (`extra="allow"`), the
+            # same way a SiteConfig stray is: DeployState is a real BenchConfig field the generic
+            # model_dump() pass in export_to_toml already carries, so once it is retained here it
+            # survives a save for free and `collect_unknown_keys` finds it structurally, with no
+            # separate hand-list to keep in sync the way [ssl] still needs.
+            deploy_state_extra = {
+                key: unwrap_toml_value(value)
+                for key, value in deploy_state_data.items()
+                if key not in recognised_deploy_state_keys()
+            }
             deploy_state_obj = DeployState(
                 current_image=deploy_state_data.get("current_image"),
                 previous_image=deploy_state_data.get("previous_image"),
                 last_deploy_at=deploy_state_data.get("last_deploy_at"),
                 history=history,
+                **deploy_state_extra,
             )
 
         apps_data = data.get("apps")
@@ -1936,7 +2085,7 @@ class BenchConfig(BaseModel):
             "ssl_certificates": ssl_certificates_list,
             "dns_providers": dns_providers_dict if dns_providers_dict else None,
             "upload_limit": data.get("upload_limit", "50M"),
-            "auth": AuthConfig(**_table(data, "auth")) if data.get("auth") else None,
+            "auth": AuthConfig(**dict(data["auth"])) if data.get("auth") else None,
             "admin_pass": data.get("admin_pass", "admin"),
             "apps_list": apps_list,
             "github_token": data.get("github_token", None),
@@ -1950,21 +2099,27 @@ class BenchConfig(BaseModel):
             "image": data.get("image", None),
             "base_image": data.get("base_image", None),
             "seed_image": data.get("seed_image", None),
-            "switch": SwitchConfig(**_table(data, "switch")) if data.get("switch") else None,
-            "workers": WorkersConfig(**_table(data, "workers")) if data.get("workers") else None,
-            "build": BuildConfig(**_table(data, "build")) if data.get("build") else None,
-            "monitoring": MonitoringConfig(**_table(data, "monitoring")) if data.get("monitoring") else None,
+            "switch": SwitchConfig(**dict(data["switch"])) if data.get("switch") else None,
+            "workers": WorkersConfig(**dict(data["workers"])) if data.get("workers") else None,
+            "build": BuildConfig(**dict(data["build"])) if data.get("build") else None,
+            "monitoring": MonitoringConfig(**dict(data["monitoring"])) if data.get("monitoring") else None,
             # Only the new shape is read. A bench that reaches this line has been migrated, exactly
             # as with the 0.20 `dns_challenge_providers` -> `dns_providers` rename: a compatibility
             # branch would be the departure, and it would land in the one function whose dual paths
             # caused three separate bugs in this cycle.
+            # A stray key at the top level of a hand-written `[sites."<name>"]` is retained via
+            # SiteConfig's own extra="allow" (splatted below, minus the fields it declares), the
+            # same way one inside its nested `[sites."<name>".database]`/`[sites."<name>".auth]`
+            # tables already is -- so `collect_unknown_keys(config)` finds all three of them the
+            # same way, with no separate hand-list needed here the way [ssl] needs.
             "sites": {
                 str(name): SiteConfig(
-                    database=DatabaseConfig(**_filter_removed(site["database"], "database"))
-                    if site.get("database")
-                    else None,
-                    # Named explicitly rather than splatting the table, so a stray key in a
-                    # hand-written file is refused by `extra="forbid"` instead of silently kept.
+                    **{
+                        key: unwrap_toml_value(value)
+                        for key, value in dict(site).items()
+                        if key not in SiteConfig.model_fields
+                    },
+                    database=DatabaseConfig(**dict(site["database"])) if site.get("database") else None,
                     alias_domains=[str(alias) for alias in (site.get("alias_domains") or [])],
                     auth=WebAuthConfig(**dict(site["auth"])) if site.get("auth") else None,
                     serve_admin_tools=site.get("serve_admin_tools"),
@@ -1973,10 +2128,59 @@ class BenchConfig(BaseModel):
             }
             if data.get("sites")
             else None,
-            "redis": RedisConfig(**_table(data, "redis")) if data.get("redis") else None,
+            "redis": RedisConfig(**dict(data["redis"])) if data.get("redis") else None,
         }
 
-        return cls(**input_data)
+        input_data.update(retained_top_level)
+        config = cls(**input_data)
+        config._hand_read_unknown_keys = sorted(hand_read_unknown)
+        config._ssl_unknown = ssl_unknown_values
+        combined_unknown = sorted(set(collect_unknown_keys(config)) | set(config.hand_read_unknown_keys()))
+        return config, combined_unknown, stale_keys
+
+    @classmethod
+    def import_from_toml(cls, path: Path) -> "BenchConfig":
+        """Import from TOML (new schema; see export_to_toml)."""
+        data = tomlkit.parse(path.read_text())
+        data["root_path"] = str(path)
+
+        config, unknown_keys, stale_keys = cls.collect_from_data(data)
+
+        if stale_keys:
+            from frappe_manager.output_manager import warn_or_log
+
+            warn_or_log(
+                "bench_config",
+                f"Bench '{config.name}': \\[deploy_state] still has {', '.join(stale_keys)} "
+                "from before the image/tag rename; its deploy history cannot be read, so "
+                "`fm switch --previous` will report no previous image as if this bench had "
+                "never been deployed. Recreate the bench and redeploy to restore rollback.",
+            )
+
+        # Severity by origin, applied to time: a key read FROM A FILE warns, but a pre-migration
+        # bench is warned about NOTHING here -- `fm migrate` is the operator's next instruction,
+        # and naming a key that command is about to relocate or strip is noise. `migrated_to` at
+        # or past fm's own version means the file is current, so any leftover unknown key earns
+        # the same warning a genuine typo would. `_should_warn_once` folds the parameter-callback
+        # load and the command body's own reload of this same file into one message.
+        #
+        # A CLEAN load (no unknown keys) takes the other branch regardless of migration state:
+        # `_forget_stale_warning` rather than `_should_warn_once`, so the dedup cache never holds
+        # an entry for a path that currently has nothing to warn about. Skipping that call here
+        # (the old code did) is exactly the bug this guards against -- a fixed-then-re-broken file
+        # would find its earlier typo's signature still cached and stay silent the second time.
+        if not unknown_keys:
+            _forget_stale_warning(path)
+        elif not _bench_is_pre_migration(data) and _should_warn_once(path, unknown_keys):
+            from frappe_manager.output_manager import warn_or_log
+
+            warn_or_log(
+                "bench_config",
+                f"Bench '{config.name}': bench_config.toml has unrecognised key(s) "
+                f"{', '.join(unknown_keys)}; check for a typo, since fm will not use them.",
+            )
+
+        return config
 
     def get_commmon_site_config_data(self) -> dict[str, Any]:
         """

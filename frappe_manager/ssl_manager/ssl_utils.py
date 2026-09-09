@@ -15,6 +15,7 @@ from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLDNSProviderNotConfigured,
 )
 from frappe_manager.ssl_manager.dns_provider import DNSProviderConfig
+from frappe_manager.utils.config_keys import declared_field
 
 
 def resolve_dns_provider(
@@ -42,7 +43,7 @@ def resolve_dns_provider(
     Raises:
         SSLDNSProviderNotConfigured: If the certificate names a label that no scope configures
     """
-    label = getattr(certificate, "dns_provider", None)
+    label = declared_field(certificate, "dns_provider")
 
     bench_labels: dict[str, DNSProviderConfig] = {}
     if bench_config is not None:

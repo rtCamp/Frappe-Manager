@@ -30,6 +30,7 @@ from frappe_manager.ssl_manager.nginx_controller import NginxController
 from frappe_manager.ssl_manager.ssl_certificate_service import SSLCertificateService
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
 from frappe_manager.ssl_manager.vhost_config_manager import VhostConfigManager
+from frappe_manager.utils.config_keys import declared_field
 from frappe_manager.utils.helpers import get_certificate_expiry_date
 
 
@@ -185,7 +186,7 @@ class SSLCertificateManager:
                 relative_path = privkey_path.relative_to(ssl_dir)
                 actual_cert_type = relative_path.parts[0]
             except (ValueError, IndexError):
-                actual_cert_type = getattr(certificate, "acme_client", "letsencrypt")
+                actual_cert_type = declared_field(certificate, "acme_client", "letsencrypt")
 
             if dry_run:
                 self.output_handler.print(f"[fm.ok]Certificate validated successfully for {certificate.domain}[/fm.ok]")
@@ -525,7 +526,7 @@ class SSLCertificateManager:
                     relative_path = privkey_path.relative_to(ssl_dir)
                     actual_cert_type = relative_path.parts[0]
                 except (ValueError, IndexError):
-                    actual_cert_type = getattr(certificate, "acme_client", "letsencrypt")
+                    actual_cert_type = declared_field(certificate, "acme_client", "letsencrypt")
 
                 self.link_manager.link_certificate(
                     cert_type=actual_cert_type,

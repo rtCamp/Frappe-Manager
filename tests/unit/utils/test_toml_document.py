@@ -49,12 +49,34 @@ def test_a_comment_inside_a_table_survives_a_change_to_its_neighbour(tmp_path):
     assert "900" in text
 
 
-def test_a_key_the_model_no_longer_produces_is_removed(tmp_path):
-    """The half that keeps a merge honest. Without it a retired key would live on disk forever."""
-    text = _saved(tmp_path / "bench_config.toml", _BENCH + 'registry_leftover = "stale"\n\n[registry]\nuser = "gone"\n')
+def test_a_recognised_field_excluded_from_disk_is_removed(tmp_path):
+    """The half that keeps a merge honest. Without it a field the model refuses to write back
+    would live on disk forever. `use_uv` is a real `BenchConfig` field (so it is RECOGNISED, not
+    an unknown stray -- unlike `[registry]`, which is retained now, see the test below) that is
+    always `True` and never read from a file (`NOT_WRITTEN_TO_DISK`), so a hand-written override
+    is pruned on the next save rather than round-tripped."""
+    text = _saved(tmp_path / "bench_config.toml", _BENCH + "use_uv = false\n")
 
-    assert "registry_leftover" not in text
-    assert "[registry]" not in text
+    assert "use_uv" not in text
+
+
+def test_an_unrecognised_top_level_key_is_retained_not_removed(tmp_path):
+    """Changed contract (Phase 2, widened by Phase 5): `BenchConfig` is `extra="allow"`, so a
+    top-level stray now round-trips the same way a nested one already did -- fm never deletes a
+    key it does not understand, at any depth. This used to assert the opposite (silent removal).
+    `[registry]` (a retired TABLE) and `registry_leftover` (a plain typo) get identical treatment
+    here: Phase 5 removed the hand-list (`REMOVED_CONFIG_TABLES`) that used to exempt a retired
+    table from this and let it keep being pruned above the other two -- retention plus a
+    version-gated warning (see bench_config.py) covers what that hand-list used to, without a
+    name having to be listed by hand to get it."""
+    text = _saved(
+        tmp_path / "bench_config.toml",
+        _BENCH + 'registry_leftover = "stale"\n\n[registry]\nuser = "gone"\n',
+    )
+
+    assert 'registry_leftover = "stale"' in text
+    assert "[registry]" in text
+    assert 'user = "gone"' in text
 
 
 def test_retired_certificate_keys_do_not_come_back(tmp_path):

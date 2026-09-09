@@ -425,12 +425,49 @@ def auth(
         # The site's own entry, so its credentials are its own: a password handed out for one site
         # is not a password to another. `tools` is absent from the model on purpose (WebAuthConfig),
         # which is why the bench's value above was never folded in here.
-        entry.auth = WebAuthConfig(
-            user=new_user,
-            password=new_password,
-            web=web_on,
-            allow_ips=allow_ips if allow_ip else ([] if clear_exemptions else current.allow_ips),
-            allow_paths=allow_path if allow_path else ([] if clear_exemptions else current.allow_paths),
+        #
+        # `fm auth` is the operator explicitly rewriting these settings, so the five named fields
+        # below are always replaced with what was just computed above -- including clearing e.g.
+        # `web` back to False or an exemption list back to `[]` when that is what the flags say,
+        # since a field the operator could never turn back off would not be a real overwrite. What
+        # must NOT happen is rebuilding the entry from those five kwargs alone: WebAuthConfig is
+        # extra="allow", so a stray key already retained on the loaded instance (a hand-edited typo
+        # inside [sites."<name>".auth], say) is still the operator's data and belongs to the ruling
+        # that fm never deletes a key it does not understand -- rewriting the named fields the
+        # operator asked to change is not the operator asking to erase an unrelated key in the same
+        # table. Mutating the loaded instance in place (when there is one) carries any such stray
+        # forward for free; constructing WebAuthConfig(**named kwargs) instead has no way to see it
+        # and silently drops it, which is the bug this replaces. WebAuthConfig has no validators
+        # that make plain attribute assignment unsafe. No field here warrants an unconditional
+        # clear beyond these five: every one of them is exactly what --protect/--off/--user/
+        # --password/--rotate/--allow-ip/--allow-path/--clear-exemptions names.
+        if entry.auth is not None:
+            entry.auth.user = new_user
+            entry.auth.password = new_password
+            entry.auth.web = web_on
+            entry.auth.allow_ips = allow_ips if allow_ip else ([] if clear_exemptions else current.allow_ips)
+            entry.auth.allow_paths = allow_path if allow_path else ([] if clear_exemptions else current.allow_paths)
+        else:
+            entry.auth = WebAuthConfig(
+                user=new_user,
+                password=new_password,
+                web=web_on,
+                allow_ips=allow_ips if allow_ip else ([] if clear_exemptions else current.allow_ips),
+                allow_paths=allow_path if allow_path else ([] if clear_exemptions else current.allow_paths),
+            )
+    elif bench.bench_config.auth is not None:
+        # Same reasoning as the site branch above, for the bench's own [auth]: mutate the loaded
+        # AuthConfig in place so a stray key survives, and only construct fresh below when the
+        # bench has no [auth] table yet to preserve.
+        bench.bench_config.auth.user = new_user
+        bench.bench_config.auth.password = new_password
+        bench.bench_config.auth.web = web_on
+        bench.bench_config.auth.tools = tools_on
+        bench.bench_config.auth.allow_ips = (
+            allow_ips if allow_ip else ([] if clear_exemptions else current.allow_ips)
+        )
+        bench.bench_config.auth.allow_paths = (
+            allow_path if allow_path else ([] if clear_exemptions else current.allow_paths)
         )
     else:
         bench.bench_config.auth = AuthConfig(

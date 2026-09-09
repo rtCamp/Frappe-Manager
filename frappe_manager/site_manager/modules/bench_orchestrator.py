@@ -917,6 +917,13 @@ class BenchOrchestrator:
         data, with migrate still on. Measured, not hypothetical.
         """
         bench = self.bench
+        # Guarded reconstruction, not the unconditional-replace hazard: `SwitchConfig(migrate=False)`
+        # only runs when `switch` is None, i.e. there was no `[switch]` table to lose in the first
+        # place (`import_from_toml` builds `switch` via `SwitchConfig(**dict(data["switch"]))` when
+        # the table is present, so None means genuinely absent, not "loaded but empty"). When a
+        # `[switch]` table WAS loaded, the else branch mutates that same instance's `.migrate`
+        # field in place, so both any stray key retained on it and every other operator-set field
+        # (migrate_timeout, backup_db, ...) ride along unchanged into the save below.
         if bench.bench_config.switch is None:
             bench.bench_config.switch = SwitchConfig(migrate=False)
         else:
@@ -1052,10 +1059,24 @@ class BenchOrchestrator:
         from frappe_manager.utils.helpers import get_current_fm_version
 
         current_fm_version = Version(get_current_fm_version())
-        bench.bench_config.migration_state = MigrationState(
-            migrated_to=str(current_fm_version.version),
-            last_migration_date=datetime.now().isoformat(),
-        )
+        migrated_to = str(current_fm_version.version)
+        last_migration_date = datetime.now().isoformat()
+        if bench.bench_config.migration_state is not None:
+            # Mutate the loaded instance rather than rebuilding it: MigrationState is
+            # extra="allow", so a stray key already retained inside [migration_state]
+            # only survives this call if it stays on the SAME instance the config load
+            # returned. A fresh MigrationState(migrated_to=..., last_migration_date=...)
+            # here would construct without the stray kwarg and silently drop it on every
+            # bench creation/finalize that reaches this phase. Same pattern as
+            # bench_migration_state.py's set_bench_migration_version.
+            bench.bench_config.migration_state.migrated_to = migrated_to
+            bench.bench_config.migration_state.last_migration_date = last_migration_date
+        else:
+            # No prior [migration_state] table to preserve; nothing to carry forward.
+            bench.bench_config.migration_state = MigrationState(
+                migrated_to=migrated_to,
+                last_migration_date=last_migration_date,
+            )
 
         bench.save_bench_config()
 

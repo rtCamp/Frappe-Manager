@@ -4,7 +4,9 @@ Unit tests for the SSL certificate models and the parse-time union.
 Two things are defended here.
 
 1. `SSLCertificate` itself: the fields a `[[ssl.certificates]]` entry may carry, their defaults,
-   and `extra="forbid"` -- a misspelled key is an error rather than a silently ignored one.
+   and `extra="allow"` -- a misspelled key is retained in `model_extra` (collectible by
+   `frappe_manager.utils.config_keys.collect_unknown_keys`) rather than raising, so a config that
+   skips the migration gate does not take `fm list`/`bake`/`switch` down over one typo.
 2. `CERTIFICATE_ADAPTER`, the discriminated union that is now the ONLY way a certificate is parsed
    from disk. `ssl_type` alone picks the variant, replacing a hand-written kwarg dispatch that
    dropped `hsts` once and `delegation_cname` once by simply forgetting to read them; both are
@@ -23,6 +25,7 @@ from frappe_manager.ssl_manager.certificate import (
     SSLCertificate,
 )
 from frappe_manager.ssl_manager.letsencrypt_certificate import CERTIFICATE_ADAPTER, LetsencryptSSLCertificate
+from frappe_manager.utils.config_keys import collect_unknown_keys
 from tests.unit.ssl_manager.conftest import TEST_DOMAINS
 
 
@@ -80,18 +83,17 @@ class TestSSLCertificateValidation:
         assert [e["type"] for e in errors] == ["enum"]
         assert errors[0]["loc"] == ("ssl_type",)
 
-    def test_a_misspelled_key_is_rejected_rather_than_ignored(self):
-        """`extra="forbid"`: a typo in bench_config.toml must not be silently dropped.
+    def test_a_misspelled_key_is_retained_as_an_unknown_extra_rather_than_raising(self):
+        """`extra="allow"`: a typo in bench_config.toml must not take the whole load down.
 
-        The certificate models are populated by splatting a TOML table, so an accepted-and-ignored
-        key means the user's setting never takes effect and nothing says so.
+        The certificate models are populated by splatting a TOML table, so a hard failure here
+        would take `fm list`/`bake`/`switch` down for every bench that has not been migrated yet.
+        The key is retained in `model_extra` instead, for a caller to collect and act on.
         """
-        with pytest.raises(ValidationError) as exc_info:
-            SSLCertificate(domain="example.com", ssl_type=SUPPORTED_SSL_TYPES.le, hstss="max-age=31536000")
+        cert = SSLCertificate(domain="example.com", ssl_type=SUPPORTED_SSL_TYPES.le, hstss="max-age=31536000")
 
-        errors = exc_info.value.errors()
-        assert [e["type"] for e in errors] == ["extra_forbidden"]
-        assert errors[0]["loc"] == ("hstss",)
+        assert cert.model_extra == {"hstss": "max-age=31536000"}
+        assert cert.hsts == "off"  # the real field is untouched by the typo'd sibling
 
     @pytest.mark.parametrize("domain", TEST_DOMAINS)
     def test_domain_accepts_various_formats(self, domain):
@@ -231,35 +233,32 @@ class TestCertificateAdapterVariantSelection:
 
         assert [e["type"] for e in exc_info.value.errors()] == ["union_tag_not_found"]
 
-    def test_a_misspelled_key_is_rejected_after_the_variant_is_chosen(self):
-        with pytest.raises(ValidationError) as exc_info:
-            CERTIFICATE_ADAPTER.validate_python(
-                {"domain": "app.example.com", "ssl_type": "letsencrypt", "challenge_typo": "dns01"}
-            )
+    def test_a_misspelled_key_is_retained_after_the_variant_is_chosen(self):
+        cert = CERTIFICATE_ADAPTER.validate_python(
+            {"domain": "app.example.com", "ssl_type": "letsencrypt", "challenge_typo": "dns01"}
+        )
 
-        errors = exc_info.value.errors()
-        assert [e["type"] for e in errors] == ["extra_forbidden"]
-        assert errors[0]["loc"] == ("letsencrypt", "challenge_typo")
+        assert type(cert) is LetsencryptSSLCertificate
+        assert collect_unknown_keys(cert) == ["challenge_typo"]
+        assert cert.challenge_type is LETSENCRYPT_PREFERRED_CHALLENGE.http01  # untouched by the typo
 
     @pytest.mark.parametrize("ssl_type", ["dev", "disable"])
-    def test_a_letsencrypt_only_key_is_rejected_on_the_other_variants(self, ssl_type):
+    def test_a_letsencrypt_only_key_is_retained_as_unknown_on_the_other_variants(self, ssl_type):
         """`delegation_cname` and friends belong to the Let's Encrypt shape alone."""
-        with pytest.raises(ValidationError) as exc_info:
-            CERTIFICATE_ADAPTER.validate_python(
-                {"domain": "app.example.com", "ssl_type": ssl_type, "delegation_cname": "a.fm.gw"}
-            )
+        cert = CERTIFICATE_ADAPTER.validate_python(
+            {"domain": "app.example.com", "ssl_type": ssl_type, "delegation_cname": "a.fm.gw"}
+        )
 
-        assert [e["type"] for e in exc_info.value.errors()] == ["extra_forbidden"]
+        assert collect_unknown_keys(cert) == ["delegation_cname"]
 
     @pytest.mark.parametrize("ssl_type", ["dev", "disable", "letsencrypt"])
-    def test_a_custom_only_key_is_rejected_on_the_other_variants(self, ssl_type):
+    def test_a_custom_only_key_is_retained_as_unknown_on_the_other_variants(self, ssl_type):
         """`cert_source` and friends belong to the custom shape alone."""
-        with pytest.raises(ValidationError) as exc_info:
-            CERTIFICATE_ADAPTER.validate_python(
-                {"domain": "app.example.com", "ssl_type": ssl_type, "cert_source": "/tmp/a.crt"}
-            )
+        cert = CERTIFICATE_ADAPTER.validate_python(
+            {"domain": "app.example.com", "ssl_type": ssl_type, "cert_source": "/tmp/a.crt"}
+        )
 
-        assert [e["type"] for e in exc_info.value.errors()] == ["extra_forbidden"]
+        assert collect_unknown_keys(cert) == ["cert_source"]
 
 
 class TestRetiredKeysAreTolerated:
@@ -348,14 +347,14 @@ class TestRetiredKeysAreTolerated:
         assert cert.ssl_type.value == ssl_type
         assert not hasattr(cert, "status")
 
-    def test_tolerance_does_not_extend_to_an_unknown_key(self):
-        """Only the enumerated retired keys are dropped; anything else is still a typo."""
-        with pytest.raises(ValidationError) as exc_info:
-            CERTIFICATE_ADAPTER.validate_python(
-                {"domain": "a.gg.com", "ssl_type": "letsencrypt", "api_tokenn": "cf_token"}
-            )
+    def test_tolerance_does_not_extend_the_retired_stripper_to_an_unknown_key(self):
+        """Only the enumerated retired keys are dropped; a near-miss typo of one is a plain
+        unknown key, retained and collectible rather than silently swallowed alongside them."""
+        cert = CERTIFICATE_ADAPTER.validate_python(
+            {"domain": "a.gg.com", "ssl_type": "letsencrypt", "api_tokenn": "cf_token"}
+        )
 
-        assert [e["type"] for e in exc_info.value.errors()] == ["extra_forbidden"]
+        assert collect_unknown_keys(cert) == ["api_tokenn"]
 
 
 class TestCustomCertificate:

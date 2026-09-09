@@ -18,6 +18,7 @@ from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateGenerateFailed,
     SSLCertificateNotFoundError,
 )
+from frappe_manager.utils.config_keys import declared_field
 from frappe_manager.utils.subprocess import stream_command_output
 
 LETSENCRYPT_PRODUCTION_SERVER = "https://acme-v02.api.letsencrypt.org/directory"
@@ -314,9 +315,10 @@ class AcmeShCertificateService:
             # Was `isinstance(certificate, CustomDomainCertificate) and certificate.delegation_cname`.
             # The class is gone and the field is what mattered: the isinstance never added a
             # condition, since only a delegated certificate ever carried a truthy value here.
-            if getattr(certificate, "delegation_cname", None):
-                self.output.info(f"Using challenge alias: {certificate.delegation_cname}")
-                args.extend(["--dns", "dns_cf", "--challenge-alias", certificate.delegation_cname])
+            delegation_cname = declared_field(certificate, "delegation_cname")
+            if delegation_cname:
+                self.output.info(f"Using challenge alias: {delegation_cname}")
+                args.extend(["--dns", "dns_cf", "--challenge-alias", delegation_cname])
             else:
                 args.extend(["--dns", "dns_cf"])
 

@@ -50,11 +50,13 @@ from rich.table import Table
 
 from frappe_manager.commands.ssl.bench_helpers import (
     _add_bench_certificate,
+    _dns_provider_cell,
     _list_bench_certificates,
     _remove_bench_certificate,
 )
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
+from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.site_manager.bench_config import AuthConfig, FMBenchEnvType, SiteConfig
 from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, AdminToolsFailedToStop, BenchException
 from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
@@ -1022,6 +1024,28 @@ def test_list_renders_a_fixed_eight_column_certificate_table(h):
         "Days Left",
         "Renewal",
     ]
+
+
+@pytest.mark.timeout(15)
+def test_dns_provider_cell_ignores_a_stray_named_dns_provider_on_a_dev_certificate():
+    """`dns_provider` is declared only on `LetsencryptSSLCertificate`. A `dev` certificate can
+    still carry `challenge_type: dns01` (a plain base field) plus a stray `dns_provider` -- extra
+    keys are retained, not refused, on a plain read. Before the fix, plain `getattr` resolved the
+    stray straight through `__pydantic_extra__` and this cell would have shown it as
+    "acct-b (missing)", i.e. displayed the operator's typo as though it were real, validated input.
+    """
+    stray_cert = SSLCertificate.model_validate(
+        {"domain": DOMAIN, "ssl_type": "dev", "challenge_type": "dns01", "dns_provider": "acct-b"}
+    )
+    bench_config = SimpleNamespace(dns_providers=None)
+
+    with patch.object(
+        FMConfigManager, "import_from_toml", staticmethod(lambda *a, **k: SimpleNamespace(dns_providers={}))
+    ):
+        cell = _dns_provider_cell(bench_config, stray_cert)
+
+    assert cell == "[fm.error]none (missing)[/fm.error]"
+    assert "acct-b" not in cell
 
 
 @pytest.mark.timeout(15)

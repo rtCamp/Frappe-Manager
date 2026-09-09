@@ -22,6 +22,7 @@ from frappe_manager.site_manager.modules.auth import (
     site_htpasswd_name,
     site_var_suffix,
 )
+from frappe_manager.utils.config_keys import collect_unknown_keys
 from tests.unit.site_manager.test_site_contract import SITE, build_bench, make_bench_config
 
 OTHER = "b.example.com"
@@ -187,11 +188,14 @@ class TestToolsStayBenchWide:
         # "no scope wants this" would unlock /adminer/ on every hostname.
         assert (h.conf_dir / "http_auth" / htpasswd_name(SITE)).exists()
 
-    def test_a_site_cannot_express_a_tools_value_at_all(self):
-        # Not "ignored": there is one Adminer and one Mailpit per bench, so a per-site value could
-        # only ever be a lie, and the model refuses to store one.
-        with pytest.raises(ValueError):
-            SiteConfig(auth={"web": True, "tools": False})
+    def test_a_site_can_no_longer_be_stopped_from_expressing_a_tools_value(self):
+        # Not "rejected": there is one Adminer and one Mailpit per bench, so a per-site `tools`
+        # value is meaningless -- but extra="allow" no longer refuses to STORE the lie either.
+        # It is retained as an unknown extra for a caller to refuse or warn about later; nothing
+        # in this phase reads it, so a site's `auth.tools` here is inert either way.
+        site = SiteConfig(auth={"web": True, "tools": False})
+
+        assert collect_unknown_keys(site) == ["auth.tools"]
 
 
 class TestOlderNginxConf:

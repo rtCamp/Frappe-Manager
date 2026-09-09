@@ -60,3 +60,53 @@ def test_unparseable_toml_degrades_quietly(tmp_path):
     b = _bench(tmp_path, "not [ valid toml ===")
     assert get_bench_migration_version(b) == Version("0.0.0")
     assert get_bench_migration_date(b) is None
+
+
+# ======================================================================================
+# set_bench_migration_version -- must not delete a retained stray while bumping the version.
+#
+# `fm migrate` is the command whose entire job is to fix an out-of-date bench_config.toml. It used
+# to rebuild `[migration_state]` from a fresh `MigrationState(migrated_to=..., last_migration_date=
+# ...)`, which drops any OTHER key already retained there (MigrationState is extra="allow") because
+# a freshly constructed instance never saw that kwarg. That is exactly the outcome the retention
+# ruling forbids: fm never deletes a key it does not understand, and it is worst of all here, since
+# the command runs precisely because the file needed fixing.
+# ======================================================================================
+
+import tomlkit
+
+from frappe_manager.migration_manager.bench_migration_state import set_bench_migration_version
+
+STATE_WITH_STRAY = """\
+name = "x.localhost"
+developer_mode = false
+admin_tools = false
+environment_type = "prod"
+[migration_state]
+migrated_to = "0.19.0"
+last_migration_date = "2026-07-24T00:00:00"
+migrated_at = "operator_typo_value"
+"""
+
+
+def test_set_bench_migration_version_preserves_a_stray_key_in_migration_state(tmp_path):
+    b = _bench(tmp_path, STATE_WITH_STRAY)
+
+    set_bench_migration_version(b, Version("0.20.0"))
+
+    doc = tomlkit.parse((b / "bench_config.toml").read_text())
+    state = dict(doc["migration_state"])
+    # The stray survives, value intact -- not just its name.
+    assert state["migrated_at"] == "operator_typo_value"
+    # And the write this call exists to make still happened.
+    assert state["migrated_to"] == "0.20.0"
+
+
+def test_set_bench_migration_version_with_no_prior_migration_state_still_writes_one(tmp_path):
+    """No [migration_state] table to preserve; a fresh one is created, not an error."""
+    b = _bench(tmp_path, 'name = "x.localhost"\ndeveloper_mode = false\nadmin_tools = false\nenvironment_type = "prod"\n')
+
+    set_bench_migration_version(b, Version("0.21.0"))
+
+    doc = tomlkit.parse((b / "bench_config.toml").read_text())
+    assert dict(doc["migration_state"])["migrated_to"] == "0.21.0"

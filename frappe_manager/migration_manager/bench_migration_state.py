@@ -66,10 +66,25 @@ def set_bench_migration_version(bench_path: Path, version: Version) -> None:
         raise FileNotFoundError(f"Bench config not found: {bench_config_path}")
 
     config = BenchConfig.import_from_toml(bench_config_path)
-    config.migration_state = MigrationState(
-        migrated_to=str(version.version),
-        last_migration_date=datetime.now().isoformat(),
-    )
+    migrated_to = str(version.version)
+    last_migration_date = datetime.now().isoformat()
+    if config.migration_state is not None:
+        # Mutate the loaded instance rather than rebuilding it: MigrationState is extra="allow", so a
+        # stray key already retained inside [migration_state] only survives this call if it stays on
+        # the SAME instance import_from_toml returned. A fresh MigrationState(migrated_to=...,
+        # last_migration_date=...) here would construct without the stray kwarg and silently drop it
+        # on every migration -- the one command whose job is to fix an out-of-date file would destroy
+        # the evidence of an unrecognised key while doing so. MigrationState's only validator is a
+        # `mode="before"` one that runs on construction, not on plain attribute assignment
+        # (`validate_assignment` is not enabled), and the model is not frozen, so this is safe.
+        config.migration_state.migrated_to = migrated_to
+        config.migration_state.last_migration_date = last_migration_date
+    else:
+        # No prior [migration_state] table to preserve; nothing to carry forward.
+        config.migration_state = MigrationState(
+            migrated_to=migrated_to,
+            last_migration_date=last_migration_date,
+        )
     config.export_to_toml(bench_config_path)
 
 

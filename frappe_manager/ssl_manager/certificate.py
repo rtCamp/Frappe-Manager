@@ -16,13 +16,17 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 
 # Keys fm used to write into a `[[ssl.certificates]]` entry and no longer does. They are dropped
-# before validation rather than rejected, and this is deliberately the ONLY tolerance of an old shape
-# left in the reader: `extra="forbid"` is what turns a misspelled key into an error instead of a
-# silently ignored one, but `fm list`, `fm bake` and `fm switch` skip the migration gate
-# (migration_constants.py:19-26), so failing hard here would take `fm list` down for every bench on
-# the host because one file had not been migrated yet. The migration removes these from disk; this
-# only keeps the tool usable until it runs. Nothing here is INTERPRETED: a retired key never changes
-# behaviour, it just stops being an error.
+# before validation rather than rejected: a misspelled key here used to be `extra="forbid"`'s job
+# to turn into a load-time error instead of a silently ignored one, but `fm list`, `fm bake` and
+# `fm switch` skip the migration gate (migration_constants.py:19-26), so failing hard took `fm
+# list` down for every bench on the host because one file had not been migrated yet -- that
+# incident is why `SSLCertificate` (below) is `extra="allow"` now: ANY unrecognised key is
+# retained rather than raising, and a caller decides refuse vs warn. A retired key is different
+# from a merely unrecognised one though, which is why it still gets its own drop-before-validation
+# step rather than just becoming another collected unknown key: the migration removes these from
+# disk, but until it runs a retired key still sits there on every read. Nothing here is
+# INTERPRETED: a retired key never changes behaviour, it just stops being an error (and stops
+# being reported as an unknown one, since it was never a typo to begin with).
 RETIRED_CERTIFICATE_KEYS = frozenset(
     {
         # Credentials were never certificate state. They belong to `[ssl.dns_providers]`, selected by
@@ -48,7 +52,12 @@ RETIRED_CERTIFICATE_KEYS = frozenset(
 class SSLCertificate(BaseModel):
     """One domain's TLS configuration, as recorded in `[[ssl.certificates]]`."""
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="allow", not "forbid": an unknown key here used to raise, taking down every command
+    # that skips the migration gate (fm list/bake/switch/maintenance) -- see the incident recorded
+    # just above (lines 19-23). The key is now retained and reported by the collector with its
+    # dotted path; the caller decides refuse vs warn. DevCertificate/DisabledCertificate/
+    # CustomCertificate/LetsencryptSSLCertificate all inherit this model_config.
+    model_config = ConfigDict(extra="allow")
 
     domain: str = Field(description="Hostname this certificate covers.")
     ssl_type: SUPPORTED_SSL_TYPES = Field(

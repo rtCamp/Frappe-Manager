@@ -14,6 +14,8 @@ import json
 import shlex
 from pathlib import Path
 
+from frappe_manager.utils.config_keys import declared_field
+
 
 def resolve_hook_content(value: str) -> str:
     """Inline script text, or the file contents when ``value`` is a path to an
@@ -53,22 +55,35 @@ def hook_script(value: str, env: dict[str, str]) -> str:
 
 
 def app_has_build_hooks(hooks) -> bool:
-    """True when any per-app build hook (container or host) is set on ``hooks``."""
+    """True when any per-app build hook (container or host) is set on ``hooks``.
+
+    Reads every field through `declared_field`, not plain `getattr`: `hooks` is typed
+    `AppBuildHooks | None` at its one real call site today (`AppConfig.hooks`), which always
+    declares `host` and the four hook names below -- but the base class it inherits from,
+    `BuildHookScripts`, does not declare `host`, and this module already has one precedent
+    (`certificate.py`'s `SSLCertificate`/`DevCertificate` split) for a bare base instance being
+    constructed directly elsewhere. `extra="allow"` would retain a stray `host` on that bare base
+    and hand it back through plain `getattr` as though it were the real nested hook-scripts
+    sub-model; a hook VALUE ends up in a subprocess (`hook_script`/`_run_build_hook`), so that is
+    not a hazard worth leaving to convention here.
+    """
     if hooks is None:
         return False
     fields = ("before_deps", "after_deps", "before_build", "after_build")
-    if any(getattr(hooks, name, None) for name in fields):
+    if any(declared_field(hooks, name) for name in fields):
         return True
-    host = getattr(hooks, "host", None)
-    return host is not None and any(getattr(host, name, None) for name in fields)
+    host = declared_field(hooks, "host")
+    return host is not None and any(declared_field(host, name) for name in fields)
 
 
 def switch_has_hooks(hooks) -> bool:
-    """True when any switch-phase hook (container or host) is set on ``hooks``."""
+    """True when any switch-phase hook (container or host) is set on ``hooks``. See
+    `app_has_build_hooks` for why every read goes through `declared_field`."""
     if hooks is None:
         return False
     fields = ("before_restart", "after_restart", "before_migrate", "after_migrate")
-    if any(getattr(hooks, name, None) for name in fields):
+    if any(declared_field(hooks, name) for name in fields):
         return True
-    host = getattr(hooks, "host", None)
-    return host is not None and any(getattr(host, name, None) for name in fields)
+    host = declared_field(hooks, "host")
+    return host is not None and any(declared_field(host, name) for name in fields)
+

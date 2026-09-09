@@ -6,9 +6,6 @@ Locks the TOML shape: top-level `environment`/`image`, `[[apps]]` with per-app
 Import + export + re-import must preserve every value.
 """
 
-import pytest
-from pydantic import ValidationError
-
 from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     BenchRuntime,
@@ -16,6 +13,7 @@ from frappe_manager.site_manager.bench_config import (
     MonitoringConfig,
     NewRelicConfig,
 )
+from frappe_manager.utils.config_keys import collect_unknown_keys
 
 _TOML = """
 name = "fm.com"
@@ -150,22 +148,38 @@ def test_export_reimport_preserves_the_monitoring_table(tmp_path):
     assert reimported.monitoring.newrelic.license_key == "nrkey"
 
 
-@pytest.mark.parametrize(
-    "table",
-    [
-        pytest.param('[monitoring.newrelic]\nenabld = true\nlicense_key = "nrkey"\n', id="misspelled-key"),
-        pytest.param("[monitoring.newrelick]\nenabled = true\n", id="misspelled-table"),
-    ],
-)
-def test_a_misspelled_monitoring_key_is_refused(tmp_path, table):
-    """Both of these used to load cleanly and leave NewRelic silently off: the loader
-    hand-read monitoring.newrelic.enabled and dropped everything it did not recognise.
-    `[monitoring]` is a model now, and the docs promise it rejects keys it does not define."""
+def test_a_misspelled_monitoring_key_is_retained_as_an_unknown_extra(tmp_path):
+    """A typo inside `[monitoring.newrelic]` used to load cleanly and leave NewRelic silently
+    off: the old loader hand-read `monitoring.newrelic.enabled` and dropped everything it did
+    not recognise. `[monitoring]`/`[monitoring.newrelic]` are models now, `extra="allow"`, so the
+    typo is retained (collectible by `collect_unknown_keys`) instead of vanishing OR raising."""
     p = tmp_path / "bench_config.toml"
-    p.write_text('name = "nr.localhost"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n' + table)
+    p.write_text(
+        'name = "nr.localhost"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
+        '[monitoring.newrelic]\nenabld = true\nlicense_key = "nrkey"\n'
+    )
 
-    with pytest.raises(ValidationError):
-        BenchConfig.import_from_toml(p)
+    bc = BenchConfig.import_from_toml(p)
+
+    assert bc.monitoring.newrelic.enabled is False  # the real field never saw the typo'd sibling
+    assert bc.monitoring.newrelic.license_key == "nrkey"
+    assert collect_unknown_keys(bc.monitoring) == ["newrelic.enabld"]
+
+
+def test_a_misspelled_monitoring_table_is_retained_as_an_unknown_extra(tmp_path):
+    """A misspelled TABLE name lands as an unknown key on `MonitoringConfig` itself, one level
+    up from the field-level typo above: `newrelic` stays unset (None) rather than being
+    populated from the wrongly-named table."""
+    p = tmp_path / "bench_config.toml"
+    p.write_text(
+        'name = "nr.localhost"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
+        "[monitoring.newrelick]\nenabled = true\n"
+    )
+
+    bc = BenchConfig.import_from_toml(p)
+
+    assert bc.monitoring.newrelic is None
+    assert collect_unknown_keys(bc.monitoring) == ["newrelick"]
 
 
 _MINIMAL = 'name = "x.localhost"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
@@ -190,14 +204,18 @@ def test_a_certificate_can_no_longer_carry_a_credential(tmp_path):
     assert "LEAKED-KEY" not in p.read_text()
 
 
-def test_a_misspelled_certificate_key_is_refused(tmp_path):
-    """`[ssl]` used to be the one table where a typo was silently ignored, because certificates were
-    hand-parsed with .get() calls. A misspelled `dns_provider` is the dangerous case: the binding
-    would be dropped and the certificate would issue against the default account instead."""
+def test_a_misspelled_certificate_key_is_retained_as_an_unknown_extra(tmp_path):
+    """`[ssl]` used to be the one table where a typo was silently ignored, because certificates
+    were hand-parsed with .get() calls. A misspelled `dns_provider` is the dangerous case: the
+    binding would be dropped and the certificate would issue against the default account instead
+    -- so this must be collectible, not silently absorbed the way the old reader absorbed it."""
     p = tmp_path / "bench_config.toml"
     p.write_text(
         _MINIMAL + '[[ssl.certificates]]\ndomain = "x.localhost"\nssl_type = "letsencrypt"\ndns_providr = "acct-b"\n'
     )
 
-    with pytest.raises(ValidationError, match="dns_providr"):
-        BenchConfig.import_from_toml(p)
+    bc = BenchConfig.import_from_toml(p)
+
+    cert = bc.ssl_certificates[0]
+    assert cert.dns_provider is None  # the real field never saw the typo'd sibling
+    assert collect_unknown_keys(cert) == ["dns_providr"]

@@ -6,9 +6,7 @@ config (BuildConfig). These tests lock the
 round-trip of each.
 """
 
-import pytest
 import tomlkit
-from pydantic import ValidationError
 
 from frappe_manager.site_manager.bench_config import (
     BenchConfig,
@@ -102,6 +100,10 @@ def test_additive_optout_empty_phases_roundtrip(tmp_path):
     assert reloaded.switch.maintenance_mode_phases == []
 
 
-def test_switch_config_forbids_unknown_keys():
-    with pytest.raises(ValidationError):
-        SwitchConfig(migrate=True, bogus_key=True)
+def test_switch_config_retains_an_unknown_key_instead_of_rejecting_it():
+    from frappe_manager.utils.config_keys import collect_unknown_keys
+
+    sc = SwitchConfig(migrate=True, bogus_key=True)
+
+    assert sc.migrate is True
+    assert collect_unknown_keys(sc) == ["bogus_key"]

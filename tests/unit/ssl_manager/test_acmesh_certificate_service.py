@@ -19,10 +19,12 @@ from frappe_manager.ssl_manager.acmesh_certificate_service import (
     LETSENCRYPT_STAGING_SERVER,
     AcmeShCertificateService,
 )
+from frappe_manager.ssl_manager.certificate import DevCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateGenerateFailed,
     SSLCertificateNotFoundError,
 )
+from frappe_manager.utils.config_keys import collect_unknown_keys
 
 
 def _no_global_dns_credentials():
@@ -755,6 +757,70 @@ class TestAcmeShCertificateServiceCredentialCache:
 
                 updated_content = account_conf.read_text()
                 assert "SAVED_CF_Token=" not in updated_content
+
+    def test_generate_certificate_ignores_a_stray_delegation_cname(
+        self, mock_logger, tmp_path, mock_output_handler
+    ):
+        """`delegation_cname` is declared only on `LetsencryptSSLCertificate`. Retained on a `dev`
+        certificate (`extra="allow"`) it lands in `model_extra`, not the real field. Before the fix,
+        plain `getattr(certificate, "delegation_cname", None)` resolved it anyway and would have
+        handed acme.sh a `--challenge-alias` the user never configured for THIS certificate.
+        """
+        ssl_dir = tmp_path / "ssl"
+        webroot_dir = tmp_path / "webroot"
+        webroot_dir.mkdir(parents=True)
+
+        acmesh_home = ssl_dir / "acmesh" / ".acme.sh"
+        acmesh_home.mkdir(parents=True)
+        (acmesh_home / "acme.sh").touch()
+
+        cert_dir = acmesh_home / "example.com_ecc"
+        cert_dir.mkdir(parents=True)
+        (cert_dir / "example.com.key").write_text("key")
+        (cert_dir / "fullchain.cer").write_text("cert")
+
+        stray_cert = DevCertificate.model_validate(
+            {"domain": "example.com", "challenge_type": "dns01", "delegation_cname": "x.fm.gw"}
+        )
+        assert collect_unknown_keys(stray_cert) == ["delegation_cname"]
+
+        AcmeShCertificateService._acmesh_installed = False
+        captured_cmd: list[str] = []
+
+        def mock_stream_output(cmd, env, cwd):
+            captured_cmd.extend(cmd)
+            yield ("exit_code", b"0")
+
+        def consume_generator(gen, **kwargs):
+            for _ in gen:
+                pass
+
+        mock_output_handler.live_lines.side_effect = consume_generator
+
+        with (
+            patch(
+                "frappe_manager.ssl_manager.ssl_utils.get_dns_credentials_for_certificate",
+                return_value={"CF_Token": "token"},
+            ),
+            patch(
+                "frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output",
+                side_effect=mock_stream_output,
+            ),
+        ):
+            service = AcmeShCertificateService(
+                ssl_service_dir=ssl_dir,
+                webroot_dir=webroot_dir,
+                output_handler=mock_output_handler,
+            )
+            service.generate_certificate(stray_cert)
+
+        assert "--challenge-alias" not in captured_cmd
+        assert "x.fm.gw" not in captured_cmd
+        assert not any(
+            "Using challenge alias" in str(c.args[0]) for c in mock_output_handler.info.call_args_list
+        )
+        # Tolerating the stray at load is the design: it must still be there afterwards.
+        assert collect_unknown_keys(stray_cert) == ["delegation_cname"]
 
     def test_renew_certificate_dns01_clears_cache(
         self, mock_logger, tmp_path, mock_output_handler, mock_dns_certificate

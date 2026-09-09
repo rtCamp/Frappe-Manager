@@ -4,7 +4,6 @@ import re
 
 import pytest
 from passlib.apache import HtpasswdFile
-from pydantic import ValidationError
 
 from frappe_manager.site_manager.bench_config import (
     AuthConfig,
@@ -22,6 +21,7 @@ from frappe_manager.site_manager.modules.auth import (
     validate_credentials,
     write_htpasswd,
 )
+from frappe_manager.utils.config_keys import collect_unknown_keys
 
 _AUTH_FILE = container_htpasswd_path("mybench.localhost")
 
@@ -277,8 +277,10 @@ def test_unset_password_is_absent_rather_than_empty(tmp_path):
     assert reloaded.auth.user == "admin"
 
 
-def test_auth_rejects_unknown_keys():
-    # extra="forbid" turns a typo in bench_config.toml into a loud error instead of
-    # a silently ignored setting the user believes is applied.
-    with pytest.raises(ValidationError):
-        AuthConfig(allow_ip=["10.1.0.0/16"])
+def test_auth_retains_an_unknown_key_instead_of_rejecting_it():
+    # extra="allow": a typo in bench_config.toml is retained (collectible by
+    # collect_unknown_keys) instead of raising or being silently dropped.
+    auth = AuthConfig(allow_ip=["10.1.0.0/16"])
+
+    assert auth.allow_ips == []  # the real field never saw the typo'd sibling
+    assert collect_unknown_keys(auth) == ["allow_ip"]

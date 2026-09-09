@@ -19,6 +19,7 @@ from frappe_manager.ssl_manager.certificate_exceptions import (
 from frappe_manager.ssl_manager.letsencrypt_certificate import build_letsencrypt_certificate
 from frappe_manager.ssl_manager.ssl_utils import resolve_dns_provider
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME
+from frappe_manager.utils.config_keys import declared_field
 
 from .helpers import get_output_handler
 
@@ -385,7 +386,7 @@ def _dns_provider_cell(bench_config: "BenchConfig", cert: SSLCertificate | None)
     if cert is None or cert.challenge_type != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         return "N/A"
 
-    label = getattr(cert, "dns_provider", None)
+    label = declared_field(cert, "dns_provider")
 
     try:
         resolved = resolve_dns_provider(cert, bench_config)

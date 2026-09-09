@@ -1443,6 +1443,31 @@ def test_attach_only_flips_migrate_and_leaves_the_rest_of_switch_alone(attach_ha
     assert harness.config.switch.migrate_timeout == 900
 
 
+def test_attach_preserves_a_stray_key_and_the_operators_other_switch_settings(attach_harness, tmp_path):
+    """SwitchConfig is extra="allow": a stray key already retained on a loaded [switch] table,
+    and every field the operator actually set (not just the one the previous test names), must
+    survive the migrate=False flip written here. Proves the else branch really edits the SAME
+    loaded instance rather than reconstructing a fresh SwitchConfig() over it -- the
+    reconstruction hazard `SwitchConfig(migrate=False)` above is reached only when `switch` was
+    None, i.e. there was nothing to lose. Real disk round trip, not just the in-memory object:
+    `save_bench_config` is rewired to the real `export_to_toml`/`import_from_toml` cycle so a
+    prune in `toml_document.apply` would show up here too."""
+    harness = attach_harness()
+    harness.config.switch = SwitchConfig(
+        migrate=True, migrate_timeout=900, backup_db=False, pinned_by_ops="do-not-touch"
+    )
+    path = tmp_path / "bench_config.toml"
+    harness.bench.save_bench_config.side_effect = lambda *_a, **_k: harness.config.export_to_toml(path)
+
+    harness.reraising_orchestrator(real=("_external_database_gate",)).create_bench()
+
+    reloaded = BenchConfig.import_from_toml(path)
+    assert reloaded.switch.migrate is False
+    assert reloaded.switch.migrate_timeout == 900
+    assert reloaded.switch.backup_db is False
+    assert reloaded.switch.model_extra == {"pinned_by_ops": "do-not-touch"}
+
+
 def test_attach_phase_four_builds_only_the_directories(attach_harness):
     """A Frappe site is a directory plus a database, and the database is already there. No
     `new-site` in any form, no re-check, and no `admin_password` recorded -- fm did not set this
@@ -1864,6 +1889,38 @@ def test_a_bench_only_create_is_stamped_and_saved_by_phase_five(tmp_path):
 
     assert harness.config.migration_state is not None
     harness.events.before("sync_workers_compose", "save_bench_config(migrate=None)")
+
+
+def test_phase_five_preserves_a_stray_key_inside_migration_state_across_the_stamp(tmp_path):
+    """MigrationState is extra="allow": a stray key already retained inside a loaded
+    [migration_state] table must survive the version stamp this phase writes on every create,
+    not just a `fm migrate` run (see bench_migration_state.py's set_bench_migration_version for
+    the identical shape). A fresh MigrationState(migrated_to=..., last_migration_date=...)
+    built without the stray kwarg would silently delete it from disk via
+    toml_document.apply's prune. Real disk round trip: save_bench_config is rewired to the
+    real export_to_toml/import_from_toml cycle so a prune would show up here too."""
+    path = tmp_path / "bench_config.toml"
+    toml = "\n".join(_TOP_LEVEL) + _APPS_TABLE + _SITES_TABLE
+    toml += (
+        '\n[migration_state]\nmigrated_to = "0.1.0"\n'
+        'last_migration_date = "2020-01-01T00:00:00"\npinned_by_ops = "do-not-touch"\n'
+    )
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    path.write_text(toml)
+    config = BenchConfig.import_from_toml(path)
+    assert config.migration_state.model_extra == {"pinned_by_ops": "do-not-touch"}
+
+    harness = _Harness(config, tmp_path)
+    harness.bench.save_bench_config.side_effect = lambda *_a, **_k: config.export_to_toml(path)
+    orchestrator = harness.orchestrator(real=("_phase5_finalize",))
+
+    orchestrator._phase5_finalize(bench_only=True)
+
+    reloaded = BenchConfig.import_from_toml(path)
+    assert reloaded.migration_state.model_extra == {"pinned_by_ops": "do-not-touch"}
+    # The stamp itself still does its real job: values actually change on every finalize.
+    assert reloaded.migration_state.migrated_to != "0.1.0"
+    assert reloaded.migration_state.last_migration_date != "2020-01-01T00:00:00"
 
 
 def test_phase_six_installs_the_apps_then_migrates(tmp_path):
