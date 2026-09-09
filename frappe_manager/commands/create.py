@@ -1203,8 +1203,12 @@ def create(
 
     # Say both names out loud. `fm create shop` makes a bench called `shop` serving a site called
     # `shop.localhost`, and an operator who is told only one of them cannot tell which to type at
-    # `fm shell` or which host to open.
-    if sitename != address:
+    # `fm shell` or which host to open. `--bench-only` never reaches `record_site` above, and stops
+    # before the site is ever created (see `_run_creation` in bench_orchestrator.py), so this would
+    # otherwise promise a site the invocation will not create, before phase 1 has even checked the
+    # Docker images. `_report_bench_only_created` already tells the truth once that bench-only work
+    # actually finishes ("Created bench: ..."), so this stays silent rather than pre-announce it.
+    if sitename != address and not bench_only:
         output.print(
             f"Bench [fm.info]{address}[/fm.info] will serve the site [fm.info]{sitename}[/fm.info].",
             emoji_code=":globe_with_meridians:",
