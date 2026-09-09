@@ -2165,7 +2165,34 @@ class BenchConfig(BaseModel):
                 "from before the image/tag rename; its deploy history cannot be read, so "
                 "`fm switch --previous` will report no previous image as if this bench had "
                 "never been deployed. Recreate the bench and redeploy to restore rollback.",
-            )
+        )
+
+        # Non-raising, deliberately: `config.redis` already survived construction (RedisConfig
+        # has no scheme validator of its own), so this warns rather than refusing the load. `fm
+        # update` carries no `--redis-*` flag, so a hand edit is the ONLY way this table changes
+        # after create, and the CLI's own refusal (`create.py::_refuse_unsupported_redis_scheme`)
+        # never sees a hand edit at all -- but raising here instead of warning would take THIS
+        # command down over one bench's bad `[redis]` table, the exact incident
+        # `certificate.py`/`dns_provider.py`/`migration_state` already moved away from, and this
+        # command may be `fm list`, `fm bake`, `fm switch` or `fm maintenance`, which skip the
+        # migration gate for precisely that reason (see the same reasoning at the CLI refusal).
+        if config.redis is not None:
+            from frappe_manager.site_manager.modules.compose_shape import unsupported_redis_scheme
+
+            scheme_problems = [
+                problem
+                for problem in (unsupported_redis_scheme(config.redis.cache), unsupported_redis_scheme(config.redis.queue))
+                if problem
+            ]
+            if scheme_problems:
+                from frappe_manager.output_manager import warn_or_log
+
+                warn_or_log(
+                    "bench_config",
+                    f"Bench '{config.name}': \\[redis] " + " ".join(scheme_problems) + " fm cannot use this "
+                    "until \\[redis] is corrected by hand -- every command against this bench risks the same "
+                    "failure a `create` with this URL would hit deep inside `bench build`.",
+                )
 
         # Severity by origin, applied to time: a key read FROM A FILE warns, but a pre-migration
         # bench is warned about NOTHING here -- `fm migrate` is the operator's next instruction,

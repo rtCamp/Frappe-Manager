@@ -424,6 +424,33 @@ def test_validate_redis_endpoints_catches_every_spelling_of_the_same_database(ca
         validate_redis_endpoints(cache, queue)
 
 
+@pytest.mark.parametrize(
+    ("cache", "queue"),
+    [
+        # The DNS root label: "h.example." and "h.example" name the same host by
+        # syntax alone, not by a lookup.
+        ("redis://h.example.:6379/0", "redis://h.example:6379/0"),
+        # A compact and an expanded spelling of the identical IPv6 literal.
+        ("redis://[2001:db8::1]:6379/0", "redis://[2001:0db8:0000:0000:0000:0000:0000:0001]:6379/0"),
+    ],
+)
+def test_validate_redis_endpoints_closes_purely_syntactic_host_spellings(cache, queue):
+    with pytest.raises(ValueError, match="same host, port and database index"):
+        validate_redis_endpoints(cache, queue)
+
+
+def test_validate_redis_endpoints_documented_residual_gap_stays_open():
+    """Pinned, not just documented: a hostname and its own IP (or two unrelated
+    CNAMEs) cannot be told apart without a DNS answer, which this check deliberately
+    never requests (see `validate_redis_endpoints`'s docstring) -- fm's validation
+    runs on the host, the URLs are dialled from inside the bench's containers on a
+    Docker network, and a host-side resolution could disagree with, or simply not
+    reach, what the container would get. Regression control: if this ever starts
+    raising, the reasoning is being paved over silently rather than revisited on
+    purpose."""
+    assert validate_redis_endpoints("redis://cache-box:6379/0", "redis://10.2.0.19:6379/0") is None
+
+
 def test_default_render_context_is_not_a_rolling_swap():
     """Every renderer defaults to DEFAULT_CONTEXT, so its flags decide what a plain render does.
 

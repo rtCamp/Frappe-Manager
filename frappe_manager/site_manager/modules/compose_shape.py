@@ -34,6 +34,7 @@ Architecture (functional core, imperative shell):
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Protocol
 from urllib.parse import ParseResult, parse_qs, unquote, urlparse
@@ -364,11 +365,13 @@ def validate_redis_endpoints(cache: str, queue: str) -> None:
     index is not. Raises ValueError, so a pydantic validator or a CLI check can
     surface it directly.
 
-    Known limit, deliberate: hosts are compared as STRINGS, so this catches a
-    collision only when both URLs spell the host the same way. Measured on a live
-    server, ``redis://cache-box:6379/0`` and ``redis://10.2.0.19:6379/0`` are
-    accepted even when that IP IS ``cache-box``, and two CNAMEs for one server
-    would slip through the same way.
+    Known limit, deliberate: hosts are compared as STRINGS (after two purely
+    syntactic normalisations -- see ``_normalized_redis_host`` -- that cost no
+    network call), so this catches a collision only when both URLs name the host
+    the same way underneath those. Measured on a live server,
+    ``redis://cache-box:6379/0`` and ``redis://10.2.0.19:6379/0`` are accepted even
+    when that IP IS ``cache-box``, and two CNAMEs for one server would slip through
+    the same way.
 
     Resolving the names here was rejected rather than overlooked. These URLs are
     resolved by the bench CONTAINERS on a docker network, not by fm on the host, so
@@ -409,10 +412,69 @@ def _redis_endpoint(url: str) -> tuple[str, int, str, int | str]:
     the index side of the tuple is fixed at ``"0"``.
     """
     parsed = urlparse(url)
+    host = _normalized_redis_host(parsed.hostname or "")
     if parsed.scheme in ("redis", "rediss"):
-        return (parsed.hostname or "", parsed.port or 6379, "", _tcp_database_index(url, parsed))
+        return (host, parsed.port or 6379, "", _tcp_database_index(url, parsed))
     index = parse_qs(parsed.query).get("db", [""])[0]
-    return (parsed.hostname or "", parsed.port or 6379, parsed.path, index or "0")
+    return (host, parsed.port or 6379, parsed.path, index or "0")
+
+
+def _normalized_redis_host(hostname: str) -> str:
+    """Canonicalise a URL hostname for the collision comparison, using nothing but
+    the string itself -- no DNS, no network call.
+
+    ``urlparse().hostname`` already folds case, so ``H.Example`` and ``h.example``
+    compare equal without help. Two more purely syntactic cases are closed here:
+    a trailing ``.`` (the DNS root label -- ``h.example.`` and ``h.example`` name the
+    same host by definition, not by lookup) is stripped, and a literal IP address is
+    rewritten to its canonical form via ``ipaddress`` (so a compressed and an
+    expanded spelling of one IPv6 address, e.g. ``2001:db8::1`` and
+    ``2001:0db8:0000:...:0001``, compare equal). What this cannot and does not
+    attempt: telling a hostname and ITS OWN IP apart from a hostname and an
+    unrelated one, or two CNAMEs apart from two unrelated names -- both need an
+    actual DNS answer, which is exactly the resolver call ``validate_redis_endpoints``
+    documents refusing to make.
+    """
+    if hostname.endswith(".") and hostname != ".":
+        hostname = hostname[:-1]
+    try:
+        return str(ip_address(hostname))
+    except ValueError:
+        return hostname
+
+
+_SUPPORTED_REDIS_SCHEMES = ("redis", "rediss")
+
+
+def unsupported_redis_scheme(url: str) -> str | None:
+    """None when ``url``'s scheme is one fm and redis-py both support; otherwise a
+    sentence naming what was passed, what fm accepts, and why -- shared by
+    ``create.py``'s create-time refusal and ``bench_config.py``'s read-time warning
+    for a hand-edited ``bench_config.toml``, so an operator sees the same wording
+    from either path.
+
+    ``redis`` and ``rediss`` are the only schemes accepted: they are what redis-py's
+    own ``from_url`` connects with. ``unix`` is the third scheme redis-py itself
+    supports, but fm's own readiness probe (``bench_site.py``'s
+    ``BenchSiteManager._redis_endpoint``) raises for ANY URL with no hostname, and a
+    unix socket URL never has one, so accepting ``unix://`` here would only defer
+    that same failure by a few seconds, so it is refused alongside everything else.
+    """
+    scheme = urlparse(url).scheme
+    if scheme in _SUPPORTED_REDIS_SCHEMES:
+        return None
+    shown = f"{scheme}://" if scheme else "(no scheme)"
+    return (
+        f"{display_redis_url(url)!r} uses {shown}, and fm only accepts redis:// and rediss://. "
+        "Anything else is written verbatim into bench_config.toml and then into "
+        "common_site_config.json, where nothing downstream can read it: redis-py raises ValueError at "
+        "connect time and node-redis (socketio) raises TypeError('Invalid protocol') -- and fm's own "
+        "readiness probe does not catch it either, because a sentinel or proxy still answers on its TCP "
+        "port, so the failure would surface as a bare traceback mid-create instead of here. Frappe DOES "
+        "support sentinel, but only through separate config keys (redis_cache_sentinel_enabled, "
+        "redis_cache_sentinels, redis_cache_master_service and friends), never through a URL scheme -- "
+        "there is no [redis] shape a sentinel URL could take."
+    )
 
 
 def _tcp_database_index(url: str, parsed: ParseResult) -> int:

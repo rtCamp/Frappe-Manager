@@ -155,6 +155,63 @@ class TestStaleDeployStateKeysWarnLoudly:
         handler.warning.assert_not_called()
 
 
+class TestUnsupportedRedisSchemeWarnsRatherThanRaises:
+    """A hand-edited `[redis]` scheme fm cannot use (see `create.py`'s CLI refusal for why it
+    is refused at create time) must not crash every command against this bench: `fm list`/
+    `bake`/`switch`/`maintenance` skip the migration gate precisely so one bad bench cannot
+    take the rest of the host down, and `fm update` has no `--redis-*` flag, so a hand edit is
+    the only way this table changes after create -- the same tradeoff
+    `TestStaleDeployStateKeysWarnLoudly` already makes for a stale `[deploy_state]` key.
+    """
+
+    _BAD_SCHEME = (
+        "\n[redis]\n"
+        'cache = "redis+sentinel://sentinel-host:26379/mymaster/0"\n'
+        'queue = "redis://q.example:6379/1"\n'
+    )
+
+    def test_import_survives_and_keeps_the_url_verbatim(self, tmp_path):
+        bc = _import(tmp_path, _BASE + self._BAD_SCHEME)
+
+        assert bc.redis is not None
+        assert bc.redis.cache == "redis+sentinel://sentinel-host:26379/mymaster/0"
+
+    def test_a_warning_names_the_bench_the_scheme_and_that_sentinel_is_not_a_url(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.base import OutputHandler
+
+        handler = MagicMock(spec=OutputHandler)
+        set_global_output_handler(handler)
+        try:
+            _import(tmp_path, _BASE + self._BAD_SCHEME)
+        finally:
+            set_global_output_handler(None)
+
+        handler.warning.assert_called_once()
+        message = handler.warning.call_args.args[0]
+        assert "dev.localhost" in message
+        assert "redis+sentinel" in message
+        assert "redis:// and rediss://" in message
+        assert "never through a URL scheme" in message
+
+    def test_no_warning_for_a_supported_scheme(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.base import OutputHandler
+
+        handler = MagicMock(spec=OutputHandler)
+        set_global_output_handler(handler)
+        try:
+            _import(tmp_path, _BASE + '\n[redis]\ncache = "redis://r.example:6379/0"\nqueue = "redis://r.example:6379/1"\n')
+        finally:
+            set_global_output_handler(None)
+
+        handler.warning.assert_not_called()
+
+
 class TestCreateTimeOnlyFieldsAreNeverSerialized:
     """`exclude=True` keeps runtime-only create inputs out of every dump of the model."""
 

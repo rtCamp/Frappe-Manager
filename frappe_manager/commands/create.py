@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, cast
-from urllib.parse import urlparse
 
 import tomlkit
 import typer
@@ -39,7 +38,7 @@ from frappe_manager.site_manager.bench_config import (
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.deploy_config_overlay import ConfigOverlayError, merge_overlays
 from frappe_manager.site_manager.domain_conflict import DomainConflictError, validate_domains_unique
-from frappe_manager.site_manager.modules.compose_shape import display_redis_url
+from frappe_manager.site_manager.modules.compose_shape import unsupported_redis_scheme
 from frappe_manager.utils.callbacks import (
     alias_domains_validation_callback,
     apps_list_validation_callback,
@@ -429,9 +428,6 @@ def _validated_ca(db_ca: Path) -> str:
     return str(absolute)
 
 
-_SUPPORTED_REDIS_SCHEMES = ("redis", "rediss")
-
-
 def _refuse_unsupported_redis_scheme(redis_cache: str, redis_queue: str) -> None:
     """Refuse a `[redis]` URL whose scheme fm cannot carry through to Frappe.
 
@@ -446,33 +442,21 @@ def _refuse_unsupported_redis_scheme(redis_cache: str, redis_queue: str) -> None
     moved away from (see their `extra="allow"` and `ConfigDict`/coercion comments): one
     hand-edited `[redis]` scheme would turn `fm list` into a host-wide outage. Checking
     once, at create time, before anything exists, refuses the same thing without
-    reopening that hole for a hand edit fm never wrote in the first place -- there is no
-    OTHER way for `[redis]` to gain an unsupported scheme, since `fm update` carries no
-    redis flag at all.
+    reopening that hole for a hand edit fm never wrote in the first place.
 
-    `redis` and `rediss` are the only schemes accepted: they are what redis-py's own
-    `from_url` connects with. `unix://` is the third scheme redis-py itself supports, but
-    fm's own create-time readiness probe (`bench_site.py`'s `BenchSiteManager._redis_endpoint`)
-    raises for ANY URL with no hostname, and a unix socket URL never has one -- accepting
-    `unix://` here only to have that probe refuse it seconds into `create` would be fm
-    contradicting itself, so it is refused here alongside everything else.
+    A hand edit is still not left silent, just not RAISING: `bench_config.py`'s
+    `import_from_toml` calls the same `unsupported_redis_scheme` this does and warns
+    (`warn_or_log`, never raise) on every load, the same tolerant treatment
+    `certificate.py`/`dns_provider.py`/`migration_state` already use for a bad
+    hand-edited value elsewhere in this file.
+
+    The scheme test itself (`compose_shape.unsupported_redis_scheme`) is shared with
+    that read-time warning, so an operator sees identical wording from either path.
     """
     for flag, url in (("--redis-cache", redis_cache), ("--redis-queue", redis_queue)):
-        scheme = urlparse(url).scheme
-        if scheme in _SUPPORTED_REDIS_SCHEMES:
-            continue
-        shown = f"{scheme}://" if scheme else "(no scheme)"
-        raise typer.BadParameter(
-            f"{flag}: {display_redis_url(url)!r} uses {shown}, and fm only accepts redis:// and rediss://. "
-            "Anything else is written verbatim into bench_config.toml and then into "
-            "common_site_config.json, where nothing downstream can read it: redis-py raises ValueError at "
-            "connect time and node-redis (socketio) raises TypeError('Invalid protocol') -- and fm's own "
-            "readiness probe does not catch it either, because a sentinel or proxy still answers on its TCP "
-            "port, so the failure would surface as a bare traceback mid-create instead of here. Frappe DOES "
-            "support sentinel, but only through separate config keys (redis_cache_sentinel_enabled, "
-            "redis_cache_sentinels, redis_cache_master_service and friends), never through a URL scheme -- "
-            "there is no [redis] shape a sentinel URL could take."
-        )
+        problem = unsupported_redis_scheme(url)
+        if problem:
+            raise typer.BadParameter(f"{flag}: {problem}")
 
 
 def _resolve_redis(redis_cache: str | None, redis_queue: str | None) -> RedisConfig | None:
