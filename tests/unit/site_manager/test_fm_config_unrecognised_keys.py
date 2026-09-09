@@ -65,6 +65,20 @@ def test_migration_state_does_not_warn(tmp_path):
     handler.warning.assert_not_called()
 
 
+def test_a_typo_inside_migration_state_warns(tmp_path):
+    """The one blind spot the top-level/nested fixes above did not close: `[migration_state]` is
+    kept as a raw dict in `_raw_config`, never a pydantic field, so `collect_unknown_keys` cannot
+    walk into it structurally the way it does `[logs]`/`[validation]`/`[network]`/`[output]`. A
+    typo there (e.g. `sytem_migrated_to`) used to parse cleanly and never be looked at again."""
+    config, handler = _load_with_warnings(
+        tmp_path, '[migration_state]\nsystem_migrated_to = "0.19.0"\nsytem_migrated_at = "typo-value"\n'
+    )
+
+    assert config.version.version == "0.20.0.dev0"  # loads regardless
+    handler.warning.assert_called_once()
+    assert "migration_state.sytem_migrated_at" in handler.warning.call_args.args[0]
+
+
 def test_a_typo_inside_logs_warns_instead_of_raising(tmp_path):
     """`FMLogsConfig` used to be `extra="forbid"`; a typo'd key there raised a `ValidationError`
     out of `import_from_toml`, which every `fm` command calls before the migration gate runs, so
@@ -157,5 +171,27 @@ def test_two_top_level_and_one_nested_typo_are_one_sorted_deduplicated_message(t
     names = message.split("unrecognised key(s) ", 1)[1].split("; check", 1)[0].split(", ")
     assert names == sorted(names)
     assert names == ["another_typo", "network.subnett_cidr", "ngrok_auth_tokenn"]
+    for name in names:
+        assert message.count(name) == 1, message
+
+
+def test_top_level_nested_and_migration_state_typo_are_one_sorted_message(tmp_path):
+    """`[migration_state]` is hand-checked (see `recognised_global_migration_state_keys`), the
+    other two families are found structurally by `collect_unknown_keys` -- both routes must still
+    land in the SAME `warn_or_log` call, sorted together, not a second warning for the hand-read
+    one."""
+    config, handler = _load_with_warnings(
+        tmp_path,
+        'ngrok_auth_tokenn = "x"\n'
+        '[network]\nsubnett_cidr = "10.1.0.0/16"\n'
+        '[migration_state]\nsystem_migrated_to = "0.19.0"\nsytem_migrated_at = "typo-value"\n',
+    )
+
+    assert config.version.version == "0.20.0.dev0"  # loads regardless
+    handler.warning.assert_called_once()
+    message = handler.warning.call_args.args[0]
+    names = message.split("unrecognised key(s) ", 1)[1].split("; check", 1)[0].split(", ")
+    assert names == sorted(names)
+    assert names == ["migration_state.sytem_migrated_at", "network.subnett_cidr", "ngrok_auth_tokenn"]
     for name in names:
         assert message.count(name) == 1, message

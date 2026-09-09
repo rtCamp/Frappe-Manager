@@ -125,6 +125,21 @@ def recognised_fm_config_keys() -> frozenset[str]:
     return frozenset(FMConfigManager.model_fields) | {"ssl", "migration_state", "cloudflare"}
 
 
+def recognised_global_migration_state_keys() -> frozenset[str]:
+    """Every `[migration_state]` key this file itself gives meaning to: `system_migrated_to`,
+    read in `get_system_migration_version` and written in `set_system_migration_version`/
+    `_ensure_migration_state`.
+
+    `[migration_state]` is kept as a raw dict in `_raw_config`, never a pydantic field (see the
+    `extra="allow"` comment on `FMConfigManager` below and `import_from_toml`'s handling of the
+    table), so it has no `model_extra` of its own for `collect_unknown_keys` to walk into -- the
+    same hole bench_config.py's `[ssl]` has, and the same fix: an explicit recognised set,
+    checked by hand in `import_from_toml`, derived here instead of hand-listed a second time
+    there.
+    """
+    return frozenset({"system_migrated_to"})
+
+
 class FMConfigManager(BaseModel):
     # extra="allow": a top-level stray in fm_config.toml (a mistyped table header or bare key)
     # used to be silently dropped -- `import_from_toml` builds `input_data` by hand and never
@@ -156,9 +171,17 @@ class FMConfigManager(BaseModel):
         self._raw_config = {}
 
     def get_system_migration_version(self) -> Version:
-        """Get version system is migrated to."""
+        """Get version system is migrated to.
+
+        Reads through a local `migration_state_data` rather than the `self._raw_config[...]`
+        chain inline, so this method's literal key read is visible to the AST guard test in
+        `tests/unit/site_manager/test_config_surface.py` the same way `[ssl]`'s hand-read keys
+        in bench_config.py are: that scan only recognises `name.get("key")` on a plain local
+        variable, not a subscript-of-a-subscript.
+        """
         if hasattr(self, "_raw_config") and "migration_state" in self._raw_config:
-            version_str = self._raw_config["migration_state"].get("system_migrated_to")
+            migration_state_data = self._raw_config["migration_state"]
+            version_str = migration_state_data.get("system_migrated_to")
             if version_str:
                 return Version(version_str)
         return self.version
@@ -245,6 +268,11 @@ class FMConfigManager(BaseModel):
 
         raw_config_data = {}
 
+        # Dotted paths for a stray inside [migration_state], the one hand-read table with no
+        # model of its own to hold a stray as `model_extra` -- see
+        # `recognised_global_migration_state_keys`.
+        hand_read_unknown_keys: list[str] = []
+
         # Populated only when the file exists; merged into `input_data` below so a stray this
         # loader does not recognise round-trips through `model_extra` instead of being silently
         # dropped by `export_to_toml`'s prune.
@@ -321,7 +349,27 @@ class FMConfigManager(BaseModel):
             if "migration_state" in data:
                 import json
 
-                raw_config_data["migration_state"] = json.loads(json.dumps(data["migration_state"]))
+                # `json.loads(json.dumps(...))` is a two-step unwrap: it strips tomlkit's `Item`
+                # wrapper the same way `unwrap_toml_value` does elsewhere, but in one pass over the
+                # whole table rather than key by key, since the table is captured wholesale rather
+                # than splatted into named fields. Captured BEFORE the stray check below, and
+                # completely unfiltered by it: `export_to_toml` writes this dict back verbatim
+                # (see its own `migration_state` line), so a stray here surviving a save was never
+                # contingent on it being recognised -- only on it staying in this dict.
+                migration_state_data = json.loads(json.dumps(data["migration_state"]))
+                raw_config_data["migration_state"] = migration_state_data
+
+                # Same hole `[ssl]` has in bench_config.py: this table is read by hand, not
+                # splatted into a model, so a typo'd key (e.g. `sytem_migrated_to`) parses cleanly
+                # and was previously never looked at again. `collect_unknown_keys` below cannot
+                # find it either -- `_raw_config` is a plain dict, not a `BaseModel`, so it has no
+                # `model_extra` for that walk to reach -- hence the explicit check here, unioned
+                # into the same message below.
+                if isinstance(migration_state_data, dict):
+                    hand_read_unknown_keys.extend(
+                        f"migration_state.{key}"
+                        for key in set(migration_state_data.keys()) - recognised_global_migration_state_keys()
+                    )
 
         input_data.update(retained_top_level)
         fm_config_instance = cls(**input_data)
@@ -332,17 +380,18 @@ class FMConfigManager(BaseModel):
         # way `bench_config.py` does, AND the top-level strays, since `retained_top_level` above
         # put those onto `fm_config_instance`'s OWN `model_extra` before this walk ever starts --
         # the walk's root is that same instance, so a top-level stray surfaces with a bare, undotted
-        # path. A hand-built top-level list has nothing left to add once that is true: unlike
-        # bench_config's `[ssl]`, which has no model of its own to hold a hand-read stray (earning
-        # `hand_read_unknown_keys()` a real union there), every hand-read region in this file --
-        # `[ssl].dns_providers.<label>` and the legacy `[cloudflare]` fold -- lands inside a
-        # `DNSProviderConfig`, whose own `extra="allow"` this same walk already reaches.
+        # path. A hand-built top-level list has nothing left to add for THOSE: unlike bench_config's
+        # `[ssl]`, which has no model of its own to hold a hand-read stray, every OTHER hand-read
+        # region in this file -- `[ssl].dns_providers.<label>` and the legacy `[cloudflare]` fold --
+        # lands inside a `DNSProviderConfig`, whose own `extra="allow"` this same walk already
+        # reaches.
         # `[migration_state]` is the one hand-read region genuinely outside this walk's reach (kept
-        # as raw JSON in `_raw_config`, never a model field), but a top-level list built from
-        # `data.keys()` never looked inside a recognised top-level key like `migration_state`
-        # either, so removing it loses no coverage. A second, hand-built list here used to repeat
-        # every top-level name a second time -- one typo, printed twice.
-        all_unknown_keys = collect_unknown_keys(fm_config_instance)
+        # as raw JSON in `_raw_config`, never a model field, so it has no `model_extra` of its own
+        # for the walk to find) -- the exact hole `[ssl]` would have had if bench_config.py had
+        # never grown `hand_read_unknown_keys()` for it. Fixed the same way here:
+        # `hand_read_unknown_keys`, built above, is unioned in below, so a stray in either family
+        # of table reports through the SAME message rather than a second warning call.
+        all_unknown_keys = sorted(set(collect_unknown_keys(fm_config_instance)) | set(hand_read_unknown_keys))
         if all_unknown_keys:
             from frappe_manager.output_manager import warn_or_log
 

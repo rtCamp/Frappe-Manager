@@ -182,6 +182,29 @@ def test_migration_state_keeps_every_key_across_a_save(tmp_path):
     assert "manual override, do not touch" in text
 
 
+def test_migration_state_keeps_every_key_across_two_saves(tmp_path):
+    """The stray now also gets a warning (test_fm_config_unrecognised_keys.py's
+    `test_a_typo_inside_migration_state_warns`), but the retention guarantee was never
+    contingent on recognition: proven against the file as ORIGINALLY written, then again after a
+    SECOND ordinary write -- the routine `_ensure_migration_state` then `set_system_migration_version`
+    sequence a real host takes -- since a two-cycle fixed point alone would not catch a value
+    dropped on the very first cycle."""
+    path = _config(
+        tmp_path,
+        '[migration_state]\nsystem_migrated_to = "0.19.0"\nnotes = "manual override, do not touch"\n',
+    )
+    original = path.read_text()
+    assert 'system_migrated_to = "0.19.0"' in original
+    assert "manual override, do not touch" in original
+
+    FMConfigManager.import_from_toml(path).export_to_toml(path)
+    FMConfigManager.import_from_toml(path).export_to_toml(path)
+
+    text = path.read_text()
+    assert 'system_migrated_to = "0.19.0"' in text
+    assert "manual override, do not touch" in text
+
+
 def test_ensure_migration_state_write_does_not_drop_a_top_level_stray(tmp_path):
     """The concrete routine trigger named in the finding: the very first run against a file with
     no `[migration_state]` writes the file through `_ensure_migration_state`."""
