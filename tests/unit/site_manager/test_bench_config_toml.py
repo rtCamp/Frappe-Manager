@@ -741,6 +741,35 @@ class TestVersionGateIsolatesATypoFromMigrationNoise:
             "has unrecognised key(s) typoed_stray; check for a typo, since fm will not use them."
         )
 
+    def test_a_bench_a_newer_fm_has_migrated_is_silent_too(self, tmp_path):
+        """The gate warns on EQUALITY, not on "not behind". A bench whose `migrated_to` is AHEAD of
+        this build carries a schema this fm predates, so its unrecognised keys are not typos, they
+        are fields this version has never heard of. Reachable by testing a dev build and going back
+        to stable, or by two hosts on different fm versions sharing a bench directory. Warning there
+        told the operator their config was wrong when the truth was that their fm was older than
+        their bench, which is the one case where fm knows least and used to speak loudest."""
+        from unittest.mock import MagicMock
+
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.base import OutputHandler
+
+        from_the_future = (
+            _BASE
+            + "key_a_later_fm_added = true\n"
+            + '\n[migration_state]\nmigrated_to = "99.0.0"\n'
+            + "\n[switch]\nmigrate = true\n"
+        )
+        handler = MagicMock(spec=OutputHandler)
+        set_global_output_handler(handler)
+        try:
+            config = _import(tmp_path, from_the_future)
+        finally:
+            set_global_output_handler(None)
+
+        handler.warning.assert_not_called()
+        # Silence is not blindness: the key is still retained, so the newer fm still finds it.
+        assert config.model_extra == {"key_a_later_fm_added": True}
+
 
 class TestNoWarningReachesTheTerminalDuringShellCompletion:
     """`warn_or_log`'s old premise -- that no output handler is attached during completion -- is

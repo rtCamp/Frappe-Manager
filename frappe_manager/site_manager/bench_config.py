@@ -875,7 +875,7 @@ class MigrationState(BaseModel):
     # sub-table. `MigrationState(**migration_state_data)` in `import_from_toml`/`collect_from_data`
     # runs on every command that skips the migration gate, and it used to raise a
     # `pydantic.ValidationError` on any of those -- one bad TYPE for a recognised key took the
-    # whole host down exactly like the `InvalidVersion` crash `_bench_is_pre_migration` guards
+    # whole host down exactly like the `InvalidVersion` crash `_bench_is_at_current_version` guards
     # against below, just one step earlier in the same load. Coerced to its string form here
     # rather than rejected: fm never deletes a key it does not understand, and an odd TYPE on a
     # recognised key earns the same tolerance an odd NAME already gets.
@@ -1238,13 +1238,24 @@ def _forget_stale_warning(path: Path) -> None:
     _warned_unknown_keys.pop(str(path), None)
 
 
-def _bench_is_pre_migration(data: Any) -> bool:
-    """True when `[migration_state].migrated_to` is behind fm's current version, absent, or
-    unparseable.
+def _bench_is_at_current_version(data: Any) -> bool:
+    """True only when `[migration_state].migrated_to` is exactly fm's current version. False when
+    it is behind, ahead, absent, or unparseable.
 
-    Severity by origin, applied to time rather than a file: a key read from a bench that has not
-    been migrated yet is not a typo, it is a shape `fm migrate` is about to rewrite, so warning
-    about it is noise the operator cannot act on until they run that command anyway.
+    This decides whether fm may warn about an unrecognised key at all, so it is phrased as the
+    question the caller actually asks: is this file the shape THIS build is responsible for.
+
+    Severity by origin, applied to time rather than to a file. A key on a bench that has not been
+    migrated yet is not a typo, it is a shape `fm migrate` is about to rewrite, so warning about it
+    is noise the operator cannot act on until they run that command anyway. A key on a bench a
+    NEWER fm has already migrated is not a typo either, it is a schema this build predates and can
+    have no opinion about; that is reachable without anything exotic, by testing a dev build and
+    going back to stable, or by two hosts on different fm versions sharing a bench directory.
+    Warning there would tell the operator their config is wrong when the truth is that their fm is
+    older than their bench.
+
+    So both directions are silent and only equality speaks. The alternative, warning whenever the
+    file is not strictly behind, made fm confidently wrong in the one case where it knows least.
 
     `packaging.version.Version` compares directly here rather than
     `frappe_manager.migration_manager.version.Version`: this module has no import back into
@@ -1256,20 +1267,19 @@ def _bench_is_pre_migration(data: Any) -> bool:
     `datetime`, not a `str`), a stray `[migration_state.migrated_to]` sub-table, or any other non
     PEP 440 text all make `PackagingVersion` raise `InvalidVersion`. This is read on every command
     that skips the migration gate (`fm list`, `bake`, `switch`, `maintenance`), so letting that
-    propagate takes down every bench on the host over one bad value in one bench's file -- the
-    exact failure mode this whole version gate exists to replace. An unrecognisable version is
-    treated exactly like an absent one: fm cannot tell whether it is ahead of or behind the
-    current release, so it stays silent (never raise, never warn) until `fm migrate` gives the
-    file a version fm can actually parse.
+    propagate takes down every bench on the host over one bad value in one bench's file, the exact
+    failure mode this whole version gate exists to replace. An unparseable version is therefore
+    treated exactly like an absent one: fm cannot place the file at all, so it stays silent (never
+    raise, never warn) until `fm migrate` gives it a version fm can parse.
     """
     migration_state = data.get("migration_state")
     migrated_to = migration_state.get("migrated_to") if isinstance(migration_state, dict) else None
     if not migrated_to:
-        return True
+        return False
     try:
-        return PackagingVersion(str(migrated_to)) < PackagingVersion(get_current_fm_version())
+        return PackagingVersion(str(migrated_to)) == PackagingVersion(get_current_fm_version())
     except InvalidVersion:
-        return True
+        return False
 
 
 class BuildConfig(BaseModel):
@@ -2171,7 +2181,7 @@ class BenchConfig(BaseModel):
         # would find its earlier typo's signature still cached and stay silent the second time.
         if not unknown_keys:
             _forget_stale_warning(path)
-        elif not _bench_is_pre_migration(data) and _should_warn_once(path, unknown_keys):
+        elif _bench_is_at_current_version(data) and _should_warn_once(path, unknown_keys):
             from frappe_manager.output_manager import warn_or_log
 
             warn_or_log(
