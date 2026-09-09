@@ -36,7 +36,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import ParseResult, parse_qs, unquote, urlparse
 
 from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
 from frappe_manager.site_manager.modules import db_tls
@@ -363,34 +363,93 @@ def validate_redis_endpoints(cache: str, queue: str) -> None:
     Different indexes on one server is the documented shape and is fine; the same
     index is not. Raises ValueError, so a pydantic validator or a CLI check can
     surface it directly.
+
+    Known limit, deliberate: hosts are compared as STRINGS, so this catches a
+    collision only when both URLs spell the host the same way. Measured on a live
+    server, ``redis://cache-box:6379/0`` and ``redis://10.2.0.19:6379/0`` are
+    accepted even when that IP IS ``cache-box``, and two CNAMEs for one server
+    would slip through the same way.
+
+    Resolving the names here was rejected rather than overlooked. These URLs are
+    resolved by the bench CONTAINERS on a docker network, not by fm on the host, so
+    a name fm resolves may differ from what the container reaches or may not resolve
+    for fm at all. A check that consulted the host's resolver would be wrong in a new
+    way and would fail outright on a host that cannot see the redis network, which is
+    worse than a check with a stated gap. What is decidable without a resolver is
+    decided here; the rest is not adjudicated.
     """
     if _redis_endpoint(cache) != _redis_endpoint(queue):
         return
     raise ValueError(
         f"redis cache and queue resolve to the same host, port and database index: "
-        f"cache={_display(cache)!r}, queue={_display(queue)!r}. "
+        f"cache={display_redis_url(cache)!r}, queue={display_redis_url(queue)!r}. "
         'A restore calls frappe.cache.delete_keys(""), a mass delete over the cache connection, '
         "so a shared index would destroy the queue along with it. "
         "Give them separate database indexes (for example .../0 for cache and .../1 for queue)."
     )
 
 
-def _display(url: str) -> str:
-    """The URL as the operator wrote it, with any inline password masked."""
+def display_redis_url(url: str) -> str:
+    """The URL as the operator wrote it, with any inline password masked.
+
+    Public (not `_`-prefixed): `create.py`'s scheme refusal (`_refuse_unsupported_redis_scheme`)
+    reuses it too, so a masked cache/queue URL reads the same in both refusal messages.
+    """
     password = urlparse(url).password
     return url.replace(f":{password}@", ":***@", 1) if password else url
 
 
-def _redis_endpoint(url: str) -> tuple[str, int, str, str]:
+def _redis_endpoint(url: str) -> tuple[str, int, str, int | str]:
     """(host, port, socket path, database index) of a redis URL.
 
-    Normalised for equality only, not for connecting: on ``redis``/``rediss`` the
-    path is the database index, on a unix socket URL it is the socket and the
-    index comes from ``?db=``.
+    Normalised for equality only, not for connecting: on ``redis``/``rediss`` the database
+    index is resolved exactly the way redis-py's own ``parse_url`` resolves it (see
+    ``_tcp_database_index``), not by comparing the path text. On any other scheme the path
+    is compared as a literal socket path; that scheme has no fm-supported db argument, so
+    the index side of the tuple is fixed at ``"0"``.
     """
     parsed = urlparse(url)
-    tcp = parsed.scheme in ("redis", "rediss")
+    if parsed.scheme in ("redis", "rediss"):
+        return (parsed.hostname or "", parsed.port or 6379, "", _tcp_database_index(url, parsed))
     index = parse_qs(parsed.query).get("db", [""])[0]
-    if not index:
-        index = parsed.path.strip("/") if tcp else "0"
-    return (parsed.hostname or "", parsed.port or 6379, "" if tcp else parsed.path, index or "0")
+    return (parsed.hostname or "", parsed.port or 6379, parsed.path, index or "0")
+
+
+def _tcp_database_index(url: str, parsed: ParseResult) -> int:
+    """The logical database index redis-py's own ``parse_url`` (``redis/connection.py``)
+    resolves for a ``redis://``/``rediss://`` URL.
+
+    Read straight out of the pinned redis-py (``redis==8.0.1``, ``connection.py:2264``):
+    a ``?db=`` query argument wins over the path when both are given (``if url.path and
+    "db" not in kwargs``); each is parsed with plain ``int()`` after the path is unquoted
+    and stripped of EVERY ``/`` -- redis-py's own ``int(unquote(url.path).replace("/",
+    ""))``. That is why a trailing slash (``/1/``) still resolves to 1, the same as
+    ``/1``: no path, an empty path (``/``), and a non-integer path (``/abc``) all fall
+    through to redis-py's ``try/except (AttributeError, ValueError): pass`` and connect on
+    database 0 -- silently, never a raised error. That silent fallback to 0 is exactly what
+    let two different-looking, equally-bogus URLs (``/abc`` vs ``/xyz``) compare unequal
+    here while landing on the SAME live database. So an index redis-py cannot parse is
+    refused outright rather than normalised to 0: normalising would only trade one silent
+    collision for a different one the operator never asked to compare against, and refusing
+    names the actual typo instead. A malformed ``?db=`` value is refused the same way, even
+    though redis-py raises its own (later, at connect time) error for that one rather than
+    swallowing it -- catching it here is strictly earlier, not a behaviour change.
+    """
+    query_db = parse_qs(parsed.query).get("db", [None])[0]
+    if query_db is not None:
+        raw = query_db
+    elif parsed.path:
+        raw = unquote(parsed.path).replace("/", "")
+    else:
+        return 0
+    if raw == "":
+        return 0
+    try:
+        return int(raw)
+    except ValueError:
+        raise ValueError(
+            f"redis URL {display_redis_url(url)!r}: database index {raw!r} is not an integer. redis-py "
+            "silently ignores a value it cannot parse this way and connects on database 0 "
+            "instead of raising, which is exactly the kind of collision this check exists to "
+            "catch -- fix the index instead."
+        ) from None

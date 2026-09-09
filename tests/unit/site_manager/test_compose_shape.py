@@ -396,6 +396,34 @@ def test_validate_redis_endpoints_accepts_differing_endpoints():
     assert validate_redis_endpoints("redis://h:6379/0", "redis://h:6380/0") is None
 
 
+def test_validate_redis_endpoints_refuses_a_non_integer_database_index():
+    """redis-py's own `parse_url` silently drops a path it cannot `int()` and connects on
+    database 0 instead of raising -- so two different-looking, equally bogus URLs used to
+    compare as distinct here while both actually landing on database 0. Refused outright
+    now, on either side, instead of letting the typo through as if it were a real index."""
+    with pytest.raises(ValueError, match="is not an integer"):
+        validate_redis_endpoints("redis://h/abc", "redis://h/xyz")
+    with pytest.raises(ValueError, match="is not an integer"):
+        validate_redis_endpoints("redis://h/abc", "redis://h/0")
+
+
+@pytest.mark.parametrize(
+    ("cache", "queue"),
+    [
+        # No path at all and an explicit /0 both resolve to database 0 in redis-py.
+        ("redis://h:6379", "redis://h:6379/0"),
+        # An empty path ("/") also falls through to redis-py's silent-zero fallback.
+        ("redis://h:6379/", "redis://h:6379/0"),
+        # redis-py strips every "/" before calling int(), so a trailing slash on one side
+        # still resolves to the same index as the bare digit on the other.
+        ("redis://h:6379/1/", "redis://h:6379/1"),
+    ],
+)
+def test_validate_redis_endpoints_catches_every_spelling_of_the_same_database(cache, queue):
+    with pytest.raises(ValueError, match="same host, port and database index"):
+        validate_redis_endpoints(cache, queue)
+
+
 def test_default_render_context_is_not_a_rolling_swap():
     """Every renderer defaults to DEFAULT_CONTEXT, so its flags decide what a plain render does.
 
