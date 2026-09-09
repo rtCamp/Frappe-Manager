@@ -771,6 +771,65 @@ class TestVersionGateIsolatesATypoFromMigrationNoise:
         assert config.model_extra == {"key_a_later_fm_added": True}
 
 
+class TestACommentIsNeverAKey:
+    """An operator annotating their own config, or parking a setting by commenting it out, must not
+    be told they have made a typo. Comments are not keys in TOML, so the collector cannot see them
+    by construction rather than by a rule that could regress. Worth pinning anyway: the whole
+    warning path was built to notice names it does not recognise, and a commented-out setting looks
+    exactly like one to a reader skimming the file."""
+
+    def test_comments_including_a_commented_out_typo_produce_no_warning(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        from frappe_manager.output_manager import set_global_output_handler
+        from frappe_manager.output_manager.base import OutputHandler
+        from frappe_manager.utils.helpers import get_current_fm_version
+
+        annotated = (
+            "# maintained by ops, do not edit blindly\n"
+            + _BASE
+            + f'\n[migration_state]\nmigrated_to = "{get_current_fm_version()}"\n'
+            + "\n# ---- switch pipeline ----\n"
+            + "[switch]\n"
+            + "migrate = true  # trailing comment\n"
+            + "# migrate_timeout = 600  <- parked, not set\n"
+            + "# admin_toolz = true  <- a commented-out TYPO\n"
+        )
+        handler = MagicMock(spec=OutputHandler)
+        set_global_output_handler(handler)
+        try:
+            config = _import(tmp_path, annotated)
+        finally:
+            set_global_output_handler(None)
+
+        handler.warning.assert_not_called()
+        assert collect_unknown_keys(config) == []
+        # The parked setting stayed parked: commenting it out is not the same as setting it.
+        assert config.switch is not None
+        assert config.switch.migrate_timeout == 300
+
+    def test_an_in_place_save_keeps_every_comment_including_the_parked_setting(self, tmp_path):
+        """fm merges into the existing file rather than regenerating it, so annotations survive the
+        writes that `fm migrate`, `fm auth` and a deploy-state update all perform. Asserted against
+        the ORIGINAL text, and then a second time, because a comment dropped on the first save would
+        make any later cycle-to-cycle comparison trivially equal."""
+        path = tmp_path / "bench_config.toml"
+        original = (
+            "# header worth keeping\n"
+            + _BASE
+            + "\n# ---- banner ----\n[switch]\nmigrate = true  # trailing\n# parked = 1\n"
+        )
+        path.write_text(original)
+
+        BenchConfig.import_from_toml(path).export_to_toml(path)
+        after_first = path.read_text()
+        for comment in ("# header worth keeping", "# ---- banner ----", "# trailing", "# parked = 1"):
+            assert comment in after_first, comment
+
+        BenchConfig.import_from_toml(path).export_to_toml(path)
+        assert path.read_text() == after_first
+
+
 class TestNoWarningReachesTheTerminalDuringShellCompletion:
     """`warn_or_log`'s old premise -- that no output handler is attached during completion -- is
     false: `cli_entrypoint()` (main.py) installs a `RichOutputHandler` before `app()` runs, and
