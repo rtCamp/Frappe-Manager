@@ -2021,7 +2021,8 @@ def test_a_creation_failure_offers_to_drop_the_schema_before_removing_the_bench(
     orchestrator._provisioned = harness.config.get_database_config(SITE)
     harness.output.prompt_ask.return_value = "no"
 
-    _fail(orchestrator, "phase 5 died")
+    with pytest.raises(RuntimeError, match="phase 5 died"):
+        _fail(orchestrator, "phase 5 died")
 
     assert harness.output.prompt_ask.called is True
     assert harness.events.only("remove_bench") == ["remove_bench(default_choice=False)"]
@@ -2120,24 +2121,48 @@ def test_without_the_admin_credentials_in_memory_no_drop_is_offered(tmp_path):
     assert harness.output.prompt_ask.called is False
 
 
-def test_a_bench_that_never_made_it_to_disk_is_not_removed(tmp_path):
-    """`bench.exists` gates the cleanup: there is nothing to remove."""
+def test_a_bench_that_never_made_it_to_disk_still_fails_the_create(tmp_path):
+    """`bench.exists` gates the CLEANUP -- there is nothing to remove -- but not the FAILURE.
+    "Nothing to clean up" is not "nothing went wrong": a create that dies before `mkdir()` ever
+    ran (the only phase-1 statement that runs before the directory exists) must still raise, or
+    a script reading `$?` sees 0 for a bench that was never built."""
     harness = _Harness(_config(tmp_path), tmp_path)
     harness.bench.exists = False
     orchestrator = harness.orchestrator(real=("_handle_creation_failure",))
 
-    _fail(orchestrator, "phase 1 died")
+    with pytest.raises(RuntimeError, match="phase 1 died"):
+        _fail(orchestrator, "phase 1 died")
 
     assert harness.events.has("remove_bench") is False
-    assert "phase 1 died" in str(harness.output.display_error.call_args_list)
+    assert "phase 1 died" not in str(harness.output.display_error.call_args_list)
+
+
+def test_the_exception_text_itself_is_never_printed_by_this_method(tmp_path):
+    """`cli_entrypoint` (main.py) is the one place a command's fatal error is printed now that
+    every exit here raises instead of swallowing it; printing it here too showed the operator
+    the same text twice. The log-path guidance survives because it is create-specific advice,
+    not a restatement of the exception."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+    orchestrator = harness.orchestrator(real=("_handle_creation_failure",))
+    harness.output.is_interactive.return_value = True
+
+    with pytest.raises(RuntimeError, match="a distinctive phase five failure"):
+        _fail(orchestrator, "a distinctive phase five failure")
+
+    displayed = str(harness.output.display_error.call_args_list)
+    assert "a distinctive phase five failure" not in displayed
+    assert "Please check the logs" in displayed
 
 
 def test_a_kept_bench_is_described_after_a_failure(tmp_path):
+    """Declining removal must still fail the create -- see
+    `test_an_interactive_failure_still_offers_to_remove_the_bench` for the accepting half."""
     harness = _Harness(_config(tmp_path), tmp_path)
     harness.remove_status = False
     orchestrator = harness.orchestrator(real=("_handle_creation_failure",))
 
-    _fail(orchestrator, "phase 5 died")
+    with pytest.raises(RuntimeError, match="phase 5 died"):
+        _fail(orchestrator, "phase 5 died")
 
     harness.events.before("remove_bench(default_choice=False)", "info")
 
@@ -2165,6 +2190,7 @@ def test_a_non_interactive_failure_leaves_the_bench_with_a_message_instead_of_cr
     assert "Non-interactive" in warned
     assert str(harness.bench.path) in warned
     assert f"fm delete {SITE} --yes" in warned
+    assert "phase 5 died" not in str(harness.output.display_error.call_args_list)
 
 
 def test_a_non_interactive_failed_create_does_not_report_success(tmp_path):
@@ -2186,15 +2212,53 @@ def test_a_non_interactive_failed_create_does_not_report_success(tmp_path):
 
 
 def test_an_interactive_failure_still_offers_to_remove_the_bench(tmp_path):
-    """The non-interactive branch must not swallow the ordinary, TTY-backed path above it."""
+    """The non-interactive branch must not swallow the ordinary, TTY-backed path above it, and an
+    interactive failure must fail the command exactly like the non-interactive one does: the
+    operator watching this run already saw the prompt and the error, but `$?` is read by whatever
+    invoked `fm create`, not by the person at the terminal."""
     harness = _Harness(_config(tmp_path), tmp_path)
     orchestrator = harness.orchestrator(real=("_handle_creation_failure",))
     harness.output.is_interactive.return_value = True
 
-    _fail(orchestrator, "phase 5 died")
+    with pytest.raises(RuntimeError, match="phase 5 died"):
+        _fail(orchestrator, "phase 5 died")
 
     assert harness.events.only("remove_bench") == ["remove_bench(default_choice=False)"]
     assert harness.output.warning.called is False
+    assert "phase 5 died" not in str(harness.output.display_error.call_args_list)
+
+
+def test_an_interactive_failure_the_operator_accepting_removal_still_fails_and_bench_is_gone(tmp_path):
+    """End to end through `create_bench`, not the `_fail` shortcut: an interactive create whose
+    operator accepts the removal offer must still exit non-zero. `remove_status = True` is what
+    `bench.remove_bench` returns when the operator accepted; the bench is gone and `bench.info()`
+    (which describes what was LEFT behind) has nothing to describe, so it is not called."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+    orchestrator = harness.orchestrator(real=("_handle_creation_failure",))
+    harness.output.is_interactive.return_value = True
+    orchestrator._phase5_finalize = MagicMock(side_effect=RuntimeError("phase 5 died"))
+
+    with pytest.raises(RuntimeError, match="phase 5 died"):
+        orchestrator.create_bench()
+
+    assert harness.events.only("remove_bench") == ["remove_bench(default_choice=False)"]
+    assert harness.events.has("info") is False
+
+
+def test_an_interactive_failure_the_operator_declines_removal_still_fails_and_bench_stays(tmp_path):
+    """The declining half of the test above: the bench stays on disk (`remove_bench` returns
+    False), `bench.info()` describes what was left, and the create still exits non-zero -- the
+    exact contract the non-interactive branch already has, now shared by the interactive one."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+    harness.remove_status = False
+    orchestrator = harness.orchestrator(real=("_handle_creation_failure",))
+    harness.output.is_interactive.return_value = True
+    orchestrator._phase5_finalize = MagicMock(side_effect=RuntimeError("phase 5 died"))
+
+    with pytest.raises(RuntimeError, match="phase 5 died"):
+        orchestrator.create_bench()
+
+    harness.events.before("remove_bench(default_choice=False)", "info")
 
 
 # --------------------------------------------------------------------------- --remove-on-failure
@@ -2218,6 +2282,7 @@ def test_remove_on_failure_skips_the_interactive_prompt_and_removes(tmp_path):
 
     assert harness.bench.remove_bench.call_args.kwargs == {"prompt": False, "delete_db_from_global_db": True}
     assert harness.output.prompt_ask.called is False
+    assert "phase 5 died" not in str(harness.output.display_error.call_args_list)
 
 
 
@@ -2241,13 +2306,15 @@ def test_remove_on_failure_removes_non_interactively_and_reports(tmp_path):
 
 
 def test_remove_on_failure_never_reaches_a_kept_bench(tmp_path):
-    """`bench.exists` still gates the flag exactly like the two branches it short-circuits: a
-    create that never wrote a directory has nothing for the flag to remove either."""
+    """`bench.exists` still gates the CLEANUP exactly like the two branches it short-circuits: a
+    create that never wrote a directory has nothing for the flag to remove either -- but the
+    create still fails, flag or no flag, exactly like the no-flag case above."""
     harness = _Harness(_config(tmp_path), tmp_path)
     harness.bench.exists = False
     orchestrator = harness.orchestrator(real=("_handle_creation_failure",))
 
-    _fail(orchestrator, "phase 1 died", remove_on_failure=True)
+    with pytest.raises(RuntimeError, match="phase 1 died"):
+        _fail(orchestrator, "phase 1 died", remove_on_failure=True)
 
     assert harness.events.has("remove_bench") is False
 

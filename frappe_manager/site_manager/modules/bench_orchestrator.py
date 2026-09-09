@@ -1194,8 +1194,15 @@ class BenchOrchestrator:
 
         bench = self.bench
 
-        self.output.display_error(f"[fm.error][bold]Error Occured: [/bold][/fm.error]{exception}")
-
+        # The exception text itself is deliberately NOT printed here. Every path out of this
+        # method now raises `exception` (see below), and `cli_entrypoint` (main.py) is the one
+        # place that catches a command's fatal error and prints it -- for every OTHER command
+        # already, and for a create failure too once the three branches below stopped
+        # swallowing it. Printing it here as well used to put the same text in front of the
+        # operator twice: once from this method, once from `cli_entrypoint` after the raise
+        # reached it. The log-path guidance just below stays: it is create-specific advice
+        # ("check the logs"), not a restatement of the exception, so `cli_entrypoint`'s generic
+        # "More info about error is logged in ..." line does not make it redundant.
         exception_traceback_str = capture_and_format_exception()
         self.logger.error(f"{bench.name}: NOT WORKING\n Exception: {exception_traceback_str}")
 
@@ -1209,7 +1216,14 @@ class BenchOrchestrator:
         self._offer_to_drop_provisioned_schema()
 
         if not bench.exists:
-            return
+            # `bench.path.mkdir()` is the very first substantive statement of phase 1, run
+            # before docker-compose generation, the base-image pull or `create_compose_dirs` --
+            # all of which run only after it succeeds. So the ONLY way a failure reaches this
+            # method with `bench.exists` still False is `mkdir()` itself failing (permission
+            # denied, no space left on device, an existing file blocking the same path). Rare,
+            # but there being nothing to remove is not the same thing as nothing having gone
+            # wrong -- the create must still fail.
+            raise exception
 
         if remove_on_failure:
             # Short-circuits BOTH branches below: the interactive prompt and the non-interactive
@@ -1259,6 +1273,16 @@ class BenchOrchestrator:
         remove_status = bench.remove_bench(default_choice=False)
         if not remove_status:
             bench.info()
+
+        # Matching the two branches above, deliberately: an operator watching this run already
+        # saw the error, the prompt and (if declined) `bench.info()` -- but a human reading text
+        # and a script reading `$?` are two different consumers, and this method was satisfying
+        # only the first. Returning cleanly here let `_run_creation`'s `except` swallow the
+        # failure, `create_bench` return as if nothing had happened, and an INTERACTIVE `fm
+        # create` exit 0 on a bench that was never finished -- the one arm of this function that
+        # still could, after the non-interactive branch above was fixed the same way. A `&&`
+        # chain, a CI job or a wrapper script run from a terminal is still a script.
+        raise exception
 
     def start_bench(
         self,
