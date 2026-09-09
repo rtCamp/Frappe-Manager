@@ -828,6 +828,9 @@ def test_an_unknown_database_name_asks_before_skipping_the_dump(backup_migration
 
     manager.assert_not_called()
     assert output.prompt_ask.call_args.kwargs["choices"] == ["yes", "no"]
+    # A bare Enter must decline the risky path (continuing without a backup), not take it --
+    # `prompt_ask(default=None)` is the shape that let InquirerPy highlight 'yes' by accident.
+    assert output.prompt_ask.call_args.kwargs["default"] == "no"
     assert "--skip-all-backup" in output.prompt_ask.call_args.kwargs["required_flag"]
 
 

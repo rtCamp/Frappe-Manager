@@ -234,7 +234,7 @@ class BenchOrchestrator:
                     "Please note that You will have to add a host entry to your system's hosts file to access the bench locally.",
                 )
         else:
-            remove_status = bench.remove_bench(default_choice=False)
+            remove_status = bench.remove_bench()
             if not remove_status:
                 bench.info()
 
@@ -1246,10 +1246,10 @@ class BenchOrchestrator:
         if not self.output.is_interactive():
             # No TTY, or the global --non-interactive flag. `remove_bench`'s own confirmation
             # (`_confirm_removal`) sets `required_flag`, which `prompt_ask` checks ahead of any
-            # default, so it ALWAYS raises `NonInteractiveError` here regardless of
-            # `default_choice` -- and that exception was propagating straight out of failure
-            # handling itself, a second unhandled crash on top of the one that triggered this
-            # method, with the half-created bench left on disk and no message about it at all.
+            # default, so it ALWAYS raised `NonInteractiveError` here whenever there was no TTY --
+            # and that exception was propagating straight out of failure handling itself, a
+            # second unhandled crash on top of the one that triggered this method, with the
+            # half-created bench left on disk and no message about it at all.
             #
             # Matching `_offer_to_drop_provisioned_schema` just above: declining is the
             # deliberate non-interactive answer for a destructive action taken with nobody
@@ -1270,7 +1270,7 @@ class BenchOrchestrator:
             )
             raise exception
 
-        remove_status = bench.remove_bench(default_choice=False)
+        remove_status = bench.remove_bench()
         if not remove_status:
             bench.info()
 

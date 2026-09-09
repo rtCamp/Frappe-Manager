@@ -334,6 +334,7 @@ class MigrationBase(ABC):
             user_choice = self.output.prompt_ask(
                 prompt="\n".join(skip_backup_prompt),
                 choices=["yes", "no"],
+                default="no",
                 required_flag="--skip-all-backup or --skip-backup-for <bench>",
             )
 

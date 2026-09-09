@@ -251,10 +251,7 @@ class _Harness:
             "container_run", formatter=lambda command, **_k: f"container_run({command})"
         )
         bench.info.side_effect = events.hook("info")
-        bench.remove_bench.side_effect = lambda **kw: (
-            events.append(f"remove_bench(default_choice={kw.get('default_choice')})"),
-            self.remove_status,
-        )[1]
+        bench.remove_bench.side_effect = lambda **kw: (events.append("remove_bench"), self.remove_status)[1]
 
         # `start_bench` and the alias-domain workflow, whose collaborators are disjoint from the
         # create's. Defaults are the plainest bench: no admin tools, no workers compose, nginx up.
@@ -651,7 +648,7 @@ def test_a_failed_phase_six_offers_to_remove_the_bench(tmp_path):
     with pytest.raises(BenchException):
         orchestrator.create_bench()
 
-    assert harness.events.only("remove_bench", "info") == ["remove_bench(default_choice=False)"]
+    assert harness.events.only("remove_bench", "info") == ["remove_bench"]
 
 
 def test_declining_the_removal_still_prints_the_bench_info(tmp_path):
@@ -665,7 +662,7 @@ def test_declining_the_removal_still_prints_the_bench_info(tmp_path):
     with pytest.raises(BenchException):
         orchestrator.create_bench()
 
-    harness.events.before("remove_bench(default_choice=False)", "info")
+    harness.events.before("remove_bench", "info")
 
 
 def test_a_phase_five_failure_never_reaches_phase_six(tmp_path):
@@ -1722,7 +1719,7 @@ def test_a_failed_image_create_offers_to_remove_the_bench(tmp_path, monkeypatch)
     with pytest.raises(BenchException):
         orchestrator.create_bench()
 
-    assert harness.events.only("remove_bench", "info") == ["remove_bench(default_choice=False)"]
+    assert harness.events.only("remove_bench", "info") == ["remove_bench"]
 
 
 def test_a_kept_image_bench_is_described_instead(tmp_path, monkeypatch):
@@ -1736,7 +1733,7 @@ def test_a_kept_image_bench_is_described_instead(tmp_path, monkeypatch):
     with pytest.raises(BenchException):
         orchestrator.create_bench()
 
-    harness.events.before("remove_bench(default_choice=False)", "info")
+    harness.events.before("remove_bench", "info")
 
 
 def test_an_image_bench_only_create_fetches_the_image_but_stops_before_the_site(tmp_path, monkeypatch):
@@ -1948,7 +1945,7 @@ def test_a_failed_app_install_reports_guidance_offers_removal_and_fails(tmp_path
     warned = " ".join(str(call) for call in harness.output.warning.call_args_list)
     assert "App Installation Failed" in warned
     assert "dependency conflict" in warned
-    assert harness.events.only("remove_bench") == ["remove_bench(default_choice=False)"]
+    assert harness.events.only("remove_bench") == ["remove_bench"]
     orchestrator._handle_creation_failure.assert_not_called()
 
 
@@ -2025,7 +2022,7 @@ def test_a_creation_failure_offers_to_drop_the_schema_before_removing_the_bench(
         _fail(orchestrator, "phase 5 died")
 
     assert harness.output.prompt_ask.called is True
-    assert harness.events.only("remove_bench") == ["remove_bench(default_choice=False)"]
+    assert harness.events.only("remove_bench") == ["remove_bench"]
     left = " ".join(str(call) for call in harness.output.print.call_args_list)
     assert f"Left schema {SCHEMA}" in left
 
@@ -2164,14 +2161,15 @@ def test_a_kept_bench_is_described_after_a_failure(tmp_path):
     with pytest.raises(RuntimeError, match="phase 5 died"):
         _fail(orchestrator, "phase 5 died")
 
-    harness.events.before("remove_bench(default_choice=False)", "info")
+    harness.events.before("remove_bench", "info")
 
 
 def test_a_non_interactive_failure_leaves_the_bench_with_a_message_instead_of_crashing(tmp_path):
     """`remove_bench`'s own confirmation (`_confirm_removal`) sets `required_flag`, which
-    `prompt_ask` checks ahead of any default, so it raises `NonInteractiveError` regardless of
-    `default_choice` whenever there is no TTY. That used to propagate straight out of failure
-    handling itself: an uncontrolled crash from deep inside `remove_bench`, with the half-created
+    `prompt_ask` checks ahead of any default, so it raises `NonInteractiveError` here whenever
+    there is no TTY, no matter what default the confirmation itself carries. That used to
+    propagate straight out of failure handling itself: an uncontrolled crash from deep inside
+    `remove_bench`, with the half-created
     bench left on disk and nothing said about it anywhere. Declining is now the deliberate
     non-interactive answer, same as `_offer_to_drop_provisioned_schema` above it, but the bench
     being kept must be announced -- silence is the orphan this method exists to prevent. It still
@@ -2223,7 +2221,7 @@ def test_an_interactive_failure_still_offers_to_remove_the_bench(tmp_path):
     with pytest.raises(RuntimeError, match="phase 5 died"):
         _fail(orchestrator, "phase 5 died")
 
-    assert harness.events.only("remove_bench") == ["remove_bench(default_choice=False)"]
+    assert harness.events.only("remove_bench") == ["remove_bench"]
     assert harness.output.warning.called is False
     assert "phase 5 died" not in str(harness.output.display_error.call_args_list)
 
@@ -2241,7 +2239,7 @@ def test_an_interactive_failure_the_operator_accepting_removal_still_fails_and_b
     with pytest.raises(RuntimeError, match="phase 5 died"):
         orchestrator.create_bench()
 
-    assert harness.events.only("remove_bench") == ["remove_bench(default_choice=False)"]
+    assert harness.events.only("remove_bench") == ["remove_bench"]
     assert harness.events.has("info") is False
 
 
@@ -2258,7 +2256,7 @@ def test_an_interactive_failure_the_operator_declines_removal_still_fails_and_be
     with pytest.raises(RuntimeError, match="phase 5 died"):
         orchestrator.create_bench()
 
-    harness.events.before("remove_bench(default_choice=False)", "info")
+    harness.events.before("remove_bench", "info")
 
 
 # --------------------------------------------------------------------------- --remove-on-failure

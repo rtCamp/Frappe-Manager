@@ -1268,16 +1268,25 @@ class Bench:
             self.logger.exception(f"Failed to remove database and user for bench: {self.name}", extra_fields=extra)
             raise
 
-    def _confirm_removal(self, default_choice: bool) -> bool:
-        """Ask whether to remove this bench. `--yes` skips the caller, not this."""
-        params: dict[str, Any] = {
-            "prompt": f"🤔 Do you want to remove [bold][fm.ok]'{self.name}'[/bold][/fm.ok]",
-            "choices": ["yes", "no"],
-            "required_flag": "--yes or -y",
-        }
-        if default_choice:
-            params["default"] = "no"
-        return self.output.prompt_ask(**params) == "yes"
+    def _confirm_removal(self) -> bool:
+        """Ask whether to remove this bench. `--yes` skips the caller, not this.
+
+        The default is always 'no': the choice InquirerPy renders for a bare Enter has to be the
+        non-destructive one. There used to be a `default_choice` bool here that let a caller ask
+        for NO default at all -- `prompt_ask(default=None)` -- and InquirerPy has no concept of
+        "no highlight" for that: it highlights whichever choice is listed first, which is 'yes'.
+        Nobody actually wanted that; every real caller wanted 'no' as the default, so the switch
+        that could turn it off is gone rather than fixed in place.
+        """
+        return (
+            self.output.prompt_ask(
+                prompt=f"🤔 Do you want to remove [bold][fm.ok]'{self.name}'[/bold][/fm.ok]",
+                choices=["yes", "no"],
+                default="no",
+                required_flag="--yes or -y",
+            )
+            == "yes"
+        )
 
     def republish_site_map(self) -> None:
         """Re-render compose from the recorded sites and RECREATE nginx so it picks the map up.
@@ -1523,7 +1532,6 @@ class Bench:
 
     def remove_bench(
         self,
-        default_choice: bool = True,
         delete_db_from_global_db: bool | None = None,
         prompt: bool = True,
     ) -> bool:
@@ -1536,14 +1544,13 @@ class Bench:
         collapsed before that happens.
 
         Args:
-            default_choice: confirmation default; True defaults to 'no'
             delete_db_from_global_db: None prompts when the schema is fm's to drop
             prompt: False skips the confirmation entirely, which is what `--yes` means
         """
-        extra = {"operation": "bench_remove", "bench_name": self.name, "default_choice": default_choice}
+        extra = {"operation": "bench_remove", "bench_name": self.name}
         self.logger.debug(f"Attempting to remove bench: {self.name}", extra_fields=extra)
 
-        if prompt and not self._confirm_removal(default_choice):
+        if prompt and not self._confirm_removal():
             self.logger.debug(f"Bench removal cancelled by user: {self.name}", extra_fields=extra)
             return False
 
@@ -1639,7 +1646,7 @@ class Bench:
                 self.output.prompt_ask(
                     prompt=f"🗄️  Do you want to remove the database for site '[bold]{entry.site}[/bold]' from global-db?",
                     choices=["yes", "no"],
-                    default="yes",
+                    default="no",
                     required_flag="--delete-db-from-global-db or --no-delete-db-from-global-db",
                 )
                 == "yes"

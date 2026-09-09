@@ -1309,15 +1309,15 @@ class TestRemoveBench:
         bench.remove_certificate.assert_not_called()
         bench.remove_containers_and_dirs.assert_not_called()
 
-    def test_default_choice_preselects_no(self, harness):
+    def test_the_removal_prompt_always_defaults_to_no(self, harness):
+        """A bare Enter on this prompt must decline. `default_choice` used to be a switch that
+        could turn the default off entirely (`default_choice=False` meant `prompt_ask(default=
+        None)`), and InquirerPy highlights the first choice, 'yes', when there is no default --
+        that is exactly how a bare Enter used to delete a half-built bench. The switch is gone;
+        the confirmation always carries an explicit 'no'."""
         bench = self._removable(harness, answer="no")
-        bench.remove_bench(default_choice=True)
+        bench.remove_bench()
         assert bench.output.prompt_ask.call_args.kwargs["default"] == "no"
-
-    def test_default_choice_false_offers_no_default(self, harness):
-        bench = self._removable(harness, answer="no")
-        bench.remove_bench(default_choice=False)
-        assert "default" not in bench.output.prompt_ask.call_args.kwargs
 
     def test_accepting_removes_cert_then_database_then_containers(self, harness):
         bench = self._removable(harness)
@@ -1468,7 +1468,7 @@ class TestHandleDatabaseDeletion:
         bench.output.prompt_ask.return_value = "yes"
         bench._handle_database_deletion(None)
         bench.remove_database_and_user.assert_called_once_with(SITE)
-        assert bench.output.prompt_ask.call_args.kwargs["default"] == "yes"
+        assert bench.output.prompt_ask.call_args.kwargs["default"] == "no"
         # The question names the SITE whose schema is about to go, not the bench.
         assert SITE in str(bench.output.prompt_ask.call_args.kwargs["prompt"])
 
