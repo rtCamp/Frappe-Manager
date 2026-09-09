@@ -22,7 +22,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -46,7 +46,11 @@ from frappe_manager.site_manager.bench_config import (
 )
 from frappe_manager.site_manager.hooks import hook_env, hook_script
 from frappe_manager.site_manager.modules import db_probe, db_tls
-from frappe_manager.site_manager.modules.compose_shape import container_transit_path
+from frappe_manager.site_manager.modules.compose_shape import (
+    RedisIdentity,
+    container_transit_path,
+    redis_server_identity,
+)
 from frappe_manager.utils.docker import run_command_with_exit_code
 
 if TYPE_CHECKING:
@@ -298,6 +302,50 @@ class DeployOrchestrator:
             workdir="/workspace/frappe-bench",
             stream=False,
         )
+
+    def _refuse_redis_identity_collision(self) -> None:
+        """Container-side second gate for the collision ``validate_redis_endpoints`` cannot see
+        from the host (see that docstring, and ``BenchSiteManager.check_redis_identity_collision``,
+        its twin at create time): a hostname and its own IP, or two CNAMEs, naming ONE live server.
+
+        Called as the very first thing ``deploy()`` does, before the fetch, the pre-flight boot
+        check, the compose snapshot, or ANY mutation -- the cheapest point in the whole pipeline
+        to abort, because nothing below has happened yet that a refusal would have to unwind. A
+        migrate or a restore mutates the schema under running code the same way the mass cache
+        delete does at restore/clear-cache time; catching the collision here means a bad
+        ``[redis]`` pair fails the deploy outright instead of the queue.
+
+        Only for a bench with an external ``[redis]``. ``RedisIdentity.UNKNOWN`` never refuses --
+        see ``redis_server_identity``'s docstring -- and is logged at DEBUG, not warned: nothing
+        here is actionable by the operator when a managed provider or a proxy in front of redis
+        restricts ``INFO``, and ``validate_redis_endpoints`` already gave them the operator-facing
+        signal for the shapes the host-side string check can see.
+        """
+        redis_config = self.config.redis
+        if redis_config is None:
+            return
+        result = redis_server_identity(redis_config.cache, redis_config.queue, self._redis_identity_runner())
+        if result.identity is RedisIdentity.SAME:
+            raise DeployError(
+                f"redis [cache] and [queue] are the same live server for bench '{self.bench.name}': "
+                f"{result.detail}. A restore's or migrate's cache clear would empty the queue along "
+                "with it. Refusing before any change; fix [redis].cache/[redis].queue and retry."
+            )
+        if result.identity is RedisIdentity.UNKNOWN:
+            self.logger.debug(f"{self.bench.name}: redis identity check inconclusive: {result.detail}")
+
+    def _redis_identity_runner(self) -> Callable[[str], str]:
+        """Adapts ``_exec_frappe`` to the ``Runner`` contract ``redis_server_identity`` expects:
+        one command in, its combined output text out, never raising."""
+
+        def run(command: str) -> str:
+            try:
+                output = self._exec_frappe(command)
+            except DockerException as e:
+                return "\n".join(e.output.combined) if e.output else str(e)
+            return "\n".join(output.combined) if output else ""
+
+        return run
 
     def _set_maintenance(self, value: int) -> None:
         self._exec_frappe(f"{BENCH_BIN} --site {self.site} set-config -g maintenance_mode {value}")
@@ -1232,6 +1280,10 @@ class DeployOrchestrator:
         self._require_image_mode()
         old_image = self._current_deployed_image()
         self._warn_unmanaged_sites()
+
+        # 0. Redis identity preflight: cheapest point to refuse in the whole pipeline, because
+        # nothing below has mutated anything yet. See `_refuse_redis_identity_collision`.
+        self._refuse_redis_identity_collision()
 
         # 1. Fetch (registry login+pull, or verify save_load-loaded image present)
         self.output.change_head(f"Fetching image {new_image}")

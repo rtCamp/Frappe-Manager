@@ -225,6 +225,7 @@ class _Harness:
         bench.workers.docker_client.compose.up.side_effect = events.hook("workers_up")
 
         bench.site_manager.wait_for_required_services.side_effect = events.hook("wait_for_services")
+        bench.site_manager.check_redis_identity_collision.side_effect = events.hook("check_redis_identity")
         bench.site_manager.create_bench_site.side_effect = events.hook(
             "new-site", formatter=lambda **kw: f"new-site(force={kw.get('force')})"
         )
@@ -807,6 +808,31 @@ def test_phase_three_starts_the_containers_then_waits_then_verifies(tmp_path):
     harness.events.before("wait_for_services", "compose_exec")
     harness.events.before("compose_exec", "phase4_create_site")
 
+
+def test_the_redis_identity_check_runs_right_after_waiting_for_services(tmp_path):
+    """Beside the readiness probe: it reuses the exact container connectivity that probe just
+    proved, before the server-responding check that follows it."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+
+    harness.reraising_orchestrator(real=("_phase3_start_and_verify_bench",)).create_bench()
+
+    harness.events.before("wait_for_services", "check_redis_identity")
+    harness.events.before("check_redis_identity", "compose_exec")
+
+
+def test_a_redis_identity_collision_fails_the_create_at_the_readiness_stage(tmp_path):
+    """A SAME verdict raises from inside phase 3 and funnels into `_handle_creation_failure`
+    exactly like any other readiness failure: phase 4 (site creation) never runs."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+    collision = BenchOperationException(SITE, "redis cache and queue are the same live server")
+    harness.bench.site_manager.check_redis_identity_collision.side_effect = collision
+    orchestrator = harness.orchestrator(real=("_phase3_start_and_verify_bench",))
+
+    orchestrator.create_bench()
+
+    assert harness.events.has("phase4_create_site") is False
+    orchestrator._handle_creation_failure.assert_called_once()
+    assert orchestrator._handle_creation_failure.call_args[0][0] is collision
 
 def test_phase_three_never_pulls_and_never_force_recreates(tmp_path):
     """Every image is local by now; a pull here would be a surprise network call mid-create."""

@@ -32,8 +32,11 @@ Architecture (functional core, imperative shell):
   find the CA bundle through the mariadb client's option file.
 """
 
-from collections.abc import Sequence
+import json
+import shlex
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from enum import Enum
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Protocol
@@ -371,7 +374,10 @@ def validate_redis_endpoints(cache: str, queue: str) -> None:
     the same way underneath those. Measured on a live server,
     ``redis://cache-box:6379/0`` and ``redis://10.2.0.19:6379/0`` are accepted even
     when that IP IS ``cache-box``, and two CNAMEs for one server would slip through
-    the same way.
+    the same way. That residual gap is closed by ``redis_server_identity`` (below),
+    which asks the servers who they are from inside the bench container instead of
+    comparing hostnames -- see its docstring -- run at create readiness and deploy
+    preflight, the two points a collision costs nothing to refuse.
 
     Resolving the names here was rejected rather than overlooked. These URLs are
     resolved by the bench CONTAINERS on a docker network, not by fm on the host, so
@@ -379,7 +385,7 @@ def validate_redis_endpoints(cache: str, queue: str) -> None:
     for fm at all. A check that consulted the host's resolver would be wrong in a new
     way and would fail outright on a host that cannot see the redis network, which is
     worse than a check with a stated gap. What is decidable without a resolver is
-    decided here; the rest is not adjudicated.
+    decided here; the rest is not adjudicated by THIS function.
     """
     if _redis_endpoint(cache) != _redis_endpoint(queue):
         return
@@ -515,3 +521,170 @@ def _tcp_database_index(url: str, parsed: ParseResult) -> int:
             "instead of raising, which is exactly the kind of collision this check exists to "
             "catch -- fix the index instead."
         ) from None
+
+
+# --------------------------------------------------------------------------- redis server identity
+
+
+class RedisIdentity(Enum):
+    """Verdict of ``redis_server_identity``. Three outcomes, not two: collapsing UNKNOWN into
+    either SAME or DIFFERENT is exactly the bug this check exists to avoid -- a managed redis
+    or a proxy that refuses ``INFO`` must never be read as "definitely different"."""
+
+    SAME = "same"
+    DIFFERENT = "different"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class RedisIdentityResult:
+    """``identity`` is the verdict; ``detail`` is a short, operator-safe explanation -- a
+    server id and a database index, never the source URLs (which may carry a password)."""
+
+    identity: RedisIdentity
+    detail: str
+
+
+# Same contract as ``db_probe.Runner``: one shell command executed inside the bench container,
+# combined stdout/stderr handed back as text. A non-zero exit is answered with the output
+# rather than an exception -- the identity payload's marker line is either in that text or it
+# is not, and either way ``redis_server_identity`` turns "it is not" into UNKNOWN rather than
+# propagating a raise. Declared locally rather than imported from ``db_probe``: same shape,
+# unrelated concern (redis identity, not the mysql probe).
+Runner = Callable[[str], str]
+
+# The only interpreter in the bench container with redis-py: Frappe itself depends on it, so it
+# lives in the venv alongside pymysql (``db_probe.BENCH_PYTHON`` is the same path, for the
+# database probe's identical reasoning). The bare ``python`` on PATH is the uv default and
+# carries neither driver.
+REDIS_IDENTITY_PYTHON = "/workspace/frappe-bench/env/bin/python"
+
+# Prefixes the one line of JSON the container script prints, so it survives being mixed with a
+# shell profile banner or a driver warning landing on the same stream.
+REDIS_IDENTITY_MARKER = "FM_REDIS_IDENTITY"
+
+# Bounds the container-side connection attempt: an unreachable or slow-to-answer managed
+# endpoint must fail fast into UNKNOWN rather than stall the caller (a create or a deploy).
+REDIS_IDENTITY_TIMEOUT_SECONDS = 10
+
+
+def _redis_identity_script(cache: str, queue: str) -> str:
+    """Python source for ``REDIS_IDENTITY_PYTHON -c``: read-only ``INFO server`` for each URL.
+
+    Each connection attempt is wrapped so ONE bad endpoint (wrong credentials, TLS refused, a
+    managed provider that blocks INFO) does not lose the OTHER endpoint's answer -- both are
+    always reported, ``None`` standing in for "could not tell". ``info()`` is the only command
+    issued, ever: nothing is written to either server.
+    """
+    urls = json.dumps([cache, queue])
+    return (
+        "import json\n"
+        "from redis import Redis\n"
+        f"urls = {urls}\n"
+        "def _run_id(url):\n"
+        "    try:\n"
+        "        client = Redis.from_url(\n"
+        "            url,\n"
+        f"            socket_connect_timeout={REDIS_IDENTITY_TIMEOUT_SECONDS},\n"
+        f"            socket_timeout={REDIS_IDENTITY_TIMEOUT_SECONDS},\n"
+        "        )\n"
+        "        return client.info('server').get('run_id')\n"
+        "    except Exception:\n"
+        "        return None\n"
+        "run_ids = [_run_id(u) for u in urls]\n"
+        f'print("{REDIS_IDENTITY_MARKER} " + json.dumps({{"run_ids": run_ids}}))\n'
+    )
+
+
+def redis_identity_command(cache: str, queue: str) -> str:
+    """``<bench venv python> -c '<script>'`` for the container. Carries no secret beyond what
+    the URLs themselves already hold (same as every other exec fm builds this way)."""
+    return f"{REDIS_IDENTITY_PYTHON} -c {shlex.quote(_redis_identity_script(cache, queue))}"
+
+
+def _redis_identity_payload(text: str) -> dict | None:
+    """The container script's marker line, parsed; ``None`` on anything else (no marker line, a
+    line that is not valid JSON, or JSON that is not an object) -- the same shape as
+    ``db_probe``'s own stage-two payload parser, deliberately: a container command can return
+    partial output, a warning line, or nothing, and every one of those has to fall through to
+    UNKNOWN rather than being read as a verdict.
+    """
+    for line in text.splitlines():
+        marker = line.find(REDIS_IDENTITY_MARKER)
+        if marker < 0:
+            continue
+        try:
+            parsed = json.loads(line[marker + len(REDIS_IDENTITY_MARKER) :].strip())
+        except ValueError:
+            return None
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _redis_identity_run_ids(text: str) -> tuple[str, str] | None:
+    """The two ``run_id`` strings out of the container's reply, or ``None`` when the reply is
+    unusable in ANY way: no marker line, invalid JSON, the wrong shape, or a missing/empty
+    ``run_id`` for either side (an ``INFO`` a managed provider or a proxy restricted). Folded
+    into one check so ``redis_server_identity`` has one UNKNOWN branch for all of them rather
+    than a several-way fan-out.
+    """
+    payload = _redis_identity_payload(text)
+    if payload is None:
+        return None
+    run_ids = payload.get("run_ids")
+    if not isinstance(run_ids, list) or len(run_ids) != 2:
+        return None
+    cache_run_id, queue_run_id = run_ids
+    if not isinstance(cache_run_id, str) or not isinstance(queue_run_id, str) or not cache_run_id or not queue_run_id:
+        return None
+    return cache_run_id, queue_run_id
+
+
+def redis_server_identity(cache: str, queue: str, run: Runner) -> RedisIdentityResult:
+    """Whether ``cache`` and ``queue`` are the same LIVE logical redis database, decided from
+    inside the bench's frappe container instead of by comparing hostnames.
+
+    ``validate_redis_endpoints`` (above) is the host-side gate: fast, no container needed, and
+    blind to exactly one shape -- a hostname and its own IP, or two CNAMEs, naming one server.
+    This is the second gate for that shape, run later (create readiness / deploy preflight,
+    never at the point of damage -- see the callers), where a container that can actually dial
+    both URLs is already available. It asks each server who it is (``INFO server``'s
+    ``run_id``, stable for the life of that server process) and pairs the answer with the
+    database index each URL resolves to via ``_tcp_database_index`` -- SAME server AND SAME
+    index is the collision; same server, different index is the documented, safe shape.
+
+    Three outcomes, not two. UNKNOWN -- a managed redis or a proxy (twemproxy, say) that
+    restricts ``INFO``, a container that cannot be reached, a garbled or empty reply, a
+    non-zero exec exit -- is returned rather than guessed at. Never raises: every failure mode
+    of ``run`` and every unparseable shape of its reply is caught and turned into an UNKNOWN
+    result. It is the CALLER's job to treat UNKNOWN as "proceed" -- refusing an operation over
+    a question this could not answer would be worse than the residual risk the host-side check
+    already covers.
+    """
+    try:
+        cache_index = _tcp_database_index(cache, urlparse(cache))
+        queue_index = _tcp_database_index(queue, urlparse(queue))
+    except ValueError as exc:
+        return RedisIdentityResult(RedisIdentity.UNKNOWN, f"could not resolve a database index: {exc}")
+
+    try:
+        text = run(redis_identity_command(cache, queue))
+    except Exception as exc:
+        return RedisIdentityResult(RedisIdentity.UNKNOWN, f"container exec failed: {exc}")
+
+    run_ids = _redis_identity_run_ids(text)
+    if run_ids is None:
+        return RedisIdentityResult(
+            RedisIdentity.UNKNOWN,
+            "no usable identity reply from the bench container: missing, garbled, or INFO restricted -- a "
+            "managed provider or a proxy in front of redis may block it",
+        )
+    cache_run_id, queue_run_id = run_ids
+
+    if cache_run_id == queue_run_id and cache_index == queue_index:
+        return RedisIdentityResult(
+            RedisIdentity.SAME,
+            f"cache and queue are the same live redis server (run_id {cache_run_id}) on database index {cache_index}",
+        )
+    return RedisIdentityResult(RedisIdentity.DIFFERENT, "different server or different database index")

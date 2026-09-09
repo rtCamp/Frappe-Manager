@@ -30,6 +30,7 @@ from frappe_manager.site_manager.exceptions import (
     BenchOperationWaitForRequiredServiceFailed,
 )
 from frappe_manager.site_manager.modules import db_tls
+from frappe_manager.site_manager.modules.compose_shape import RedisIdentity, redis_server_identity
 from frappe_manager.site_manager.modules.db_probe import SITES_CONTAINER_ROOT, get_lock_sql, lock_refusal
 from frappe_manager.utils.docker import run_command_with_exit_code
 from frappe_manager.utils.helpers import get_redis_cache_addr, get_redis_queue_addr
@@ -244,6 +245,54 @@ class BenchSiteManager:
                 capture_output=True,
             ),
         )
+
+    def check_redis_identity_collision(self) -> None:
+        """Container-side second gate for the collision ``validate_redis_endpoints`` cannot see
+        from the host: a hostname and its own IP, or two CNAMEs, naming ONE live redis server.
+
+        Called right after ``wait_for_required_services`` (only from the CREATE pipeline's
+        phase 3, not from `fm start`/`fm restart`, which also call that method), because that
+        call just proved the container can dial both endpoints -- there is nothing cheaper to
+        reuse. REFUSES the create outright on a genuine collision (``RedisIdentity.SAME``)
+        rather than let it produce a bench whose queue a later restore's
+        ``frappe.cache.delete_keys("")`` would eat with it; a create that fails here costs
+        nothing a later restore would cost far worse.
+
+        Only for a bench with an external ``[redis]``; fm's own managed ``redis-cache``/
+        ``redis-queue`` containers are distinct compose services and can never collide with
+        each other. ``RedisIdentity.UNKNOWN`` (a managed provider or a proxy restricting
+        ``INFO``, an unreachable container, a garbled reply) never refuses -- see
+        ``redis_server_identity``'s docstring -- and is logged at DEBUG rather than warned:
+        there is nothing an operator can act on when a provider they do not control disables
+        ``INFO``, and the host-side string check already gave them the operator-facing signal
+        for the shapes it can see.
+        """
+        redis_config = self.bench_config.redis
+        if redis_config is None:
+            return
+        result = redis_server_identity(redis_config.cache, redis_config.queue, self._redis_identity_runner())
+        if result.identity is RedisIdentity.SAME:
+            raise BenchOperationException(
+                self.bench_name,
+                f"redis [cache] and [queue] are the same live server: {result.detail}. A restore's "
+                'frappe.cache.delete_keys("") would empty the queue along with the cache. Fix '
+                "[redis].cache/[redis].queue (for example, distinct database indexes) and retry.",
+            )
+        if result.identity is RedisIdentity.UNKNOWN:
+            self.logger.debug(f"{self.bench_name}: redis identity check inconclusive: {result.detail}")
+
+    def _redis_identity_runner(self) -> Callable[[str], str]:
+        """Adapts ``_container_run`` to the ``Runner`` contract ``redis_server_identity``
+        expects: one command in, its combined output text out, never raising."""
+
+        def run(command: str) -> str:
+            try:
+                output = self._container_run(command, capture_output=True)
+            except DockerException as e:
+                return "\n".join(e.output.combined) if e.output else str(e)
+            return "\n".join(output.combined) if output else ""
+
+        return run
 
     def create_bench_site(
         self,

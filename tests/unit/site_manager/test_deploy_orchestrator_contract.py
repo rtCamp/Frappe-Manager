@@ -23,6 +23,7 @@ refactor is provably behaviour-preserving. Where the current behaviour looks
 surprising it is pinned as-is, not fixed.
 """
 
+import json
 import shlex
 from pathlib import Path
 from types import SimpleNamespace
@@ -37,12 +38,14 @@ from frappe_manager.site_manager.bench_config import (
     BenchRuntime,
     DeployState,
     DeployStateEntry,
+    RedisConfig,
     SwitchConfig,
     SwitchHooks,
     SwitchHookScripts,
     WorkersConfig,
 )
 from frappe_manager.site_manager.modules import db_tls
+from frappe_manager.site_manager.modules.compose_shape import REDIS_IDENTITY_MARKER
 from frappe_manager.site_manager.modules.deploy_orchestrator import (
     BENCH_BIN,
     DeployError,
@@ -66,7 +69,7 @@ OLD_TAG = "reg.example/shop:v1"
 class FakeConfig:
     """Duck-typed stand-in for BenchConfig: only what the orchestrator reads."""
 
-    def __init__(self, root_path, switch=None, workers=None, deploy_state=None, site_names=None):
+    def __init__(self, root_path, switch=None, workers=None, deploy_state=None, site_names=None, redis=None):
         self.runtime = BenchRuntime.image
         self.image = NEW_TAG
         self.switch = switch if switch is not None else SwitchConfig()
@@ -83,6 +86,11 @@ class FakeConfig:
         self.base_image = None
         self.registry = None
         self.database = {}
+        # None (the default for every test that does not ask) is a bench with no external
+        # `[redis]` -- fm's managed redis-cache/redis-queue containers, which can never
+        # collide, so `_refuse_redis_identity_collision` no-ops without touching `_exec_frappe`
+        # at all and every existing phase-order assertion below is unaffected by its presence.
+        self.redis = redis
         self.export_to_toml = MagicMock()
 
     def get_database_config(self, site):
@@ -111,13 +119,14 @@ def make_bench(tmp_path, config):
     )
 
 
-def make_orch(tmp_path, switch=None, workers=None, deploy_state=None, site_names=None):
+def make_orch(tmp_path, switch=None, workers=None, deploy_state=None, site_names=None, redis=None):
     config = FakeConfig(
         tmp_path,
         switch=switch,
         workers=workers,
         deploy_state=deploy_state,
         site_names=site_names,
+        redis=redis,
     )
     bench = make_bench(tmp_path, config)
     return DeployOrchestrator(bench, output_handler=MagicMock())
@@ -196,13 +205,14 @@ class Rig:
 def rig(tmp_path):
     """Factory: ``rig(switch=..., running=True, ...)`` -> :class:`Rig`."""
 
-    def _make(switch=None, workers=None, deploy_state=None, running=True, site_names=None, **overrides):
+    def _make(switch=None, workers=None, deploy_state=None, running=True, site_names=None, redis=None, **overrides):
         orch = make_orch(
             tmp_path,
             switch=switch,
             workers=workers,
             deploy_state=deploy_state,
             site_names=site_names,
+            redis=redis,
         )
         manager = MagicMock()
         backups = {site: tmp_path / "backups" / f"db-{site}.sql" for site in orch.sites}
@@ -462,6 +472,86 @@ class TestDeployPhaseOrder:
         (backup_dir,), _ = r.orch._backup_all.call_args
         assert backup_dir.parent == tmp_path / "bench" / "backups"
         assert backup_dir.name.startswith("deploy-")
+
+REDIS_CACHE_URL = "redis://cache-box:6379/0"
+REDIS_QUEUE_URL = "redis://10.2.0.19:6379/0"  # measured live: this IP IS cache-box
+
+
+def _redis_reply(run_ids):
+    text = f"{REDIS_IDENTITY_MARKER} " + json.dumps({"run_ids": run_ids})
+    return SubprocessOutput(stdout=[text], stderr=[], combined=[text], exit_code=0)
+
+
+class TestRedisIdentityPreflight:
+    """``_refuse_redis_identity_collision``: the container-side second gate for the
+    hostname-vs-its-own-IP collision the host-side string check cannot see. Runs as the
+    very first thing ``deploy()`` does. The identity LOGIC itself (SAME/DIFFERENT/UNKNOWN)
+    is pinned against a fake ``Runner`` in ``test_compose_shape.py``; these tests are the
+    WIRING -- placement, refusal shape, and that UNKNOWN never blocks.
+    """
+
+    def test_no_external_redis_never_execs_before_the_fetch(self, rig):
+        """No ``[redis]``: fm's own managed containers can never collide, so the check is a
+        silent no-op and the documented phase order (pinned above) is unaffected by its
+        presence."""
+        r = rig()
+        r.orch.deploy(NEW_TAG)
+        assert r.order[0] == "_fetch_image"
+
+    def test_a_same_verdict_refuses_before_any_mutation(self, rig):
+        redis = RedisConfig(cache=REDIS_CACHE_URL, queue=REDIS_QUEUE_URL)
+        r = rig(redis=redis, _exec_frappe={"return_value": _redis_reply(["run-id-abc", "run-id-abc"])})
+
+        with pytest.raises(DeployError, match="same live server"):
+            r.orch.deploy(NEW_TAG)
+
+        # Nothing else ran: no fetch, no compose snapshot, no backup, no maintenance, no migrate.
+        assert r.order == ["_exec_frappe"]
+
+    def test_a_different_verdict_proceeds_through_the_fetch(self, rig):
+        redis = RedisConfig(cache=REDIS_CACHE_URL, queue=REDIS_QUEUE_URL)
+        r = rig(redis=redis, _exec_frappe={"return_value": _redis_reply(["run-id-abc", "run-id-xyz"])})
+
+        r.orch.deploy(NEW_TAG)  # must not raise
+
+        assert r.order[0] == "_exec_frappe"
+        assert r.order[1] == "_fetch_image"
+
+    def test_an_unknown_verdict_never_refuses_and_logs_at_debug(self, rig):
+        """A managed provider or a proxy restricting ``INFO``: nothing actionable, so this is
+        a DEBUG log through the module logger, never ``output.warning`` (never stdout)."""
+        redis = RedisConfig(cache=REDIS_CACHE_URL, queue=REDIS_QUEUE_URL)
+        r = rig(redis=redis, _exec_frappe={"return_value": _redis_reply([None, "run-id-xyz"])})
+        r.orch.logger = MagicMock()
+
+        r.orch.deploy(NEW_TAG)  # must not raise
+
+        assert r.orch.logger.debug.called
+        assert r.order[0] == "_exec_frappe"
+        assert r.order[1] == "_fetch_image"
+        r.orch.output.warning.assert_not_called()
+
+    def test_a_nonzero_exec_exit_is_unknown_and_still_proceeds(self, rig):
+        """The exec itself failing (not just the redis connection inside it) is exactly as
+        unanswerable as a garbled reply, and must not refuse the deploy either."""
+        redis = RedisConfig(cache=REDIS_CACHE_URL, queue=REDIS_QUEUE_URL)
+        r = rig(
+            redis=redis,
+            _exec_frappe={
+                "side_effect": DockerException(
+                    ["docker", "compose", "exec"],
+                    SubprocessOutput(stdout=[], stderr=["boom"], combined=["boom"], exit_code=1),
+                )
+            },
+        )
+        r.orch.logger = MagicMock()
+
+        r.orch.deploy(NEW_TAG)  # must not raise
+
+        assert r.orch.logger.debug.called
+        assert r.order[0] == "_exec_frappe"
+        assert r.order[1] == "_fetch_image"
+
 
 
 # =============================================== deploy: sites fm does not own

@@ -465,6 +465,13 @@ class BenchOrchestrator:
 
         bench.site_manager.wait_for_required_services()
 
+        # Redis identity collision check: right beside the readiness probe above, which just
+        # proved the container can dial both `[redis]` endpoints. Create-only (this method is
+        # not on `fm start`/`fm restart`'s path), so a colliding pair fails the create instead
+        # of producing a bench whose queue a later restore would eat. See
+        # `BenchSiteManager.check_redis_identity_collision`.
+        bench.site_manager.check_redis_identity_collision()
+
         self.verify_bench_server_responding()
 
     def verify_bench_server_responding(self) -> None:

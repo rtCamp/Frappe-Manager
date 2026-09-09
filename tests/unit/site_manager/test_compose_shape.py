@@ -8,6 +8,8 @@ every bench that never asked for the feature, and the projection must be a no-op
 for those, since it runs on every create, update and re-pin.
 """
 
+import json
+import shlex
 from types import SimpleNamespace
 
 import pytest
@@ -17,6 +19,8 @@ from frappe_manager.site_manager.bench_config import BenchRuntime, DatabaseConfi
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.modules.compose_shape import (
     BENCH_REDIS_SERVICES,
+    REDIS_IDENTITY_MARKER,
+    RedisIdentity,
     RenderContext,
     apply_specs,
     bench_service_specs,
@@ -24,6 +28,8 @@ from frappe_manager.site_manager.modules.compose_shape import (
     data_binds,
     default_code_image,
     default_nginx_image,
+    redis_identity_command,
+    redis_server_identity,
     runtime_shape,
     validate_redis_endpoints,
     worker_service_specs,
@@ -445,10 +451,100 @@ def test_validate_redis_endpoints_documented_residual_gap_stays_open():
     never requests (see `validate_redis_endpoints`'s docstring) -- fm's validation
     runs on the host, the URLs are dialled from inside the bench's containers on a
     Docker network, and a host-side resolution could disagree with, or simply not
-    reach, what the container would get. Regression control: if this ever starts
-    raising, the reasoning is being paved over silently rather than revisited on
-    purpose."""
+    reach, what the container would get. `redis_server_identity` (below) is what
+    closes this gap, from inside the container, at create readiness and deploy
+    preflight. Regression control: if THIS check ever starts raising, the reasoning
+    is being paved over silently rather than revisited on purpose."""
     assert validate_redis_endpoints("redis://cache-box:6379/0", "redis://10.2.0.19:6379/0") is None
+
+
+# ------------------------------------------------------------------ redis server identity
+
+
+def _run(reply_text=None, *, raises=None):
+    """A fake `Runner`: hands back canned container output, or raises (a non-zero exec exit,
+    answered as an exception the same way `_container_run`/`_exec_frappe` do)."""
+
+    def run(_command):
+        if raises is not None:
+            raise raises
+        return reply_text
+
+    return run
+
+
+def _reply(run_ids):
+    return f"{REDIS_IDENTITY_MARKER} " + json.dumps({"run_ids": run_ids})
+
+
+CACHE_URL = "redis://cache-box:6379/0"
+QUEUE_URL = "redis://10.2.0.19:6379/0"  # measured live: this IP IS cache-box
+
+
+def test_same_run_id_and_same_index_is_a_collision_whatever_the_hostnames_are():
+    """The exact shape `validate_redis_endpoints` cannot see (pinned above): two differently
+    spelled names for ONE live server. `redis_server_identity` catches it because it never
+    looks at the hostnames at all."""
+    result = redis_server_identity(CACHE_URL, QUEUE_URL, _run(_reply(["run-id-abc", "run-id-abc"])))
+    assert result.identity is RedisIdentity.SAME
+    assert "run-id-abc" in result.detail
+
+
+def test_same_run_id_with_different_db_indexes_is_not_a_collision():
+    """One server, two databases -- the documented, safe shape."""
+    result = redis_server_identity("redis://h:6379/0", "redis://h:6379/1", _run(_reply(["run-id-abc", "run-id-abc"])))
+    assert result.identity is RedisIdentity.DIFFERENT
+
+
+def test_different_run_ids_are_not_a_collision():
+    result = redis_server_identity(CACHE_URL, QUEUE_URL, _run(_reply(["run-id-abc", "run-id-xyz"])))
+    assert result.identity is RedisIdentity.DIFFERENT
+
+
+@pytest.mark.parametrize(
+    ("label", "runner"),
+    [
+        ("an INFO failure (one run_id missing)", _run(_reply([None, "run-id-xyz"]))),
+        ("a garbled response", _run("not even close to the marker line")),
+        ("empty output", _run("")),
+        ("a non-zero exec exit", _run(raises=RuntimeError("command exited 1"))),
+    ],
+)
+def test_every_unanswerable_shape_is_unknown_never_different(label, runner):
+    """Collapsing UNKNOWN into DIFFERENT is the bug this check exists to avoid: a managed
+    provider or a proxy that cannot answer must never read as "definitely a different
+    server"."""
+    result = redis_server_identity(CACHE_URL, QUEUE_URL, runner)
+    assert result.identity is RedisIdentity.UNKNOWN, label
+
+
+def test_redis_server_identity_never_raises_on_a_raising_runner():
+    """The caller's contract: UNKNOWN comes back as data, never as an exception the caller
+    would have to remember to catch."""
+    result = redis_server_identity(CACHE_URL, QUEUE_URL, _run(raises=ConnectionError("refused")))
+    assert result.identity is RedisIdentity.UNKNOWN
+    assert "refused" in result.detail
+
+
+def test_redis_server_identity_writes_nothing_only_info_is_ever_issued():
+    """A sentinel-key write was considered and rejected; pin that the command built for the
+    container issues no write command at all, only `INFO`."""
+    command = redis_identity_command(CACHE_URL, QUEUE_URL)
+    assert ".info(" in command
+    assert ".set(" not in command
+    assert ".delete(" not in command
+    assert "delete_keys" not in command
+
+
+def test_the_identity_command_survives_its_own_quotes():
+    """`_container_run`/`_exec_frappe` shlex-split what they are handed, and the command
+    embeds Python source (itself carrying quotes); round tripping through shlex must hand
+    back exactly three argv tokens: the interpreter, `-c`, and the untouched script."""
+    command = redis_identity_command("redis://u:p'ass@h:6379/0", "redis://h:6379/1")
+    argv = shlex.split(command, posix=True)
+    assert len(argv) == 3
+    assert argv[1] == "-c"
+
 
 
 def test_default_render_context_is_not_a_rolling_swap():

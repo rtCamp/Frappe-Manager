@@ -106,6 +106,9 @@ class FakeConfig:
         self.base_image = None
         self.registry = None
         self.database = {}
+        # None: no external [redis], so DeployOrchestrator's identity preflight no-ops without
+        # touching `_exec_frappe` -- the backup step is what this file is about.
+        self.redis = None
         # Every site the bench serves, primary first. This is the list every schema-grade
         # step of the deploy walks, so a fake that carries only the primary would let a
         # one-site-only pipeline pass.
