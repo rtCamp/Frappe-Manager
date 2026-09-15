@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
+from frappe_manager import BENCH_PYTHON, CONTAINER_BENCH_DIR, CONTAINER_SITES_DIR
 from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.commands.arguments import BenchSiteArgument
 from frappe_manager.output_manager import get_global_output_handler
@@ -53,20 +54,20 @@ def _handle_bench_console(
                 "/exec-entrypoint.sh",
             ]
             # Use lightweight exec-entrypoint.sh that only handles UID/GID mismatch
-            exec_cmd += ["frappe", "/bin/bash", "-c", f"cd /workspace/frappe-bench && bench --site {site} console"]
+            exec_cmd += ["frappe", "/bin/bash", "-c", f"cd {CONTAINER_BENCH_DIR} && bench --site {site} console"]
         else:
             exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["exec"]
             if user:
                 exec_cmd += ["--user", user]
-            exec_cmd += ["--workdir", "/workspace/frappe-bench"]
+            exec_cmd += ["--workdir", CONTAINER_BENCH_DIR]
             exec_cmd += ["frappe", "bench", "--site", site, "console"]
 
         os.execvp(exec_cmd[0], exec_cmd)
 
     frappe_init_wrapper = f"""import sys
 import os
-os.chdir('/workspace/frappe-bench/sites')
-sys.path.insert(0, '/workspace/frappe-bench/apps')
+os.chdir('{CONTAINER_SITES_DIR}')
+sys.path.insert(0, '{CONTAINER_BENCH_DIR}/apps')
 import frappe
 frappe.init(site='{site}')
 frappe.connect()
@@ -76,7 +77,7 @@ frappe.connect()
 
     encoded_code = base64.b64encode(frappe_init_wrapper.encode()).decode()
     bench_console_cmd = (
-        f"FM_EXEC_CODE='{encoded_code}' && echo $FM_EXEC_CODE | base64 -d | /workspace/frappe-bench/env/bin/python"
+        f"FM_EXEC_CODE='{encoded_code}' && echo $FM_EXEC_CODE | base64 -d | {BENCH_PYTHON}"
     )
 
     exit_code = bench.execute_command("frappe", bench_console_cmd, user, use_run=run)
@@ -236,7 +237,7 @@ def shell(
             # It never cds, and the stock image's WORKDIR is /workspace (one level
             # above the bench), so `bench ...` needs the same --workdir exec gets.
             if service == "frappe":
-                exec_cmd += ["--workdir", "/workspace/frappe-bench"]
+                exec_cmd += ["--workdir", CONTAINER_BENCH_DIR]
             if site:
                 exec_cmd += ["--env", f"FRAPPE_SITE={site}"]
             exec_cmd += [service, shell_path, "-c", " ".join(passthrough_args)]
@@ -245,7 +246,7 @@ def shell(
             if user:
                 exec_cmd += ["--user", user]
             if service == "frappe":
-                exec_cmd += ["--workdir", "/workspace/frappe-bench"]
+                exec_cmd += ["--workdir", CONTAINER_BENCH_DIR]
             if site:
                 exec_cmd += ["--env", f"FRAPPE_SITE={site}"]
             exec_cmd += [service, shell_path, "-c", " ".join(passthrough_args)]

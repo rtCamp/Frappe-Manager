@@ -13,6 +13,7 @@ import time
 from jinja2 import Template
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from frappe_manager import COMMON_SITE_CONFIG_FILE, CONTAINER_BENCH_DIR
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
@@ -21,8 +22,6 @@ from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.site_manager.exceptions import BenchOperationException
 from frappe_manager.utils.helpers import get_template_path
 
-CONTAINER_BENCH_DIR = "/workspace/frappe-bench"
-COMMON_SITE_CONFIG_FILE = "common_site_config.json"
 
 # Custom worker queue names become supervisor program names
 # (<bench>-frappe-<name>-worker) and compose services (<name>-worker); these
@@ -284,7 +283,7 @@ class BenchSupervisor:
             "user": user,
             "use_rq": True,
             "http_timeout": config.get("http_timeout", 120),
-            "node": "/workspace/frappe-bench/.fnm/aliases/default/bin/node",
+            "node": f"{CONTAINER_BENCH_DIR}/.fnm/aliases/default/bin/node",
             "webserver_port": config.get("webserver_port", 80),
             "gunicorn_workers": web_worker_count,
             "gunicorn_max_requests": max_requests,

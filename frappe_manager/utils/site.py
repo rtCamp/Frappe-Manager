@@ -5,7 +5,7 @@ from pathlib import Path
 
 from rich.table import Table
 
-from frappe_manager import CLI_BENCHES_DIRECTORY
+from frappe_manager import CLI_BENCHES_DIRECTORY, COMMON_SITE_CONFIG_FILE
 from frappe_manager.docker import DOCKER_LINE_NOISE, DockerVolumeMount, DockerVolumeType
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchException
@@ -258,7 +258,7 @@ def get_bench_db_connection_info(site_name: str, bench_path: Path):
     """
     db_info = {}
     site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / site_name / "site_config.json"
-    common_site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
+    common_site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / COMMON_SITE_CONFIG_FILE
 
     db_info["password"] = None
 

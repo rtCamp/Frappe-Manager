@@ -23,7 +23,9 @@ import os
 import shutil
 from pathlib import Path
 
-TLS_CONTAINER_ROOT = "/workspace/frappe-bench/config/tls"
+from frappe_manager import CONTAINER_BENCH_DIR
+
+TLS_CONTAINER_ROOT = f"{CONTAINER_BENCH_DIR}/config/tls"
 
 CA_FILE_NAME = "db-ca.pem"
 OPTION_FILE_NAME = "my.cnf"

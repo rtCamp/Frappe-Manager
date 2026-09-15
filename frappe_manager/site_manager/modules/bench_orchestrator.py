@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from frappe_manager import CONTAINER_BENCH_DIR, CONTAINER_SITES_DIR
 from frappe_manager.docker import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger import get_logger
@@ -42,9 +43,7 @@ if TYPE_CHECKING:
 # pymysql, which is installed into `env/`; the container's bare `python` resolves to the uv
 # default interpreter and carries no database driver at all, so the probe exec puts the venv
 # first on PATH and a bare `python` becomes the interpreter the site itself runs.
-BENCH_VENV_BIN = "/workspace/frappe-bench/env/bin"
-
-FRAPPE_BENCH_DIR = "/workspace/frappe-bench"
+BENCH_VENV_BIN = f"{CONTAINER_BENCH_DIR}/env/bin"
 
 # `compose run --rm` narrates the throwaway container's lifecycle on the same stream as the
 # command's own output (" Container <name> Creating", "... Created", and so on). The probe parses
@@ -269,7 +268,7 @@ class BenchOrchestrator:
 
         # Seed apps.txt from the baked image and drive apps_list off it.
         apps_txt = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
-        host_run_cp(image, "/workspace/frappe-bench/sites/apps.txt", str(apps_txt), bench.docker_client)
+        host_run_cp(image, f"{CONTAINER_SITES_DIR}/apps.txt", str(apps_txt), bench.docker_client)
         baked = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
         bench.bench_config.apps_list = [AppConfig.from_string(n) for n in baked]
 
@@ -399,7 +398,7 @@ class BenchOrchestrator:
 
         # The baked app set drives apps.txt and the per-site installs.
         apps_txt = frappe_bench_dir / "sites" / "apps.txt"
-        host_run_cp(image, "/workspace/frappe-bench/sites/apps.txt", str(apps_txt), bench.docker_client)
+        host_run_cp(image, f"{CONTAINER_SITES_DIR}/apps.txt", str(apps_txt), bench.docker_client)
         baked = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
         bench.bench_config.apps_list = [AppConfig.from_string(n) for n in baked]
         self.output.print(f"Seeded workspace from {image} (apps: {', '.join(baked)})")
@@ -703,7 +702,7 @@ class BenchOrchestrator:
                             service="frappe",
                             command=wrapped,
                             user="frappe",
-                            workdir=FRAPPE_BENCH_DIR,
+                            workdir=CONTAINER_BENCH_DIR,
                             stream=False,
                         ),
                     )
@@ -1019,7 +1018,7 @@ class BenchOrchestrator:
             bench.site_manager._container_exec_argv(
                 [BENCH_PYTHON, "-c", script],
                 stdin_data=f"{admin_password}\n",
-                workdir=db_probe.SITES_CONTAINER_ROOT,
+                workdir=CONTAINER_SITES_DIR,
             )
         except Exception as e:
             self.output.display_error(

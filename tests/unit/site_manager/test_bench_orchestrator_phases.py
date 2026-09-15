@@ -26,6 +26,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from frappe_manager import CONTAINER_SITES_DIR
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.site_manager.bench_config import (
@@ -2089,7 +2090,7 @@ def test_accepting_the_drop_hands_the_admin_password_over_on_stdin(tmp_path):
     assert 'manager.delete_user("app_svc", "%")' in argv[2]
     assert ADMIN_PASSWORD not in argv[2]
     assert call.kwargs["stdin_data"] == f"{ADMIN_PASSWORD}\n"
-    assert call.kwargs["workdir"] == db_probe.SITES_CONTAINER_ROOT
+    assert call.kwargs["workdir"] == CONTAINER_SITES_DIR
 
 
 def test_a_failed_drop_says_the_schema_is_still_there(tmp_path):

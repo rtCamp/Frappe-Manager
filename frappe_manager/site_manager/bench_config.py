@@ -15,6 +15,7 @@ from packaging.version import Version as PackagingVersion
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from tomlkit.items import Array as TOMLArray
 
+from frappe_manager import COMMON_SITE_CONFIG_FILE
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.dns_provider import DNSProviderConfig
@@ -1382,7 +1383,7 @@ def read_default_site(bench_root: Path | str | None) -> str | None:
     """
     if not bench_root:
         return None
-    path = Path(bench_root) / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
+    path = Path(bench_root) / "workspace" / "frappe-bench" / "sites" / COMMON_SITE_CONFIG_FILE
     try:
         value = json.loads(path.read_text()).get("default_site")
     except Exception:

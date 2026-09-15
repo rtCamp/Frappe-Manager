@@ -38,6 +38,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 
+from frappe_manager import BENCH_PYTHON, CONTAINER_SITES_DIR
+
 # A runner executes one shell command inside the bench container and returns its combined
 # stdout/stderr. Raising on a non-zero exit is fine: the probe treats the exception text as
 # output, which is where the `mariadb` client's `ERROR <code> (…)` line lives.
@@ -55,9 +57,6 @@ SINGLES_TABLE = "tabSingles"
 INSTALLED_APPLICATION_TABLE = "tabInstalled Application"
 FRAPPE_CORE_TABLES = (DOCTYPE_TABLE, SINGLES_TABLE)
 
-# Container path of the bench sites directory. The stage two script reads the site file through
-# an absolute path so it does not depend on the working directory of the exec.
-SITES_CONTAINER_ROOT = "/workspace/frappe-bench/sites"
 STAGE_TWO_MARKER = "FM_PROBE2"
 
 # Server error codes the probe reasons about.
@@ -1012,7 +1011,7 @@ def stage_two_script(site: str, schema: str) -> str:
     """
     _require_safe_name(site, "site name")
     _require_safe_name(schema, "schema name")
-    config_path = f"{SITES_CONTAINER_ROOT}/{site}/site_config.json"
+    config_path = f"{CONTAINER_SITES_DIR}/{site}/site_config.json"
     installed = installed_apps_sql(schema)
     statements = [
         "import json,pymysql",
@@ -1046,13 +1045,6 @@ def stage_two_script(site: str, schema: str) -> str:
         '"server":cn.get_server_info()}))',
     ]
     return ";".join(statements)
-
-
-#: The only interpreter in the bench container that can import pymysql. A bare ``python``
-#: resolves to /workspace/frappe-bench/.uv/python-default/bin/python (exec-entrypoint.sh),
-#: which cannot: the driver lives in the bench venv. Naming it here keeps stage two correct
-#: for every caller instead of making each one prepend the venv to PATH.
-BENCH_PYTHON = "/workspace/frappe-bench/env/bin/python"
 
 
 def stage_two_command(site: str, schema: str) -> str:

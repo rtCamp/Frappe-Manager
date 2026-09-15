@@ -14,7 +14,12 @@ from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from frappe_manager import CLI_DEFAULT_DELIMETER, CLI_SERVICES_DIRECTORY
+from frappe_manager import (
+    CLI_DEFAULT_DELIMETER,
+    CLI_SERVICES_DIRECTORY,
+    COMMON_SITE_CONFIG_FILE,
+    CONTAINER_BENCH_DIR,
+)
 from frappe_manager.docker import DOCKER_LINE_NOISE, DockerClient, DockerException
 from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.docker.subprocess_output import SubprocessOutput
@@ -334,7 +339,7 @@ class BenchDockerOps:
         if not apps_txt.exists():
             apps_txt.write_text("frappe\n")
 
-        common_site_config = frappe_bench_dir / "sites" / "common_site_config.json"
+        common_site_config = frappe_bench_dir / "sites" / COMMON_SITE_CONFIG_FILE
         if not common_site_config.exists():
             common_site_config.write_text("{}")
 
@@ -376,7 +381,7 @@ class BenchDockerOps:
                 uv_dir_abs = str(uv_dir.absolute())
                 host_run_cp(
                     frappe_image,
-                    source="/workspace/frappe-bench/.uv",
+                    source=f"{CONTAINER_BENCH_DIR}/.uv",
                     destination=uv_dir_abs,
                     docker=self.docker_client,
                 )
@@ -387,7 +392,7 @@ class BenchDockerOps:
                 fnm_dir_abs = str(fnm_dir.absolute())
                 host_run_cp(
                     frappe_image,
-                    source="/workspace/frappe-bench/.fnm",
+                    source=f"{CONTAINER_BENCH_DIR}/.fnm",
                     destination=fnm_dir_abs,
                     docker=self.docker_client,
                 )
@@ -497,7 +502,7 @@ class BenchDockerOps:
             # It never cds and the image's WORKDIR is /workspace, one level above
             # the bench, so the frappe service needs the same --workdir exec gets.
             if compose_service == "frappe":
-                run_cmd += ["--workdir", "/workspace/frappe-bench"]
+                run_cmd += ["--workdir", CONTAINER_BENCH_DIR]
             run_cmd += [compose_service, shell_path]
 
             import os
@@ -513,7 +518,7 @@ class BenchDockerOps:
                 exec_cmd += ["--user", user]
 
             if compose_service == "frappe":
-                exec_cmd += ["--workdir", "/workspace/frappe-bench"]
+                exec_cmd += ["--workdir", CONTAINER_BENCH_DIR]
 
             exec_cmd += [compose_service, shell_path]
 
@@ -571,7 +576,7 @@ class BenchDockerOps:
             # the exec branch below passes -- otherwise `bench ...` runs from the wrong
             # directory and fails.
             if compose_service == "frappe":
-                run_args["workdir"] = "/workspace/frappe-bench"
+                run_args["workdir"] = CONTAINER_BENCH_DIR
 
             if site:
                 run_args["env"] = [f"FRAPPE_SITE={site}"]
@@ -605,7 +610,7 @@ class BenchDockerOps:
             }
 
             if compose_service == "frappe":
-                exec_args["workdir"] = "/workspace/frappe-bench"
+                exec_args["workdir"] = CONTAINER_BENCH_DIR
 
             if user:
                 exec_args["user"] = user

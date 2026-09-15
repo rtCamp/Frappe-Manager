@@ -21,6 +21,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from frappe_manager import CONTAINER_BENCH_DIR
 from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.site_manager.bench_config import (
@@ -142,7 +143,7 @@ def _run_build_hook(
     safe_phase = phase.replace(" ", "_").replace("/", "_")
     name = f".fm_build_hook_{safe_phase}_{int(time.time())}.sh"
     host_script = logs_dir / name
-    container_script = f"/workspace/frappe-bench/logs/{name}"
+    container_script = f"{CONTAINER_BENCH_DIR}/logs/{name}"
     host_script.write_text(script)
     try:
         result = app_manager._container_run(f"bash {container_script}", capture_output=True, use_run=use_run)  # noqa: SLF001

@@ -1,7 +1,7 @@
 from abc import ABC
 from pathlib import Path
 
-from frappe_manager import CLI_DIR
+from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_DIR, COMMON_SITE_CONFIG_FILE
 from frappe_manager.logger import get_logger
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
@@ -200,13 +200,13 @@ class MigrationBase(ABC):
             self.output.warning(f"Skipping backup for {bench.name}")
             return
 
-        bench_config_path = bench.path / "bench_config.toml"
+        bench_config_path = bench.path / CLI_BENCH_CONFIG_FILE_NAME
         if bench_config_path.exists():
             self.backup_manager.backup(bench_config_path, bench_name=bench.name)
 
         self.backup_manager.backup(bench.path / "docker-compose.yml", bench_name=bench.name)
 
-        bench_common_site_config = bench.path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
+        bench_common_site_config = bench.path / "workspace" / "frappe-bench" / "sites" / COMMON_SITE_CONFIG_FILE
         self.backup_manager.backup(bench_common_site_config, bench_name=bench.name)
 
         # Every recorded site, not just one named after the bench. A migration that backed up one
@@ -254,7 +254,7 @@ class MigrationBase(ABC):
         if db_info.name:
             return db_info.name
 
-        bench_config_path = bench.path / "bench_config.toml"
+        bench_config_path = bench.path / CLI_BENCH_CONFIG_FILE_NAME
         if bench_config_path.exists():
             try:
                 import tomlkit
@@ -287,7 +287,7 @@ class MigrationBase(ABC):
         table has already moved.
         """
         site = site or bench.name
-        bench_config_path = bench.path / "bench_config.toml"
+        bench_config_path = bench.path / CLI_BENCH_CONFIG_FILE_NAME
         if not bench_config_path.exists():
             return None
 

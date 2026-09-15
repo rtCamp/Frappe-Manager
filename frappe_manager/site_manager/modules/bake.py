@@ -23,6 +23,7 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+from frappe_manager import COMMON_SITE_CONFIG_FILE, CONTAINER_BENCH_DIR
 from frappe_manager.docker import DockerClient
 from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.logger import get_logger
@@ -287,7 +288,7 @@ class BakeManager:
         if not apps_txt.exists():
             apps_txt.write_text("frappe\n")
 
-        common_site_config = frappe_bench_dir / "sites" / "common_site_config.json"
+        common_site_config = frappe_bench_dir / "sites" / COMMON_SITE_CONFIG_FILE
         if not common_site_config.exists():
             common_site_config.write_text("{}")
 
@@ -295,7 +296,7 @@ class BakeManager:
         if not uv_dir.exists():
             host_run_cp(
                 base_image,
-                source="/workspace/frappe-bench/.uv",
+                source=f"{CONTAINER_BENCH_DIR}/.uv",
                 destination=str(uv_dir.absolute()),
                 docker=self.docker_client,
             )
@@ -304,7 +305,7 @@ class BakeManager:
         if not fnm_dir.exists():
             host_run_cp(
                 base_image,
-                source="/workspace/frappe-bench/.fnm",
+                source=f"{CONTAINER_BENCH_DIR}/.fnm",
                 destination=str(fnm_dir.absolute()),
                 docker=self.docker_client,
             )
@@ -349,7 +350,7 @@ class BakeManager:
         apps_txt = sites / "apps.txt"
         if not apps_txt.exists():
             apps_txt.write_text("frappe\n")
-        (sites / "common_site_config.json").write_text("{}")
+        (sites / COMMON_SITE_CONFIG_FILE).write_text("{}")
         # Clear volatile dirs.
         for rel in ("logs", "config/pids"):
             volatile = dest / rel
@@ -673,7 +674,7 @@ class BakeManager:
         provisioned host tree so the built bundles land as real files (the nginx image has
         no ``apps/`` for the symlink to resolve at runtime).
         """
-        container_root = "/workspace/frappe-bench"
+        container_root = CONTAINER_BENCH_DIR
         dest.mkdir(parents=True, exist_ok=True)
         for entry in assets_dir.iterdir():
             out = dest / entry.name

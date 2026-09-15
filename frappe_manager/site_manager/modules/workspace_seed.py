@@ -16,6 +16,7 @@ the host; for a create it is seeded by the normal create flow.
 from datetime import UTC, datetime
 from pathlib import Path
 
+from frappe_manager import CONTAINER_BENCH_DIR
 from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.utils.docker import fix_host_path_ownership
 
@@ -105,7 +106,7 @@ def materialize_workspace_from_image(docker_client, image: str, frappe_bench_dir
                 output.change_head(f"Extracting {rel} from image")
             dest.parent.mkdir(parents=True, exist_ok=True)
             docker_client.cp(
-                source=f"/workspace/frappe-bench/{rel}",
+                source=f"{CONTAINER_BENCH_DIR}/{rel}",
                 destination=str(dest),
                 source_container=container.name,
                 stream=False,

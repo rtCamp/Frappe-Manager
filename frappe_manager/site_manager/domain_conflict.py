@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from frappe_manager import CLI_BENCHES_DIRECTORY
+from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
 from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.site_manager.bench_config import BenchConfig
 
@@ -58,7 +58,7 @@ def build_global_domain_map(
         if exclude_bench and bench_dir.name == exclude_bench:
             continue
 
-        config_file = bench_dir / "bench_config.toml"
+        config_file = bench_dir / CLI_BENCH_CONFIG_FILE_NAME
         if not config_file.exists():
             continue
 

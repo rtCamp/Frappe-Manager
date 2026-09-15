@@ -9,6 +9,7 @@ from pathlib import Path
 
 import tomlkit
 
+from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.site_manager.bench_config import BenchConfig, MigrationState
 
@@ -40,7 +41,7 @@ def get_bench_migration_version(bench_path: Path) -> Version:
     Returns:
         Version object representing bench migration state
     """
-    bench_config_path = bench_path / "bench_config.toml"
+    bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
 
     if not bench_config_path.exists():
         return Version("0.0.0")
@@ -60,7 +61,7 @@ def set_bench_migration_version(bench_path: Path, version: Version) -> None:
         bench_path: Path to bench directory
         version: Version to set
     """
-    bench_config_path = bench_path / "bench_config.toml"
+    bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
 
     if not bench_config_path.exists():
         raise FileNotFoundError(f"Bench config not found: {bench_config_path}")
@@ -113,7 +114,7 @@ def get_bench_migration_date(bench_path: Path) -> str | None:
     Returns:
         ISO format date string or None
     """
-    bench_config_path = bench_path / "bench_config.toml"
+    bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
 
     if not bench_config_path.exists():
         return None

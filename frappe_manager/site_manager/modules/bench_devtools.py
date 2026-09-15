@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import typer
 
+from frappe_manager import BENCH_PYTHON, CONTAINER_BENCH_DIR
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
@@ -107,7 +108,7 @@ class BenchDevTools:
         """Remove dev packages from the bench environment."""
         self.output.change_head("Removing dev packages from env")
         dev_packages = self.get_apps_dev_requirements()
-        remove_command = "/workspace/frappe-bench/env/bin/python -m pip uninstall --yes " + " ".join(dev_packages)
+        remove_command = f"{BENCH_PYTHON} -m pip uninstall --yes " + " ".join(dev_packages)
         try:
             self.docker_client.compose.exec("frappe", command=remove_command, user="frappe", stream=False)
         except DockerException as e:
@@ -123,7 +124,7 @@ class BenchDevTools:
         """Install dev packages in the bench environment."""
         self.output.change_head("Installing dev packages in env")
         dev_packages = self.get_apps_dev_requirements()
-        install_command = "/workspace/frappe-bench/env/bin/python -m pip install --quiet --upgrade " + " ".join(
+        install_command = f"{BENCH_PYTHON} -m pip install --quiet --upgrade " + " ".join(
             dev_packages,
         )
         try:
@@ -292,7 +293,7 @@ class BenchDevTools:
         try:
             self.docker_client.compose.exec(
                 service="frappe",
-                command="/workspace/frappe-bench/env/bin/pip install ruff",
+                command=f"{CONTAINER_BENCH_DIR}/env/bin/pip install ruff",
                 user="frappe",
                 stream=True,
             )

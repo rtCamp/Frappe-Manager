@@ -11,7 +11,7 @@ import tomlkit
 import typer
 from typer_examples import example
 
-from frappe_manager import CLI_BENCHES_DIRECTORY
+from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
 from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.callbacks import (
@@ -158,7 +158,7 @@ def _bench_domains(benchname: str, site: str | None = None) -> tuple[list[str], 
     list: the sweep disables any block naming this bench on a domain it no longer serves, so given a
     narrowed list it would read a SIBLING site's live maintenance as an orphan and take it down.
     """
-    config_path = CLI_BENCHES_DIRECTORY / benchname / "bench_config.toml"
+    config_path = CLI_BENCHES_DIRECTORY / benchname / CLI_BENCH_CONFIG_FILE_NAME
     data = tomlkit.parse(config_path.read_text())
     # Every hostname the bench serves, read from `[sites]`: each site's own name plus that site's
     # aliases. This read `alias_domains` at the top level, which the aliases moved out of. Keeping

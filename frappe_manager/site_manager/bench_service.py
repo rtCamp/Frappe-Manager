@@ -14,6 +14,7 @@ Benefits:
 
 from pathlib import Path
 
+from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME
 from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.logger import bind, get_logger, set_context
 from frappe_manager.output_manager import OutputHandler
@@ -380,7 +381,7 @@ class BenchService:
             admin_tools=False,
             admin_pass="pass",
             environment_type=FMBenchEnvType.dev,
-            root_path=bench_path / "bench_config.toml",
+            root_path=bench_path / CLI_BENCH_CONFIG_FILE_NAME,
             github_token=None,
             use_uv=True,
             python_version=None,

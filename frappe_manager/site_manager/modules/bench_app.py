@@ -14,6 +14,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, cast
 
+from frappe_manager import BENCH_PYTHON, CONTAINER_BENCH_DIR
 from frappe_manager.docker import DOCKER_LINE_NOISE, DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger import get_logger
@@ -121,7 +122,7 @@ class BenchAppManager:
         versions["node"] = None
 
         try:
-            result = self._container_capture("/workspace/frappe-bench/env/bin/python --version", use_run=use_run)
+            result = self._container_capture(f"{BENCH_PYTHON} --version", use_run=use_run)
             if result and result.exit_code == 0:
                 output = " ".join(result.combined)
                 match = re.search(r"Python (\d+\.\d+\.\d+)", output)
@@ -179,7 +180,7 @@ class BenchAppManager:
                 frappe_python_req = extract_python_version_requirement(frappe_app_path)
 
             try:
-                check_current_version_cmd = "/workspace/frappe-bench/env/bin/python --version"
+                check_current_version_cmd = f"{BENCH_PYTHON} --version"
                 result = self._container_capture(check_current_version_cmd, use_run=use_run)
 
                 if result and result.exit_code == 0:
@@ -220,9 +221,9 @@ class BenchAppManager:
             if python_version:
                 self.output.change_head(f"Setting up Python environment for requirement: {python_version_requirement}")
                 try:
-                    scan_pythons_cmd = """
-if [ -d /workspace/frappe-bench/.uv/python ]; then
-    for dir in /workspace/frappe-bench/.uv/python/cpython-*; do
+                    scan_pythons_cmd = f"""
+if [ -d {CONTAINER_BENCH_DIR}/.uv/python ]; then
+    for dir in {CONTAINER_BENCH_DIR}/.uv/python/cpython-*; do
         if [ -d "$dir" ]; then
             basename "$dir"
         fi
@@ -266,7 +267,7 @@ fi
                         self._container_run(install_cmd, use_run=use_run)
 
                         detect_installed_cmd = (
-                            f"ls -1 /workspace/frappe-bench/.uv/python/ | grep '^{quoted_pkg}' | sort -V | tail -1"
+                            f"ls -1 {CONTAINER_BENCH_DIR}/.uv/python/ | grep '^{quoted_pkg}' | sort -V | tail -1"
                         )
                         result = self._container_capture(detect_installed_cmd, use_run=use_run)
                         selected_python_full = None
@@ -292,7 +293,7 @@ fi
 
                     if selected_python_full:
                         update_symlink_cmd = f"""
-                        cd /workspace/frappe-bench/.uv
+                        cd {CONTAINER_BENCH_DIR}/.uv
                         rm -f python-default
                         ln -sf python/{selected_python_full} python-default
                         """
@@ -302,7 +303,7 @@ fi
                         self.output.change_head(f"Creating virtual environment with {selected_python_full}")
                         quoted_python = shlex.quote(selected_python_full)
                         recreate_venv_cmd = f"""
-                        cd /workspace/frappe-bench
+                        cd {CONTAINER_BENCH_DIR}
                         if [ -d env ]; then
                             timestamp=$(date +%Y%m%d_%H%M%S)
                             mv env env.bak-$timestamp
@@ -636,7 +637,7 @@ fi
                         "pip",
                         "install",
                         "--python",
-                        "/workspace/frappe-bench/env/bin/python",
+                        BENCH_PYTHON,
                         "--no-cache-dir",
                         "-e",
                         f"apps/{app.name}",
@@ -656,7 +657,7 @@ fi
                                 "pip",
                                 "install",
                                 "--python",
-                                "/workspace/frappe-bench/env/bin/python",
+                                BENCH_PYTHON,
                                 "--no-cache-dir",
                                 "-e",
                                 f"apps/{app.name}",
@@ -676,7 +677,7 @@ fi
                     "pip",
                     "install",
                     "--python",
-                    "/workspace/frappe-bench/env/bin/python",
+                    BENCH_PYTHON,
                     "--no-cache-dir",
                     "-e",
                     f"apps/{app.name}",
@@ -922,7 +923,7 @@ fi
         on_failure: Callable[[], BenchOperationException] | None = None,
         capture_output: bool = False,
         user: str = "frappe",
-        workdir: str = "/workspace/frappe-bench",
+        workdir: str = CONTAINER_BENCH_DIR,
         service: str = "frappe",
         use_run: bool = False,
         env: dict[str, str] | None = None,
@@ -1011,7 +1012,7 @@ fi
         self,
         command: str,
         capture_output: bool = False,
-        workdir: str = "/workspace/frappe-bench",
+        workdir: str = CONTAINER_BENCH_DIR,
         env: dict[str, str] | None = None,
     ) -> SubprocessOutput | None:
         """Run a bench command via plain ``docker run`` against ``self.provision_image``.
@@ -1023,7 +1024,7 @@ fi
         branch for capture vs. stream output. ``env`` (the caller's, plus the
         site's ``MYSQL_HOME``) is merged last, over the runtime defaults.
         """
-        bench_mount = "/workspace/frappe-bench"
+        bench_mount = CONTAINER_BENCH_DIR
 
         # bake owns frappe_bench_dir; ensure it exists for the bind-mount.
         self.frappe_bench_dir.mkdir(parents=True, exist_ok=True)

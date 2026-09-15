@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
 
-from frappe_manager import CLI_DEFAULT_DELIMETER
+from frappe_manager import BENCH_PYTHON, CLI_DEFAULT_DELIMETER, CONTAINER_BENCH_DIR, CONTAINER_SITES_DIR
 from frappe_manager.docker import DOCKER_LINE_NOISE, DockerClient, DockerException
 from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.docker.subprocess_output import SubprocessOutput
@@ -31,13 +31,9 @@ from frappe_manager.site_manager.exceptions import (
 )
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.modules.compose_shape import RedisIdentity, redis_server_identity
-from frappe_manager.site_manager.modules.db_probe import SITES_CONTAINER_ROOT, get_lock_sql, lock_refusal
+from frappe_manager.site_manager.modules.db_probe import get_lock_sql, lock_refusal
 from frappe_manager.utils.docker import run_command_with_exit_code
 from frappe_manager.utils.helpers import get_redis_cache_addr, get_redis_queue_addr
-
-# The bench virtualenv interpreter, the only one that can import frappe. Site directory creation
-# and the direct provisioning call both need it: neither can go through `bench execute`.
-BENCH_PYTHON = "/workspace/frappe-bench/env/bin/python"
 
 # Redis' own default, shared by `redis://` and `rediss://`.
 DEFAULT_REDIS_PORT = 6379
@@ -495,7 +491,7 @@ class BenchSiteManager:
             self._container_exec_argv(
                 [BENCH_PYTHON, "-c", script],
                 stdin_data=f"{admin_password}\n",
-                workdir=SITES_CONTAINER_ROOT,
+                workdir=CONTAINER_SITES_DIR,
                 env=self._site_env(site),
             )
         except DockerException as e:
@@ -539,7 +535,7 @@ class BenchSiteManager:
 
         self._container_exec_argv(
             [BENCH_PYTHON, "-c", script],
-            workdir=SITES_CONTAINER_ROOT,
+            workdir=CONTAINER_SITES_DIR,
             env=self._site_env(site),
             on_failure=lambda: BenchOperationException(
                 self.bench_name,
@@ -636,7 +632,7 @@ class BenchSiteManager:
         on_failure: Callable[[], BenchOperationException] | None = None,
         capture_output: bool = False,
         user: str = "frappe",
-        workdir: str = "/workspace/frappe-bench",
+        workdir: str = CONTAINER_BENCH_DIR,
         service: str = "frappe",
         use_run: bool = False,
         env: dict[str, str] | None = None,
@@ -745,7 +741,7 @@ class BenchSiteManager:
         stdin_data: str | None = None,
         on_failure: Callable[[], BenchOperationException] | None = None,
         user: str = "frappe",
-        workdir: str = "/workspace/frappe-bench",
+        workdir: str = CONTAINER_BENCH_DIR,
         service: str = "frappe",
         env: dict[str, str] | None = None,
     ) -> None:

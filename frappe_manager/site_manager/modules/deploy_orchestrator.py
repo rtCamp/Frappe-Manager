@@ -27,6 +27,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from frappe_manager import COMMON_SITE_CONFIG_FILE, CONTAINER_BENCH_DIR
 from frappe_manager.docker import DockerException
 from frappe_manager.exceptions import FrappeManagerException, NonInteractiveError
 from frappe_manager.logger import get_logger
@@ -299,7 +300,7 @@ class DeployOrchestrator:
             service=FRAPPE_SERVICE,
             command=command,
             user=user,
-            workdir="/workspace/frappe-bench",
+            workdir=CONTAINER_BENCH_DIR,
             stream=False,
         )
 
@@ -704,10 +705,10 @@ class DeployOrchestrator:
         # Config snapshots FIRST, and deliberately ahead of the running gate below: these are
         # host-side file copies that never needed the container, so a bench whose frappe is
         # stopped still gets its configs captured even though no dump can be taken.
-        common = sites_dir / "common_site_config.json"
+        common = sites_dir / COMMON_SITE_CONFIG_FILE
         if common.exists():
             # Bench-wide, so copied once rather than per site.
-            shutil.copy2(common, backup_dir / "common_site_config.json")
+            shutil.copy2(common, backup_dir / COMMON_SITE_CONFIG_FILE)
         for site in self.sites:
             src = sites_dir / site / "site_config.json"
             if src.exists():
@@ -991,7 +992,7 @@ class DeployOrchestrator:
         "nothing to reconcile" rather than guessing at the contents.
         """
         try:
-            result = self._exec_frappe("ls -1 /workspace/frappe-bench/apps")
+            result = self._exec_frappe(f"ls -1 {CONTAINER_BENCH_DIR}/apps")
         except Exception as e:
             self.output.warning(f"Could not list apps baked into the image: {e}")
             return []
@@ -1103,7 +1104,7 @@ class DeployOrchestrator:
         logs_dir.mkdir(parents=True, exist_ok=True)
         name = f".fm_hook_{phase}_{int(time.time())}.sh"
         host_script = logs_dir / name
-        container_script = f"/workspace/frappe-bench/logs/{name}"
+        container_script = f"{CONTAINER_BENCH_DIR}/logs/{name}"
         host_script.write_text(self._hook_script(value, deploy_image))
         try:
             result = self._exec_frappe(f"bash {container_script}")
@@ -1146,7 +1147,7 @@ class DeployOrchestrator:
         budget = self.switch_config.migrate_timeout
         log_name = f"deploy-migrate-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}.log"
         self._migrate_log_host = self.bench_path / "workspace" / "frappe-bench" / "logs" / log_name
-        self._migrate_log_container = f"/workspace/frappe-bench/logs/{log_name}"
+        self._migrate_log_container = f"{CONTAINER_BENCH_DIR}/logs/{log_name}"
         collected: list[str] = []
 
         def _persist() -> None:
@@ -1296,7 +1297,7 @@ class DeployOrchestrator:
                 image=new_image,
                 entrypoint=BENCH_BIN,
                 command="version",
-                workdir="/workspace/frappe-bench",
+                workdir=CONTAINER_BENCH_DIR,
                 user="frappe",
                 rm=True,
                 pull="never",

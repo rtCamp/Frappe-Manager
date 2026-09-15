@@ -239,7 +239,7 @@ def _completable_domains(bench: str) -> list[str]:
     valid `ssl` target and completing only site names would hide half the answers.
     """
     bench_dir = CLI_BENCHES_DIRECTORY / bench
-    config_file = bench_dir / "bench_config.toml"
+    config_file = bench_dir / CLI_BENCH_CONFIG_FILE_NAME
     if config_file.is_file():
         try:
             from frappe_manager.site_manager.bench_config import BenchConfig

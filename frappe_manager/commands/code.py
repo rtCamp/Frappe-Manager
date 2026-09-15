@@ -3,7 +3,7 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
-from frappe_manager import DEFAULT_EXTENSIONS
+from frappe_manager import CONTAINER_BENCH_DIR, DEFAULT_EXTENSIONS
 from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.commands.arguments import BenchNameArgument
 from frappe_manager.output_manager import get_global_output_handler
@@ -56,7 +56,7 @@ def code(
     workdir: Annotated[
         str,
         typer.Option("--work-dir", "-w", help="Directory VSCode opens inside the container."),
-    ] = "/workspace/frappe-bench",
+    ] = CONTAINER_BENCH_DIR,
 ):
     """
     Open a bench in VSCode, attached to its running frappe container.

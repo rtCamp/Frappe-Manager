@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Protocol
 from urllib.parse import ParseResult, parse_qs, unquote, urlparse
 
+from frappe_manager import BENCH_PYTHON, CONTAINER_BENCH_DIR, CONTAINER_SITES_DIR
 from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.utils.helpers import ImageRef
@@ -118,11 +119,11 @@ def data_binds(sites: Sequence[str]) -> list[VolumeBind]:
         raise TypeError(f"data_binds takes the bench's sites, not one site name: got {sites!r}")
     sites_rel = "./workspace/frappe-bench/sites"
     return [
-        *(VolumeBind(f"{sites_rel}/{site}", f"/workspace/frappe-bench/sites/{site}") for site in sites),
-        VolumeBind(f"{sites_rel}/common_site_config.json", "/workspace/frappe-bench/sites/common_site_config.json"),
-        VolumeBind(f"{sites_rel}/apps.txt", "/workspace/frappe-bench/sites/apps.txt"),
-        VolumeBind("./workspace/frappe-bench/logs", "/workspace/frappe-bench/logs"),
-        VolumeBind("./workspace/frappe-bench/config", "/workspace/frappe-bench/config"),
+        *(VolumeBind(f"{sites_rel}/{site}", f"{CONTAINER_SITES_DIR}/{site}") for site in sites),
+        VolumeBind(f"{sites_rel}/common_site_config.json", f"{CONTAINER_SITES_DIR}/common_site_config.json"),
+        VolumeBind(f"{sites_rel}/apps.txt", f"{CONTAINER_SITES_DIR}/apps.txt"),
+        VolumeBind("./workspace/frappe-bench/logs", f"{CONTAINER_BENCH_DIR}/logs"),
+        VolumeBind("./workspace/frappe-bench/config", f"{CONTAINER_BENCH_DIR}/config"),
     ]
 
 
@@ -553,12 +554,6 @@ class RedisIdentityResult:
 # unrelated concern (redis identity, not the mysql probe).
 Runner = Callable[[str], str]
 
-# The only interpreter in the bench container with redis-py: Frappe itself depends on it, so it
-# lives in the venv alongside pymysql (``db_probe.BENCH_PYTHON`` is the same path, for the
-# database probe's identical reasoning). The bare ``python`` on PATH is the uv default and
-# carries neither driver.
-REDIS_IDENTITY_PYTHON = "/workspace/frappe-bench/env/bin/python"
-
 # Prefixes the one line of JSON the container script prints, so it survives being mixed with a
 # shell profile banner or a driver warning landing on the same stream.
 REDIS_IDENTITY_MARKER = "FM_REDIS_IDENTITY"
@@ -569,7 +564,7 @@ REDIS_IDENTITY_TIMEOUT_SECONDS = 10
 
 
 def _redis_identity_script(cache: str, queue: str) -> str:
-    """Python source for ``REDIS_IDENTITY_PYTHON -c``: read-only ``INFO server`` for each URL.
+    """Python source for ``BENCH_PYTHON -c``: read-only ``INFO server`` for each URL.
 
     Each connection attempt is wrapped so ONE bad endpoint (wrong credentials, TLS refused, a
     managed provider that blocks INFO) does not lose the OTHER endpoint's answer -- both are
@@ -596,10 +591,14 @@ def _redis_identity_script(cache: str, queue: str) -> str:
     )
 
 
+# The only interpreter in the bench container with redis-py: Frappe itself depends on it, so it
+# lives in the venv alongside pymysql (the same ``BENCH_PYTHON`` used by the database probe,
+# for the identical reasoning). The bare ``python`` on PATH is the uv default and carries
+# neither driver.
 def redis_identity_command(cache: str, queue: str) -> str:
     """``<bench venv python> -c '<script>'`` for the container. Carries no secret beyond what
     the URLs themselves already hold (same as every other exec fm builds this way)."""
-    return f"{REDIS_IDENTITY_PYTHON} -c {shlex.quote(_redis_identity_script(cache, queue))}"
+    return f"{BENCH_PYTHON} -c {shlex.quote(_redis_identity_script(cache, queue))}"
 
 
 def _redis_identity_payload(text: str) -> dict | None:

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel
 
+from frappe_manager import COMMON_SITE_CONFIG_FILE
 from frappe_manager.docker import DOCKER_LINE_NOISE, ComposeFile, DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.output_manager import OutputHandler
@@ -102,7 +103,7 @@ class DatabaseServerServiceInfo(BaseModel):
         # parameter was called `bench_name`, which is the same string only while a bench holds one
         # site named after it.
         site_config_file: Path = bench_path / "workspace" / "frappe-bench" / "sites" / site_name / "site_config.json"
-        common_site_config_file: Path = bench_path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
+        common_site_config_file: Path = bench_path / "workspace" / "frappe-bench" / "sites" / COMMON_SITE_CONFIG_FILE
 
         info: dict[str, Any] = {"external": external}
 
