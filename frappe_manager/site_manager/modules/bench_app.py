@@ -77,7 +77,6 @@ class BenchAppManager:
         ...     docker_client=docker_client,
         ...     bench_config=bench_config,
         ... )
-        >>> app_manager.install_app_to_env("erpnext", branch="version-15")
         >>> app_manager.install_app_to_site("erpnext", "example.localhost")
     """
 
@@ -721,48 +720,6 @@ fi
         for i, app_config in enumerate(apps_config):
             if i < len(self.bench_config.apps_list):
                 self.bench_config.apps_list[i] = app_config
-
-    def install_app_to_env(
-        self,
-        app: str,
-        branch: str | None = None,
-        overwrite: bool = True,
-        skip_assets: bool = False,
-    ) -> None:
-        """
-        Install an app to the bench Python environment.
-
-        This runs 'bench get-app' to clone and install the app in the
-        bench's Python environment.
-
-        Args:
-            app: App name or URL
-            branch: Git branch to install (optional)
-            overwrite: Whether to overwrite if app exists
-            skip_assets: Whether to skip building assets
-
-        Raises:
-            BenchOperationBenchInstallAppInPythonEnvFailed: If installation fails
-
-        Example:
-            >>> app_manager.install_app_to_env("erpnext", branch="version-15")
-        """
-        parameters: dict = {
-            "branch": branch,
-            "overwrite": overwrite,
-            "skip_assets": skip_assets,
-        }
-
-        app_install_env_command = self.bench_cli_cmd + ["get-app"]
-        app_install_env_command += parameters_to_options(parameters, exclude=["app"])
-        app_install_env_command += [app]
-
-        app_install_env_command = " ".join(app_install_env_command)
-
-        self._container_run(
-            app_install_env_command,
-            on_failure=lambda: BenchOperationBenchInstallAppInPythonEnvFailed(bench_name=self.bench_name, app_name=app),
-        )
 
     def remove_app_from_env(
         self,

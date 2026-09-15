@@ -6,7 +6,7 @@ handed to it, plus the filesystem side effects and the error translation.
 
 What is defended here, and why each one is load-bearing:
 
-* **argv construction** (``install_app_to_env``, ``remove_app_from_env``,
+* **argv construction** (``remove_app_from_env``,
   ``install_app_to_site``, ``build``, ``_install_python_deps_with_uv``,
   ``_install_node_deps``). A wrong flag still "works" all the way down to
   ``bench``, which then does something subtly different -- ``--overwrite`` that
@@ -253,98 +253,6 @@ class TestMergeAppOverrides:
         current = [AppConfig.from_string("frappe"), AppConfig.from_string("erpnext")]
 
         assert [a.name for a in merge_app_overrides(current, [])] == ["frappe", "erpnext"]
-
-
-# --------------------------------------------------------------------------------------
-# install_app_to_env -- argv + error object
-# --------------------------------------------------------------------------------------
-
-
-class TestInstallAppToEnv:
-    """``bench get-app`` argv: options come from the parameter dict, app goes LAST."""
-
-    def test_default_argv_emits_overwrite_only(self, tmp_path):
-        manager = _manager(tmp_path)
-        manager._container_run = MagicMock()
-
-        manager.install_app_to_env("erpnext")
-
-        assert _commands(manager) == [f"{BENCH_CLI} get-app --overwrite erpnext"]
-
-    def test_branch_precedes_overwrite_and_the_app_is_last(self, tmp_path):
-        manager = _manager(tmp_path)
-        manager._container_run = MagicMock()
-
-        manager.install_app_to_env("erpnext", branch="version-15")
-
-        assert _commands(manager) == [f"{BENCH_CLI} get-app --branch version-15 --overwrite erpnext"]
-
-    def test_skip_assets_flag_is_a_bare_flag_after_overwrite(self, tmp_path):
-        manager = _manager(tmp_path)
-        manager._container_run = MagicMock()
-
-        manager.install_app_to_env("erpnext", branch="develop", skip_assets=True)
-
-        assert _commands(manager) == [f"{BENCH_CLI} get-app --branch develop --overwrite --skip-assets erpnext"]
-
-    def test_overwrite_false_drops_the_flag_entirely(self, tmp_path):
-        manager = _manager(tmp_path)
-        manager._container_run = MagicMock()
-
-        manager.install_app_to_env("erpnext", overwrite=False)
-
-        assert _commands(manager) == [f"{BENCH_CLI} get-app erpnext"]
-
-    def test_empty_branch_string_is_dropped_rather_than_passed_empty(self, tmp_path):
-        manager = _manager(tmp_path)
-        manager._container_run = MagicMock()
-
-        manager.install_app_to_env("erpnext", branch="")
-
-        assert _commands(manager) == [f"{BENCH_CLI} get-app --overwrite erpnext"]
-
-    def test_a_full_url_is_appended_verbatim(self, tmp_path):
-        manager = _manager(tmp_path)
-        manager._container_run = MagicMock()
-
-        manager.install_app_to_env("https://github.com/frappe/hrms.git", branch="develop")
-
-        assert _commands(manager) == [
-            f"{BENCH_CLI} get-app --branch develop --overwrite https://github.com/frappe/hrms.git",
-        ]
-
-    def test_app_and_branch_are_never_validated_or_quoted(self, tmp_path):
-        # SUSPICION: neither the app spec nor the branch is validated or shell-quoted
-        # before being joined into a string that `_container_run` hands to
-        # `/bin/bash -c`. Metacharacters reach the shell. Pinned as-is.
-        manager = _manager(tmp_path)
-        manager._container_run = MagicMock()
-
-        manager.install_app_to_env("erpnext; touch /tmp/pwned", branch="a b")
-
-        assert _commands(manager) == [f"{BENCH_CLI} get-app --branch a b --overwrite erpnext; touch /tmp/pwned"]
-
-    def test_runs_via_exec_with_the_python_env_failure_object(self, tmp_path):
-        manager = _manager(tmp_path)
-        manager._container_run = MagicMock()
-
-        manager.install_app_to_env("erpnext")
-
-        kwargs = manager._container_run.call_args.kwargs
-        assert set(kwargs) == {"on_failure"}  # no use_run -> exec transport
-        failure = kwargs["on_failure"]()
-        assert isinstance(failure, BenchOperationBenchInstallAppInPythonEnvFailed)
-        assert (failure.bench_name, failure.app_name) == (BENCH, "erpnext")
-
-    def test_docker_failure_surfaces_as_the_python_env_exception(self, tmp_path, quiet_failure_rendering):
-        manager = _manager(tmp_path)
-        manager.docker_client.compose.exec.side_effect = _docker_failure()
-
-        with pytest.raises(BenchOperationBenchInstallAppInPythonEnvFailed) as excinfo:
-            manager.install_app_to_env("erpnext")
-
-        assert excinfo.value.app_name == "erpnext"
-        assert excinfo.value.output.combined == ["boom"]
 
 
 class TestRemoveAppFromEnv:
