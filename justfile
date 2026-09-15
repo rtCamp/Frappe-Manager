@@ -104,6 +104,12 @@ lint-all:
 shell-lint:
     uv run pytest tests/unit/scripts/test_shell_lint.py -v --no-cov
 
+# Dead-code radar: vulture (dynamic-dispatch patterns suppressed) + never-called
+# bash functions. Advisory -- verify each hit before deleting; TESTS-ONLY means
+# only tests keep it alive, so the method AND its tests are delete candidates.
+deadcode:
+    uv run --with vulture python scripts/deadcode.py
+
 # Auto-fix fixable lint issues on changed files only
 lint-fix:
     #!/usr/bin/env bash
