@@ -185,6 +185,30 @@ def shell_hits() -> list[str]:
     return rows
 
 
+def duplicate_constants() -> list[str]:
+    """Module-level UPPER_CASE names defined in more than one production module.
+
+    The drift alarm for the constants consolidation: BENCH_PYTHON was once defined
+    identically in two sibling modules, and CONTAINER_BENCH_DIR had a synonym
+    (FRAPPE_BENCH_DIR) plus two value-twins. One name, one home; a duplicate here
+    is either a missed import or the start of the next divergence.
+    """
+    owners: dict[str, list[str]] = {}
+    for p, text in _repo_text(PY_ROOTS, (".py",)):
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        for node in tree.body:
+            targets = list(node.targets) if isinstance(node, ast.Assign) else []
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                targets = [node.target]
+            for t in targets:
+                if isinstance(t, ast.Name) and t.id.isupper() and not t.id.startswith("_"):
+                    owners.setdefault(t.id, []).append(f"{p.relative_to(ROOT)}:{node.lineno}")
+    return [f"{name}: {', '.join(sites)}" for name, sites in sorted(owners.items()) if len(sites) > 1]
+
+
 def main() -> int:
     py = python_hits()
     sh = shell_hits()
@@ -203,7 +227,12 @@ def main() -> int:
         print(f"\n== shell: never referenced ({len(sh)}) ==")
         print("\n".join(sh))
 
-    total = len(py) + len(sh)
+    dupes = duplicate_constants()
+    if dupes:
+        print(f"\n== constants: same name, multiple homes ({len(dupes)}) ==")
+        print("\n".join(dupes))
+
+    total = len(py) + len(sh) + len(dupes)
     print(f"\n{total} candidate(s). Radar output: verify dynamic dispatch before deleting.")
     return 0
 
