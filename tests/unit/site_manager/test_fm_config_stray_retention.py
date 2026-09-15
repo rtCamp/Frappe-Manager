@@ -1,6 +1,5 @@
 """A warning that fires once and then the evidence disappears is worse than no warning: the
-operator is told to check for a typo, then the very next ordinary write (`_ensure_migration_state`
-fires on the FIRST run against a file with no `[migration_state]`, and `set_system_migration_version`
+operator is told to check for a typo, then the very next ordinary write (`set_system_migration_version`
 fires on every `fm migrate`) erases the mistyped line, because `import_from_toml` used to build
 `input_data` by hand and never named an unrecognised top-level key, so it never reached the model
 `export_to_toml` dumps into `desired`, and `toml_document.apply`'s prune deleted anything not in
@@ -37,7 +36,7 @@ def test_a_top_level_stray_survives_a_load_then_save(tmp_path):
 
 
 def test_a_top_level_stray_survives_two_saves(tmp_path):
-    """The routine case: `_ensure_migration_state` writes on the first run, `fm migrate` writes
+    """The routine case: `fm migrate` writes via `set_system_migration_version`, then writes
     again later. Neither write may be the one that finally erases the typo."""
     path = _config(tmp_path, 'ngrok_auth_tokenn = "SECRET-TOKEN"\n')
 
@@ -186,7 +185,7 @@ def test_migration_state_keeps_every_key_across_two_saves(tmp_path):
     """The stray now also gets a warning (test_fm_config_unrecognised_keys.py's
     `test_a_typo_inside_migration_state_warns`), but the retention guarantee was never
     contingent on recognition: proven against the file as ORIGINALLY written, then again after a
-    SECOND ordinary write -- the routine `_ensure_migration_state` then `set_system_migration_version`
+    SECOND ordinary write -- the routine repeated `set_system_migration_version`
     sequence a real host takes -- since a two-cycle fixed point alone would not catch a value
     dropped on the very first cycle."""
     path = _config(
@@ -203,19 +202,6 @@ def test_migration_state_keeps_every_key_across_two_saves(tmp_path):
     text = path.read_text()
     assert 'system_migrated_to = "0.19.0"' in text
     assert "manual override, do not touch" in text
-
-
-def test_ensure_migration_state_write_does_not_drop_a_top_level_stray(tmp_path):
-    """The concrete routine trigger named in the finding: the very first run against a file with
-    no `[migration_state]` writes the file through `_ensure_migration_state`."""
-    path = _config(tmp_path, 'ngrok_auth_tokenn = "SECRET-TOKEN"\n')
-
-    config = FMConfigManager.import_from_toml(path)
-    config._ensure_migration_state()
-
-    text = path.read_text()
-    assert "ngrok_auth_tokenn" in text
-    assert "SECRET-TOKEN" in text
 
 
 def test_set_system_migration_version_write_does_not_drop_a_top_level_stray(tmp_path):

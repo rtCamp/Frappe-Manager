@@ -135,10 +135,6 @@ def test_legacy_unmarked_redirect_is_replaced_by_the_marked_block_on_enable(mana
     assert UPLOAD_LIMIT in text
 
 
-def test_get_config_path_points_at_the_per_domain_file(manager, vhostd):
-    assert manager.get_config_path(DOMAIN) == vhostd / DOMAIN
-
-
 # ======================================================================================
 # enable then disable is a true inverse -- byte-for-byte, not merely semantically equal
 # ======================================================================================

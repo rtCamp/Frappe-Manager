@@ -9,7 +9,6 @@ from rich.logging import RichHandler
 
 from frappe_manager import CLI_LOG_DIRECTORY
 from frappe_manager.exceptions import ConfigurationError
-from frappe_manager.logger.live_aware_handler import LiveAwareRichHandler
 
 # Define MESSAGE log level
 CLEANUP = 25
@@ -192,17 +191,18 @@ class ConsoleLogFilter(logging.Filter):
 
 def _add_console_handler(logger: logging.Logger, console_level: str) -> None:
     """
-    Add a LiveAwareRichHandler to the logger for console output to stderr.
+    Add a RichHandler to the logger for console output to stderr.
 
-    This handler coordinates with the Live spinner display to prevent
-    output corruption and visual artifacts.
+    When a Rich output handler is active, the handler shares its stderr
+    Console: Rich's Console coordinates Live displays and log lines on its
+    own, so no dedicated handler subclass is needed.
 
     Args:
         logger: The logger instance to add the handler to
         console_level: The logging level name (DEBUG, INFO, WARNING, ERROR)
     """
     for handler in logger.handlers[:]:
-        if isinstance(handler, (RichHandler, LiveAwareRichHandler)):
+        if isinstance(handler, RichHandler):
             logger.removeHandler(handler)
 
     from frappe_manager.output_manager import get_global_output_handler, has_global_output_handler
@@ -218,7 +218,7 @@ def _add_console_handler(logger: logging.Logger, console_level: str) -> None:
             underlying_output = output
 
         if isinstance(underlying_output, RichOutputHandler):
-            console_handler = LiveAwareRichHandler(
+            console_handler = RichHandler(
                 level=getattr(logging, console_level),
                 rich_tracebacks=True,
                 tracebacks_show_locals=True,
@@ -227,8 +227,6 @@ def _add_console_handler(logger: logging.Logger, console_level: str) -> None:
                 show_level=True,
                 markup=True,
                 console=underlying_output.stderr,
-                live_display=underlying_output.live,
-                output_lock=underlying_output._lock,
             )
         else:
             console_handler = RichHandler(
@@ -269,7 +267,7 @@ def _update_console_handler(logger: logging.Logger, console_level: str | None) -
         _add_console_handler(logger, console_level)
     else:
         for handler in logger.handlers[:]:
-            if isinstance(handler, (RichHandler, LiveAwareRichHandler)):
+            if isinstance(handler, RichHandler):
                 logger.removeHandler(handler)
 
 

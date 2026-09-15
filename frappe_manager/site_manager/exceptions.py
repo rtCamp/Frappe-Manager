@@ -322,28 +322,6 @@ class BenchOperationBenchSiteCreateFailed(BenchOperationException):
         super().__init__(self.bench_name, self.message, self.print_combined, self.print_stdout, self.print_stderr)
 
 
-class BenchOperationBenchRemoveAppFromPythonEnvFailed(BenchOperationException):
-    """Raised when removing an app from the Python environment fails."""
-
-    def __init__(
-        self,
-        bench_name,
-        app_name: str,
-        message: str = "Failed to remove app {} from python env.",
-        print_combined: bool = True,
-        print_stdout: bool = False,
-        print_stderr: bool = False,
-    ):
-        self.bench_name = bench_name
-        self.app_name = app_name
-        self.message = message.format(app_name)
-        self.print_stdout = print_stdout
-        self.print_stderr = print_stderr
-        self.print_combined = print_combined
-
-        super().__init__(self.bench_name, self.message, self.print_combined, self.print_stdout, self.print_stderr)
-
-
 class BenchOperationBenchAppInSiteFailed(BenchOperationException):
     """Raised when installing an app in a site fails."""
 

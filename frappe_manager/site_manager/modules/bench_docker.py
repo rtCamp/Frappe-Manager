@@ -123,11 +123,6 @@ class BenchDockerOps:
             for container_name, user_data in inputs["user"].items():
                 users[container_name] = (user_data["uid"], user_data["gid"])
 
-        # Every hostname the bench serves: each site's own name plus that site's aliases. This was
-        # `self.config.name` plus a bench-level alias list, which on a bench whose site is not named
-        # after it aliased the network to a hostname nothing serves and left the real site out.
-        network_aliases = list(self.config.domains)
-
         # No domain aliases on bench nginx — internal DNS resolution for all domains
         # is handled via extra_hosts (pointing to the global proxy).
         # The proxy discovers domains via VIRTUAL_HOST env var, not network aliases.

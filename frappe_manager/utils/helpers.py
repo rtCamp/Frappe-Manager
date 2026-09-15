@@ -7,13 +7,11 @@ import os
 import secrets
 import shutil
 import sys
-import time
 from dataclasses import dataclass
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
 
-import requests
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from rich.console import Console
@@ -24,7 +22,6 @@ from frappe_manager.docker import DOCKER_LINE_NOISE
 from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.site_manager import PREBAKED_SITE_APPS
 from frappe_manager.utils.docker import run_command_with_exit_code
 
 logger = get_logger(component="helpers")
@@ -153,48 +150,6 @@ def get_docker_image_tag():
     return version
 
 
-def check_repo_exists(app_url: str, branch_name: str | None = None, exclude_dict: dict[str, str] = PREBAKED_SITE_APPS):
-    """
-    Check if a Frappe app exists on GitHub.
-
-    Args:
-        appname (str): The name of the Frappe app.
-        branchname (str | None, optional): The name of the branch to check. Defaults to None.
-
-    Returns:
-        dict: A dictionary containing the existence status of the app and branch (if provided).
-    """
-    try:
-        if app_url in exclude_dict:
-            app = 200
-        else:
-            app = requests.get(app_url).status_code
-
-        if branch_name:
-            if branch_name in exclude_dict.values():
-                branch = 200
-            else:
-                branch_url = f"{app_url}/tree/{branch_name}"
-                branch = requests.get(branch_url).status_code
-
-            return {
-                "app": True if app == 200 else False,
-                "branch": True if branch == 200 else False,
-            }
-        return {"app": True if app == 200 else False}
-
-    except Exception as e:
-        output = get_global_output_handler()
-        output.error(f"Not able to validate app {app_url} for branch [blue]{branch_name}[/blue]", e)
-
-
-def check_frappe_app_exists(app: str, branch_name: str | None = None):
-    if "github.com" not in app:
-        app = f"https://github.com/frappe/{app}"
-
-    return check_repo_exists(app_url=app, branch_name=branch_name)
-
-
 def represent_null_empty(string_null):
     """
     Replaces the string "null" with an empty string.
@@ -206,34 +161,6 @@ def represent_null_empty(string_null):
         str: The modified string with "null" replaced by an empty string.
     """
     return string_null.replace("null", "")
-
-
-def log_file(file, refresh_time: float = 0.1, follow: bool = False):
-    """
-    Generator function that yields new lines in a file
-
-    Parameters:
-    - file: The file object to read from
-    - refresh_time: The time interval (in seconds) to wait before checking for new lines in the file (default: 0.1)
-    - follow: If True, the function will continue to yield new lines as they are added to the file (default: False)
-
-    Returns:
-    - A generator that yields each new line in the file
-    """
-    file.seek(0)
-
-    # start infinite loop
-    while True:
-        # read last line of file
-        line = file.readline()
-        if not line:
-            if not follow:
-                break
-            # sleep if file hasn't been updated
-            time.sleep(refresh_time)
-            continue
-        line = line.strip("\n")
-        yield line
 
 
 def get_container_name_prefix(site_name):

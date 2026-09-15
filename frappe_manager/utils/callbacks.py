@@ -15,7 +15,7 @@ from frappe_manager.exceptions import NonInteractiveError
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchNotFoundError
 from frappe_manager.utils.address import SEPARATOR, Address, parse_address
-from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version
+from frappe_manager.utils.helpers import get_current_fm_version
 from frappe_manager.utils.site import get_sitename_from_current_path, is_fqdn, is_wildcard_fqdn, validate_sitename
 
 
@@ -94,26 +94,6 @@ def apps_list_validation_callback(value: list[str] | None):
             apps_list.append(app_config)
 
     return apps_list
-
-
-def frappe_branch_validation_callback(value: str):
-    """
-    Validate the given Frappe branch.
-
-    Args:
-        value (str): The Frappe branch to validate.
-
-    Returns:
-        str: The validated Frappe branch.
-
-    Raises:
-        typer.BadParameter: If the Frappe branch is not valid.
-    """
-    if value:
-        exists = check_frappe_app_exists("frappe", value)
-        if exists["branch"]:
-            return value
-        raise typer.BadParameter(f"Frappe branch -> {value} is not valid!! ")
 
 
 def version_callback(version: bool | None = None):

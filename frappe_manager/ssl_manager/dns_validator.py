@@ -278,23 +278,3 @@ class DNSValidator:
             checks_total=max_checks,
             message=f"CNAME did not propagate within {timeout} seconds",
         )
-
-    def get_nameservers(self, domain: str) -> list[str]:
-        """
-        Get authoritative nameservers for a domain.
-
-        Useful for checking propagation across multiple nameservers.
-
-        Args:
-            domain: Domain to query
-
-        Returns:
-            List of nameserver hostnames
-        """
-        try:
-            result = subprocess.run(["dig", "+short", domain, "NS"], capture_output=True, text=True, timeout=10)
-
-            nameservers = [ns.strip() for ns in result.stdout.strip().split("\n") if ns.strip()]
-            return nameservers
-        except Exception:
-            return []

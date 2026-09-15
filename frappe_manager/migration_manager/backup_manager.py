@@ -165,18 +165,6 @@ class BackupManager:
         self.backups.remove(backup_data)
         # print(f"Deleted backup at {backup_data.real_dest}")
 
-    def delete_all(self):
-        """
-        Delete all backups.
-        """
-        for backup_data in self.backups:
-            if backup_data.real_dest.exists():
-                shutil.rmtree(backup_data.real_dest)
-                # print(f"Deleted backup at {backup_data.real_dest}")
-
-        self.backups.clear()
-        # print("Deleted all backups")
-
     def track_new_file(self, filepath: Path):
         """
         Track a newly created file so it can be cleaned up during rollback.

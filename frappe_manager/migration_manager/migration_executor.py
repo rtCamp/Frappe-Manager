@@ -19,37 +19,6 @@ from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.utils.helpers import get_current_fm_version
 
 
-def needs_migration(fm_config_manager: FMConfigManager) -> bool:
-    prev_version = fm_config_manager.version
-    current_version = Version(get_current_fm_version())
-    return prev_version < current_version
-
-
-def needs_fm_infrastructure_migration(fm_config_manager: FMConfigManager) -> bool:
-    current_version = Version(get_current_fm_version())
-    fm_infrastructure_version = fm_config_manager.get_system_migration_version()
-    return fm_infrastructure_version < current_version
-
-
-def get_benches_needing_migration(benches_directory: Path, current_version: Version) -> list[str]:
-    from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME
-    from frappe_manager.migration_manager.bench_migration_state import bench_needs_migration
-
-    needs_migration_list = []
-
-    if not benches_directory.exists():
-        return needs_migration_list
-
-    for bench_path in benches_directory.iterdir():
-        if bench_path.is_dir():
-            bench_config = bench_path / CLI_BENCH_CONFIG_FILE_NAME
-            if bench_config.exists():
-                if bench_needs_migration(bench_path, current_version):
-                    needs_migration_list.append(bench_path.name)
-
-    return needs_migration_list
-
-
 class MigrationExecutor:
     """
     Migration executor class.
@@ -276,14 +245,6 @@ class MigrationExecutor:
             "last_migration_version": migration_version,
             "traceback": traceback_str,
         }
-
-    def get_site_data(self, bench_name):
-        """Get migration data for a specific bench."""
-        try:
-            data = self.migrate_benches[bench_name]
-        except KeyError as e:
-            return None
-        return data
 
     def rollback(self):
         """

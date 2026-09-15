@@ -19,7 +19,6 @@ from frappe_manager import (
     STABLE_APP_BRANCH_MAPPING_LIST,
     STOCK_IMAGE_PREFETCH_SKIP_COMMANDS,
     EnableDisableOptionsEnum,
-    SiteServicesEnum,
 )
 from frappe_manager.commands.self import self_app
 from frappe_manager.commands.services import services_app
@@ -32,12 +31,7 @@ from frappe_manager.migration_manager.bench_migration_state import (
     get_bench_migration_version,
     set_bench_migration_version,
 )
-from frappe_manager.migration_manager.migration_executor import (
-    MigrationExecutor,
-    get_benches_needing_migration,
-    needs_fm_infrastructure_migration,
-    needs_migration,
-)
+from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.ngrok import create_tunnel
 from frappe_manager.output_manager import OutputHandler, get_global_output_handler, spinner, temporary_stop

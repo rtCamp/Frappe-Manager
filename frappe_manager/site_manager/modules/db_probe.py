@@ -372,15 +372,6 @@ def get_lock_sql(schema: str) -> str:
     return f"SELECT GET_LOCK('{_sql_literal(lock_name(schema))}', {LOCK_TIMEOUT_SECONDS})"
 
 
-def release_lock_sql(schema: str) -> str:
-    return f"SELECT RELEASE_LOCK('{_sql_literal(lock_name(schema))}')"
-
-
-def lock_taken(output: str) -> bool:
-    """`GET_LOCK` returns 1 when the lock was taken, 0 on timeout and NULL on error."""
-    return _Reply(output, True).column()[:1] == ["1"]
-
-
 def lock_refusal(schema: str) -> str:
     return (
         f"another fm create appears to be provisioning this schema ({schema}): the advisory lock"

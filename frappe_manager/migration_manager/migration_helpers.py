@@ -1,8 +1,7 @@
-import json
 import platform
 from pathlib import Path
 
-from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_SERVICES_DIRECTORY, COMMON_SITE_CONFIG_FILE
+from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_SERVICES_DIRECTORY
 from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.migration_manager.migration_constants import MIGRATION_BENCH_STOP_TIMEOUT_SECONDS
 from frappe_manager.output_manager.base import OutputHandler
@@ -114,33 +113,6 @@ class MigrationBench:
         from frappe_manager.utils.site import get_bench_db_connection_info
 
         return get_bench_db_connection_info(self.name, self.path)
-
-    def common_bench_config_set(self, config: dict):
-        """
-        Sets the values in the common_site_config.json file.
-        Args:
-            config (dict): A dictionary containing the key-value pairs to be set in the common_site_config.json file.
-        Returns:
-            bool: True if the values are successfully set, False otherwise.
-        """
-        common_bench_config_path = self.path / f"workspace/frappe-bench/sites/{COMMON_SITE_CONFIG_FILE}"
-
-        if not common_bench_config_path.exists():
-            return False
-
-        common_site_config = {}
-
-        with open(common_bench_config_path) as f:
-            common_site_config = json.load(f)
-
-        try:
-            for key, value in config.items():
-                common_site_config[key] = value
-            with open(common_bench_config_path, "w") as f:
-                json.dump(common_site_config, f)
-            return True
-        except KeyError as e:
-            return False
 
 
 class MigrationBenches:

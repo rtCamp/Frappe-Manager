@@ -312,13 +312,3 @@ class ExternalDomainConfigManager:
             config.delegation_cname,
             acme_client=config.acme_client,
         )
-
-    def get_count(self) -> int:
-        """
-        Get the total number of external domains configured.
-
-        Returns:
-            Number of external domains
-        """
-        domains, _unparsed = self._load()
-        return len(domains)

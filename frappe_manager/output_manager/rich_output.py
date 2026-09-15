@@ -28,10 +28,7 @@ from frappe_manager.output_manager.flags import OutputRefactoringFlags
 
 # Emoji constants for consistent output
 EMOJI_WORKING = "⚙️"
-EMOJI_SUCCESS = "⚡"
-EMOJI_ERROR = "⛔"
 EMOJI_WARNING = "⚠️"
-EMOJI_INFO = "ℹ️"
 
 # Cache deprecation flag at module load (performance optimization)
 _DEPRECATION_WARNINGS_ENABLED = False

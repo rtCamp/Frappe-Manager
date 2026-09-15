@@ -427,52 +427,6 @@ class DockerClient:
         """Alias for server_running() for better readability"""
         return self.server_running()
 
-    def __enter__(self) -> "DockerClient":
-        """
-        Enter context manager - enables automatic cleanup of compose environment.
-
-        Returns:
-            Self for use in 'with' statement
-
-        Example:
-            with DockerClient(compose_path) as docker:
-                docker.compose.up(detach=True)
-                # Work with docker...
-                # Compose environment auto-cleaned up on exit
-
-        Note:
-            If a compose file path was provided during initialization, the compose
-            environment will be automatically cleaned up when the context exits.
-        """
-        # If compose is available, enter its context
-        if self.compose:
-            self.compose.__enter__()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
-        """
-        Exit context manager - cleans up compose environment if present.
-
-        Args:
-            exc_type: Exception type (if any)
-            exc_val: Exception value (if any)
-            exc_tb: Exception traceback (if any)
-
-        Returns:
-            False (does not suppress exceptions)
-
-        Note:
-            If a compose file path was provided during initialization, this will
-            delegate to the compose wrapper's cleanup logic. Any cleanup errors
-            are silently ignored (best-effort cleanup).
-        """
-        # If compose is available, exit its context
-        if self.compose:
-            self.compose.__exit__(exc_type, exc_val, exc_tb)
-
-        # Don't suppress exceptions - return False
-        return False
-
 
 class TempContainer:
     """Context manager for temporary Docker containers"""

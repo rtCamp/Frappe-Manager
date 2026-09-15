@@ -182,28 +182,3 @@ server {{
             config_file.unlink()
             return True
         return False
-
-    def config_exists(self, domain: str) -> bool:
-        """
-        Check if a config file exists for a domain.
-
-        Args:
-            domain: Domain name
-
-        Returns:
-            True if config exists, False otherwise
-        """
-        config_file = self.conf_dir / f"{domain}.conf"
-        return config_file.exists()
-
-    def get_config_path(self, domain: str) -> Path:
-        """
-        Get the path to the config file for a domain.
-
-        Args:
-            domain: Domain name
-
-        Returns:
-            Path to the config file (may not exist)
-        """
-        return self.conf_dir / f"{domain}.conf"

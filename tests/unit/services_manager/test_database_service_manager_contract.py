@@ -13,9 +13,8 @@ once:
    in this file validates its own SQL, so the argv/SQL *is* the contract. These tests pin the exact
    strings and the exact collaborator calls; no query is ever executed.
 
-Also pinned: every guard that refuses a destructive action (`add_user` on an existing user,
-`db_export`/`db_import` on a missing database, `remove_user`'s refusal to drop users other than the
-one named).
+Also pinned: every guard that refuses a destructive action (`db_export`/`db_import` on a missing
+database, `remove_user`'s refusal to drop users other than the one named).
 
 Docker and the filesystem are mocked at their seams. No test reaches a daemon, a network or a real
 database.
@@ -51,7 +50,6 @@ from frappe_manager.services_manager.services_exceptions import (
     DatabaseServiceStartTimeout,
     DatabaseServiceUserRemoveFailError,
 )
-from frappe_manager.site_manager.bench_config import DatabaseConfig
 from frappe_manager.site_manager.exceptions import BenchException
 
 # --- helpers ---
@@ -210,33 +208,6 @@ def test_compose_import_without_raise_exception_still_refuses_to_build_a_passwor
 
     with pytest.raises(ValidationError):
         DatabaseServerServiceInfo.import_from_compose_file("global-db", compose_file_manager, raise_exception=False)
-
-
-# --- DatabaseServerServiceInfo.from_database_config ---
-
-
-def test_from_database_config_marks_the_endpoint_external_and_uses_the_site_login_user():
-    db_config = DatabaseConfig(host="db.example.com", port=3307, name="site_db", user="site_login")
-
-    info = DatabaseServerServiceInfo.from_database_config(db_config, "site-password")
-
-    assert info.external is True
-    assert (info.host, info.port, info.name, info.user, info.password) == (
-        "db.example.com",
-        3307,
-        "site_db",
-        "site_login",
-        "site-password",
-    )
-
-
-def test_from_database_config_falls_back_to_the_schema_name_when_no_login_user_is_declared():
-    db_config = DatabaseConfig(host="db.example.com", name="site_db")
-
-    info = DatabaseServerServiceInfo.from_database_config(db_config, "pw")
-
-    assert info.user == "site_db"
-    assert info.port == 3306
 
 
 # --- DatabaseServerServiceInfo.import_from_bench ---
@@ -570,45 +541,6 @@ def test_a_user_present_under_a_different_host_does_not_satisfy_a_host_specific_
     assert manager.check_user_exists("admin", "localhost") is True
 
 
-def test_adding_a_user_issues_a_create_user_granting_access_from_any_host():
-    manager = make_manager(running=True)
-    with (
-        mock.patch.object(MariaDBManager, "check_user_exists", return_value=False),
-        mock.patch.object(MariaDBManager, "db_run_query") as query,
-    ):
-        manager.add_user("bench_user", "bench-pass")
-
-    assert query.call_args.args[0] == "'CREATE USER `bench_user`@`%` IDENTIFIED BY \"bench-pass\";'"
-
-
-def test_adding_a_user_that_already_exists_is_refused_and_issues_no_statement():
-    manager = make_manager(running=True)
-    with (
-        mock.patch.object(MariaDBManager, "check_user_exists", return_value=True),
-        mock.patch.object(MariaDBManager, "db_run_query") as query,
-        pytest.raises(DatabaseServiceException) as excinfo,
-    ):
-        manager.add_user("bench_user", "bench-pass")
-
-    query.assert_not_called()
-    assert "already exists" in str(excinfo.value)
-
-
-def test_forcing_an_existing_user_drops_it_first_and_then_recreates_it():
-    manager = make_manager(running=True)
-    with (
-        mock.patch.object(MariaDBManager, "check_user_exists", return_value=True),
-        mock.patch.object(MariaDBManager, "db_run_query") as query,
-    ):
-        manager.add_user("bench_user", "bench-pass", force=True)
-
-    issued = [call.args[0] for call in query.call_args_list]
-    assert issued == [
-        "'DROP USER `bench_user`@`%`;'",
-        "'CREATE USER `bench_user`@`%` IDENTIFIED BY \"bench-pass\";'",
-    ]
-
-
 def test_removing_a_user_drops_exactly_the_named_user_at_the_named_host():
     manager = make_manager(running=True)
     with mock.patch.object(MariaDBManager, "db_run_query") as query:
@@ -629,14 +561,6 @@ def test_removing_a_user_from_all_hosts_never_touches_a_differently_named_user()
         manager.remove_user("bench_user", remove_all_host=True)
 
     assert [call.args[0] for call in query.call_args_list] == ["'DROP USER `bench_user`@`localhost`;'"]
-
-
-def test_granting_privileges_scopes_the_grant_to_one_schema_for_one_user():
-    manager = make_manager(running=True)
-    with mock.patch.object(MariaDBManager, "db_run_query") as query:
-        manager.grant_user_privilages("bench_user", "bench_db")
-
-    assert query.call_args.args[0] == "'GRANT ALL PRIVILEGES ON `bench_db`.* TO `bench_user`@`%`;'"
 
 
 # --- MariaDBManager: databases ---

@@ -11,7 +11,6 @@ from unittest.mock import patch
 import pytest
 
 from frappe_manager.ssl_manager.certificate_exceptions import (
-    SSLCertificateChallengeFailed,
     SSLCertificateGenerateFailed,
     SSLCertificateNotDueForRenewalError,
     SSLCertificateNotFoundError,
@@ -76,32 +75,6 @@ class TestSSLDNSChallengeCredentailsNotFound:
 
         assert hasattr(exception, "message")
         assert isinstance(exception.message, str)
-
-
-class TestSSLCertificateChallengeFailed:
-    """Tests for SSLCertificateChallengeFailed exception."""
-
-    def test_message_includes_challenge_type(self):
-        """Test that exception message includes the challenge type."""
-        challenge = "http01"
-        exception = SSLCertificateChallengeFailed(challenge)
-
-        assert challenge in str(exception)
-        assert "challenge failed" in str(exception).lower()
-
-    def test_challenge_attribute_accessible(self):
-        """Test that challenge attribute is accessible."""
-        challenge = "dns01"
-        exception = SSLCertificateChallengeFailed(challenge)
-
-        assert exception.challenge == challenge
-
-    def test_different_challenge_types(self):
-        """Test exception works with different challenge types."""
-        for challenge_type in ["http01", "dns01", "tls-alpn-01"]:
-            exception = SSLCertificateChallengeFailed(challenge_type)
-            assert exception.challenge == challenge_type
-            assert challenge_type in str(exception)
 
 
 class TestSSLCertificateGenerateFailed:
@@ -190,7 +163,6 @@ class TestExceptionInheritance:
         exceptions = [
             SSLCertificateNotFoundError("test.com"),
             SSLDNSChallengeCredentailsNotFound(),
-            SSLCertificateChallengeFailed("http01"),
             SSLCertificateGenerateFailed(),
         ]
 
@@ -217,7 +189,6 @@ class TestExceptionInheritance:
             exceptions = [
                 SSLCertificateNotFoundError(domain),
                 SSLDNSChallengeCredentailsNotFound(),
-                SSLCertificateChallengeFailed("http01"),
                 SSLCertificateGenerateFailed(),
                 SSLCertificateNotDueForRenewalError(domain, expiry_date),
             ]
@@ -241,16 +212,6 @@ class TestExceptionUsageScenarios:
             get_certificate("example.com")
 
         assert exc_info.value.domain == "example.com"
-
-    def test_challenge_failed_with_different_challenges(self):
-        """Test SSLCertificateChallengeFailed with different challenge types."""
-        challenges = ["http01", "dns01"]
-
-        for challenge in challenges:
-            with pytest.raises(SSLCertificateChallengeFailed) as exc_info:
-                raise SSLCertificateChallengeFailed(challenge)
-
-            assert exc_info.value.challenge == challenge
 
     def test_renewal_error_provides_useful_info(self):
         """Test that renewal error provides useful information."""

@@ -50,7 +50,6 @@ class TestJSONOutputHandlerBasics:
 
         assert handler.events == []
         assert handler._current_head is None
-        assert handler._is_started is False
 
     def test_start_captures_event(self):
         """start() captures a start event."""
@@ -62,7 +61,6 @@ class TestJSONOutputHandlerBasics:
         event = handler.events[0]
         assert event.event_type == "start"
         assert event.data["text"] == "Starting operation"
-        assert handler._is_started is True
 
     def test_stop_captures_event(self):
         """stop() captures a stop event."""
@@ -74,7 +72,6 @@ class TestJSONOutputHandlerBasics:
         assert len(handler.events) == 2
         event = handler.events[1]
         assert event.event_type == "stop"
-        assert handler._is_started is False
 
     def test_print_captures_event(self):
         """print() captures a print event with all parameters."""
@@ -262,33 +259,6 @@ class TestJSONOutputHandlerEventRetrieval:
         assert events[1]["event_type"] == "print"
         assert events[2]["event_type"] == "stop"
 
-    def test_get_events_json_returns_valid_json(self):
-        """get_events_json() returns valid JSON string."""
-        handler = JSONOutputHandler()
-        handler.print("Test message")
-
-        json_str = handler.get_events_json()
-
-        # Should be valid JSON
-        parsed = json.loads(json_str)
-        assert isinstance(parsed, list)
-        assert len(parsed) == 1
-        assert parsed[0]["event_type"] == "print"
-
-    def test_clear_events_removes_all(self):
-        """clear_events() removes all events and resets state."""
-        handler = JSONOutputHandler()
-        handler.start("Test")
-        handler.print("Message")
-
-        assert len(handler.events) == 2
-
-        handler.clear_events()
-
-        assert len(handler.events) == 0
-        assert handler._current_head is None
-        assert handler._is_started is False
-
 
 class TestJSONOutputHandlerEventSequencing:
     """Tests for complex event sequences."""
@@ -312,20 +282,14 @@ class TestJSONOutputHandlerEventSequencing:
         assert event_types == ["start", "change_head", "print", "warning", "change_head", "print", "stop"]
 
     def test_multiple_operations(self):
-        """Test multiple operations with clear between them."""
+        """A second operation's events append after the first's stop."""
         handler = JSONOutputHandler()
 
-        # First operation
         handler.start("Operation 1")
         handler.stop()
-        assert len(handler.events) == 2
-
-        handler.clear_events()
-
-        # Second operation
         handler.start("Operation 2")
         handler.stop()
-        assert len(handler.events) == 2
 
         events = handler.get_events()
-        assert events[0]["data"]["text"] == "Operation 2"
+        assert [e["event_type"] for e in events] == ["start", "stop", "start", "stop"]
+        assert events[2]["data"]["text"] == "Operation 2"

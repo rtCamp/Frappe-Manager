@@ -97,19 +97,6 @@ def run_command_with_exit_code(
     return output
 
 
-def parameter_to_option(param: str) -> str:
-    """Converts a parameter to an option.
-
-    Args:
-        param (str): The parameter to be converted.
-
-    Returns:
-        str: The converted option.
-    """
-    option = "--" + param.replace("_", "-")
-    return option
-
-
 def parameters_to_options(param: dict, exclude: list = []) -> list:
     """
     Convert a dictionary of parameters to a list of options for a command.

@@ -25,12 +25,10 @@ from frappe_manager.site_manager.exceptions import (
     BenchOperationBenchAppInSiteFailed,
     BenchOperationBenchBuildFailed,
     BenchOperationBenchInstallAppInPythonEnvFailed,
-    BenchOperationBenchRemoveAppFromPythonEnvFailed,
     BenchOperationException,
 )
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.modules.app_cloner import AppCloner, AppClonerError
-from frappe_manager.utils.docker import parameters_to_options
 
 
 def merge_app_overrides(current: list[AppConfig], overrides: list[AppConfig]) -> list[AppConfig]:
@@ -722,47 +720,6 @@ fi
             if i < len(self.bench_config.apps_list):
                 self.bench_config.apps_list[i] = app_config
 
-    def remove_app_from_env(
-        self,
-        app: str,
-        no_backup: bool = True,
-        force: bool = True,
-    ) -> None:
-        """
-        Remove an app from the bench Python environment.
-
-        This runs 'bench remove-app' to remove the app from the environment.
-
-        Args:
-            app: App name to remove
-            no_backup: Skip backup before removal
-            force: Force removal without confirmation
-
-        Raises:
-            BenchOperationBenchRemoveAppFromPythonEnvFailed: If removal fails
-
-        Example:
-            >>> app_manager.remove_app_from_env("erpnext")
-        """
-        parameters: dict = {
-            "no_backup": no_backup,
-            "force": force,
-        }
-
-        app_rm_env_command = self.bench_cli_cmd + ["remove-app"]
-        app_rm_env_command += parameters_to_options(parameters, exclude=["app"])
-        app_rm_env_command += [app]
-
-        app_rm_env_command = " ".join(app_rm_env_command)
-
-        self._container_run(
-            app_rm_env_command,
-            on_failure=lambda: BenchOperationBenchRemoveAppFromPythonEnvFailed(
-                bench_name=self.bench_name,
-                app_name=app,
-            ),
-        )
-
     def install_app_to_site(
         self,
         app: str,
@@ -853,24 +810,6 @@ fi
             on_failure=lambda: BenchOperationBenchBuildFailed(bench_name=self.bench_name, apps=app_list),
             use_run=use_run,
         )
-
-    def get_installed_apps_list(self) -> list[Path]:
-        """
-        Get list of installed apps in the bench.
-
-        Returns list of app directories found in the apps folder.
-
-        Returns:
-            List of Path objects for each app directory
-
-        Example:
-            >>> apps = app_manager.get_installed_apps_list()
-            >>> print([app.name for app in apps])
-            ['frappe', 'erpnext', 'hrms']
-        """
-        apps_dir = self.frappe_bench_dir / "apps"
-        apps_dirs: list[Path] = [item for item in apps_dir.iterdir() if item.is_dir()]
-        return apps_dirs
 
     def _filter_docker_warnings(self, output: SubprocessOutput) -> SubprocessOutput:
         """Filter out Docker Compose warning messages from captured output."""

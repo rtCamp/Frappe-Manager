@@ -34,7 +34,6 @@ from frappe_manager.site_manager.modules.db_probe import (
     decide_flow,
     get_lock_sql,
     lock_refusal,
-    lock_taken,
     probe_stage_one,
     probe_stage_two,
     redact,
@@ -528,14 +527,6 @@ def test_the_short_all_spelling_of_a_blanket_grant_is_recognised():
 
 def test_lock_sql_is_schema_scoped_with_a_zero_timeout():
     assert get_lock_sql(SCHEMA) == "SELECT GET_LOCK('fm:create:app_prod', 0)"
-
-
-def test_lock_taken_reads_the_get_lock_result():
-    assert lock_taken("1") is True
-    assert lock_taken("1\n") is True
-    assert lock_taken("0") is False
-    assert lock_taken("NULL") is False
-    assert lock_taken("") is False
 
 
 def test_lock_refusal_names_the_schema():

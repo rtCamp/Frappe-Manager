@@ -209,25 +209,6 @@ class TestLifecycleOperationLogging:
 class TestSSLOperationLogging:
     """Test logging for SSL certificate operations."""
 
-    def test_create_certificate_logs_with_correct_extra(self, mock_bench_dependencies, mock_logger, mocker):
-        """create_certificate() should log with operation=ssl_create_certificate."""
-        mocker.patch.object(Bench, "__init__", lambda *args, **kwargs: None)
-        bench = Bench.__new__(Bench)
-        bench.name = "test.localhost"
-        bench.logger = mock_logger
-        bench.ssl = MagicMock()
-        bench.ssl.create_individual_certificates = MagicMock()
-        bench.save_bench_config = MagicMock()
-
-        bench.create_certificate()
-
-        debug_calls = mock_logger.debug.call_args_list
-        assert len(debug_calls) > 0
-        call_args, call_kwargs = debug_calls[0]
-        extra = call_kwargs["extra_fields"]
-        assert extra["operation"] == "ssl_create_certificate"
-        assert extra["bench_name"] == "test.localhost"
-
     def test_remove_certificate_logs_with_correct_extra(self, mock_bench_dependencies, mock_logger, mocker):
         """remove_certificate() should log with operation=ssl_remove_certificate."""
         mocker.patch.object(Bench, "__init__", lambda *args, **kwargs: None)

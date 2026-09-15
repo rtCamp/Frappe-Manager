@@ -13,7 +13,7 @@ from frappe_manager import (
     CLI_BENCHES_DIRECTORY,
     SiteServicesEnum,
 )
-from frappe_manager.docker import DOCKER_LINE_NOISE, ComposeFile, DockerClient, DockerException
+from frappe_manager.docker import DOCKER_LINE_NOISE, ComposeFile, DockerClient
 from frappe_manager.logger import get_logger, set_context
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.output_manager import OutputHandler
@@ -935,18 +935,6 @@ class Bench:
         """
         return self.database.get_connection_info(site)
 
-    def create_certificate(self):
-        extra = {"operation": "ssl_create_certificate", "bench_name": self.name}
-        self.logger.debug(f"Creating SSL certificate: {self.name}", extra_fields=extra)
-        try:
-            self.ssl.create_individual_certificates()
-            self.save_bench_config()
-            self.logger.info(f"SSL certificate created successfully: {self.name}", extra_fields=extra)
-        except Exception as e:
-            extra["error"] = str(e)
-            self.logger.exception(f"Failed to create SSL certificate: {self.name}", extra_fields=extra)
-            raise
-
     def has_certificate(self):
         return self.ssl.has_certificate()
 
@@ -1762,12 +1750,6 @@ class Bench:
             extra["error"] = str(e)
             self.logger.exception(f"Failed to sync admin tools compose for bench: {self.name}", extra_fields=extra)
             raise
-
-    def frappe_service_run_command(self, command: str):
-        try:
-            self.docker_client.compose.exec("frappe", command, user="frappe", stream=False)
-        except DockerException as e:
-            raise BenchException("frappe", f"Faild to run {command} in frappe service.")
 
     def get_apps_dev_requirements(self) -> list[str]:
         """Parse pip requirement string to package name and version"""

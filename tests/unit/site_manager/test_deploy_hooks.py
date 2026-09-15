@@ -11,14 +11,12 @@ from frappe_manager.site_manager.bench_config import (
     BuildHookScripts,
     SwitchConfig,
     SwitchHooks,
-    SwitchHookScripts,
 )
 from frappe_manager.site_manager.hooks import (
     app_has_build_hooks,
     hook_env,
     hook_script,
     resolve_hook_content,
-    switch_has_hooks,
 )
 from frappe_manager.utils.config_keys import collect_unknown_keys
 
@@ -80,17 +78,6 @@ def test_app_has_build_hooks_true_when_set():
     assert app_has_build_hooks(AppBuildHooks(host=BuildHookScripts(after_build="echo p"))) is True
 
 
-def test_switch_has_hooks_false_when_none_or_unset():
-    assert switch_has_hooks(None) is False
-    assert switch_has_hooks(SwitchHooks()) is False
-
-
-def test_switch_has_hooks_true_when_set():
-    assert switch_has_hooks(SwitchHooks(before_restart="echo r")) is True
-    # a host-side switch hook alone still counts.
-    assert switch_has_hooks(SwitchHooks(host=SwitchHookScripts(after_migrate="echo m"))) is True
-
-
 def test_app_has_build_hooks_ignores_a_stray_named_host_on_the_bare_base_class():
     """`host` is declared only on `AppBuildHooks`, not its own base `BuildHookScripts`. A stray
     `host` retained (`extra="allow"`) on a bare `BuildHookScripts` must never be treated as the
@@ -108,17 +95,6 @@ def test_app_has_build_hooks_ignores_a_stray_named_host_on_the_bare_base_class()
     # fm's build-hooks pipeline (and therefore a subprocess) runs at all stays False.
     assert app_has_build_hooks(stray_dict_host) is False
     assert app_has_build_hooks(stray_string_host) is False
-
-
-def test_switch_has_hooks_ignores_a_stray_named_host_on_the_bare_base_class():
-    """Same guarantee as `app_has_build_hooks`, for the switch-phase hook scripts."""
-    stray_dict_host = SwitchHookScripts.model_validate({"host": {"before_restart": "echo host"}})
-    stray_string_host = SwitchHookScripts.model_validate({"host": "not-a-real-host-block"})
-
-    assert collect_unknown_keys(stray_dict_host) == ["host"]
-    assert collect_unknown_keys(stray_string_host) == ["host"]
-    assert switch_has_hooks(stray_dict_host) is False
-    assert switch_has_hooks(stray_string_host) is False
 
 
 def test_a_misspelled_hook_name_inside_host_is_retained_but_never_read_as_a_hook():

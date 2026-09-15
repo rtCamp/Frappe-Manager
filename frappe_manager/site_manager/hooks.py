@@ -74,16 +74,3 @@ def app_has_build_hooks(hooks) -> bool:
         return True
     host = declared_field(hooks, "host")
     return host is not None and any(declared_field(host, name) for name in fields)
-
-
-def switch_has_hooks(hooks) -> bool:
-    """True when any switch-phase hook (container or host) is set on ``hooks``. See
-    `app_has_build_hooks` for why every read goes through `declared_field`."""
-    if hooks is None:
-        return False
-    fields = ("before_restart", "after_restart", "before_migrate", "after_migrate")
-    if any(declared_field(hooks, name) for name in fields):
-        return True
-    host = declared_field(hooks, "host")
-    return host is not None and any(declared_field(host, name) for name in fields)
-

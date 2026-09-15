@@ -71,7 +71,6 @@ class JSONOutputHandler(OutputHandler):
         super().__init__(verbose)
         self.events: list[OutputEvent] = []
         self._current_head: str | None = None
-        self._is_started: bool = False
         self.persist_file = persist_to_file
 
     def _add_event(self, event: OutputEvent) -> None:
@@ -96,7 +95,6 @@ class JSONOutputHandler(OutputHandler):
         """
         super().start(text)
         self._current_head = text
-        self._is_started = True
         self._add_event(OutputEvent("start", {"text": text}))
 
     def change_head(self, text: str, style: str | None = None) -> None:
@@ -129,7 +127,6 @@ class JSONOutputHandler(OutputHandler):
         Stop the current operation status display.
         """
         super().stop()
-        self._is_started = False
         self._add_event(OutputEvent("stop", {}))
 
     def print(self, text: str, emoji_code: str = ":zap:", prefix: str | None = None, **kwargs) -> None:
@@ -384,20 +381,3 @@ class JSONOutputHandler(OutputHandler):
             List of event dictionaries
         """
         return [event.to_dict() for event in self.events]
-
-    def get_events_json(self) -> str:
-        """
-        Get all captured events as JSON string.
-
-        Returns:
-            JSON string containing all events
-        """
-        return json.dumps(self.get_events(), indent=2)
-
-    def clear_events(self) -> None:
-        """
-        Clear all captured events.
-        """
-        self.events.clear()
-        self._current_head = None
-        self._is_started = False

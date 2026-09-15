@@ -1508,36 +1508,3 @@ class BenchOrchestrator:
 
         self.output.print("Applied configuration changes")
 
-    def _restart_services_with_updated_config(self):
-        """Restart all bench services with updated configuration."""
-        bench = self.bench
-
-        self.output.change_head("Updating services")
-        bench.docker_client.compose.stop(services=[], timeout=10)
-
-        nginx_config_path = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
-        if nginx_config_path.exists():
-            nginx_config_path.unlink()
-
-        bench.generate_compose(bench.bench_config.export_to_compose_inputs())
-        bench.docker_client.compose.up(
-            services=[],
-            detach=True,
-            pull="never",
-            force_recreate=True,
-        )
-
-        if bench.admin_tools.compose_file_manager.compose_path.exists():
-            bench.admin_tools.enable(force_recreate_container=True)
-
-        bench.site_manager.wait_for_required_services()
-
-        if bench.workers.compose_file_manager.exists():
-            bench.workers.docker_client.compose.up(
-                services=[],
-                detach=True,
-                pull="never",
-                force_recreate=True,
-            )
-
-        self.output.print("Services restarted with updated configuration")

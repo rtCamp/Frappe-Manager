@@ -836,15 +836,24 @@ class TestNginxSiteAliasRollout:
         monkeypatch.setattr(f"{SHAPE_MODULE}.apply_specs", MagicMock())
         monkeypatch.setattr(f"{DOCKER_MODULE}.get_proxy_ip_on_frontend", lambda: None)
 
+    @staticmethod
+    def _alias(ops, service, network):
+        """Read the aliases straight off the yml: the old ComposeFile.get_network_alias
+        accessor was production-dead and removed; the behavior under test is
+        generate_compose's set_network_alias write, not the accessor."""
+        networks = ops.compose_file_manager.yml["services"][service].get("networks") or {}
+        entry = networks.get(network)
+        return entry.get("aliases") if isinstance(entry, dict) else None
+
     @pytest.mark.timeout(15)
     def test_a_bench_that_predates_the_alias_gets_it_retrofitted_on_the_next_regen(self, tmp_path, monkeypatch):
         ops = self._real_ops_with_nginx(tmp_path, pre_existing_alias=False)
         self._patch_shape(monkeypatch)
-        assert ops.compose_file_manager.get_network_alias("nginx", "site-network") is None
+        assert self._alias(ops, "nginx", "site-network") is None
 
         ops.generate_compose({})
 
-        assert ops.compose_file_manager.get_network_alias("nginx", "site-network") == ["nginx-site"]
+        assert self._alias(ops, "nginx", "site-network") == ["nginx-site"]
 
     @pytest.mark.timeout(15)
     def test_a_bench_that_already_has_the_alias_keeps_exactly_one_regardless_of_repeat_regens(
@@ -857,7 +866,7 @@ class TestNginxSiteAliasRollout:
         ops.generate_compose({})
         ops.generate_compose({})
 
-        assert ops.compose_file_manager.get_network_alias("nginx", "site-network") == ["nginx-site"]
+        assert self._alias(ops, "nginx", "site-network") == ["nginx-site"]
 
     @pytest.mark.timeout(15)
     def test_the_alias_survives_alongside_the_global_frontend_network_entry(self, tmp_path, monkeypatch):
@@ -2204,27 +2213,6 @@ class TestRestartSupervisorService:
         sup.docker_client.compose.exec.assert_not_called()
         assert sleeps == []
         sup.output.warning.assert_not_called()
-
-
-class TestRunFrappeCommand:
-    @pytest.mark.timeout(15)
-    def test_a_command_runs_unstreamed_as_frappe(self):
-        sup = _supervisor()
-
-        sup._run_frappe_command("bench build")
-
-        sup.docker_client.compose.exec.assert_called_once_with("frappe", "bench build", user="frappe", stream=False)
-
-    @pytest.mark.timeout(15)
-    def test_a_docker_failure_becomes_a_bench_exception_naming_the_command(self):
-        """The docker traceback is useless to an operator; the command is not."""
-        from frappe_manager.site_manager.exceptions import BenchException
-
-        sup = _supervisor()
-        sup.docker_client.compose.exec.side_effect = _docker_exception("exit 1")
-
-        with pytest.raises(BenchException, match="Failed to run bench build in frappe service"):
-            sup._run_frappe_command("bench build")
 
 
 class TestSetupNewrelicFailure:

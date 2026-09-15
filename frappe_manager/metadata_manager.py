@@ -127,8 +127,7 @@ def recognised_fm_config_keys() -> frozenset[str]:
 
 def recognised_global_migration_state_keys() -> frozenset[str]:
     """Every `[migration_state]` key this file itself gives meaning to: `system_migrated_to`,
-    read in `get_system_migration_version` and written in `set_system_migration_version`/
-    `_ensure_migration_state`.
+    read in `get_system_migration_version` and written in `set_system_migration_version`.
 
     `[migration_state]` is kept as a raw dict in `_raw_config`, never a pydantic field (see the
     `extra="allow"` comment on `FMConfigManager` below and `import_from_toml`'s handling of the
@@ -145,7 +144,7 @@ class FMConfigManager(BaseModel):
     # used to be silently dropped -- `import_from_toml` builds `input_data` by hand and never
     # named it, so the warning below fired once and `export_to_toml`'s `toml_document.apply` prune
     # deleted the evidence on the very next ordinary write, including the first `[migration_state]`
-    # write every host gets from `_ensure_migration_state`. Retained the same way `BenchConfig`
+    # write every host gets from `set_system_migration_version`. Retained the same way `BenchConfig`
     # retains one (see `retained_top_level` in bench_config.py): fm never deletes a key it does not
     # understand, at any depth.
     model_config = ConfigDict(extra="allow")
@@ -196,17 +195,6 @@ class FMConfigManager(BaseModel):
 
         self._raw_config["migration_state"]["system_migrated_to"] = str(version.version)
         self.export_to_toml()
-
-    def _ensure_migration_state(self) -> None:
-        """Ensure migration_state exists in config."""
-        if not hasattr(self, "_raw_config"):
-            self._raw_config = {}
-
-        if "migration_state" not in self._raw_config:
-            self._raw_config["migration_state"] = {
-                "system_migrated_to": str(self.version.version),
-            }
-            self.export_to_toml()
 
     def export_to_toml(self, path: Path = CLI_FM_CONFIG_PATH) -> None:
         # dns_providers is written by hand below, nested under [ssl]; leaving it in the dump would

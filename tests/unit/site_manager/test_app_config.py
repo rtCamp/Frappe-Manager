@@ -359,7 +359,6 @@ class TestAppBatchValidationResult:
         batch = AppBatchValidationResult(results)
 
         assert batch.all_valid is True
-        assert batch.success_count == 2
         assert batch.failure_count == 0
 
     def test_all_valid_returns_false_with_failures(self):
@@ -370,7 +369,6 @@ class TestAppBatchValidationResult:
         batch = AppBatchValidationResult(results)
 
         assert batch.all_valid is False
-        assert batch.success_count == 1
         assert batch.failure_count == 1
 
     def test_messages_returns_all_display_messages(self):

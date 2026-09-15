@@ -675,22 +675,6 @@ def test_standalone_and_monorepo_apps_are_routed_to_different_destinations(tmp_p
 # --------------------------------------------------------------------------- AppCloner: validation delegation
 
 
-def test_validate_repos_exist_delegates_and_unpacks_the_batch_result(monkeypatch):
-    """The deprecated shim must keep returning the (all_valid, messages) tuple shape."""
-    seen = {}
-
-    def fake_batch(apps, github_token=None):
-        seen["apps"] = apps
-        seen["token"] = github_token
-        return SimpleNamespace(all_valid=False, messages=["ok erpnext", "failed hrms"])
-
-    monkeypatch.setattr(AppConfig, "validate_repos_batch", staticmethod(fake_batch))
-    apps = [_app("erpnext", "frappe/erpnext")]
-
-    assert AppCloner.validate_repos_exist(apps, "ghp_secret") == (False, ["ok erpnext", "failed hrms"])
-    assert seen == {"apps": apps, "token": "ghp_secret"}
-
-
 # --------------------------------------------------------------------------- BenchDevTools: fixtures
 
 

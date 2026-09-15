@@ -6,8 +6,7 @@ handed to it, plus the filesystem side effects and the error translation.
 
 What is defended here, and why each one is load-bearing:
 
-* **argv construction** (``remove_app_from_env``,
-  ``install_app_to_site``, ``build``, ``_install_python_deps_with_uv``,
+* **argv construction** (``install_app_to_site``, ``build``, ``_install_python_deps_with_uv``,
   ``_install_node_deps``). A wrong flag still "works" all the way down to
   ``bench``, which then does something subtly different -- ``--overwrite`` that
   silently stopped being emitted would turn a re-install into a hard failure, and
@@ -51,7 +50,6 @@ from frappe_manager.site_manager.exceptions import (
     BenchOperationBenchAppInSiteFailed,
     BenchOperationBenchBuildFailed,
     BenchOperationBenchInstallAppInPythonEnvFailed,
-    BenchOperationBenchRemoveAppFromPythonEnvFailed,
     BenchOperationException,
 )
 from frappe_manager.site_manager.modules import db_tls
@@ -253,53 +251,6 @@ class TestMergeAppOverrides:
         current = [AppConfig.from_string("frappe"), AppConfig.from_string("erpnext")]
 
         assert [a.name for a in merge_app_overrides(current, [])] == ["frappe", "erpnext"]
-
-
-class TestRemoveAppFromEnv:
-    """``bench remove-app`` argv: underscores become dashes, app goes LAST."""
-
-    def test_default_argv_emits_both_flags(self, tmp_path):
-        manager = _manager(tmp_path)
-        manager._container_run = MagicMock()
-
-        manager.remove_app_from_env("erpnext")
-
-        assert _commands(manager) == [f"{BENCH_CLI} remove-app --no-backup --force erpnext"]
-
-    @pytest.mark.parametrize(
-        ("no_backup", "force", "expected"),
-        [
-            (False, True, f"{BENCH_CLI} remove-app --force erpnext"),
-            (True, False, f"{BENCH_CLI} remove-app --no-backup erpnext"),
-            (False, False, f"{BENCH_CLI} remove-app erpnext"),
-        ],
-    )
-    def test_each_flag_is_independently_droppable(self, tmp_path, no_backup, force, expected):
-        manager = _manager(tmp_path)
-        manager._container_run = MagicMock()
-
-        manager.remove_app_from_env("erpnext", no_backup=no_backup, force=force)
-
-        assert _commands(manager) == [expected]
-
-    def test_carries_the_remove_from_env_failure_object(self, tmp_path):
-        manager = _manager(tmp_path)
-        manager._container_run = MagicMock()
-
-        manager.remove_app_from_env("erpnext")
-
-        failure = manager._container_run.call_args.kwargs["on_failure"]()
-        assert isinstance(failure, BenchOperationBenchRemoveAppFromPythonEnvFailed)
-        assert (failure.bench_name, failure.app_name) == (BENCH, "erpnext")
-
-    def test_docker_failure_surfaces_as_the_remove_exception(self, tmp_path, quiet_failure_rendering):
-        manager = _manager(tmp_path)
-        manager.docker_client.compose.exec.side_effect = _docker_failure()
-
-        with pytest.raises(BenchOperationBenchRemoveAppFromPythonEnvFailed) as excinfo:
-            manager.remove_app_from_env("erpnext")
-
-        assert excinfo.value.output.combined == ["boom"]
 
 
 class TestInstallAppToSite:
@@ -829,33 +780,6 @@ class TestUpdateAppsListWithCorrectedNames:
         names = [a.name for a in manager.bench_config.apps_list]
         assert names == ["frappe", "hrms"]
         assert manager.bench_config.apps_list[0].ref == "v15"
-
-
-class TestGetInstalledAppsList:
-    """Only directories under ``apps/`` count as installed apps."""
-
-    def test_returns_directories_and_ignores_files(self, tmp_path):
-        frappe_bench = _bench_layout(tmp_path, existing_apps=("frappe", "erpnext"))
-        (frappe_bench / "apps" / "apps.txt").write_text("noise")
-        manager = _manager(tmp_path)
-
-        found = manager.get_installed_apps_list()
-
-        assert sorted(p.name for p in found) == ["erpnext", "frappe"]
-        assert all(p.is_dir() for p in found)
-
-    def test_empty_apps_dir_yields_an_empty_list(self, tmp_path):
-        _bench_layout(tmp_path)
-
-        assert _manager(tmp_path).get_installed_apps_list() == []
-
-    def test_a_missing_apps_dir_raises_rather_than_returning_empty(self, tmp_path):
-        # SUSPICION: callers get an OSError, not an empty list, when the bench has
-        # not been provisioned yet.
-        manager = _manager(tmp_path)
-
-        with pytest.raises(FileNotFoundError):
-            manager.get_installed_apps_list()
 
 
 # --------------------------------------------------------------------------------------

@@ -77,8 +77,6 @@ class BenchSiteManager:
         ...     services=services,
         ... )
         >>> site_manager.create_site(admin_pass="admin")
-        >>> if site_manager.is_site_created():
-        ...     print("Site created successfully")
     """
 
     def __init__(
@@ -118,26 +116,6 @@ class BenchSiteManager:
 
         self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
         self.bench_cli_cmd = ["/opt/user/.bin/bench"]
-
-    def is_site_created(self, site_name: str | None = None) -> bool:
-        """
-        Check if a Frappe site exists in the bench.
-
-        Args:
-            site_name: Name of the site to check. Defaults to bench_name.
-
-        Returns:
-            True if the site exists, False otherwise.
-
-        Example:
-            >>> if site_manager.is_site_created():
-            ...     print("Site already exists")
-        """
-        if site_name is None:
-            site_name = self.bench_name
-
-        site_path: Path = self.frappe_bench_dir / "sites" / site_name
-        return site_path.exists()
 
     def wait_for_required_services(self, timeout: int = 120) -> None:
         """

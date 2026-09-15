@@ -262,7 +262,7 @@ class AppCloner:
         NOTE: This method should ONLY be called for standalone apps (app.subdir_path is None).
         Subdirectory apps are handled by _clone_monorepo_apps() for efficiency.
 
-        If app.repo_url is set (by validate_repos_exist), it will be used directly
+        If app.repo_url is set (by AppConfig.validate_repository), it will be used directly
         without trying other authentication methods. This avoids redundant auth attempts.
 
         Args:
@@ -383,22 +383,3 @@ class AppCloner:
         if app.is_commit:
             self.logger.debug(f"Checking out commit {app.ref} for {app.name}")
             repo.git.checkout(app.ref)
-
-    @staticmethod
-    def validate_repos_exist(apps: list[AppConfig], github_token: str | None = None) -> tuple[bool, list[str]]:
-        """
-        Validate that all app repositories exist before attempting to clone.
-
-        DEPRECATED: This method now delegates to AppConfig.validate_repos_batch().
-        New code should call AppConfig.validate_repos_batch() directly.
-
-        Args:
-            apps: List of AppConfig objects to validate (modified in-place)
-            github_token: Optional GitHub token for private repos
-
-        Returns:
-            Tuple of (all_valid: bool, messages: List[str])
-            Messages include both success (✓) and error (❌) messages with auth method details
-        """
-        result = AppConfig.validate_repos_batch(apps, github_token)
-        return (result.all_valid, result.messages)

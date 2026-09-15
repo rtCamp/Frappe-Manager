@@ -165,8 +165,6 @@ class DockerComposeWrapper:
         if override_path.exists():
             self.docker_compose_cmd += ["-f", override_path.as_posix()]
 
-        self._context_services: list[str] | None = None
-
     @overload
     def up(
         self,
@@ -653,26 +651,6 @@ class DockerComposeWrapper:
         except Exception:
             return False
 
-    def get_service_status(self, service: str) -> dict | None:
-        """
-        Get detailed status for a service.
-
-        Args:
-            service: Service name
-
-        Returns:
-            Dict with status info or None if not found
-        """
-        try:
-            output = self.ps(service=[service], format="json", all=True, stream=False)
-            if output.stdout:
-                import json
-
-                return json.loads(output.stdout[0])
-            return None
-        except Exception:
-            return None
-
     def get_all_services_status(self) -> list[dict]:
         """
         Get status for all services in compose file.
@@ -690,129 +668,3 @@ class DockerComposeWrapper:
         except Exception:
             pass
         return statuses
-
-    def wait_for_service(self, service: str, timeout: int = 30, check_interval: float = 0.5) -> bool:
-        """
-        Wait for a service to be running.
-
-        Args:
-            service: Service name
-            timeout: Max seconds to wait
-            check_interval: Seconds between checks
-
-        Returns:
-            True if service started, False if timeout
-        """
-        import time
-
-        start_time = time.time()
-
-        while time.time() - start_time < timeout:
-            if self.is_service_running(service):
-                return True
-            time.sleep(check_interval)
-
-        return False
-
-    def exec_capture(self, service: str, command: str, **kwargs) -> SubprocessOutput:
-        """
-        Execute command and capture output (stream=False wrapper).
-
-        Args:
-            service: Service name
-            command: Command to execute
-            **kwargs: Additional exec arguments
-
-        Returns:
-            SubprocessOutput with stdout/stderr/exit_code
-        """
-        kwargs["stream"] = False
-        return self.exec(service=service, command=command, **kwargs)
-
-    def exec_stream(self, service: str, command: str, **kwargs) -> Iterable[tuple[str, bytes]]:
-        """
-        Execute command and stream output (stream=True wrapper).
-
-        Args:
-            service: Service name
-            command: Command to execute
-            **kwargs: Additional exec arguments
-
-        Returns:
-            Iterator of (source, line) tuples
-        """
-        kwargs["stream"] = True
-        return self.exec(service=service, command=command, **kwargs)
-
-    # Context Manager Support
-
-    def __enter__(self) -> "DockerComposeWrapper":
-        """
-        Enter context manager - returns self for use in 'with' statement.
-
-        Returns:
-            Self for method chaining
-
-        Example:
-            with DockerComposeWrapper(path).with_auto_cleanup() as compose:
-                compose.up(detach=True, stream=False)
-                # Work with compose...
-                # Auto-cleanup on exit
-        """
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
-        """
-        Exit context manager - performs cleanup if services are registered.
-
-        Args:
-            exc_type: Exception type (if any)
-            exc_val: Exception value (if any)
-            exc_tb: Exception traceback (if any)
-
-        Returns:
-            False (does not suppress exceptions)
-
-        Note:
-            If services were registered via with_auto_cleanup(), this will
-            call down() to stop and remove containers. Cleanup errors are
-            silently ignored (best-effort cleanup).
-        """
-        if self._context_services is not None:
-            try:
-                # Best effort cleanup - don't fail if cleanup fails
-                self.down(remove_orphans=True, stream=False)
-            except Exception:
-                pass  # Silently ignore cleanup errors
-
-        # Don't suppress exceptions - return False
-        return False
-
-    def with_auto_cleanup(self, services: list[str] | None = None) -> "DockerComposeWrapper":
-        """
-        Register services for automatic cleanup when context exits.
-
-        Args:
-            services: List of service names to cleanup. If None, all services
-                     in the compose file will be cleaned up.
-
-        Returns:
-            Self for method chaining
-
-        Example:
-            # Cleanup all services
-            with DockerComposeWrapper(path).with_auto_cleanup() as compose:
-                compose.up(detach=True, stream=False)
-                # Auto-cleanup on exit
-
-            # Cleanup specific services
-            with DockerComposeWrapper(path).with_auto_cleanup(['redis', 'db']) as compose:
-                compose.up(services=['redis', 'db'], detach=True, stream=False)
-                # Auto-cleanup on exit
-
-        Note:
-            Must be used with context manager (with statement).
-            Cleanup happens even if an exception occurs.
-        """
-        self._context_services = services if services is not None else []
-        return self

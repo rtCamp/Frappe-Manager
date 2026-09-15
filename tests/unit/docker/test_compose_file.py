@@ -9,7 +9,7 @@ Tests cover:
 - Auto-save behavior
 """
 
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import mock_open, patch
 
 import pytest
 from ruamel.yaml.comments import CommentedMap as OrderedDict
@@ -63,7 +63,7 @@ class TestBuilderPatternBasics:
         """Test that with_envs queues changes without applying."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 envs = {"frappe": {"KEY": "value"}}
                 result = cf.with_envs(envs)
@@ -82,7 +82,7 @@ class TestBuilderPatternBasics:
         """Test that with_labels queues changes without applying."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 labels = {"frappe": {"traefik.enable": "true"}}
                 result = cf.with_labels(labels)
@@ -95,7 +95,7 @@ class TestBuilderPatternBasics:
         """Test that with_prefix queues changes."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 result = cf.with_prefix("mysite", "site-network")
 
@@ -107,7 +107,7 @@ class TestBuilderPatternBasics:
         """Test that with_version queues changes."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 result = cf.with_version("0.2.0")
 
@@ -119,7 +119,7 @@ class TestBuilderPatternBasics:
         """Test that with_users queues changes."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 users = {"frappe": {"uid": "1001", "gid": "1001"}}
                 result = cf.with_users(users)
@@ -127,19 +127,6 @@ class TestBuilderPatternBasics:
                 assert result is cf
                 assert len(cf._pending_changes) == 1
                 assert cf._pending_changes[0] == ("users", users)
-
-    def test_with_images_queues_change(self, temp_compose_yml, sample_yml_content):
-        """Test that with_images queues changes."""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-
-                images = {"frappe": {"image": "frappe:v14"}}
-                result = cf.with_images(images)
-
-                assert result is cf
-                assert len(cf._pending_changes) == 1
-                assert cf._pending_changes[0] == ("images", images)
 
 
 class TestBuilderChaining:
@@ -149,7 +136,7 @@ class TestBuilderChaining:
         """Test chaining multiple with_* methods."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 envs = {"frappe": {"KEY": "value"}}
                 labels = {"frappe": {"label": "value"}}
@@ -169,7 +156,7 @@ class TestBuilderChaining:
         """Test chaining ending with commit."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 with patch.object(cf, "write_to_file") as mock_write:
                     result = cf.with_envs({"frappe": {"KEY": "value"}}).commit()
@@ -194,7 +181,7 @@ class TestTransactionSupport:
         """Test that commit applies all pending changes."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 cf._pending_changes = [
                     ("envs", {"frappe": {"KEY1": "value1"}}, True),
@@ -215,7 +202,7 @@ class TestTransactionSupport:
         """Test that commit writes to file."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 cf._pending_changes = [("version", "0.2.0")]
 
@@ -227,7 +214,7 @@ class TestTransactionSupport:
         """Test that rollback discards pending changes."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 original_env = dict(cf.yml["services"]["frappe"]["environment"])
 
@@ -252,7 +239,7 @@ class TestTransactionSupport:
         """Test that rollback does not write to file."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 cf._pending_changes = [("version", "0.2.0")]
 
@@ -268,7 +255,7 @@ class TestContextManager:
         """Test that context manager saves changes on successful exit."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 with patch.object(cf, "write_to_file") as mock_write:
                     with cf:
@@ -282,7 +269,7 @@ class TestContextManager:
         """Test that context manager rolls back changes on error."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 original_version = cf.yml["x-version"]
 
@@ -304,7 +291,7 @@ class TestContextManager:
         """Test that context manager creates a snapshot on entry."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 assert cf._snapshot is None
 
@@ -321,7 +308,7 @@ class TestAtomicConfigurationMethods:
         """Test that configure_bench sets all configuration at once."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 envs = {"frappe": {"DB_HOST": "db"}}
                 labels = {"frappe": {"label": "value"}}
@@ -351,7 +338,7 @@ class TestAtomicConfigurationMethods:
         """Test that configure_bench saves when auto_save=True."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 with patch.object(cf, "write_to_file") as mock_write:
                     cf.configure_bench(
@@ -366,7 +353,7 @@ class TestAtomicConfigurationMethods:
         """Test that configure_service sets all service configuration."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 env = {"DB_HOST": "db"}
                 labels = {"traefik.enable": "true"}
@@ -392,7 +379,7 @@ class TestAtomicConfigurationMethods:
         """Test that configure_bench handles tuple user format."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 # Use tuple format for users
                 users = {"frappe": (1000, 100), "nginx": (1001, 101)}
@@ -413,7 +400,7 @@ class TestAtomicConfigurationMethods:
         """Test that configure_bench handles dict user format."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 # Use dict format for users
                 users = {"frappe": {"uid": "1000", "gid": "100"}}
@@ -430,26 +417,6 @@ class TestAtomicConfigurationMethods:
                 assert cf.yml["services"]["frappe"]["user"] == "1000:100"
 
 
-class TestAutoSaveBehavior:
-    """Test auto-save parameter behavior."""
-
-    def test_auto_save_true_by_default(self, temp_compose_yml, sample_yml_content):
-        """Test that auto_save defaults to True."""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml)
-
-                assert cf._auto_save is True
-
-    def test_auto_save_false_when_specified(self, temp_compose_yml, sample_yml_content):
-        """Test that auto_save can be set to False."""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-
-                assert cf._auto_save is False
-
-
 class TestApplyChange:
     """Test the _apply_change internal method."""
 
@@ -457,7 +424,7 @@ class TestApplyChange:
         """Test applying envs change."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 change = ("envs", {"frappe": {"KEY": "value"}}, True)
                 cf._apply_change(change)
@@ -468,7 +435,7 @@ class TestApplyChange:
         """Test applying labels change."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 change = ("labels", {"frappe": {"label": "value"}})
                 cf._apply_change(change)
@@ -479,7 +446,7 @@ class TestApplyChange:
         """Test applying version change."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 change = ("version", "0.2.0")
                 cf._apply_change(change)
@@ -490,87 +457,12 @@ class TestApplyChange:
         """Test applying prefix change."""
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
+                cf = ComposeFile(temp_compose_yml)
 
                 change = ("prefix", "mysite", "site-network")
                 cf._apply_change(change)
 
                 assert cf.yml["services"]["frappe"]["container_name"] == "mysite__frappe"
-
-
-class TestMigrateImages:
-    """Test migrate_images() method for batch image updates"""
-
-    def test_migrate_images_updates_tags(self, temp_compose_yml, sample_yml_content):
-        """Test that migrate_images updates multiple image tags"""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-
-                tag_updates = {
-                    "frappe": "v14",
-                    "nginx": "v1.21",
-                }
-
-                result = cf.migrate_images(tag_updates, auto_save=False)
-
-                assert result is cf  # Returns self
-                assert cf.yml["services"]["frappe"]["image"] == "frappe:v14"
-                assert cf.yml["services"]["nginx"]["image"] == "nginx:v1.21"
-
-    def test_migrate_images_with_version_update(self, temp_compose_yml, sample_yml_content):
-        """Test that migrate_images can also update compose version"""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-
-                tag_updates = {"frappe": "v15"}
-
-                cf.migrate_images(tag_updates, new_version="0.2.0", auto_save=False)
-
-                assert cf.yml["services"]["frappe"]["image"] == "frappe:v15"
-                assert cf.yml["x-version"] == "0.2.0"
-
-    def test_migrate_images_auto_save(self, temp_compose_yml, sample_yml_content):
-        """Test that migrate_images auto-saves when auto_save=True"""
-        with patch("builtins.open", mock_open()) as mock_file:
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-                cf.write_to_file = MagicMock()
-
-                cf.migrate_images({"frappe": "v14"}, auto_save=True)
-
-                cf.write_to_file.assert_called_once()
-
-    def test_migrate_images_skips_missing_services(self, temp_compose_yml, sample_yml_content):
-        """Test that migrate_images skips services not in compose file"""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-
-                tag_updates = {
-                    "frappe": "v14",
-                    "nonexistent": "v1.0",
-                }
-
-                # Should not raise error
-                cf.migrate_images(tag_updates, auto_save=False)
-
-                assert cf.yml["services"]["frappe"]["image"] == "frappe:v14"
-
-    def test_migrate_images_drops_a_stale_digest_when_retagging(self, temp_compose_yml):
-        """Retagging is an explicit request to move onto a new tag; keeping the old digest
-        alongside it would reconstruct "repo:new_tag@old_digest", pinning to content that
-        predates (and does not match) the tag just set."""
-        sample = {"version": "3", "services": {"frappe": {"image": "app@sha256:" + "a" * 64}}}
-        with (
-            patch("builtins.open", mock_open()),
-            patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample),
-        ):
-            cf = ComposeFile(temp_compose_yml, auto_save=False)
-            cf.migrate_images({"frappe": "v14"}, auto_save=False)
-
-        assert cf.yml["services"]["frappe"]["image"] == "app:v14"
 
 
 class TestGetAllImages:
@@ -586,7 +478,7 @@ class TestGetAllImages:
             patch("builtins.open", mock_open()),
             patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample),
         ):
-            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            cf = ComposeFile(temp_compose_yml)
             images = cf.get_all_images()
 
         assert images["frappe"] == {
@@ -604,7 +496,7 @@ class TestGetAllImages:
             patch("builtins.open", mock_open()),
             patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample),
         ):
-            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            cf = ComposeFile(temp_compose_yml)
             images = cf.get_all_images()
 
         assert images["frappe"] == {"name": "app", "tag": None, "digest": "sha256:aaaa", "image": "app@sha256:aaaa"}
@@ -615,7 +507,7 @@ class TestGetAllImages:
             patch("builtins.open", mock_open()),
             patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample),
         ):
-            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            cf = ComposeFile(temp_compose_yml)
             images = cf.get_all_images()
 
         assert images["frappe"] == {
@@ -633,7 +525,7 @@ class TestGetAllImages:
             patch("builtins.open", mock_open()),
             patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content),
         ):
-            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            cf = ComposeFile(temp_compose_yml)
             images = cf.get_all_images()
 
         assert images["frappe"] == {"name": "frappe", "tag": "latest", "digest": None, "image": "frappe"}
@@ -649,7 +541,7 @@ class TestSetAllImages:
             patch("builtins.open", mock_open()),
             patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content),
         ):
-            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            cf = ComposeFile(temp_compose_yml)
             cf.set_all_images({"frappe": {"name": "frappe", "tag": "v9"}})
 
         assert cf.yml["services"]["frappe"]["image"] == "frappe:v9"
@@ -659,7 +551,7 @@ class TestSetAllImages:
             patch("builtins.open", mock_open()),
             patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content),
         ):
-            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            cf = ComposeFile(temp_compose_yml)
             cf.set_all_images({"frappe": {"name": "app", "tag": None, "digest": "sha256:aaaa"}})
 
         assert cf.yml["services"]["frappe"]["image"] == "app@sha256:aaaa"
@@ -669,286 +561,10 @@ class TestSetAllImages:
             patch("builtins.open", mock_open()),
             patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content),
         ):
-            cf = ComposeFile(temp_compose_yml, auto_save=False)
+            cf = ComposeFile(temp_compose_yml)
             cf.set_all_images({"frappe": {"name": "app", "tag": "v1", "digest": "sha256:aaaa"}})
 
         assert cf.yml["services"]["frappe"]["image"] == "app:v1@sha256:aaaa"
-
-
-class TestUpdateHelperMethods:
-    """Test update helper methods (update_env, delete_env, update_label, update_image_tag)"""
-
-    def test_update_env_adds_new_variable(self, temp_compose_yml, sample_yml_content):
-        """Test that update_env adds a new environment variable"""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-
-                result = cf.update_env("frappe", "NEW_VAR", "new_value", auto_save=False)
-
-                assert result is cf  # Returns self
-                assert cf.yml["services"]["frappe"]["environment"]["NEW_VAR"] == "new_value"
-
-    def test_update_env_updates_existing_variable(self, temp_compose_yml, sample_yml_content):
-        """Test that update_env updates an existing environment variable"""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-                cf.yml["services"]["frappe"]["environment"]["EXISTING"] = "old_value"
-
-                cf.update_env("frappe", "EXISTING", "updated_value", auto_save=False)
-
-                assert cf.yml["services"]["frappe"]["environment"]["EXISTING"] == "updated_value"
-
-    def test_update_env_creates_environment_dict(self, temp_compose_yml, sample_yml_content):
-        """Test that update_env creates environment dict if missing"""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-                del cf.yml["services"]["frappe"]["environment"]
-
-                cf.update_env("frappe", "VAR", "value", auto_save=False)
-
-                assert "environment" in cf.yml["services"]["frappe"]
-                assert cf.yml["services"]["frappe"]["environment"]["VAR"] == "value"
-
-    def test_update_env_auto_save(self, temp_compose_yml, sample_yml_content):
-        """Test that update_env respects auto_save parameter"""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-                cf.write_to_file = MagicMock()
-
-                cf.update_env("frappe", "VAR", "value", auto_save=True)
-
-                cf.write_to_file.assert_called_once()
-
-    def test_delete_env_removes_variable(self, temp_compose_yml, sample_yml_content):
-        """Test that delete_env removes an environment variable"""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-                cf.yml["services"]["frappe"]["environment"]["TO_DELETE"] = "value"
-
-                result = cf.delete_env("frappe", "TO_DELETE", auto_save=False)
-
-                assert result is cf  # Returns self
-                assert "TO_DELETE" not in cf.yml["services"]["frappe"]["environment"]
-
-    def test_delete_env_handles_missing_key(self, temp_compose_yml, sample_yml_content):
-        """Test that delete_env handles missing keys gracefully"""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-
-                # Should not raise error
-                cf.delete_env("frappe", "NONEXISTENT", auto_save=False)
-
-    def test_update_label_adds_new_label(self, temp_compose_yml, sample_yml_content):
-        """Test that update_label adds a new label"""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-
-                result = cf.update_label("frappe", "app.version", "v14", auto_save=False)
-
-                assert result is cf  # Returns self
-                assert cf.yml["services"]["frappe"]["labels"]["app.version"] == "v14"
-
-    def test_update_label_creates_labels_dict(self, temp_compose_yml, sample_yml_content):
-        """Test that update_label creates labels dict if missing"""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-                del cf.yml["services"]["frappe"]["labels"]
-
-                cf.update_label("frappe", "new.label", "value", auto_save=False)
-
-                assert "labels" in cf.yml["services"]["frappe"]
-                assert cf.yml["services"]["frappe"]["labels"]["new.label"] == "value"
-
-    def test_update_image_tag_changes_tag(self, temp_compose_yml, sample_yml_content):
-        """Test that update_image_tag updates the image tag"""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-
-                result = cf.update_image_tag("frappe", "v15", auto_save=False)
-
-                assert result is cf  # Returns self
-                assert cf.yml["services"]["frappe"]["image"] == "frappe:v15"
-
-    def test_update_image_tag_preserves_image_name(self, temp_compose_yml, sample_yml_content):
-        """Test that update_image_tag preserves the image name"""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-                cf.yml["services"]["frappe"]["image"] = "frappe/frappe-socketio:v13"
-
-                cf.update_image_tag("frappe", "v14", auto_save=False)
-
-                assert cf.yml["services"]["frappe"]["image"] == "frappe/frappe-socketio:v14"
-
-    def test_update_image_tag_preserves_a_registry_host_port(self, temp_compose_yml, sample_yml_content):
-        """`current_image.split(":")[0]` used to grab up to the FIRST colon, turning
-        `localhost:5000/app:v1` into `localhost:v2` -- not a malformed string but a bench
-        silently pointed at a DIFFERENT image (the registry host kept as the whole name, the
-        port and the path both discarded). Reachable: `fm switch localhost:5000/app:v1` is a
-        legal target by design."""
-        with (
-            patch("builtins.open", mock_open()),
-            patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content),
-        ):
-            cf = ComposeFile(temp_compose_yml, auto_save=False)
-            cf.yml["services"]["frappe"]["image"] = "localhost:5000/app:v1"
-
-            cf.update_image_tag("frappe", "v2", auto_save=False)
-
-        assert cf.yml["services"]["frappe"]["image"] == "localhost:5000/app:v2"
-
-    def test_update_image_tag_refuses_a_digest_pinned_image(self, temp_compose_yml, sample_yml_content):
-        """A digest names exact content; there is no floating tag on it to move. The naive split
-        used to silently truncate it (`app@sha256:aaaa` -> name `app@sha256`, "tag" the hex), so
-        this must refuse instead of guessing."""
-        digest_ref = "app@sha256:" + "a" * 64
-        with (
-            patch("builtins.open", mock_open()),
-            patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content),
-        ):
-            cf = ComposeFile(temp_compose_yml, auto_save=False)
-            cf.yml["services"]["frappe"]["image"] = digest_ref
-
-            with pytest.raises(ValueError, match="digest"):
-                cf.update_image_tag("frappe", "v2", auto_save=False)
-
-        assert cf.yml["services"]["frappe"]["image"] == digest_ref  # left untouched
-
-    def test_update_helper_methods_chaining(self, temp_compose_yml, sample_yml_content):
-        """Test that helper methods can be chained"""
-        with patch("builtins.open", mock_open()):
-            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
-                cf = ComposeFile(temp_compose_yml, auto_save=False)
-
-                cf.update_env("frappe", "VAR1", "value1", auto_save=False).update_env(
-                    "frappe", "VAR2", "value2", auto_save=False
-                ).update_label("frappe", "label1", "val1", auto_save=False).update_image_tag(
-                    "frappe", "v14", auto_save=False
-                )
-
-                assert cf.yml["services"]["frappe"]["environment"]["VAR1"] == "value1"
-                assert cf.yml["services"]["frappe"]["environment"]["VAR2"] == "value2"
-                assert cf.yml["services"]["frappe"]["labels"]["label1"] == "val1"
-                assert cf.yml["services"]["frappe"]["image"] == "frappe:v14"
-
-
-class TestStaticTemplateMethods:
-    """Test static template access methods (load_template_yml, get_template_images, get_template_services)"""
-
-    def test_load_template_yml_returns_dict(self, tmp_path):
-        """Test that load_template_yml returns parsed YAML"""
-        template_yml = """
-version: '3'
-services:
-  web:
-    image: nginx:latest
-  db:
-    image: postgres:14
-"""
-        template_file = tmp_path / "test-template.yml"
-        template_file.write_text(template_yml)
-
-        with patch("frappe_manager.docker.compose_file.get_template_path", return_value=template_file):
-            yml = ComposeFile.load_template_yml("test-template.yml", str(tmp_path))
-
-            assert isinstance(yml, dict)
-            assert "services" in yml
-            assert "web" in yml["services"]
-            assert "db" in yml["services"]
-
-    def test_get_template_images_extracts_images(self, tmp_path):
-        """Test that get_template_images extracts all images"""
-        template_yml = """
-version: '3'
-services:
-  web:
-    image: nginx:1.21
-  db:
-    image: postgres:14
-  app:
-    image: myapp
-"""
-        template_file = tmp_path / "test-template.yml"
-        template_file.write_text(template_yml)
-
-        with patch("frappe_manager.docker.compose_file.get_template_path", return_value=template_file):
-            images = ComposeFile.get_template_images("test-template.yml", str(tmp_path))
-
-            assert len(images) == 3
-            assert images["web"]["name"] == "nginx"
-            assert images["web"]["tag"] == "1.21"
-            assert images["db"]["name"] == "postgres"
-            assert images["db"]["tag"] == "14"
-            assert images["app"]["name"] == "myapp"
-            assert images["app"]["tag"] == "latest"  # Default tag
-
-    def test_get_template_images_reports_registry_ports_and_digests(self, tmp_path):
-        """Templates are fm's own and never carry these shapes today, but get_template_images
-        shares `_image_report` with get_all_images, so it must handle them the same way rather
-        than crash on `image.split(":")` producing 3 parts."""
-        template_yml = """
-version: '3'
-services:
-  registry-port:
-    image: localhost:5000/app:v1
-  digest-pinned:
-    image: app@sha256:aaaa
-"""
-        template_file = tmp_path / "test-template.yml"
-        template_file.write_text(template_yml)
-
-        with patch("frappe_manager.docker.compose_file.get_template_path", return_value=template_file):
-            images = ComposeFile.get_template_images("test-template.yml", str(tmp_path))
-
-            assert images["registry-port"] == {
-                "name": "localhost:5000/app",
-                "tag": "v1",
-                "digest": None,
-                "image": "localhost:5000/app:v1",
-            }
-            assert images["digest-pinned"]["name"] == "app"
-            assert images["digest-pinned"]["tag"] is None
-            assert images["digest-pinned"]["digest"] == "sha256:aaaa"
-
-    def test_get_template_services_returns_list(self, tmp_path):
-        """Test that get_template_services returns service names"""
-        template_yml = """
-version: '3'
-services:
-  web:
-    image: nginx:latest
-  db:
-    image: postgres:14
-  cache:
-    image: redis:6
-"""
-        template_file = tmp_path / "test-template.yml"
-        template_file.write_text(template_yml)
-
-        with patch("frappe_manager.docker.compose_file.get_template_path", return_value=template_file):
-            services = ComposeFile.get_template_services("test-template.yml", str(tmp_path))
-
-            assert isinstance(services, list)
-            assert len(services) == 3
-            assert "web" in services
-            assert "db" in services
-            assert "cache" in services
-
-    def test_static_methods_are_classmethods(self):
-        """Test that template methods can be called without instantiation"""
-        # Should not raise error - can call on class
-        assert callable(ComposeFile.load_template_yml)
-        assert callable(ComposeFile.get_template_images)
-        assert callable(ComposeFile.get_template_services)
 
 
 class TestServiceProfileDisabled:
@@ -957,7 +573,7 @@ class TestServiceProfileDisabled:
     def _make_cf(self, temp_compose_yml, yml_content):
         with patch("builtins.open", mock_open()):
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=yml_content):
-                return ComposeFile(temp_compose_yml, auto_save=False)
+                return ComposeFile(temp_compose_yml)
 
     def test_disabled_profile_as_list(self, temp_compose_yml, sample_yml_content):
         sample_yml_content["services"]["frappe"]["profiles"] = ["disabled"]

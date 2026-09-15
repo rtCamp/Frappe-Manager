@@ -218,23 +218,6 @@ class BenchSupervisor:
         )
         return True
 
-    def _run_frappe_command(self, command: str) -> None:
-        """
-        Run a command in the frappe service.
-
-        Args:
-            command: Command to execute
-
-        Raises:
-            DockerException: If command fails
-        """
-        try:
-            self.docker_client.compose.exec("frappe", command, user="frappe", stream=False)
-        except DockerException as e:
-            from frappe_manager.site_manager.exceptions import BenchException
-
-            raise BenchException("frappe", f"Failed to run {command} in frappe service.")
-
     def _get_gunicorn_workers(self) -> int:
         import psutil
 

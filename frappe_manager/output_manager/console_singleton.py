@@ -49,15 +49,3 @@ def get_stderr_console() -> Console:
     if _stderr_console is None:
         _stderr_console = Console(stderr=True, theme=_default_theme())
     return _stderr_console
-
-
-def reset_consoles() -> None:
-    """
-    Reset console singletons to None.
-
-    Useful for testing scenarios where fresh Console instances are needed.
-    Not typically needed in production code.
-    """
-    global _stdout_console, _stderr_console
-    _stdout_console = None
-    _stderr_console = None

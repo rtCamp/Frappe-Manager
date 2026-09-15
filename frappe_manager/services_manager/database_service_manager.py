@@ -2,7 +2,7 @@ import json
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel
 
@@ -24,10 +24,6 @@ from frappe_manager.services_manager.services_exceptions import (
     DatabaseServiceUserRemoveFailError,
 )
 from frappe_manager.site_manager.exceptions import BenchException
-
-if TYPE_CHECKING:
-    # bench_config imports this module at module scope, so this one stays type-only.
-    from frappe_manager.site_manager.bench_config import DatabaseConfig
 
 
 # TODO this class will be used for validation for main config
@@ -70,24 +66,6 @@ class DatabaseServerServiceInfo(BaseModel):
             raise DatabaseServicePasswordNotFound(compose_service_name)
 
         return cls(**info)
-
-    @classmethod
-    def from_database_config(cls, db_config: "DatabaseConfig", password: str) -> "DatabaseServerServiceInfo":
-        """
-        Provides info about an external database server, from `[database."<site>"]`.
-
-        `password` is the SITE's own password, never a root or admin one. fm holds admin
-        credentials only for the duration of a create, and routes them into Frappe's own
-        provisioning call over stdin rather than through this object.
-        """
-        return cls(
-            host=db_config.host,
-            port=db_config.port,
-            name=db_config.name,
-            user=db_config.login_user,
-            password=password,
-            external=True,
-        )
 
     @classmethod
     def import_from_bench(cls, site_name: str, bench_path: Path, raise_exception=False, external: bool = False):
@@ -153,10 +131,6 @@ class DatabaseServiceManager(Protocol):
     ) -> None: ...
 
     def remove_user(self, db_user: str, db_user_host: str = "%", remove_all_host: bool = False): ...
-
-    def add_user(self, db_user: str, db_pass: str, db_user_host: str = "%", force: bool = False, timeout=25): ...
-
-    def grant_user_privilages(self, db_user: str, db_name: str): ...
 
     def check_user_exists(self, db_user: str): ...
 
@@ -379,34 +353,6 @@ class MariaDBManager(DatabaseServiceManager):
         self.db_run_query(
             remove_db_command,
             on_failure=lambda: DatabaseServiceDBRemoveFailError(db_name, self.database_server_info.host),
-        )
-
-    def grant_user_privilages(self, db_user: str, db_name: str):
-        grant_user_command = f"'GRANT ALL PRIVILEGES ON `{db_name}`.* TO `{db_user}`@`%`;'"
-        self.db_run_query(
-            grant_user_command,
-            on_failure=lambda: DatabaseServiceException(
-                self.database_server_info.host,
-                f"Failed to grant prvilages for user {db_user} on {db_name}.",
-            ),
-        )
-
-    def add_user(self, db_user: str, db_pass: str, db_user_host: str = "%", force: bool = False, timeout=25):
-        if self.check_user_exists(db_user, db_user_host):
-            if force:
-                self.remove_user(db_user, db_user_host)
-            else:
-                raise DatabaseServiceException(
-                    self.run_on_compose_service,
-                    f"User {db_user} for {db_user_host} already exists.",
-                )
-
-        add_user_command = f"'CREATE USER `{db_user}`@`%` IDENTIFIED BY \"{db_pass}\";'"
-        self.db_run_query(
-            add_user_command,
-            on_failure=lambda: DatabaseServiceException(
-                self.database_server_info.host, f"Failed to add user {db_user}."
-            ),
         )
 
     def db_export(self, db_name: str, export_file_path: str | Path):

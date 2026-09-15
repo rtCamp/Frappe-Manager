@@ -120,56 +120,6 @@ function pyenv_activate() {
 	uv_activate_default
 }
 
-function setup_fnm_and_yarn() {
-	version="$1"
-
-	[[ "${version:-}" ]] || emer "[ERROR] Please provide fnm version as first argument."
-
-	echo "Installing fnm v${version} system-wide..."
-	curl -fsSL https://fnm.vercel.app/install | bash -s -- --install-dir /tmp/fnm-install --skip-shell
-	mv /tmp/fnm-install/fnm /usr/local/bin/fnm
-	chmod +x /usr/local/bin/fnm
-	rm -rf /tmp/fnm-install
-
-	mkdir -p /opt/fnm
-	export FNM_DIR=/opt/fnm
-	export PATH="/usr/local/bin:$PATH"
-
-	eval "$(fnm env --shell bash)"
-
-	for node_ver in ${NODE_VERSIONS}; do
-		echo "Installing Node ${node_ver}..."
-		fnm install "${node_ver}" || echo "Failed to install Node ${node_ver}"
-	done
-
-	NODE_VERSION="${NODE_VERSIONS%% *}"
-	echo "Setting default Node version to ${NODE_VERSION}..."
-	fnm default "${NODE_VERSION}"
-
-	eval "$(fnm env --shell bash)"
-
-	# Set FNM_COREPACK_ENABLED to auto-enable corepack for all Node versions
-	export FNM_COREPACK_ENABLED=true
-
-	echo "Verifying yarn is available (auto-enabled by FNM_COREPACK_ENABLED)..."
-	if yarn --version >/dev/null 2>&1; then
-		echo "Yarn is available"
-	else
-		echo "WARNING: Yarn not available - corepack may have failed"
-	fi
-
-	chmod -R 755 /opt/fnm
-}
-
-get_pyvenv_version() {
-	local venv_cfg="$1"
-	local venv_version=""
-	if [[ -f "$venv_cfg" ]]; then
-		venv_version=$(grep "version_info" "$venv_cfg" | cut -d "=" -f 2 | tr -d ' ')
-	fi
-	echo "$venv_version"
-}
-
 function configure_workspace() {
 	start_time=$(date +%s.%N)
 

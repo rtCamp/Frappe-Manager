@@ -207,15 +207,3 @@ if ($redirect_to_https = 1) {
             return False
         text = vhost_file.read_text()
         return self.BLOCK_BEGIN in text or self.HTTPS_REDIRECT_CONFIG.strip("\n") in text
-
-    def get_config_path(self, domain: str) -> Path:
-        """
-        Get the path to the vhost.d config file for a domain.
-
-        Args:
-            domain: Domain name
-
-        Returns:
-            Path to the vhost.d config file (may not exist)
-        """
-        return self.vhostd_dir / domain

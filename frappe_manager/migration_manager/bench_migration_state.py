@@ -103,20 +103,3 @@ def bench_needs_migration(bench_path: Path, target_version: Version) -> bool:
     current = get_bench_migration_version(bench_path)
     return current < target_version
 
-
-def get_bench_migration_date(bench_path: Path) -> str | None:
-    """
-    Get last migration date for bench.
-
-    Args:
-        bench_path: Path to bench directory
-
-    Returns:
-        ISO format date string or None
-    """
-    bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
-
-    if not bench_config_path.exists():
-        return None
-
-    return _read_migration_state(bench_config_path).get("last_migration_date")

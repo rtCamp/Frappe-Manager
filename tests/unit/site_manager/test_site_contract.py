@@ -1160,18 +1160,6 @@ class TestGuards:
         assert '"keep": 1' in text
         assert '"db_name": "abc"' in text
 
-    def test_a_failed_in_container_command_is_reraised_as_a_bench_exception(self, harness):
-        harness.docker_client.compose.exec.side_effect = DockerException(["docker"], MagicMock())
-        with pytest.raises(BenchException) as excinfo:
-            harness.bench.frappe_service_run_command("bench version")
-        assert "bench version" in str(excinfo.value)
-
-    def test_a_successful_in_container_command_runs_as_the_frappe_user(self, harness):
-        harness.bench.frappe_service_run_command("bench version")
-        harness.docker_client.compose.exec.assert_called_once_with(
-            "frappe", "bench version", user="frappe", stream=False
-        )
-
     @pytest.mark.parametrize("bad", ["", "50", "M", "50MB", "1T", "-5M", "50 M"])
     def test_a_malformed_upload_limit_is_refused(self, harness, bad):
         with pytest.raises(BenchException) as excinfo:
@@ -1876,15 +1864,6 @@ class TestRestarts:
 
 
 class TestCertificateFacade:
-    def test_creating_a_certificate_persists_the_config_afterwards(self, harness):
-        bench = harness.bench
-        bench.ssl = MagicMock()
-        order = []
-        bench.ssl.create_individual_certificates.side_effect = lambda: order.append("mint")
-        with patch.object(Bench, "save_bench_config", side_effect=lambda *a, **k: order.append("save")):
-            bench.create_certificate()
-        assert order == ["mint", "save"]
-
     def test_removing_certificates_clears_the_config_list_then_saves(self, harness):
         bench = harness.bench
         bench.ssl = MagicMock()

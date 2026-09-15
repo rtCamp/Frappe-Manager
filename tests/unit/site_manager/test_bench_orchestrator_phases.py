@@ -2716,22 +2716,3 @@ def test_a_failure_puts_the_alias_list_back_the_way_it_was(tmp_path):
 
     assert _aliases(harness) == ["a.example.com"]
 
-
-def test_a_full_service_restart_regenerates_the_compose_between_stop_and_up(tmp_path):
-    """The heavier sibling of the lightweight alias update: everything goes down, the compose and
-    the vhost are rebuilt, then everything comes back and is waited for."""
-    harness = _Harness(_config(tmp_path), tmp_path)
-    harness.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = True
-    harness.bench.workers.compose_file_manager.exists.return_value = True
-    conf = harness.root / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
-    conf.parent.mkdir(parents=True)
-    conf.write_text("server { server_name old; }")
-
-    harness.orchestrator()._restart_services_with_updated_config()
-
-    assert conf.exists() is False
-    harness.events.before("compose_stop", "generate_compose")
-    harness.events.before("generate_compose", "compose_up")
-    harness.events.before("compose_up", "admin_tools_enable(force_recreate_container=True)")
-    harness.events.before("admin_tools_enable", "wait_for_services")
-    harness.events.before("wait_for_services", "workers_up")

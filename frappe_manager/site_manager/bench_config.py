@@ -390,11 +390,6 @@ class AppBatchValidationResult:
         return all(r.success for r in self.results)
 
     @property
-    def success_count(self) -> int:
-        """Count of successfully validated apps."""
-        return sum(1 for r in self.results if r.success)
-
-    @property
     def failure_count(self) -> int:
         """Count of failed validations."""
         return sum(1 for r in self.results if not r.success)

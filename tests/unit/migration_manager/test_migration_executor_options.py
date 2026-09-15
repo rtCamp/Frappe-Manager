@@ -2,31 +2,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from frappe_manager.migration_manager.migration_executor import MigrationExecutor, needs_migration
+from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.migration_manager.version import Version
-
-
-class TestNeedsMigration:
-    def test_needs_migration_when_current_version_higher(self, mock_fm_config):
-        mock_fm_config.version = Version("0.18.0")
-
-        with patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"):
-            result = needs_migration(mock_fm_config)
-            assert result is True
-
-    def test_no_migration_when_versions_equal(self, mock_fm_config):
-        mock_fm_config.version = Version("0.19.0")
-
-        with patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"):
-            result = needs_migration(mock_fm_config)
-            assert result is False
-
-    def test_no_migration_when_current_version_lower(self, mock_fm_config):
-        mock_fm_config.version = Version("0.19.0")
-
-        with patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.18.0"):
-            result = needs_migration(mock_fm_config)
-            assert result is False
 
 
 class TestMigrationExecutorWithOptions:

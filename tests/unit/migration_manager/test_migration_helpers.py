@@ -44,40 +44,6 @@ class TestMigrationBench:
             mock_db_info.assert_called_once_with("test-bench", mock_bench_path)
             assert result == {"host": "mariadb", "port": 3306}
 
-    def test_common_bench_config_set_updates_json(self, mock_bench_path):
-        with (
-            patch("frappe_manager.migration_manager.migration_helpers.ComposeFile"),
-            patch("frappe_manager.migration_manager.migration_helpers.DockerClient"),
-        ):
-            bench = MigrationBench("test-bench", mock_bench_path)
-
-            new_config = {"test_key": "test_value"}
-            result = bench.common_bench_config_set(new_config)
-
-            assert result is True
-
-            config_path = mock_bench_path / "workspace/frappe-bench/sites/common_site_config.json"
-            import json
-
-            with open(config_path) as f:
-                config = json.load(f)
-            assert config["test_key"] == "test_value"
-            assert config["db_host"] == "mariadb"
-
-    def test_common_bench_config_set_returns_false_if_file_missing(self, tmp_path):
-        with (
-            patch("frappe_manager.migration_manager.migration_helpers.ComposeFile"),
-            patch("frappe_manager.migration_manager.migration_helpers.DockerClient"),
-        ):
-            bench_path = tmp_path / "no-config-bench"
-            bench_path.mkdir()
-            (bench_path / "docker-compose.yml").write_text("version: '3.9'")
-
-            bench = MigrationBench("no-config-bench", bench_path)
-            result = bench.common_bench_config_set({"key": "value"})
-
-            assert result is False
-
 
 class TestMigrationBenches:
     def test_get_all_benches_finds_benches_with_compose_files(self, tmp_path):

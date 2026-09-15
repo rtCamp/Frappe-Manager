@@ -41,7 +41,6 @@ blue() { print_in_color "\e[34m" "$*"; }
 magenta() { print_in_color "\e[35m" "$*"; }
 cyan() { print_in_color "\e[36m" "$*"; }
 bold() { print_in_color "\e[1m" "$*"; }
-underlined() { print_in_color "\e[4m" "$*"; }
 
 info_blue() {
 	echo -e $'\U0001F6A7' "$(blue "$*")"

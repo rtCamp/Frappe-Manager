@@ -37,18 +37,6 @@ class SSLDNSProviderNotConfigured(FrappeManagerException):
         super().__init__(self.message)
 
 
-class SSLCertificateChallengeFailed(FrappeManagerException):
-    """Exception raised when a certificate generation failed."""
-
-    def __init__(
-        self,
-        challenge: str,
-    ):
-        self.challenge = challenge
-        msg = f"{self.challenge} challenge failed."
-        super().__init__(msg)
-
-
 class SSLCertificateGenerateFailed(FrappeManagerException):
     """Exception raised when a certificate generation failed."""
 
