@@ -471,6 +471,109 @@ def test_the_dump_is_filed_under_the_site_and_not_the_bench_directory(step, tmp_
     assert set(config.deploy_state.history[0].backups) <= set(config.sites)
 
 
+# ------------------------------------------------------- tag-era deploy_state keys
+
+
+"""Tag-era `[deploy_state]` keys are renamed to the image spelling the loader reads.
+
+Early 0.20 dev builds recorded `current_tag`/`previous_tag` and `tag` on each history row; the
+rename to `current_image`/`previous_image`/`image` shipped WITHOUT a migration step. Such a bench
+failed `DeployStateEntry` validation (`image Field required`) on every `fm list`, and its rollback
+data was unreadable by `fm switch --previous` (seen live on fm.alok.rt.gw). The recorded values
+were already full references, so the rename is pure and lossless -- which is why every test here
+asserts the result LOADS with the old values intact, not merely that the keys moved.
+"""
+
+TAG_HISTORY = """
+[deploy_state]
+current_tag = "127.0.0.1:5000/app:v2"
+previous_tag = "127.0.0.1:5000/app:v1"
+last_deploy_at = "2026-01-02T00:00:00"
+
+[[deploy_state.history]]
+tag = "127.0.0.1:5000/app:v1"
+deployed_at = "2026-01-01T00:00:00"
+migrate_status = "migrated"
+
+[[deploy_state.history]]
+tag = "127.0.0.1:5000/app:v2"
+deployed_at = "2026-01-02T00:00:00"
+migrate_status = "skipped"
+"""
+
+
+def test_tag_era_keys_are_renamed_and_the_result_loads_with_values_intact(step, tmp_path):
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + TAG_HISTORY)
+
+    step._rename_deploy_tag_keys(bench)
+
+    config = BenchConfig.import_from_toml(path)
+    assert config.deploy_state.current_image == "127.0.0.1:5000/app:v2"
+    assert config.deploy_state.previous_image == "127.0.0.1:5000/app:v1"
+    assert [row.image for row in config.deploy_state.history] == [
+        "127.0.0.1:5000/app:v1",
+        "127.0.0.1:5000/app:v2",
+    ]
+    # Nothing tag-era survives to sit unread in the file forever.
+    text = path.read_text()
+    assert "current_tag" not in text
+    assert "previous_tag" not in text
+    assert "\ntag = " not in text
+
+
+def test_the_tag_rename_is_idempotent(step, tmp_path):
+    # 0.20.0 is unreleased, so a bench at 0.20.0.dev0 re-runs this whenever a migration triggers.
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + TAG_HISTORY)
+
+    step._rename_deploy_tag_keys(bench)
+    first = path.read_text()
+    step._rename_deploy_tag_keys(bench)
+
+    assert path.read_text() == first
+
+
+def test_an_image_spelling_file_is_left_byte_identical(step, tmp_path):
+    # The current shape (HISTORY above) must never be rewritten: a no-op that still saves would
+    # churn every operator's config file on every migration.
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + HISTORY)
+    before = path.read_text()
+
+    step._rename_deploy_tag_keys(bench)
+
+    assert path.read_text() == before
+
+
+def test_a_bench_without_deploy_state_is_untouched(step, tmp_path):
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n')
+    before = path.read_text()
+
+    step._rename_deploy_tag_keys(bench)
+
+    assert path.read_text() == before
+
+
+def test_a_row_with_both_spellings_keeps_image_and_drops_the_stale_tag(step, tmp_path):
+    # `tag` here is not an unknown key fm retains evidence of: it is the stale spelling of a key
+    # fm owns, so it goes, and the image value (the newer write) wins.
+    both = TAG_HISTORY + '\n[[deploy_state.history]]\ntag = "stale:v3"\nimage = "kept:v3"\ndeployed_at = "2026-01-03T00:00:00"\nmigrate_status = "skipped"\n'
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + both)
+
+    step._rename_deploy_tag_keys(bench)
+
+    config = BenchConfig.import_from_toml(path)
+    assert config.deploy_state.history[2].image == "kept:v3"
+    assert "stale:v3" not in path.read_text()
+
+
+def test_the_tag_era_file_reproduces_the_original_failure_without_the_step(tmp_path):
+    # The incident this step exists for: a tag-era bench cannot even load its deploy state.
+    path = tmp_path / "bench_config.toml"
+    path.write_text(BASE + f'\n[sites."{SITE}"]\n' + TAG_HISTORY)
+
+    with pytest.raises(Exception, match="image"):
+        BenchConfig.import_from_toml(path).deploy_state.history[0].image  # noqa: B018
+
+
 # ------------------------------------------------------- switch.migrate = "auto"
 
 

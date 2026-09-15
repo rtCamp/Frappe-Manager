@@ -166,6 +166,9 @@ class MigrationV0200(MigrationBase):
         # Also ahead of it, and for the same reason: this moves `[database]` rather than dropping
         # it, so it has to run while the table is still there.
         self._write_sites_table(bench)
+        # Before the backups reshape below: a tag-era file gets its keys renamed first, so a
+        # config carrying BOTH old shapes leaves this method fully current.
+        self._rename_deploy_tag_keys(bench)
         # After the sites table exists: each history row's single dump has to be filed under a
         # SITE, and the primary is the only site a pre-0.20 bench ever dumped.
         self._rewrite_deploy_history(bench)
@@ -554,6 +557,49 @@ class MigrationV0200(MigrationBase):
         switch["migrate"] = True
         toml_document.save(config_path, doc)
         self.output.print(f'Rewrote \\[switch].migrate from "auto" to true for {bench.name}')
+
+    def _rename_deploy_tag_keys(self, bench: MigrationBench):
+        """Rename tag-era ``[deploy_state]`` keys to the image spelling the loader reads.
+
+        Early 0.20 dev builds recorded ``current_tag``/``previous_tag`` and a ``tag`` on each
+        history row; the pipeline later moved to full image references and renamed the fields
+        to ``current_image``/``previous_image``/``image`` -- without a migration, so a tag-era
+        bench failed ``DeployStateEntry`` validation (``image Field required``) on every
+        ``fm list`` and its rollback data was unreadable by ``fm switch --previous``. The
+        recorded values were already full references, so this is a pure key rename.
+
+        A row somehow carrying BOTH spellings keeps ``image`` and drops ``tag``: the old key is
+        not an unknown fm retains evidence of, it is the stale spelling of a key fm owns.
+        """
+        config_path = bench.path / "bench_config.toml"
+        if not config_path.exists():
+            return
+
+        doc = tomlkit.parse(config_path.read_text())
+        state = doc.get("deploy_state")
+        if not isinstance(state, MutableMapping):
+            return
+
+        renamed = 0
+        for old, new in (("current_tag", "current_image"), ("previous_tag", "previous_image")):
+            if old in state:
+                value = state.pop(old)
+                if new not in state:
+                    state[new] = value
+                renamed += 1
+
+        history = state.get("history")
+        if isinstance(history, MutableSequence):
+            for row in history:
+                if isinstance(row, MutableMapping) and "tag" in row:
+                    value = row.pop("tag")
+                    if "image" not in row:
+                        row["image"] = value
+                    renamed += 1
+
+        if renamed:
+            toml_document.save(config_path, doc)
+            self.output.print(f"Renamed {renamed} tag-era deploy_state key(s) to the image spelling for {bench.name}")
 
     def _rewrite_deploy_history(self, bench: MigrationBench):
         """File each recorded deploy's DB dump under the SITE it was taken from.
