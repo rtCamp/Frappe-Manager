@@ -291,11 +291,13 @@ class BenchDevTools:
     def _install_ruff(self) -> None:
         """Install ruff in the container environment."""
         try:
+            # stream=False on purpose: a discarded stream=True iterator is lazy and never
+            # executes, so this install silently did nothing (and the handler below was dead).
             self.docker_client.compose.exec(
                 service="frappe",
                 command=f"{CONTAINER_BENCH_DIR}/env/bin/pip install ruff",
                 user="frappe",
-                stream=True,
+                stream=False,
             )
         except DockerException as e:
             self.logger.error(f"ruff installation exception: {capture_and_format_exception()}")

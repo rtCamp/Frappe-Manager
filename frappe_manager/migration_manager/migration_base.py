@@ -176,15 +176,18 @@ class MigrationBase(ABC):
                 self.undo_bench_migrate(bench)
                 self.logger.info(f"Undo successfull for bench: {bench.name}")
 
+                # stream=False on purpose: with stream=True the returned iterator is lazy, and
+                # discarding it meant this down never actually ran after a failed migration.
                 try:
-                    output = bench.docker.compose.down(
+                    bench.docker.compose.down(
                         remove_orphans=True,
                         volumes=False,
                         timeout=DOCKER_COMPOSE_DOWN_TIMEOUT_SECONDS,
-                        stream=True,
+                        stream=False,
                     )
                 except Exception:
-                    pass
+                    # Never mask the migration error with a cleanup error; but log it.
+                    self.logger.exception(f"{bench.name}: compose down after failed migration also failed")
 
         if main_error:
             raise MigrationExceptionInBench("")

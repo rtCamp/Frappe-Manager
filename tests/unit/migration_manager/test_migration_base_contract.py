@@ -561,11 +561,13 @@ def test_a_failing_bench_is_brought_down_with_orphans_removed_and_volumes_kept(b
     with patch(f"{BASE}.MigrationBench", side_effect=_bench), pytest.raises(MigrationExceptionInBench):
         migration.migrate_benches()
 
+    # stream=False is load-bearing: the call site discards the return, and a discarded
+    # stream=True iterator is lazy -- the down after a failed migration never executed.
     built[0].docker.compose.down.assert_called_once_with(
         remove_orphans=True,
         volumes=False,
         timeout=DOCKER_COMPOSE_DOWN_TIMEOUT_SECONDS,
-        stream=True,
+        stream=False,
     )
 
 

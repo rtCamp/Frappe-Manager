@@ -1024,11 +1024,13 @@ def test_debugger_config_writes_the_three_vscode_files_and_installs_ruff(devtool
     assert json.loads((vscode_dir / "tasks.json").read_text()) == VSCODE_TASKS_JSON
     assert json.loads((vscode_dir / "launch.json").read_text()) == VSCODE_LAUNCH_JSON
     assert json.loads((vscode_dir / "settings.json").read_text()) == VSCODE_SETTINGS_JSON
+    # stream=False is load-bearing: the call site discards the return, and a discarded
+    # stream=True iterator is lazy -- the pip install silently never executed.
     tools.docker_client.compose.exec.assert_called_once_with(
         service="frappe",
         command="/workspace/frappe-bench/env/bin/pip install ruff",
         user="frappe",
-        stream=True,
+        stream=False,
     )
     tools.output.print.assert_called_with("Synced vscode debugger configuration")
 

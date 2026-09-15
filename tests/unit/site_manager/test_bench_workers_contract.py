@@ -1070,7 +1070,10 @@ class TestGenerateCompose:
         with patch(f"{MODULE}.get_proxy_ip_on_frontend", return_value=None):
             assert workers.generate_compose(include_default_workers=False) is False
 
-        workers.docker_client.compose.down.assert_called_once_with(volumes=False, timeout=5, stream=True)
+        # stream=False is load-bearing: the call site discards the return, and a discarded
+        # stream=True iterator is lazy -- the down would never execute, unlinking the compose
+        # file over still-running containers.
+        workers.docker_client.compose.down.assert_called_once_with(volumes=False, timeout=5, stream=False)
         assert not workers.compose_path.exists()
 
     @pytest.mark.timeout(15)

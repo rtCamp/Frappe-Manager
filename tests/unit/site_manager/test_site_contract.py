@@ -1595,8 +1595,11 @@ class TestRemoveContainersAndDirs:
         bench.workers.docker_client.compose.down.assert_called_once_with(
             remove_orphans=True, volumes=True, timeout=5, stream=True
         )
+        # stream=False is load-bearing: down(stream=True) returns a LAZY iterator, and this
+        # call site discards the return value -- with stream=True the down never executed and
+        # the bench's mailpit-data volume survived every delete (#mailpit-volume-orphan).
         bench.admin_tools.docker_client.compose.down.assert_called_once_with(
-            remove_orphans=True, volumes=True, timeout=5, stream=True
+            remove_orphans=True, volumes=True, timeout=5, stream=False
         )
         assert not harness.path.exists()
 
@@ -1633,11 +1636,15 @@ class TestRemoveContainersAndDirs:
         bench.docker_client.rm.assert_not_called()
         assert not any("no compose file" in str(c) for c in bench.output.print.call_args_list)
 
-    def test_a_failing_admin_tools_teardown_does_not_block_removal(self, harness):
+    def test_a_failing_admin_tools_teardown_does_not_block_removal_but_warns(self, harness):
+        """Containers are re-checked by the leftover sweep, volumes are not: a failed
+        admin-tools down may orphan the mailpit-data volume, so it must say so instead of
+        the silent pass that hid this down never running at all."""
         bench = self._bench(harness)
         bench.admin_tools.docker_client.compose.down.side_effect = RuntimeError("gone")
         bench.remove_containers_and_dirs()
         assert not harness.path.exists()
+        assert any("mailpit-data" in str(c) for c in bench.output.warning.call_args_list)
 
     def test_root_owned_files_are_chowned_in_a_container_then_removed(self, harness):
         bench = self._bench(harness)

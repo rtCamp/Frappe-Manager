@@ -254,8 +254,10 @@ class BenchWorkers:
 
         if self.compose_file_manager.exists():
             self.output.print("No workers found, cleaning up existing configuration")
-            # Plain down (NO remove_orphans: shared compose project, see above).
-            self.docker_client.compose.down(volumes=False, timeout=5, stream=True)
+            # Plain down (NO remove_orphans: shared compose project, see above). stream=False on
+            # purpose: a discarded stream=True iterator is lazy and executes nothing, which used to
+            # skip this down entirely and unlink the compose file over still-running containers.
+            self.docker_client.compose.down(volumes=False, timeout=5, stream=False)
             self.compose_file_manager.compose_path.unlink()
 
         return False

@@ -826,11 +826,21 @@ class Bench:
 
         if self.admin_tools.compose_file_manager.exists():
             self.output.change_head("Removing bench admin tools containers")
-            # down_service equivalent: stop + remove containers + volumes
+            # stream=False on purpose: down() with stream=True returns a LAZY iterator, and a
+            # discarded iterator executes nothing -- this down silently never ran, and the bench's
+            # mailpit-data volume outlived every delete (containers were only reaped because the
+            # main compose down above removes them as orphans of the shared project).
             try:
-                self.admin_tools.docker_client.compose.down(remove_orphans=True, volumes=True, timeout=5, stream=True)
-            except Exception:
-                pass  # Best effort cleanup
+                self.admin_tools.docker_client.compose.down(remove_orphans=True, volumes=True, timeout=5, stream=False)
+            except Exception as e:
+                # Best-effort for CONTAINERS is safe (the sweep below re-checks them), but volumes
+                # are not re-checked, so a failure here can orphan fm__<bench>__mailpit-data.
+                # Say so instead of hiding it.
+                self.logger.warning(f"{self.name}: admin-tools compose down failed: {e}")
+                self.output.warning(
+                    "Admin-tools cleanup failed; a mailpit-data volume may be left behind "
+                    f"(check 'docker volume ls' for {get_container_name_prefix(self.name)}__mailpit-data)."
+                )
             self.output.print("Removed bench admin tools containers")
 
         self._sweep_leftover_containers()
