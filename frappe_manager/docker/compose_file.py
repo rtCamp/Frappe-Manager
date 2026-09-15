@@ -65,6 +65,7 @@ class ComposeFile:
         # New: Transaction support
         self._pending_changes: list[tuple[str, Any]] = []
         self._snapshot: dict | None = None
+        self._pending_snapshot: list[tuple[str, Any]] = []
 
         # check for if the docker-compose.yml file is present if not then use template provided
         if self.exists():
@@ -547,14 +548,20 @@ class ComposeFile:
             self.set_all_services_restart(restart_policy)
 
     def commit(self) -> "ComposeFile":
-        """
-        Apply all pending changes and save to file.
+        """Apply all pending changes and save to file. Returns self for chaining.
 
-        Returns:
-            Self for chaining
+        Atomic in memory: a change failing mid-application restores ``yml`` to its
+        pre-commit state and re-raises, so nothing half-applied survives. The queue is
+        KEPT on failure -- the caller that fixes the cause retries the same commit;
+        clearing it would silently drop the changes the retry is for.
         """
-        for change in self._pending_changes:
-            self._apply_change(change)
+        before = copy.deepcopy(self.yml)
+        try:
+            for change in self._pending_changes:
+                self._apply_change(change)
+        except Exception:
+            self.yml = before
+            raise
         self._pending_changes.clear()
         self.write_to_file()
         return self
@@ -745,22 +752,30 @@ class ComposeFile:
     # ==================== NEW: Context Manager Support ====================
 
     def __enter__(self) -> "ComposeFile":
-        """Enter context: snapshot current state"""
+        """Enter context: snapshot current state (the yml AND the pending-change queue)."""
         self._snapshot = copy.deepcopy(self.yml)
+        self._pending_snapshot = list(self._pending_changes)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
-        """Exit context: save or rollback"""
+        """Exit context: save on success, roll back on error.
+
+        Rollback restores BOTH the yml and the pending-change queue: a ``with_*`` queued
+        inside the failed block must not survive to be applied by a later ``commit()``
+        as if the transaction had succeeded. The snapshot guard is ``is not None`` on
+        purpose -- an empty-but-snapshotted yml is still the state to restore.
+        """
         if exc_type is None:
             # Success: save changes
             self.write_to_file()
         else:
-            # Error: rollback changes
-            if self._snapshot:
+            if self._snapshot is not None:
                 self.yml = self._snapshot
-                self._snapshot = None
+            self._pending_changes = list(self._pending_snapshot)
             output = get_global_output_handler()
             output.warning(f"ComposeFile changes rolled back due to error: {exc_val}")
+        self._snapshot = None
+        self._pending_snapshot = []
         return False  # Don't suppress exceptions
 
     def is_service_profile_disabled(self, service: str) -> bool:

@@ -300,6 +300,69 @@ class TestContextManager:
                     # Snapshot should be a deep copy
                     assert cf._snapshot is not cf.yml
 
+    def test_a_change_queued_inside_a_failed_block_does_not_survive_the_rollback(
+        self, temp_compose_yml, sample_yml_content
+    ):
+        """A with_* queued inside a failed transaction must roll back with it: before this,
+        the queue leaked and a later commit() applied the 'rolled back' change anyway."""
+        with patch("builtins.open", mock_open()):
+            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
+                cf = ComposeFile(temp_compose_yml)
+
+                with patch.object(cf, "write_to_file"):
+                    try:
+                        with cf:
+                            cf.with_envs({"frappe": {"LEAK": "yes"}})
+                            raise ValueError("boom")
+                    except ValueError:
+                        pass
+
+                    assert cf._pending_changes == []
+                    cf.commit()
+                    assert "LEAK" not in str(cf.yml)
+
+    def test_an_empty_snapshot_is_still_restored(self, temp_compose_yml, sample_yml_content):
+        """The guard is `is not None`, not truthiness: an empty-but-snapshotted yml is
+        still the state to restore. A bare `if self._snapshot:` skipped this rollback."""
+        with patch("builtins.open", mock_open()):
+            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
+                cf = ComposeFile(temp_compose_yml)
+                cf.yml = {}
+
+                try:
+                    with cf:
+                        cf.yml = {"services": {"web": {"image": "BROKEN"}}}
+                        raise ValueError("boom")
+                except ValueError:
+                    pass
+
+                assert cf.yml == {}
+
+    def test_a_commit_failing_midway_restores_the_yml_and_keeps_the_queue_for_retry(
+        self, temp_compose_yml, sample_yml_content
+    ):
+        """Commit is all-or-nothing in memory: a change failing mid-application must not
+        leave earlier changes applied (a retry would double-apply them), and the queue
+        stays so the caller that fixes the cause retries the SAME transaction."""
+        with patch("builtins.open", mock_open()):
+            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
+                cf = ComposeFile(temp_compose_yml)
+                cf.with_envs({"frappe": {"A": "1"}}).with_restart("always")
+
+                with patch.object(cf, "set_all_services_restart", side_effect=RuntimeError("mid-commit boom")):
+                    with pytest.raises(RuntimeError):
+                        cf.commit()
+
+                assert "A" not in str(cf.yml.get("services", {}).get("frappe", {}).get("environment", {}))
+                assert len(cf._pending_changes) == 2
+
+                # The fixed retry applies everything exactly once.
+                with patch.object(cf, "write_to_file"):
+                    cf.commit()
+                assert cf.yml["services"]["frappe"]["environment"]["A"] == "1"
+                assert cf.yml["services"]["frappe"]["restart"] == "always"
+                assert cf._pending_changes == []
+
 
 class TestAtomicConfigurationMethods:
     """Test atomic configuration methods."""
