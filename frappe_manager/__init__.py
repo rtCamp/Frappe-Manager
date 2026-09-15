@@ -23,15 +23,6 @@ CONTAINER_SITES_DIR = f"{CONTAINER_BENCH_DIR}/sites"
 BENCH_PYTHON = f"{CONTAINER_BENCH_DIR}/env/bin/python"
 COMMON_SITE_CONFIG_FILE = "common_site_config.json"
 CLI_BENCH_CONFIG_FILE_NAME = "bench_config.toml"
-
-# Container-side bench layout: the CONTRACT with the frappe Docker image
-# (Docker/frappe/Dockerfile pins /workspace/frappe-bench; runtime.Dockerfile COPYs to it).
-# Versioned migrations (migration_manager/migrations/migrate_*.py) deliberately do NOT
-# use these: a migration is a time capsule and must keep writing the paths of its era.
-CONTAINER_BENCH_DIR = "/workspace/frappe-bench"
-CONTAINER_SITES_DIR = f"{CONTAINER_BENCH_DIR}/sites"
-BENCH_PYTHON = f"{CONTAINER_BENCH_DIR}/env/bin/python"
-COMMON_SITE_CONFIG_FILE = "common_site_config.json"
 SSL_RENEW_BEFORE_DAYS = 30
 CLI_DEFAULT_DELIMETER = "__"
 CLI_SITE_NAME_DELIMETER = "_"
