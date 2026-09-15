@@ -24,8 +24,11 @@ class OutputEvent:
             event_type: Type of event (e.g., "start", "print", "error")
             data: Event-specific data
         """
+        from datetime import UTC, datetime
+
         self.event_type = event_type
         self.data = data
+        self.ts = datetime.now(UTC).isoformat()
 
     def to_dict(self) -> dict:
         """
@@ -34,7 +37,7 @@ class OutputEvent:
         Returns:
             Dictionary representation of the event
         """
-        return {"event_type": self.event_type, "data": self.data}
+        return {"event_type": self.event_type, "ts": self.ts, "data": self.data}
 
     def to_json(self) -> str:
         """
@@ -43,7 +46,10 @@ class OutputEvent:
         Returns:
             JSON string representation of the event
         """
-        return json.dumps(self.to_dict())
+        # default=str: event payloads may carry non-JSON values (paths, rich
+        # renderables via print_data); a machine-output line must never crash the
+        # command that produced it.
+        return json.dumps(self.to_dict(), default=str)
 
 
 class JSONOutputHandler(OutputHandler):
@@ -60,27 +66,41 @@ class JSONOutputHandler(OutputHandler):
     as dictionaries or JSON strings.
     """
 
-    def __init__(self, verbose: bool = False, persist_to_file: Any = None):
+    def __init__(self, verbose: bool = False, persist_to_file: Any = None, stream: Any = None):
         """
         Initialize the JSON output handler.
 
         Args:
             verbose: Capture info and debug level messages
             persist_to_file: Optional file path to persist events (JSONL format)
+            stream: Optional writable text stream; each event is written to it as
+                one JSON line as it happens (the `fm --json` mode: JSONL on stdout,
+                consumable by `| jq` while the command runs)
         """
         super().__init__(verbose)
         self.events: list[OutputEvent] = []
         self._current_head: str | None = None
         self.persist_file = persist_to_file
+        self.stream = stream
+        self._closed = False
 
     def _add_event(self, event: OutputEvent) -> None:
         """
-        Add event to list and optionally persist to file.
+        Add event to list, then stream and/or persist it.
 
         Args:
             event: OutputEvent to add
         """
+        if self._closed:
+            # emit_exit sealed the stream: 'exit' is the terminal line, and atexit
+            # cleanup (a trailing stop()) must not write past it.
+            return
+
         self.events.append(event)
+
+        if self.stream is not None:
+            self.stream.write(event.to_json() + "\n")
+            self.stream.flush()
 
         if self.persist_file:
             with open(self.persist_file, "a") as f:
@@ -381,3 +401,13 @@ class JSONOutputHandler(OutputHandler):
             List of event dictionaries
         """
         return [event.to_dict() for event in self.events]
+
+    def emit_exit(self, ok: bool, code: int = 0) -> None:
+        """Terminal event for the ``fm --json`` stream: how the run ended.
+
+        A consumer tailing the JSONL cannot otherwise tell "finished cleanly" from
+        "died mid-operation" -- the stream just stops either way. Seals the stream:
+        nothing (e.g. the atexit stop) is emitted after it.
+        """
+        self._add_event(OutputEvent("exit", {"ok": ok, "code": code}))
+        self._closed = True

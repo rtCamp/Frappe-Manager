@@ -281,6 +281,13 @@ def app_callback(
             help="Run without interactive prompts. All prompts will error with suggestions for required flags.",
         ),
     ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Machine-readable output: every output event is written to stdout as one JSON line (JSONL), as it happens. Implies --non-interactive.",
+        ),
+    ] = False,
     version: Annotated[
         bool | None,
         typer.Option("--version", "-V", help="Show Version.", callback=version_callback),
@@ -321,15 +328,25 @@ def app_callback(
     # Store in context for commands
     ctx.obj["log_level"] = level_name
     ctx.obj["verbose"] = verbose or level_name in ["INFO", "DEBUG"]
-    ctx.obj["non_interactive"] = non_interactive
+    ctx.obj["non_interactive"] = non_interactive or json_output
+    ctx.obj["json"] = json_output
 
-    # Upgrade global output handler to LoggingOutputHandler now that we have CLI args
-    basic_handler = get_global_output_handler()
+    # Upgrade global output handler to LoggingOutputHandler now that we have CLI args.
+    # --json swaps the underlying handler FIRST, so file logging still wraps it: rich
+    # rendering is replaced by one JSON line per event on stdout, and prompts raise
+    # NonInteractiveError instead of corrupting the machine stream (hence the implied
+    # --non-interactive above).
+    if json_output:
+        from frappe_manager.output_manager import JSONOutputHandler
+
+        basic_handler = JSONOutputHandler(verbose=ctx.obj["verbose"], stream=sys.stdout)
+    else:
+        basic_handler = get_global_output_handler()
     upgraded_handler = LoggingOutputHandler(basic_handler)
     set_global_output_handler(upgraded_handler)
 
     output = get_global_output_handler()
-    output.set_interactive_mode(non_interactive_flag=non_interactive)
+    output.set_interactive_mode(non_interactive_flag=non_interactive or json_output)
 
     help_called = is_cli_help_called(ctx)
     ctx.obj["is_help_called"] = help_called

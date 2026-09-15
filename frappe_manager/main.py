@@ -73,6 +73,13 @@ def cli_entrypoint():
 
     try:
         app()
+        _emit_json_exit(ok=True, code=0)
+    except SystemExit as e:
+        # typer.Exit / click abort paths: SystemExit is not an Exception, so it
+        # bypasses the handlers below; the --json stream still gets its terminal event.
+        code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
+        _emit_json_exit(ok=code == 0, code=code)
+        raise
     except FrappeManagerException as e:
         try:
             from frappe_manager.metadata_manager import FMConfigManager
@@ -103,6 +110,7 @@ def cli_entrypoint():
 
         exception_traceback: str = capture_and_format_exception()
         logger.error(f"FM Exception: {e.__class__.__name__}: {e!s}\n{exception_traceback}")
+        _emit_json_exit(ok=False, code=1)
         exit(1)
 
     except Exception as e:
@@ -126,10 +134,25 @@ def cli_entrypoint():
 
         exception_traceback: str = capture_and_format_exception()
         logger.error(f"Unexpected Exception:\n{exception_traceback}")
+        _emit_json_exit(ok=False, code=1)
         exit(1)
 
     finally:
         atexit.register(exit_cleanup)
+
+
+def _emit_json_exit(ok: bool, code: int) -> None:
+    """Close the ``fm --json`` JSONL stream with an exit event; no-op in rich mode."""
+    try:
+        from frappe_manager.output_manager.json_output import JSONOutputHandler
+
+        handler = get_global_output_handler()
+        delegate = getattr(handler, "delegate", handler)
+        if isinstance(delegate, JSONOutputHandler):
+            delegate.emit_exit(ok=ok, code=code)
+    except Exception:
+        # The terminal event is telemetry; it must never mask the run's own outcome.
+        pass
 
 
 def exit_cleanup():

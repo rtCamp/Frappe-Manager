@@ -23,12 +23,15 @@ class TestOutputEvent:
         assert event.data == {"key": "value"}
 
     def test_output_event_to_dict(self):
-        """OutputEvent can be converted to dictionary."""
+        """OutputEvent converts to a dictionary carrying the event, its data, and a
+        UTC timestamp (the envelope streamed by `fm --json`)."""
         event = OutputEvent("print", {"text": "Hello", "emoji": ":zap:"})
 
         result = event.to_dict()
 
-        assert result == {"event_type": "print", "data": {"text": "Hello", "emoji": ":zap:"}}
+        assert result["event_type"] == "print"
+        assert result["data"] == {"text": "Hello", "emoji": ":zap:"}
+        assert result["ts"].endswith("+00:00")
 
     def test_output_event_to_json(self):
         """OutputEvent can be converted to JSON string."""
@@ -39,6 +42,64 @@ class TestOutputEvent:
 
         assert parsed["event_type"] == "error"
         assert parsed["data"]["text"] == "Error occurred"
+
+    def test_to_json_survives_non_serializable_payloads(self):
+        """print_data carries arbitrary values (paths, rich renderables); a machine-output
+        line must never crash the command that produced it, so to_json stringifies them."""
+        from pathlib import Path
+
+        event = OutputEvent("print_data", {"data": Path("/tmp/x"), "kwargs": {}})
+
+        parsed = json.loads(event.to_json())
+
+        assert parsed["data"]["data"] == "/tmp/x"
+
+
+class TestStreamingMode:
+    """`fm --json`: every event is written to the stream as one JSON line, as it happens."""
+
+    def test_each_event_is_streamed_as_one_json_line_immediately(self):
+        import io
+
+        buf = io.StringIO()
+        handler = JSONOutputHandler(stream=buf)
+
+        handler.start("Working")
+        first = buf.getvalue()
+        handler.print("hello")
+        handler.stop()
+
+        # The first line was written BEFORE later events: streaming, not a dump at exit.
+        assert json.loads(first.strip())["event_type"] == "start"
+        lines = [json.loads(ln) for ln in buf.getvalue().splitlines()]
+        assert [e["event_type"] for e in lines] == ["start", "print", "stop"]
+        assert lines[1]["data"]["text"] == "hello"
+
+    def test_every_event_carries_a_timestamp(self):
+        import io
+
+        buf = io.StringIO()
+        handler = JSONOutputHandler(stream=buf)
+        handler.print("x")
+
+        line = json.loads(buf.getvalue().strip())
+        assert "ts" in line and line["ts"].endswith("+00:00")
+
+    def test_emit_exit_is_the_terminal_line_and_seals_the_stream(self):
+        """A consumer tailing the JSONL must be able to treat 'exit' as end-of-run:
+        the atexit cleanup's trailing stop() must not write past it."""
+        import io
+
+        buf = io.StringIO()
+        handler = JSONOutputHandler(stream=buf)
+        handler.start("Working")
+        handler.emit_exit(ok=True, code=0)
+        handler.stop()  # atexit cleanup fires this after the exit event
+        handler.print("straggler")
+
+        lines = [json.loads(ln) for ln in buf.getvalue().splitlines()]
+        assert [e["event_type"] for e in lines] == ["start", "exit"]
+        assert lines[-1]["data"] == {"ok": True, "code": 0}
 
 
 class TestJSONOutputHandlerBasics:

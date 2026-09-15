@@ -51,9 +51,14 @@ def list(
     output = get_global_output_handler()
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
 
-    if json_output:
-        output.stop()  # keep stdout clean for piping
+    if json_output or ctx.obj.get("json"):
         data = bench_service.list_benches_data()
+        if ctx.obj.get("json"):
+            # Global --json mode: the JSONL event stream owns stdout, so the inventory
+            # rides it as ONE print_data event instead of a pretty dump interleaving it.
+            output.print_data(data)
+            return
+        output.stop()  # keep stdout clean for piping
         typer.echo(json_module.dumps(data, indent=2))
         return
 
