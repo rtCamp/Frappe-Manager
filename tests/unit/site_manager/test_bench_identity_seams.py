@@ -539,7 +539,7 @@ def test_every_site_failing_is_counted_against_the_whole_bench(tmp_path):
 # certificate for `shop` (a hostname nothing resolves) and none for the site actually served.
 
 
-def _template() -> "SSLCertificate":
+def _template():
     from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
     from frappe_manager.ssl_manager.certificate import SSLCertificate
 

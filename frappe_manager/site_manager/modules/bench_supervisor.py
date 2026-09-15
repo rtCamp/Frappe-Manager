@@ -285,7 +285,6 @@ class BenchSupervisor:
 
     def setup_supervisor(self, bench_path, force: bool = False, use_run: bool = False) -> None:
         import configparser
-        import io
         from pathlib import Path
 
         bench_dir = Path(bench_path).resolve() / "workspace" / "frappe-bench"

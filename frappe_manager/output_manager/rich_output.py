@@ -19,7 +19,6 @@ from rich.console import Group
 from rich.live import Live
 from rich.padding import Padding
 from rich.spinner import Spinner
-from rich.table import Table
 from rich.text import Text
 
 from frappe_manager.output_manager.base import OutputHandler

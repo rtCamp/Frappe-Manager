@@ -1,7 +1,6 @@
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Optional
 
 # Examples are now provided using typer-examples decorators and installed per Typer app.
 
