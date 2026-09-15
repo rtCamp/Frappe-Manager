@@ -56,17 +56,17 @@ class BenchAdminTools:
         self.adminer_config_path: Path = bench.path / "configs" / "adminer"
 
     def generate_compose(self):
-        self.compose_file_manager.yml = self.compose_file_manager.load_template()
+        with self.compose_file_manager:
+            self.compose_file_manager.yml = self.compose_file_manager.load_template()
 
-        self.compose_file_manager.configure_bench(
-            prefix=get_container_name_prefix(self.bench_name),
-            version=get_current_fm_version(),
-            network_name="site-network",
-            auto_save=False,
-        )
+            self.compose_file_manager.configure_bench(
+                prefix=get_container_name_prefix(self.bench_name),
+                version=get_current_fm_version(),
+                network_name="site-network",
+                auto_save=False,
+            )
 
-        self.compose_file_manager.set_all_services_restart(self.bench.bench_config.restart_policy.value)
-        self.compose_file_manager.write_to_file()
+            self.compose_file_manager.set_all_services_restart(self.bench.bench_config.restart_policy.value)
         self.sync_adminer_plugin()
 
     def sync_adminer_plugin(self):

@@ -113,119 +113,119 @@ class BenchDockerOps:
         Args:
             inputs: Dictionary containing environment, labels, users, etc.
         """
-        # Extract inputs
-        environments = inputs.get("environment")
-        labels = inputs.get("labels")
-        users = None
+        with self.compose_file_manager:
+            # Extract inputs
+            environments = inputs.get("environment")
+            labels = inputs.get("labels")
+            users = None
 
-        if "user" in inputs:
-            users = {}
-            for container_name, user_data in inputs["user"].items():
-                users[container_name] = (user_data["uid"], user_data["gid"])
+            if "user" in inputs:
+                users = {}
+                for container_name, user_data in inputs["user"].items():
+                    users[container_name] = (user_data["uid"], user_data["gid"])
 
-        # No domain aliases on bench nginx — internal DNS resolution for all domains
-        # is handled via extra_hosts (pointing to the global proxy).
-        # The proxy discovers domains via VIRTUAL_HOST env var, not network aliases.
+            # No domain aliases on bench nginx — internal DNS resolution for all domains
+            # is handled via extra_hosts (pointing to the global proxy).
+            # The proxy discovers domains via VIRTUAL_HOST env var, not network aliases.
 
-        # Add extra_hosts for the primary domain and alias domains pointing to the
-        # global nginx proxy. The proxy IP is read live from Docker so it's always
-        # correct even if the proxy was recreated after a restart.
-        proxy_ip = get_proxy_ip_on_frontend()
+            # Add extra_hosts for the primary domain and alias domains pointing to the
+            # global nginx proxy. The proxy IP is read live from Docker so it's always
+            # correct even if the proxy was recreated after a restart.
+            proxy_ip = get_proxy_ip_on_frontend()
 
-        if proxy_ip:
-            all_domains = self.config.domains
-            extra_hosts = [f"{domain}:{proxy_ip}" for domain in all_domains]
-            for service in ["frappe", "socketio", "schedule"]:
-                self.compose_file_manager.set_extrahosts(service, extra_hosts)
+            if proxy_ip:
+                all_domains = self.config.domains
+                extra_hosts = [f"{domain}:{proxy_ip}" for domain in all_domains]
+                for service in ["frappe", "socketio", "schedule"]:
+                    self.compose_file_manager.set_extrahosts(service, extra_hosts)
 
-        # Outbound HTTPS trust: a dev certificate, or a --custom --ca certificate, needs its CA in
-        # the container's trust store so a server-side call to the bench's own domain (PDF/print,
-        # OAuth, get_url fetches) does not fail with an unknown-CA error. A Let's Encrypt or
-        # bare --custom (no --ca) certificate chains to a public root and needs nothing here.
-        from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
-        from frappe_manager.site_manager.modules.ssl_ca_trust import (
-            CA_TRUST_ENV_VARS,
-            CONTAINER_CA_PATH,
-            resolve_ca_trust,
-            strip_managed_ca_volumes,
-        )
+            # Outbound HTTPS trust: a dev certificate, or a --custom --ca certificate, needs its CA in
+            # the container's trust store so a server-side call to the bench's own domain (PDF/print,
+            # OAuth, get_url fetches) does not fail with an unknown-CA error. A Let's Encrypt or
+            # bare --custom (no --ca) certificate chains to a public root and needs nothing here.
+            from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
+            from frappe_manager.site_manager.modules.ssl_ca_trust import (
+                CA_TRUST_ENV_VARS,
+                CONTAINER_CA_PATH,
+                resolve_ca_trust,
+                strip_managed_ca_volumes,
+            )
 
-        ca_bundle_host = resolve_ca_trust(self.path, self.config, CLI_SERVICES_DIRECTORY)
-        ca_services = ["frappe", "socketio", "schedule"]
-        for svc in ca_services:
-            # Strip any fm-managed CA mount -- current name or the pre-rename legacy one -- BEFORE
-            # deciding whether to add today's, on every regen: this compose file is loaded from
-            # disk and mutated in place (unlike the workers compose, rebuilt from the template
-            # each time), so appending unconditionally would grow a duplicate mount on every later
-            # regen, and would never clean up a bench upgraded from before the rename.
-            original_vols = self.compose_file_manager.get_service_volumes(svc)
-            vols = strip_managed_ca_volumes(original_vols)
-            original_envs = self.compose_file_manager.get_envs(svc) or {}
-            envs = dict(original_envs)
-            # Also true when the bench's last dev/custom-ca certificate was just removed: there is
-            # nothing left to trust, but a stale mount/env pair from before must still be dropped.
-            had_stale = len(vols) != len(original_vols) or any(var in envs for var in CA_TRUST_ENV_VARS)
-            for var in CA_TRUST_ENV_VARS:
-                envs.pop(var, None)
+            ca_bundle_host = resolve_ca_trust(self.path, self.config, CLI_SERVICES_DIRECTORY)
+            ca_services = ["frappe", "socketio", "schedule"]
+            for svc in ca_services:
+                # Strip any fm-managed CA mount -- current name or the pre-rename legacy one -- BEFORE
+                # deciding whether to add today's, on every regen: this compose file is loaded from
+                # disk and mutated in place (unlike the workers compose, rebuilt from the template
+                # each time), so appending unconditionally would grow a duplicate mount on every later
+                # regen, and would never clean up a bench upgraded from before the rename.
+                original_vols = self.compose_file_manager.get_service_volumes(svc)
+                vols = strip_managed_ca_volumes(original_vols)
+                original_envs = self.compose_file_manager.get_envs(svc) or {}
+                envs = dict(original_envs)
+                # Also true when the bench's last dev/custom-ca certificate was just removed: there is
+                # nothing left to trust, but a stale mount/env pair from before must still be dropped.
+                had_stale = len(vols) != len(original_vols) or any(var in envs for var in CA_TRUST_ENV_VARS)
+                for var in CA_TRUST_ENV_VARS:
+                    envs.pop(var, None)
 
-            if ca_bundle_host:
-                vols.append(
-                    DockerVolumeMount(
-                        host=str(ca_bundle_host),
-                        container=CONTAINER_CA_PATH,
-                        type=DockerVolumeType.bind,
-                        compose_path=self.compose_file_manager.compose_path,
-                        read_only=True,
+                if ca_bundle_host:
+                    vols.append(
+                        DockerVolumeMount(
+                            host=str(ca_bundle_host),
+                            container=CONTAINER_CA_PATH,
+                            type=DockerVolumeType.bind,
+                            compose_path=self.compose_file_manager.compose_path,
+                            read_only=True,
+                        )
                     )
-                )
-                # Node.js apps (socketio) or any process that uses NODE_EXTRA_CA_CERTS
-                envs["NODE_EXTRA_CA_CERTS"] = CONTAINER_CA_PATH
-                # Python requests library honors this env var
-                envs["REQUESTS_CA_BUNDLE"] = CONTAINER_CA_PATH
+                    # Node.js apps (socketio) or any process that uses NODE_EXTRA_CA_CERTS
+                    envs["NODE_EXTRA_CA_CERTS"] = CONTAINER_CA_PATH
+                    # Python requests library honors this env var
+                    envs["REQUESTS_CA_BUNDLE"] = CONTAINER_CA_PATH
 
-            if ca_bundle_host or had_stale:
-                self.compose_file_manager.set_service_volumes(svc, vols)
-                # append=False: `envs` above is already the full, correctly-popped set; append=True
-                # merges against whatever is still on disk, which would silently resurrect a var
-                # this block just popped.
-                self.compose_file_manager.set_envs(svc, envs, append=False)
+                if ca_bundle_host or had_stale:
+                    self.compose_file_manager.set_service_volumes(svc, vols)
+                    # append=False: `envs` above is already the full, correctly-popped set; append=True
+                    # merges against whatever is still on disk, which would silently resurrect a var
+                    # this block just popped.
+                    self.compose_file_manager.set_envs(svc, envs, append=False)
 
-        # The container-name prefix is BENCH-scoped, so it comes from the bench name and not from
-        # `network_aliases[0]`. Those were the same string while the aliases list started at
-        # `self.config.name`; once it became `self.config.domains` the first entry turned into the
-        # primary SITE's domain, and a bench named `shop` serving `shop.localhost` would have
-        # written its compose as `fm__shop_localhost` while the leftover-container cleanup
-        # (site.py), admin tools, the database config and the workers compose all still say
-        # `fm__shop`.
-        self.compose_file_manager.configure_bench(
-            prefix=get_container_name_prefix(self.config.name),
-            version=get_current_fm_version(),
-            envs=environments,
-            labels=labels,
-            users=users,
-            network_name="site-network",
-            auto_save=False,
-        )
+            # The container-name prefix is BENCH-scoped, so it comes from the bench name and not from
+            # `network_aliases[0]`. Those were the same string while the aliases list started at
+            # `self.config.name`; once it became `self.config.domains` the first entry turned into the
+            # primary SITE's domain, and a bench named `shop` serving `shop.localhost` would have
+            # written its compose as `fm__shop_localhost` while the leftover-container cleanup
+            # (site.py), admin tools, the database config and the workers compose all still say
+            # `fm__shop`.
+            self.compose_file_manager.configure_bench(
+                prefix=get_container_name_prefix(self.config.name),
+                version=get_current_fm_version(),
+                envs=environments,
+                labels=labels,
+                users=users,
+                network_name="site-network",
+                auto_save=False,
+            )
 
-        # `docker-compose.tmpl` bakes this alias into the nginx service, same as `frappe-site` and
-        # `socketio-site` -- but ONLY a bench built fresh from the template gets it that way. This
-        # compose file is loaded from disk and mutated in place on every later regen (see the CA
-        # mount comment above), never re-rendered from the template, so a bench that already
-        # existed before this alias was introduced would otherwise carry it forever. Set
-        # unconditionally, every regen: `set_network_alias` overwrites the same value on a bench
-        # that already has it, so this is a no-op write there, not a growing list.
-        self.compose_file_manager.set_network_alias("nginx", "site-network", ["nginx-site"])
+            # `docker-compose.tmpl` bakes this alias into the nginx service, same as `frappe-site` and
+            # `socketio-site` -- but ONLY a bench built fresh from the template gets it that way. This
+            # compose file is loaded from disk and mutated in place on every later regen (see the CA
+            # mount comment above), never re-rendered from the template, so a bench that already
+            # existed before this alias was introduced would otherwise carry it forever. Set
+            # unconditionally, every regen: `set_network_alias` overwrites the same value on a bench
+            # that already has it, so this is a no-op write there, not a growing list.
+            self.compose_file_manager.set_network_alias("nginx", "site-network", ["nginx-site"])
 
-        restart_policy = inputs.get("restart_policy", "no")
-        self.compose_file_manager.set_all_services_restart(restart_policy)
+            restart_policy = inputs.get("restart_policy", "no")
+            self.compose_file_manager.set_all_services_restart(restart_policy)
 
-        # Mode shape (image + code-service volumes) is a pure projection of
-        # bench_config via compose_shape -- the same specs deploy re-pins use,
-        # so every writer produces the identical shape (create/update/deploy).
-        from frappe_manager.site_manager.modules.compose_shape import apply_specs, bench_service_specs
+            # Mode shape (image + code-service volumes) is a pure projection of
+            # bench_config via compose_shape -- the same specs deploy re-pins use,
+            # so every writer produces the identical shape (create/update/deploy).
+            from frappe_manager.site_manager.modules.compose_shape import apply_specs, bench_service_specs
 
-        apply_specs(self.compose_file_manager, bench_service_specs(self.config), self.config.site_names)
-        self.compose_file_manager.write_to_file()
+            apply_specs(self.compose_file_manager, bench_service_specs(self.config), self.config.site_names)
 
     def render_image_compose(self, deploy_image: str, rolling: bool = False) -> str:
         """Re-pin the bench compose to ``deploy_image`` (deploy/switch/rollback).
@@ -248,27 +248,27 @@ class BenchDockerOps:
         if self.config.runtime != BenchRuntime.image:
             raise ValueError("render_image_compose is only valid for image runtime")
 
-        specs = bench_service_specs(self.config, RenderContext(deploy_image=deploy_image, rolling=rolling))
-        apply_specs(self.compose_file_manager, specs, self.config.site_names)
+        with self.compose_file_manager:
+            specs = bench_service_specs(self.config, RenderContext(deploy_image=deploy_image, rolling=rolling))
+            apply_specs(self.compose_file_manager, specs, self.config.site_names)
 
-        # Rolling swap: shed container_name on the scaled web
-        # services so `compose up --scale <svc>=2` is accepted; the canonical
-        # (non-rolling) render restores them so get_container_names() keeps
-        # working between deploys. The fm-sockets mount stays: the entrypoint
-        # rewrites supervisord to /fm-sockets/<svc>.sock and clears stale
-        # sockets, so the new replica takes over the canonical socket
-        # (last-writer-wins) during the overlap.
-        services = self.compose_file_manager.get_services_list()
-        prefix = get_container_name_prefix(self.config.name)
-        for spec in specs:
-            if not spec.rolling or spec.name not in services:
-                continue
-            if rolling:
-                self.compose_file_manager.remove_container_name(spec.name)
-            else:
-                self.compose_file_manager.set_container_name(spec.name, f"{prefix}{CLI_DEFAULT_DELIMETER}{spec.name}")
+            # Rolling swap: shed container_name on the scaled web
+            # services so `compose up --scale <svc>=2` is accepted; the canonical
+            # (non-rolling) render restores them so get_container_names() keeps
+            # working between deploys. The fm-sockets mount stays: the entrypoint
+            # rewrites supervisord to /fm-sockets/<svc>.sock and clears stale
+            # sockets, so the new replica takes over the canonical socket
+            # (last-writer-wins) during the overlap.
+            services = self.compose_file_manager.get_services_list()
+            prefix = get_container_name_prefix(self.config.name)
+            for spec in specs:
+                if not spec.rolling or spec.name not in services:
+                    continue
+                if rolling:
+                    self.compose_file_manager.remove_container_name(spec.name)
+                else:
+                    self.compose_file_manager.set_container_name(spec.name, f"{prefix}{CLI_DEFAULT_DELIMETER}{spec.name}")
 
-        self.compose_file_manager.write_to_file()
         self.output.print(f"Rendered image-mode compose pinned to {deploy_image}")
         return BakeManager.nginx_image_ref(deploy_image)
 

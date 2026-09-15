@@ -414,9 +414,12 @@ class TestGenerateCompose:
         assert kwargs["envs"] == {"frappe": {"A": "b"}}
         assert kwargs["labels"] == {"frappe": {"l": "1"}}
         assert kwargs["network_name"] == "site-network"
-        # auto_save=False: the single write_to_file below is the only disk write.
         assert kwargs["auto_save"] is False
-        ops.compose_file_manager.write_to_file.assert_called_once_with()
+        # auto_save=False: persistence now goes through the snapshot context manager,
+        # whose successful __exit__ performs the single disk write (and whose failing
+        # __exit__ rolls the shared instance back instead of leaving it half-configured).
+        ops.compose_file_manager.__enter__.assert_called_once()
+        ops.compose_file_manager.__exit__.assert_called_once()
 
     @pytest.mark.timeout(15)
     def test_nginx_gets_a_site_scoped_network_alias_every_regen(self, tmp_path, monkeypatch):
@@ -955,7 +958,8 @@ class TestRenderImageCompose:
         ops.render_image_compose("repo:v1", rolling=True)
 
         ops.compose_file_manager.remove_container_name.assert_not_called()
-        ops.compose_file_manager.write_to_file.assert_called_once_with()
+        # Persistence goes through the snapshot context manager (see generate_compose).
+        ops.compose_file_manager.__exit__.assert_called_once()
 
 
 class TestConstruction:

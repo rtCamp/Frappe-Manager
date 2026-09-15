@@ -173,9 +173,9 @@ def pin_workers_to_image(workers, sites: Sequence[str], deploy_image: str) -> No
     svcs = cfm.get_services_list()
     if not svcs:
         return
-    specs = worker_service_specs(workers.bench.bench_config, svcs, RenderContext(deploy_image=deploy_image))
-    apply_specs(cfm, specs, sites)
-    cfm.write_to_file()
+    with cfm:
+        specs = worker_service_specs(workers.bench.bench_config, svcs, RenderContext(deploy_image=deploy_image))
+        apply_specs(cfm, specs, sites)
 
 
 def _parse_app_names(lines) -> set[str]:

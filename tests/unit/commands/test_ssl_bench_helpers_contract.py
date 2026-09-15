@@ -1362,12 +1362,14 @@ def test_generate_compose_configures_the_bench_then_persists_then_syncs_the_plug
     order = []
     t.compose.configure_bench.side_effect = lambda **_kw: order.append("configure")
     t.compose.set_all_services_restart.side_effect = lambda *_a: order.append("restart")
-    t.compose.write_to_file.side_effect = lambda *_a: order.append("write")
+    # Persistence moved into the snapshot context manager: a successful __exit__ is the
+    # write, so the order pin tracks the transaction closing rather than write_to_file.
+    t.compose.__exit__.side_effect = lambda *_a: order.append("persist") and None
 
     with patch.object(BenchAdminTools, "sync_adminer_plugin", side_effect=lambda: order.append("plugin")):
         t.tools.generate_compose()
 
-    assert order == ["configure", "restart", "write", "plugin"]
+    assert order == ["configure", "restart", "persist", "plugin"]
     assert t.compose.yml is t.compose.load_template.return_value
     t.compose.configure_bench.assert_called_once_with(
         prefix="fm__test_local",
