@@ -1,4 +1,4 @@
-"""Regression contracts for the two helpers `fm self update` and `fm self update-images` stand on.
+"""Regression contracts for the two helpers `fm self upgrade` and `fm self update-images` stand on.
 
 * `install_package` must use the installer this fm was actually installed with. fm's own
   installer (scripts/install.sh) uses `uv tool install`, and a uv tool venv is not pip-seeded, so
@@ -41,7 +41,7 @@ def find_spec_without_pip(name, *args, **kwargs):
 
 def test_an_interpreter_without_pip_installs_through_uv_tool():
     """D59: `python -m pip install` cannot run in a uv tool venv, so the documented upgrade path
-    (`fm self update`) could never install anything on a standard installation."""
+    (`fm self upgrade`) could never install anything on a standard installation."""
     with (
         patch(f"{HELPERS}.importlib.util.find_spec", side_effect=find_spec_without_pip),
         patch(f"{HELPERS}.shutil.which", return_value="/opt/homebrew/bin/uv"),

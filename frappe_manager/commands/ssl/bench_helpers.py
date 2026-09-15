@@ -153,7 +153,7 @@ def _add_bench_certificate(
         output.display_error(
             f"Domain '{domain}' is not configured for bench '{benchname}'.\n"
             f"Allowed domains: {', '.join(allowed_domains)}\n"
-            f"To add an alias domain, use: fm update {benchname} --add-alias {domain}",
+            f"To add an alias domain, use: fm domain add {benchname} {domain}",
         )
         raise typer.Exit(1)
 

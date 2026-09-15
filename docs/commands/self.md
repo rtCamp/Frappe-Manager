@@ -14,42 +14,42 @@ $ fm self [OPTIONS] COMMAND [ARGS]...
 
 **Commands**:
 
-* `update`: Update fm to the latest release published on PyPI.
+* `upgrade`: Upgrade fm to the latest release published on PyPI.
 * `update-images`: Pull the docker images fm's stack runs on.
 * `compose`: Run docker compose against a bench with all of its compose files already wired up.
 * `stop`: Stop every bench on this host, then the global services (global-nginx-proxy, global-db).
 * `real-ip`: Restore the visitor's real IP at the global nginx proxy when it sits behind a CDN or load balancer.
 
 
-### `fm self update`
+### `fm self upgrade`
 
-Update fm to the latest release published on PyPI.
+Upgrade fm to the latest release published on PyPI.
 
 An install already ahead of PyPI, such as a dev or pre-release build, is reported as up to date and left alone: fm is never downgraded under benches whose on-disk state a newer fm wrote.
 
 **Usage**:
 
 ```console
-$ fm self update [OPTIONS]
+$ fm self upgrade [OPTIONS]
 ```
 
 **Options**:
 
-* `-y, --yes`: Update without asking for confirmation.
+* `-y, --yes`: Upgrade without asking for confirmation.
 
 
 ## Examples
 
-### Update fm to the latest release
+### Upgrade fm to the latest release
 
 ```bash
-fm self update
+fm self upgrade
 ```
 
-### Update without the confirmation prompt
+### Upgrade without the confirmation prompt
 
 ```bash
-fm self update --yes
+fm self upgrade --yes
 ```
 
 
@@ -59,7 +59,7 @@ Pull the docker images fm's stack runs on.
 
 Running containers keep the image they started with until they are recreated.
 
-Which tags get pulled is fixed by the installed fm version, so a newer stack starts with fm self update.
+Which tags get pulled is fixed by the installed fm version, so a newer stack starts with fm self upgrade.
 
 **Usage**:
 

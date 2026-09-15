@@ -1,42 +1,34 @@
 ## `fm update`
 
-Change a bench's settings and runtime.
+Change a bench's settings.
 
-Not bench update: app code ships with fm bake then fm switch. The bench must be running, and the mount-only options need an editable workspace, so demote an image bench with --runtime mount first.
+Not bench update: app code ships with fm bake then fm switch. Apps are managed with fm apps add, alias domains with fm domain, admin tools with fm tools. --runtime mount demotes an image bench to an editable workspace, extracted from the currently deployed image; converting the other direction runs through fm switch instead.
 
-Most options change the whole bench. The few that describe one site are grouped as Site Options in the help below, and a plain fm update BENCH applies those to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one.
-
---apps is the exception, because fetching an app's code and installing it into a site's database are different things. A plain fm update BENCH fetches the code and records the app on the bench, so any site created afterwards gets it, and installs it into nothing. fm update BENCH/SITE installs and migrates that one site, and fm update BENCH/all does every site the bench serves, reporting failures per site and exiting non-zero without stopping at the first.
+Most options change the whole bench. --db-ca is the one Site Option below, and a plain fm update BENCH applies it to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one.
 
 **Usage**:
 
 ```console
-$ fm update BENCH(/SITE|all) [OPTIONS]
+$ fm update BENCH(/SITE) [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCH(/SITE|all)`: Bench, BENCH/SITE for one of its sites, or BENCH/all for every site it serves.
+* `BENCH(/SITE)`: Bench, or BENCH/SITE to act on one of its sites. Without a site part, the bench's primary site is used.
 
 **Options**:
 
-* `--admin-tools`: Enable/disable admin tools (Adminer at /adminer, Mailpit at /mailpit). BENCH starts or stops the one container pair the bench has; BENCH/SITE only adds or removes the routes from that site's hostnames, leaving the tools running for the bench's other sites.
-* `-e, --environment`: Switch the bench between dev and prod serving (FRAPPE_ENV), recreating the frappe container. Admin tools and developer mode are left as they are; use --admin-tools or --developer-mode to change those.
-* `--runtime`: Convert the bench runtime. 'mount' extracts an editable workspace from the currently deployed image, stashing anything stale it finds; converting back is a deploy, so use fm switch.
-* `-a, --apps`: Replace or add an app on the running bench (repeatable; appname:ref or org/repo:ref). Replaced code is stashed, never deleted; assets rebuild and the site migrates.
+* `-e, --environment`: Switch the bench between dev and prod serving (FRAPPE_ENV), recreating the frappe container. Admin tools and developer mode are left as they are; use 'fm tools enable'/'fm tools disable' or --developer-mode to change those.
+* `--runtime`: Convert the bench's runtime: 'mount' demotes an image bench to an editable workspace extracted from the currently deployed image (no migrate -- code on disk already equals what is running). 'image' is a no-op confirmation on an already-image bench; converting mount -> image runs through 'fm switch' instead, since that migrates the site onto a baked image.
 * `--developer-mode`: Toggle frappe developer mode, so DocType edits write to app files.
-* `--mailpit-as-default-mail-server`: Route outgoing mail to Mailpit for every site the bench holds. Applies when enabling admin tools.
 * `--upload-limit`: Set the maximum file upload size, e.g. 100M or 1G.
+* `--restart-policy`: Update Docker restart policy for all bench services.
+* `--newrelic/--no-newrelic`: Enable or disable NewRelic APM monitoring for the web process.
+* `--newrelic-license-key`: NewRelic ingest license key. Required the first time you enable NewRelic.
 * `--python`: Update the Python version (e.g. '3.11', '>=3.11,<3.14'); recreates the venv and reinstalls apps.
 * `--node`: Update the Node version (e.g. '20', '>=18') and set it as the bench default.
 * `--skip-version-check`: Accept a Python/Node version that does not satisfy frappe's requirement.
 * `--recreate-python-env/--no-recreate-python-env`: Recreate the venv when --python changes the interpreter; --no-recreate-python-env installs the new Python and leaves the existing venv in place.
-* `--restart`: Update Docker restart policy for all bench services.
-* `--allow-domain-conflicts`: Add an alias domain even when another bench already serves it.
-* `--newrelic/--no-newrelic`: Enable or disable NewRelic APM monitoring for the web process.
-* `--newrelic-license-key`: NewRelic ingest license key. Required the first time you enable NewRelic.
-* `--add-alias`: Add alias domains (comma-separated, e.g. www.example.com,api.example.com).
-* `--remove-alias`: Remove alias domains (comma-separated, e.g. shop.example.com).
 * `--db-ca`: Reinstall the external database CA after a rotation: the site PEM, the bench ca-bundle.pem the dumps use, and the recorded path are refreshed together.
 
 
@@ -48,24 +40,10 @@ $ fm update BENCH(/SITE|all) [OPTIONS]
 fm update mybench -e prod
 ```
 
-### Enable the admin tools
-
-```bash
-fm update mybench --admin-tools enable
-```
-
 ### Turn on developer mode
 
 ```bash
 fm update mybench --developer-mode enable
-```
-
-### Add an alias domain
-
-No certificate is issued for the new domain; run fm ssl add afterwards.
-
-```bash
-fm update mybench --add-alias www.example.com
 ```
 
 ### Bump the Python version
@@ -74,18 +52,18 @@ fm update mybench --add-alias www.example.com
 fm update mybench --python 3.11
 ```
 
-### Install an app into one site of a multi-site bench
+### Raise the upload size limit
 
 ```bash
-fm update mybench/shop.example.com --apps erpnext:version-15
+fm update mybench --upload-limit 500M
 ```
 
-### Install an app into every site the bench serves
+### Demote an image bench to an editable workspace
 
-Installs and migrates site by site, reporting failures per site instead of stopping at the first.
+Extracts the workspace from the currently deployed image; converting back to image runtime runs through fm switch instead.
 
 ```bash
-fm update mybench/all --apps erpnext:version-15
+fm update mybench --runtime mount
 ```
 
 ## Related

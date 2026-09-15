@@ -16,7 +16,7 @@ Everyday bench workflows, for any bench: dev or prod, on your laptop or a server
 
     ---
 
-    Install, update and pin Frappe apps at create time or later with `fm update --apps`, private repos and monorepo subdirectories included.
+    Install, update and pin Frappe apps at create time or later with `fm apps add`, private repos and monorepo subdirectories included.
 
 -   :lucide-package:{ .lg .middle } &nbsp; **[Python & Node Versions](python-node-versions.md)**
 

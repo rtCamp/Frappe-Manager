@@ -40,7 +40,7 @@ Neither applies to local development: `--dev` issues a locally-trusted certifica
 **Both challenge types:** the domain must already be configured on the bench. `fm ssl add` only accepts the bench's own name or one of its alias domains, and refuses anything else. Add an alias first:
 
 ```bash
-fm update mybench --add-alias example.com
+fm domain add mybench example.com
 ```
 
 ### HTTP-01 checklist
@@ -135,7 +135,7 @@ acme.sh adds `_acme-challenge.example.com`, waits for propagation on its own, va
 DNS-01 is the only challenge type that can cover a wildcard. The wildcard has to be a configured domain of the bench first:
 
 ```bash
-fm update mybench --add-alias '*.example.com'
+fm domain add mybench '*.example.com'
 fm ssl add 'mybench/*.example.com' --challenge dns01
 ```
 
@@ -341,7 +341,7 @@ fm list
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `Domain 'example.com' is not configured for bench 'mybench'` | The domain is neither the bench name nor an alias | `fm update mybench --add-alias example.com`, then retry |
+| `Domain 'example.com' is not configured for bench 'mybench'` | The domain is neither the bench name nor an alias | `fm domain add mybench example.com`, then retry |
 | Connection refused on port 80 | Firewall or security group | Open port 80 to the internet |
 | Connect timeout | A record points elsewhere | Correct the A record and wait for the TTL to expire |
 | Let's Encrypt gets an unexpected response from `/.well-known/acme-challenge/` | Another web server is answering port 80 | Stop or move it; only fm's nginx-proxy should own port 80 |

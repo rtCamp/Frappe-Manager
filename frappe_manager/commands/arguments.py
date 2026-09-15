@@ -39,19 +39,21 @@ Bench only, no site or domain part is ever accepted:
 Bench, optionally with a SITE part:
 
 * :data:`BenchSiteArgument` -- optional, validated, and the ONLY alias that
-  accepts a site part. Three commands use it, for two different reasons.
+  accepts a site part. Four commands use it, for three different reasons.
   `fm shell` addresses a site because `FRAPPE_SITE` in the container makes bare
   `bench` commands inside the shell target it. `fm delete` and `fm reset`
   address one because a bench holds several sites now, and destroying one site
-  is not destroying the bench. The bench name is what reaches the command body,
+  is not destroying the bench. `fm update` carries it for `--db-ca`, its one
+  remaining Site Option. The bench name is what reaches the command body,
   exactly as with the other aliases; the site rides on `ctx.obj["site"]`.
   It is also the only alias whose shell completion offers sites: the others carry
   `sites_autocompletion_callback`, which completes bench names alone, so an
   argument that refuses a site part can never complete the operator into one.
 
 * :data:`BenchSiteAllArgument` -- the same address as :data:`BenchSiteArgument`,
-  plus `BENCH/all`. `fm update` uses it, because installing an app is per-site
-  work that legitimately fans out; nothing else needs it yet.
+  plus `BENCH/all`. `fm apps add` and `fm tools enable`/`fm tools disable` use it,
+  because installing an app or toggling the admin-tools route is per-site work
+  that legitimately fans out.
 
 Bench, optionally with a served DOMAIN part. The `fm ssl` subcommands use these:
 a certificate is keyed by hostname rather than site, so a bench's aliases are
@@ -146,7 +148,7 @@ BenchSiteArgument = Annotated[
         callback=bench_site_callback,
     ),
 ]
-"""Optional address. The only alias that accepts a site part; `fm shell`, `fm delete` and `fm reset` use it."""
+"""Optional address. The only alias that accepts a site part; `fm shell`, `fm delete`, `fm reset` and `fm update` use it."""
 
 BenchSiteAllArgument = Annotated[
     str | None,
@@ -163,8 +165,9 @@ A separate alias AND a separate callback, unlike the domain pair below. The doma
 must-exist check, so `all` passes through it for free and each body decides; the site callback does
 check, so `all` needs explicit permission. Granting it in the shared callback would have made
 `fm delete shop/all` and `fm reset shop/all` parse, and a body that forgot to refuse would drop or
-reinstall every schema on the bench. `fm update` uses this because installing an app is per-site
-work that legitimately fans out; nothing else needs it yet."""
+reinstall every schema on the bench. `fm apps add` and `fm tools enable`/`fm tools disable` use this:
+installing an app or toggling the admin-tools route is per-site work that legitimately fans out over
+every site the bench serves."""
 
 BenchDomainArgument = Annotated[
     str | None,

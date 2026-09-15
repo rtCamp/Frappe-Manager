@@ -81,7 +81,7 @@ def test_explicit_flag_overrides_config():
 
 
 def test_explicit_restart_overrides_config():
-    bc, _ = _build([_CFG], restart=RestartPolicyEnum.no)
+    bc, _ = _build([_CFG], restart_policy=RestartPolicyEnum.no)
     assert bc.restart_policy == RestartPolicyEnum.no
 
 
@@ -186,7 +186,7 @@ _PROBES: dict[str, tuple[object, object]] = {
     "newrelic_license_key": ("nr-one", "nr-two"),
     "node_version": ("18", "20"),
     "python_version": ("3.12", "3.13"),
-    "restart": (RestartPolicyEnum.no, RestartPolicyEnum.always),
+    "restart_policy": (RestartPolicyEnum.no, RestartPolicyEnum.always),
     "runtime": (BenchRuntime.mount, BenchRuntime.image),
     "seed_image": ("ghcr.io/acme/seed:one", "ghcr.io/acme/seed:two"),
 }

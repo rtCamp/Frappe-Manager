@@ -1,37 +1,35 @@
 """
 Characterization tests for the ``fm update`` and ``fm switch``/``fm prune`` decision tables.
 
-``fm update`` mutates a LIVE bench: it toggles developer mode, flips the environment, demotes the
-runtime, rewrites the restart policy, enables/disables admin tools, edits alias domains and the
-upload limit, wires NewRelic, grafts apps, moves Python/Node and refreshes the external database CA.
-Every one of those is guarded, and several of them re-render compose files and recreate containers.
-The interesting content of that module is therefore not the plumbing but the DECISION TABLE:
+``fm update`` mutates a LIVE bench: it toggles developer mode, flips the environment, rewrites the
+restart policy, edits the upload limit, wires NewRelic, moves Python/Node and refreshes the external
+database CA. Every one of those is guarded, and several of them re-render compose files and recreate
+containers. The interesting content of that module is therefore not the plumbing but the DECISION
+TABLE:
 
 * which flag is refused on which runtime, and with exactly which message;
 * which flag requires another one (``--newrelic`` needs a license key);
-* which flag short-circuits the rest of the command (``--admin-tools disable`` on an already
-  disabled bench ``return``s, dropping work queued by earlier blocks);
 * which flag only writes config, which one re-renders compose, and which one restarts containers;
 * whether the in-memory ``bench_config`` mutation is actually persisted
   (``bench_config_save``/``save_bench_config`` bookkeeping), including the paths where it is not.
+
+Apps (``fm apps add``), admin tools (``fm tools enable``/``disable``) and alias domains
+(``fm domain add``/``remove``) used to live here as flags on this command; they now have their own
+contract files (``test_apps_contract.py``, ``test_tools_contract.py``, ``test_domain_contract.py``)
+and are not re-pinned in this one. The runtime conversion (``--runtime mount``/``--runtime image``)
+is still a flag on this command; its own decision table lives in
+``test_update_runtime_demotion.py`` and is not re-pinned in this one either.
 
 ``fm switch``/``fm prune`` ship an already-built image. What is pinned here is how the TARGET TAG
 is resolved (``--previous`` reads deploy state; ``--restore-db`` needs a recorded dump that still
 exists), what is refused on a mount-runtime bench, and what the prune summary reports.
 
 These tests describe TODAY's behaviour so the module can be refactored safely. Where the behaviour
-looks wrong it is pinned as-is and called out below rather than fixed; the first two bullets are the
-exception -- those suspicions turned out to be real defects and their pins are now inverted:
-* ``--admin-tools disable`` on an already-disabled bench used to ``return`` from inside the spinner
-  block, dropping a ``--db-ca`` refresh or a ``--upload-limit`` of the same invocation; it now
-  reports and falls through to the remaining flags and the terminal save.
+looks wrong it is pinned as-is and called out below rather than fixed; the following suspicion
+turned out to be a real defect and its pin is now inverted:
 * a failed ``--node`` validation used to abort after ``--python`` had been written to the in-memory
   config and announced, but before ``save_bench_config()``, so the accepted Python change was lost;
   both requested versions are now validated before either one is written.
-
-Options carrying a typer callback (``--apps``, ``--add-alias``, ``--remove-alias``) are exercised
-with their POST-callback values (``AppConfig`` objects / lists of domains), which is what the
-function body sees; the callbacks themselves are pinned elsewhere.
 """
 
 from contextlib import ExitStack, contextmanager
@@ -53,9 +51,7 @@ from frappe_manager.site_manager.bench_config import (
     MonitoringConfig,
     NewRelicConfig,
     RestartPolicyEnum,
-    SiteConfig,
 )
-from frappe_manager.site_manager.domain_conflict import DomainConflict, DomainConflictError
 from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError
 
@@ -83,8 +79,6 @@ class UpdateWorld:
         self.bench_path.mkdir(parents=True)
 
         self.services = MagicMock(name="services_manager")
-        self.fm_config = MagicMock(name="fm_config_manager")
-        self.fm_config.validation.enforce_domain_uniqueness = True
 
         self.bench = MagicMock(name="Bench")
         # bench, site and domain are one string today; a mock that sets only `name` hands a
@@ -104,6 +98,9 @@ class UpdateWorld:
         cfg.developer_mode = False
         cfg.python_version = "3.11"
         cfg.node_version = "18"
+        # None so the update() no-drain warning falls back to WorkersConfig()'s default
+        # kill_timeout (15s) instead of an unpredictable MagicMock repr.
+        cfg.workers = None
         cfg.monitoring = None
         # The command reads monitoring through the helper and writes it back through the
         # attribute, so the double has to keep the two consistent.
@@ -111,7 +108,6 @@ class UpdateWorld:
         cfg.github_token = MagicMock(name="github_token")
         cfg.use_uv = True
         cfg.registry = SimpleNamespace(distribution="registry")
-        cfg.deploy_state = None
         cfg.export_to_compose_inputs.side_effect = dict
 
         self.database_config = MagicMock(name="database_config")
@@ -123,7 +119,6 @@ class UpdateWorld:
         app_manager = self.bench.app_manager
         app_manager.bench_cli_cmd = ["/opt/bench"]
         app_manager.get_current_runtime_versions.return_value = {"python": "3.10", "node": "18"}
-        app_manager.graft_apps.return_value = ([], None)
         app_manager.setup_python_and_node_environments.return_value = False
 
         bench_cls = MagicMock(name="Bench class")
@@ -131,10 +126,6 @@ class UpdateWorld:
         self.bench_cls = bench_cls
 
         self.install_site_ca = MagicMock(name="install_site_ca", return_value="/workspace/config/tls/db-ca.pem")
-        self.validate_domains_unique = MagicMock(name="validate_domains_unique")
-        self.fetch_image = MagicMock(name="fetch_image")
-        self.stash_seed = MagicMock(name="stash_conflicting_seed_paths", return_value=None)
-        self.materialize = MagicMock(name="materialize_workspace_from_image", return_value=[])
         self.check_migration = MagicMock(name="check_bench_migration_required")
 
         self.extract_python_req = MagicMock(name="extract_python_version_requirement", return_value=None)
@@ -152,8 +143,6 @@ class UpdateWorld:
         p = stack.enter_context
         p(patch("frappe_manager.commands.update.Bench", bench_cls))
         p(patch("frappe_manager.commands.update.spinner", _null_spinner))
-        p(patch("frappe_manager.commands.update.CLI_BENCHES_DIRECTORY", self.benches_root))
-        p(patch("frappe_manager.commands.update.validate_domains_unique", self.validate_domains_unique))
         p(patch("frappe_manager.commands.update.AppConfig", self.app_config_cls))
         p(patch("frappe_manager.commands.update.extract_python_version_requirement", self.extract_python_req))
         p(patch("frappe_manager.commands.update.extract_node_version_requirement", self.extract_node_req))
@@ -163,13 +152,6 @@ class UpdateWorld:
         p(patch("frappe_manager.commands.update.parse_node_version_for_runtime", self.parse_node))
         p(patch("frappe_manager.commands.update.check_bench_migration_required", self.check_migration))
         p(patch("frappe_manager.site_manager.modules.db_tls.install_site_ca", self.install_site_ca))
-        p(patch("frappe_manager.site_manager.modules.transport.fetch_image", self.fetch_image))
-        p(patch("frappe_manager.site_manager.modules.workspace_seed.stash_conflicting_seed_paths", self.stash_seed))
-        p(
-            patch(
-                "frappe_manager.site_manager.modules.workspace_seed.materialize_workspace_from_image", self.materialize
-            )
-        )
 
     # -- knobs -------------------------------------------------------------
 
@@ -218,9 +200,11 @@ class UpdateWorld:
 
     def run(self, *, site: str | None = None, **kwargs):
         ctx = MagicMock(spec=typer.Context)
-        # `fm update BENCH/SITE` parses to a bench plus the addressed site, and the site rides on
-        # ctx.obj. A bare `fm update BENCH` leaves it None, which means the bench's primary site.
-        ctx.obj = {"services": self.services, "fm_config_manager": self.fm_config, "site": site}
+        # `fm update BENCH/SITE` parses to a bench plus the addressed site; nothing in update()
+        # reads it today (--db-ca is the one remaining Site Option and always targets the bench's
+        # primary site), but the address grammar still accepts and stashes it like every other
+        # BenchSiteArgument command.
+        ctx.obj = {"services": self.services, "site": site}
         return update(ctx, address=BENCH, **kwargs)
 
 
@@ -232,9 +216,9 @@ def world(tmp_path):
 
 IMMUTABLE_REFUSAL = (
     f"{BENCH} is image runtime; code, apps, Python/Node and developer mode are immutable -- "
-    "ship changes with 'fm bake' then 'fm switch', or demote to an editable workspace "
-    f"(add --runtime mount, or run: fm update {BENCH} --runtime mount first). "
-    "'fm update' on an image bench changes settings only (SSL/env/domains/policy)."
+    "ship changes with 'fm bake' then 'fm switch', install apps with 'fm apps add', or demote to "
+    f"an editable workspace first with 'fm update {BENCH} --runtime mount'. "
+    "'fm update' on an image bench still changes environment, restart policy, NewRelic and the database CA."
 )
 
 
@@ -247,7 +231,6 @@ class TestImageRuntimeImmutabilityGate:
             pytest.param({"python_version": "3.12"}, id="python"),
             pytest.param({"node_version": "20"}, id="node"),
             pytest.param({"developer_mode": EnableDisableOptionsEnum.enable}, id="developer-mode-enable"),
-            pytest.param({"apps": [SimpleNamespace(name="hrms")]}, id="apps"),
         ],
     )
     def test_code_affecting_flags_are_refused_on_image_runtime(self, world, kwargs):
@@ -278,18 +261,6 @@ class TestImageRuntimeImmutabilityGate:
 
         assert world.errors == []
         world.bench.update_upload_limit.assert_called_once_with("100M")
-
-    def test_demoting_in_the_same_command_exempts_the_gate(self, world):
-        """``--runtime mount`` in the same invocation demotes FIRST, so code changes then apply."""
-        world.config.runtime = BenchRuntime.image
-        world.config.deploy_state = SimpleNamespace(current_image="local/mybench:t1")
-
-        world.run(runtime=BenchRuntime.mount, python_version="3.12")
-
-        assert world.errors == []
-        assert world.config.runtime == BenchRuntime.mount
-        world.fetch_image.assert_called_once()
-        assert world.config.python_version == "3.12"
 
     def test_mount_runtime_never_hits_the_gate(self, world):
         world.run(python_version="3.12")
@@ -457,122 +428,13 @@ class TestEnvironmentSwitch:
         option = update.__annotations__["environment"].__metadata__[0]
 
         assert "admin-tool defaults" not in option.help
-        assert "--admin-tools" in option.help
+        assert "fm tools" in option.help
         assert "FRAPPE_ENV" in option.help
-
-
-MOUNT_TO_IMAGE_REFUSAL = (
-    "mount -> image conversion runs through the deploy pipeline (it must migrate the "
-    "site onto the baked image): set runtime = 'image' and a top-level image in "
-    f"bench_config.toml, then run fm switch {BENCH} <repo:tag>."
-)
-
-
-class TestRuntimeSwitch:
-    def test_switching_to_the_current_runtime_is_a_no_op(self, world):
-        world.run(runtime=BenchRuntime.mount)
-
-        assert world.prints == ["Bench runtime is already 'mount'"]
-        world.fetch_image.assert_not_called()
-        world.bench.generate_compose.assert_not_called()
-        assert world.saves == 0
-
-    def test_mount_to_image_is_refused_and_points_at_fm_switch(self, world):
-        with pytest.raises(typer.Exit) as exc:
-            world.run(runtime=BenchRuntime.image)
-
-        assert exc.value.exit_code == 1
-        assert world.errors == [MOUNT_TO_IMAGE_REFUSAL]
-        assert world.config.runtime == BenchRuntime.mount
-        assert world.saves == 0
-
-    @pytest.mark.parametrize(
-        "state",
-        [
-            pytest.param(None, id="no-deploy-state"),
-            pytest.param(SimpleNamespace(current_image=None), id="no-current-image"),
-        ],
-    )
-    def test_demotion_needs_a_recorded_deployed_image(self, world, state):
-        world.config.runtime = BenchRuntime.image
-        world.config.deploy_state = state
-
-        with pytest.raises(typer.Exit) as exc:
-            world.run(runtime=BenchRuntime.mount)
-
-        assert exc.value.exit_code == 1
-        assert world.errors == ["No deployed image recorded; cannot materialize the workspace."]
-        world.fetch_image.assert_not_called()
-        assert world.config.runtime == BenchRuntime.image
-
-    def test_demotion_materializes_the_workspace_from_the_deployed_image(self, world):
-        world.config.runtime = BenchRuntime.image
-        world.config.deploy_state = SimpleNamespace(current_image="local/mybench:t7")
-        world.materialize.return_value = ["apps", "env"]
-
-        world.run(runtime=BenchRuntime.mount)
-
-        world.fetch_image.assert_called_once_with(world.bench.docker_client, "local/mybench:t7", output=world.output)
-        frappe_bench_dir = world.bench_path / "workspace" / "frappe-bench"
-        world.materialize.assert_called_once_with(
-            world.bench.docker_client, "local/mybench:t7", frappe_bench_dir, output=world.output
-        )
-        assert world.config.runtime == BenchRuntime.mount
-        assert "Extracted from image: apps, env" in world.prints
-        assert world.saves == 1
-
-    def test_demotion_reports_nothing_extracted_when_the_workspace_was_complete(self, world):
-        world.config.runtime = BenchRuntime.image
-        world.config.deploy_state = SimpleNamespace(current_image="local/mybench:t7")
-        world.materialize.return_value = []
-
-        world.run(runtime=BenchRuntime.mount)
-
-        assert "Extracted from image: nothing (already present)" in world.prints
-
-    def test_demotion_warns_about_stashed_stale_code_but_continues(self, world):
-        world.config.runtime = BenchRuntime.image
-        world.config.deploy_state = SimpleNamespace(current_image="local/mybench:t7")
-        world.stash_seed.return_value = Path("/benches/x/workspace/frappe-bench.stash")
-
-        world.run(runtime=BenchRuntime.mount)
-
-        assert world.warnings == [
-            "Existing workspace code was stale vs local/mybench:t7; moved to "
-            "/benches/x/workspace/frappe-bench.stash -- review and delete it."
-        ]
-        world.materialize.assert_called_once()
-
-    def test_demotion_recreates_every_container_without_pulling(self, world):
-        world.config.runtime = BenchRuntime.image
-        world.config.deploy_state = SimpleNamespace(current_image="local/mybench:t7")
-
-        world.run(runtime=BenchRuntime.mount)
-
-        assert world.compose_up_calls[0].kwargs == {"detach": True, "force_recreate": True, "pull": "never"}
-        assert world.bench.workers.docker_client.compose.up.call_args.kwargs == {
-            "services": [],
-            "detach": True,
-            "pull": "never",
-            "stream": False,
-        }
-
-    def test_demotion_regenerates_worker_compose_only_when_it_exists(self, world):
-        world.config.runtime = BenchRuntime.image
-        world.config.deploy_state = SimpleNamespace(current_image="local/mybench:t7")
-
-        world.run(runtime=BenchRuntime.mount)
-        world.bench.workers.generate_compose.assert_not_called()
-
-        world.bench.workers.compose_file_manager.compose_path.exists.return_value = True
-        world.config.runtime = BenchRuntime.image
-        world.run(runtime=BenchRuntime.mount)
-        world.bench.workers.generate_compose.assert_called_once_with()
 
 
 class TestRestartPolicy:
     def test_unchanged_policy_touches_nothing(self, world):
-        world.run(restart=RestartPolicyEnum.always)
+        world.run(restart_policy=RestartPolicyEnum.always)
 
         assert world.prints == ["Restart policy is already set to 'always'"]
         world.bench.generate_compose.assert_not_called()
@@ -582,7 +444,7 @@ class TestRestartPolicy:
     def test_changed_policy_rerenders_every_compose_file_and_recreates_containers(self, world):
         world.bench.workers.compose_file_manager.compose_path.exists.return_value = True
 
-        world.run(restart=RestartPolicyEnum.unless_stopped)
+        world.run(restart_policy=RestartPolicyEnum.unless_stopped)
 
         assert world.config.restart_policy == RestartPolicyEnum.unless_stopped
         world.bench.generate_compose.assert_called_once()
@@ -594,7 +456,7 @@ class TestRestartPolicy:
     def test_absent_optional_compose_files_are_skipped(self, world):
         world.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = False
 
-        world.run(restart=RestartPolicyEnum.unless_stopped)
+        world.run(restart_policy=RestartPolicyEnum.unless_stopped)
 
         world.bench.workers.generate_compose.assert_not_called()
         world.bench.admin_tools.generate_compose.assert_not_called()
@@ -602,7 +464,7 @@ class TestRestartPolicy:
     def test_no_restart_on_production_warns_twice(self, world):
         world.config.environment_type = FMBenchEnvType.prod
 
-        world.run(restart=RestartPolicyEnum.no)
+        world.run(restart_policy=RestartPolicyEnum.no)
 
         assert world.warnings == [
             "Setting restart policy to 'no' on production bench",
@@ -611,7 +473,7 @@ class TestRestartPolicy:
         assert world.config.restart_policy == RestartPolicyEnum.no
 
     def test_no_restart_on_development_does_not_warn(self, world):
-        world.run(restart=RestartPolicyEnum.no)
+        world.run(restart_policy=RestartPolicyEnum.no)
 
         assert world.warnings == []
 
@@ -621,7 +483,7 @@ class TestRestartPolicy:
         bench_config.toml and the rendered compose files claim the new one."""
         world.bench.workers.compose_file_manager.compose_path.exists.return_value = True
 
-        world.run(restart=RestartPolicyEnum.unless_stopped)
+        world.run(restart_policy=RestartPolicyEnum.unless_stopped)
 
         world.bench.workers.docker_client.compose.up.assert_called_once_with(
             services=[], detach=True, force_recreate=True, pull="never"
@@ -632,7 +494,7 @@ class TestRestartPolicy:
         world.bench.workers.compose_file_manager.compose_path.exists.return_value = False
         world.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = False
 
-        world.run(restart=RestartPolicyEnum.unless_stopped)
+        world.run(restart_policy=RestartPolicyEnum.unless_stopped)
 
         world.bench.workers.docker_client.compose.up.assert_not_called()
         world.bench.admin_tools.enable.assert_not_called()
@@ -640,115 +502,10 @@ class TestRestartPolicy:
     def test_an_unchanged_policy_recreates_nothing_anywhere(self, world):
         world.bench.workers.compose_file_manager.compose_path.exists.return_value = True
 
-        world.run(restart=RestartPolicyEnum.always)
+        world.run(restart_policy=RestartPolicyEnum.always)
 
         world.bench.workers.docker_client.compose.up.assert_not_called()
         world.bench.admin_tools.enable.assert_not_called()
-
-
-class TestAdminTools:
-    def test_enable_seeds_the_compose_file_when_absent(self, world):
-        world.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = False
-
-        world.run(admin_tools=EnableDisableOptionsEnum.enable)
-
-        assert world.config.admin_tools is True
-        world.bench.sync_admin_tools_compose.assert_called_once_with()
-        world.bench.admin_tools.enable.assert_not_called()
-        assert world.saves == 1
-
-    @pytest.mark.parametrize(
-        ("mailpit_default", "expected"),
-        [pytest.param(False, False, id="default"), pytest.param(True, True, id="mailpit-as-default")],
-    )
-    def test_enable_reuses_an_existing_compose_file_and_forwards_mailpit_choice(self, world, mailpit_default, expected):
-        world.run(
-            admin_tools=EnableDisableOptionsEnum.enable,
-            mailpit_as_default_mail_server=mailpit_default,
-        )
-
-        world.bench.admin_tools.enable.assert_called_once_with(force_configure=expected)
-        world.bench.sync_admin_tools_compose.assert_not_called()
-
-    @pytest.mark.parametrize(
-        ("mailpit_default", "configure_calls"),
-        [pytest.param(False, 0, id="default"), pytest.param(True, 1, id="mailpit-as-default")],
-    )
-    def test_seeding_the_compose_file_still_honours_the_mailpit_choice(self, world, mailpit_default, configure_calls):
-        """sync_admin_tools_compose() takes no mail choice (it enables with force_configure defaulted to
-        False), so on the seeded path -- every bench that never had admin tools, i.e. every ``-e prod``
-        one -- --mailpit-as-default-mail-server was accepted and the mail keys never written."""
-        world.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = False
-
-        world.run(admin_tools=EnableDisableOptionsEnum.enable, mailpit_as_default_mail_server=mailpit_default)
-
-        world.bench.sync_admin_tools_compose.assert_called_once_with()
-        assert world.bench.admin_tools.configure_mailpit_as_default_server.call_count == configure_calls
-
-    @pytest.mark.parametrize("compose_exists", [True, False], ids=["existing-compose", "seeded-compose"])
-    def test_enable_mints_the_tools_htpasswd(self, world, compose_exists):
-        """ensure_fm_nginx_confs() is the sole owner of <bench>.htpasswd and its own guard skips the
-        file while admin tools are off, so a bench that never had them (``-e prod``) has none on disk.
-        The tools vhost references it unconditionally, so enabling must mint it or the surface 500s."""
-        world.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = compose_exists
-
-        world.run(admin_tools=EnableDisableOptionsEnum.enable)
-
-        world.bench.ensure_fm_nginx_confs.assert_called_once_with()
-
-    def test_disable_never_mints_the_tools_htpasswd(self, world):
-        world.run(admin_tools=EnableDisableOptionsEnum.disable)
-
-        world.bench.ensure_fm_nginx_confs.assert_not_called()
-
-    def test_disable_turns_off_admin_tools_and_persists(self, world):
-        world.run(admin_tools=EnableDisableOptionsEnum.disable)
-
-        assert world.config.admin_tools is False
-        world.bench.admin_tools.disable.assert_called_once_with()
-        assert world.saves == 1
-
-    @pytest.mark.parametrize(
-        ("compose_exists", "configured"),
-        [
-            pytest.param(False, True, id="no-compose-file"),
-            pytest.param(True, False, id="already-disabled-in-config"),
-        ],
-    )
-    def test_disable_on_an_already_disabled_bench_reports_and_returns(self, world, compose_exists, configured):
-        world.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = compose_exists
-        world.config.admin_tools = configured
-
-        assert world.run(admin_tools=EnableDisableOptionsEnum.disable) is None
-
-        assert world.prints == ["Admin tools is already disabled"]
-        world.bench.admin_tools.disable.assert_not_called()
-
-    def test_an_already_disabled_bench_still_applies_every_other_flag(self, world, tmp_path):
-        """Was pinned as a suspicion (``test_the_early_return_drops_work_queued_by_later_and_earlier_
-        flags``) and confirmed as a real defect: the ``return`` sat inside the spinner block in the
-        middle of the decision table, so it aborted the WHOLE command -- the CA was installed on disk
-        and recorded in memory but never persisted, and --upload-limit never ran. The branch now
-        reports and falls through, so the assertions below are the inverse of the old pin."""
-        world.config.admin_tools = False
-        ca = tmp_path / "ca.pem"
-        ca.write_text("ca")
-
-        world.run(admin_tools=EnableDisableOptionsEnum.disable, db_ca=ca, upload_limit="100M")
-
-        world.install_site_ca.assert_called_once()
-        assert world.database_config.ca == str(ca.absolute())
-        assert world.saves == 1
-        world.bench.update_upload_limit.assert_called_once_with("100M")
-
-    def test_an_already_disabled_bench_on_its_own_still_persists_nothing(self, world):
-        """Falling through must not invent a save: nothing changed."""
-        world.config.admin_tools = False
-
-        world.run(admin_tools=EnableDisableOptionsEnum.disable)
-
-        assert world.saves == 0
-        world.bench.admin_tools.disable.assert_not_called()
 
 
 class TestMigrationGate:
@@ -773,78 +530,6 @@ class TestMigrationGate:
 
         world.bench_cls.get_object.assert_not_called()
         world.bench.update_upload_limit.assert_not_called()
-
-
-class TestAliasDomains:
-    def test_added_domains_are_checked_for_conflicts_then_applied(self, world):
-        world.run(add_alias=["www.example.com", "api.example.com"])
-
-        world.validate_domains_unique.assert_called_once_with(
-            ["www.example.com", "api.example.com"],
-            benches_root=world.benches_root,
-            exclude_bench=BENCH,
-            skip_check=False,
-        )
-        world.bench.update_alias_domains.assert_called_once_with(
-            add_domains=["www.example.com", "api.example.com"], remove_domains=[], site=None
-        )
-        assert "Alias domains updated successfully" in world.prints
-
-    def test_a_conflict_refuses_the_update_and_advertises_the_override(self, world):
-        # The third positional is the SITE that already serves the domain, not a primary-or-not
-        # flag: 'www.example.com' is an alias of bench 'other''s site 'shop.other'.
-        world.validate_domains_unique.side_effect = DomainConflictError(
-            [DomainConflict("www.example.com", "other", "shop.other")]
-        )
-
-        with pytest.raises(typer.Exit) as exc:
-            world.run(add_alias=["www.example.com"])
-
-        assert exc.value.exit_code == 1
-        assert world.errors == [
-            "Domain conflicts detected:\n  - 'www.example.com' → already an alias of site 'shop.other' in bench 'other'"
-        ]
-        assert world.output.print.call_args.args[0] == "\nTo proceed anyway, use: --allow-domain-conflicts"
-        assert world.output.print.call_args.kwargs == {"emoji_code": ""}
-        world.bench.update_alias_domains.assert_not_called()
-
-    @pytest.mark.parametrize(
-        ("allow_flag", "enforce_globally"),
-        [
-            pytest.param(True, True, id="--allow-domain-conflicts"),
-            pytest.param(False, False, id="uniqueness-disabled-in-fm-config"),
-        ],
-    )
-    def test_conflict_check_is_skipped_by_flag_or_by_global_config(self, world, allow_flag, enforce_globally):
-        world.fm_config.validation.enforce_domain_uniqueness = enforce_globally
-
-        world.run(add_alias=["www.example.com"], allow_domain_conflicts=allow_flag)
-
-        assert world.validate_domains_unique.call_args.kwargs["skip_check"] is True
-        world.bench.update_alias_domains.assert_called_once()
-
-    def test_removal_only_never_runs_the_uniqueness_check(self, world):
-        world.run(remove_alias=["shop.example.com"])
-
-        world.validate_domains_unique.assert_not_called()
-        world.bench.update_alias_domains.assert_called_once_with(
-            add_domains=[], remove_domains=["shop.example.com"], site=None
-        )
-
-    def test_the_addressed_site_is_the_one_the_alias_attaches_to(self, world):
-        """`fm update BENCH/SITE --add-alias`: an alias is an alternate for one SITE, so the site
-        named on the command line is handed down instead of the bench's primary."""
-        world.run(site="shop.example.com", add_alias=["www.example.com"])
-
-        world.bench.update_alias_domains.assert_called_once_with(
-            add_domains=["www.example.com"], remove_domains=[], site="shop.example.com"
-        )
-
-    def test_alias_changes_do_not_trigger_a_bench_config_save(self, world):
-        """Alias persistence is delegated to update_alias_domains; the command saves nothing."""
-        world.run(add_alias=["www.example.com"])
-
-        assert world.saves == 0
 
 
 class TestUploadLimit:
@@ -900,7 +585,8 @@ class TestNewRelic:
         assert "NewRelic configuration updated" in world.prints
 
     def test_the_block_saves_once_and_clears_pending_saves(self, world, tmp_path):
-        """NewRelic persists inline and resets the flag, so a --db-ca in the same run saves once."""
+        """NewRelic folds into the one terminal save at the bottom like every other flag now, so a
+        --db-ca in the same run still saves exactly once."""
         ca = tmp_path / "ca.pem"
         ca.write_text("ca")
 
@@ -913,89 +599,6 @@ class TestNewRelic:
         world.run(upload_limit="100M")
 
         world.bench.supervisor.setup_newrelic.assert_not_called()
-
-
-class TestAppGrafting:
-    """Fetching an app's code and installing it into a site's database are separate acts.
-
-    They used to be one, and the install had no site: `install_app_to_site(app)` fell through to its
-    default of the BENCH name, so `bench --site shop install-app` named a site that does not exist
-    on a bench serving `shop.localhost` and the step failed outright. The address now says which
-    sites get the database half, and a bare bench name asks for none of them.
-    """
-
-    def test_a_bare_bench_grafts_the_code_and_installs_into_nothing(self, world):
-        """The bench's `apps` list still grows, so a site created later gets it. Nothing existing
-        is migrated without being named, because migrating is a database write."""
-        hrms = SimpleNamespace(name="hrms")
-        world.bench.app_manager.graft_apps.return_value = (["hrms"], None)
-
-        world.run(apps=[hrms])
-
-        world.bench.app_manager.graft_apps.assert_called_once_with([hrms], stash=True, use_run=False)
-        world.bench.app_manager.install_app_to_site.assert_not_called()
-        world.bench.app_manager._container_run.assert_not_called()
-        assert any("Install it with" in line for line in world.prints)
-        assert world.saves == 1
-
-    def test_a_named_site_is_the_only_one_installed_and_migrated(self, world):
-        hrms = SimpleNamespace(name="hrms")
-        world.bench.app_manager.graft_apps.return_value = (["hrms"], None)
-
-        world.run(apps=[hrms], site="b.example.com")
-
-        world.bench.app_manager.install_app_to_site.assert_called_once_with("hrms", site_name="b.example.com")
-        world.bench.app_manager._container_run.assert_called_once_with(
-            "/opt/bench --site b.example.com migrate"
-        )
-
-    def test_all_installs_and_migrates_every_site_primary_first(self, world):
-        """Primary first, so a schema change that is going to fail fails on the primary before the
-        rest of the bench is touched."""
-        hrms = SimpleNamespace(name="hrms")
-        world.bench.app_manager.graft_apps.return_value = (["hrms"], None)
-        world.bench.bench_config.site_names = ["shop.localhost", "b.example.com"]
-
-        world.run(apps=[hrms], site="all")
-
-        assert [c.kwargs["site_name"] for c in world.bench.app_manager.install_app_to_site.call_args_list] == [
-            "shop.localhost",
-            "b.example.com",
-        ]
-        assert [c.args[0] for c in world.bench.app_manager._container_run.call_args_list] == [
-            "/opt/bench --site shop.localhost migrate",
-            "/opt/bench --site b.example.com migrate",
-        ]
-
-    def test_one_failing_site_does_not_stop_the_others_and_exits_nonzero(self, world):
-        """A stop at the first failure would leave some sites on the new code and some on the old,
-        with nothing recording which. Same report-and-continue shape as `fm ssl renew all`."""
-        hrms = SimpleNamespace(name="hrms")
-        world.bench.app_manager.graft_apps.return_value = (["hrms"], None)
-        world.bench.bench_config.site_names = ["shop.localhost", "b.example.com"]
-        world.bench.app_manager.install_app_to_site.side_effect = [RuntimeError("boom"), None]
-
-        with pytest.raises(typer.Exit) as exc:
-            world.run(apps=[hrms], site="all")
-
-        assert exc.value.exit_code == 1
-        assert any("shop.localhost" in w for w in world.warnings)
-        # The second site was still attempted after the first failed.
-        assert [c.kwargs["site_name"] for c in world.bench.app_manager.install_app_to_site.call_args_list] == [
-            "shop.localhost",
-            "b.example.com",
-        ]
-
-    def test_replacing_an_existing_app_grafts_but_installs_nothing(self, world):
-        """graft_apps reports only NEWLY added apps; a replaced app is already on the site."""
-        world.bench.app_manager.graft_apps.return_value = ([], "/benches/x/apps.stash")
-
-        world.run(apps=[SimpleNamespace(name="erpnext")], site="all")
-
-        world.bench.app_manager.install_app_to_site.assert_not_called()
-        assert world.warnings[0] == (
-            "Replaced app code moved to /benches/x/apps.stash -- review and delete it."
-        )
 
 
 class TestPythonAndNodeVersions:
@@ -1049,6 +652,7 @@ class TestPythonAndNodeVersions:
         assert world.warnings == [
             " Python 3.9 is incompatible with Frappe requirement",
             " Consider using --python 3.12 instead",
+            "Restarting workers WITHOUT draining: in-flight jobs are interrupted (SIGUSR1, force-stop after 15s)",
         ]
         assert world.config.python_version == "3.9"
         world.bench.app_manager.setup_python_and_node_environments.assert_called_once()
@@ -1104,6 +708,7 @@ class TestPythonAndNodeVersions:
         assert world.warnings == [
             " Node 16 is incompatible with Frappe requirement",
             " Consider using --node 20 instead",
+            "Restarting workers WITHOUT draining: in-flight jobs are interrupted (SIGUSR1, force-stop after 15s)",
         ]
         assert world.config.node_version == "16"
         world.bench.app_manager.setup_python_and_node_environments.assert_called_once()
@@ -1143,7 +748,10 @@ class TestPythonAndNodeVersions:
 
         world.run(python_version="3.12")
 
-        assert world.warnings == ["No apps.txt found, skipping app reinstallation"]
+        assert world.warnings == [
+            "No apps.txt found, skipping app reinstallation",
+            "Restarting workers WITHOUT draining: in-flight jobs are interrupted (SIGUSR1, force-stop after 15s)",
+        ]
         world.bench.app_manager.install_apps.assert_not_called()
 
     def test_apps_are_not_reinstalled_when_the_venv_was_kept(self, world):
@@ -1471,135 +1079,3 @@ class TestKeepFloor:
         ship.prune(keep=1)
 
         ship.orchestrator.prune_releases.assert_called_once_with(keep=1, dry_run=False)
-
-
-RESERVED_BENCH_NAME = "all"
-
-
-class TestSiteScopedAdminTools:
-    """`--admin-tools` is address-scoped: BENCH starts or stops the containers, BENCH/SITE only
-    changes whether that site's hostnames route to them.
-
-    One flag, because the address is what says the scope -- the same idiom as `fm auth BENCH` versus
-    `fm auth BENCH/SITE`. The mechanism differs only as the scope implies: off for the bench can
-    stop the one container pair because nothing is left needing it, off for one site cannot, because
-    its neighbours still reach the same pair.
-    """
-
-    def _sites(self, world, **overrides):
-        world.bench.bench_config.site_names = ["shop.localhost", "b.example.com"]
-        world.bench.bench_config.sites = {
-            "shop.localhost": SiteConfig(),
-            "b.example.com": SiteConfig(**overrides),
-        }
-        world.bench.bench_config.admin_tools = True
-
-    def test_disabling_records_it_against_the_named_site_only(self, world):
-        self._sites(world)
-        world.run(site="b.example.com", admin_tools=EnableDisableOptionsEnum.disable)
-
-        assert world.bench.bench_config.sites["b.example.com"].serve_admin_tools is False
-        # The bench keeps running the containers, and its other sites keep their route.
-        assert world.bench.bench_config.admin_tools is True
-        assert world.bench.bench_config.sites["shop.localhost"].serve_admin_tools is None
-
-    def test_it_re_renders_the_locations_and_reloads(self, world):
-        self._sites(world)
-        world.run(site="b.example.com", admin_tools=EnableDisableOptionsEnum.disable)
-
-        # Creation and removal of the location files is the command's job: ensure_fm_nginx_confs
-        # only refreshes ones already on disk, so enabling a site with none would render nothing.
-        world.bench.admin_tools.save_nginx_location_config.assert_called_once_with()
-        world.bench.bench_nginx_controller.reload.assert_called_once_with()
-
-    def test_enabling_on_a_bench_whose_tools_are_off_is_refused(self, world):
-        self._sites(world)
-        world.bench.bench_config.admin_tools = False
-
-        with pytest.raises(typer.Exit):
-            world.run(site="b.example.com", admin_tools=EnableDisableOptionsEnum.enable)
-
-        # There is one container pair per bench and it is not running: routing a hostname at it
-        # would be a 502, not an enable.
-        assert "nothing to route" in " ".join(world.errors)
-        world.bench.admin_tools.save_nginx_location_config.assert_not_called()
-
-    def test_a_bare_bench_address_stops_the_containers_and_touches_no_site(self, world):
-        self._sites(world)
-        world.run(admin_tools=EnableDisableOptionsEnum.disable)
-
-        # NOT "the primary site", which is what the other Site Options flags mean without a site
-        # part. This flag's bare form has always addressed the bench, and narrowing it to one site
-        # would silently leave the tools running on a bench an operator just told to stop them.
-        assert world.bench.bench_config.admin_tools is False
-        world.bench.admin_tools.disable.assert_called_once_with()
-        assert world.bench.bench_config.sites["shop.localhost"].serve_admin_tools is None
-        assert world.bench.bench_config.sites["b.example.com"].serve_admin_tools is None
-
-    def test_all_fans_the_routes_out_over_every_site(self, world):
-        self._sites(world)
-        world.run(site=RESERVED_BENCH_NAME, admin_tools=EnableDisableOptionsEnum.disable)
-
-        # A route is a boolean per site, so "every site" is well defined -- unlike an alias or a CA
-        # path, which is why those refuse `all` and this does not.
-        assert world.bench.bench_config.sites["shop.localhost"].serve_admin_tools is False
-        assert world.bench.bench_config.sites["b.example.com"].serve_admin_tools is False
-
-    def test_all_is_not_the_bench_form_and_says_so(self, world):
-        self._sites(world)
-        world.run(site=RESERVED_BENCH_NAME, admin_tools=EnableDisableOptionsEnum.disable)
-
-        # The containers keep running, which is the whole difference from `fm update BENCH
-        # --admin-tools disable`. Unsaid, the running containers read as the command failing.
-        assert world.bench.bench_config.admin_tools is True
-        world.bench.admin_tools.disable.assert_not_called()
-        assert any("still running" in line for line in world.prints)
-
-    def test_all_enable_clears_several_sites_opt_outs_at_once(self, world):
-        self._sites(world, serve_admin_tools=False)
-        world.bench.bench_config.sites["shop.localhost"].serve_admin_tools = False
-        world.run(site=RESERVED_BENCH_NAME, admin_tools=EnableDisableOptionsEnum.enable)
-
-        # The reason refusing `all` was wrong: without it, restoring N opted-out sites means naming
-        # each one, and the bench form does NOT do it (a site's own false survives it).
-        assert world.bench.bench_config.sites["shop.localhost"].serve_admin_tools is True
-        assert world.bench.bench_config.sites["b.example.com"].serve_admin_tools is True
-
-    def test_an_unrecorded_site_is_refused(self, world):
-        self._sites(world)
-        world.bench.bench_config.sites = {"shop.localhost": SiteConfig()}
-
-        with pytest.raises(typer.Exit):
-            world.run(site="b.example.com", admin_tools=EnableDisableOptionsEnum.disable)
-
-        assert "records no entry for site" in " ".join(world.errors)
-
-
-class TestSiteScopedAdminToolsOnOlderNginx:
-    def test_it_is_refused_when_the_conf_predates_per_site_blocks(self, world):
-        """Per-site location files would be read by nothing, so the tools would answer on NO
-        hostname while the config recorded one of them as serving."""
-        world.bench.bench_config.site_names = ["shop.localhost", "b.example.com"]
-        world.bench.bench_config.sites = {
-            "shop.localhost": SiteConfig(),
-            "b.example.com": SiteConfig(),
-        }
-        world.bench.bench_config.admin_tools = True
-        world.bench.nginx_conf_serves_per_site.return_value = False
-
-        with pytest.raises(typer.Exit):
-            world.run(site="b.example.com", admin_tools=EnableDisableOptionsEnum.disable)
-
-        assert "predates one server block per site" in " ".join(world.errors)
-        assert world.bench.bench_config.sites["b.example.com"].serve_admin_tools is None
-
-    def test_the_bench_form_still_works_on_an_older_conf(self, world):
-        """Starting and stopping the containers has nothing to do with per-site blocks, so gating it
-        would refuse a bench-wide action that has always worked."""
-        world.bench.bench_config.admin_tools = True
-        world.bench.nginx_conf_serves_per_site.return_value = False
-
-        world.run(admin_tools=EnableDisableOptionsEnum.disable)
-
-        assert world.bench.bench_config.admin_tools is False
-        world.bench.admin_tools.disable.assert_called_once_with()

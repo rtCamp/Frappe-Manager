@@ -994,7 +994,7 @@ def _app_parity_check(state: SchemaState, *, bench_apps: tuple[str, ...]) -> Pro
         f"the site has {', '.join(missing)} installed but this bench does not carry"
         f" {'them' if len(missing) > 1 else 'it'}. The site will fail at runtime on doctypes from"
         " an absent app. Not blocking, since attach writes nothing to the database: add them"
-        " afterwards with fm update <bench> --apps <app>.",
+        " afterwards with fm apps add <bench> <app>.",
     )
 
 

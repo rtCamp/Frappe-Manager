@@ -250,7 +250,7 @@ def test_add_refuses_a_domain_absent_from_the_bench_config(h):
     message = h.errors()[0]
     assert "stranger.example.com" in message
     assert f"Allowed domains: {DOMAIN}, {ALIAS}" in message
-    assert f"fm update {BENCH} --add-alias stranger.example.com" in message
+    assert f"fm domain add {BENCH} stranger.example.com" in message
     h.cert_manager.add_certificate.assert_not_called()
 
 
@@ -845,7 +845,7 @@ def test_remove_refuses_a_domain_absent_from_the_bench_config(h):
         _remove(h, domain="stranger.example.com")
 
     assert exc.value.exit_code == 1
-    # Remove's refusal is the short form: no allowed-domain list, no --add-alias hint.
+    # Remove's refusal is the short form: no allowed-domain list, no fm domain add hint.
     assert h.errors() == [f"Domain 'stranger.example.com' is not configured for bench '{BENCH}'"]
     h.cert_manager.remove_certificate_by_domain.assert_not_called()
 

@@ -247,7 +247,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         autocompletion=bench_domain_autocompletion_callback,
         callback=bench_domain_callback,
     ),
-    # Four commands address a SITE, for three different reasons, and all four share the one
+    # Five commands address a SITE, for four different reasons, and all five share the one
     # alias `BenchSiteArgument`: same help text, same callback, `bench_site_callback`, the only
     # one that accepts a site part, and the only completer that offers sites.
     #
@@ -260,9 +260,13 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     # They are here rather than in KNOWN_CANONICAL because moving off `sitename_callback` is
     # exactly the change that must not happen by accident.
     #
-    # `fm update` is NOT in that group: it takes `BENCH/all` as well, because --apps installs an app
-    # into a site's database and that is work which legitimately fans out over every site. The other
-    # three act on exactly one site, and their callback refuses `all` so a body cannot forget to.
+    # `fm update`: its remaining Site Option, `--db-ca`, is a property of one site's external
+    # database config. It used to carry `BenchSiteAllArgument` instead, because installing an app
+    # legitimately fanned out over every site; that flag moved to `fm apps add`, and update's
+    # address grammar moved with it.
+    #
+    # `fm domain add`: an alias domain belongs to one site of the bench, and a bare BENCH means
+    # its primary site, same as every other Site Option.
     **{
         f"fm {command}": BenchnameSpec(
             help="Bench, or BENCH/SITE to act on one of its sites. Without a site part, the bench's primary site is used.",
@@ -273,31 +277,49 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
             autocompletion=bench_site_autocompletion_callback,
             callback=bench_site_callback,
         )
-        for command in ("shell", "delete", "reset")
+        for command in ("shell", "delete", "reset", "update", "domain add")
     },
-    "fm update": BenchnameSpec(
-        help="Bench, BENCH/SITE for one of its sites, or BENCH/all for every site it serves.",
-        metavar="BENCH(/SITE|all)",
-        default=None,
-        required=False,
-        type_name="text",
-        autocompletion=bench_site_autocompletion_callback,
-        callback=bench_site_all_callback,
-    ),
+    # `fm apps add`, `fm tools enable` and `fm tools disable` share a second alias,
+    # `BenchSiteAllArgument`: installing an app or toggling the admin-tools route is per-site work
+    # that legitimately fans out over every site the bench serves, the same reason `fm update`
+    # carried this alias before `--apps` and `--admin-tools` moved into their own noun groups.
+    **{
+        f"fm {command}": BenchnameSpec(
+            help="Bench, BENCH/SITE for one of its sites, or BENCH/all for every site it serves.",
+            metavar="BENCH(/SITE|all)",
+            default=None,
+            required=False,
+            type_name="text",
+            autocompletion=bench_site_autocompletion_callback,
+            callback=bench_site_all_callback,
+        )
+        for command in ("apps add", "tools enable", "tools disable")
+    },
+    # `fm ngrok` and `fm domain remove` share `BenchServedDomainArgument`: a certificate/tunnel/
+    # alias-removal target is a served hostname rather than a site, so the population is DOMAINS,
+    # and (unlike the `ssl` pair above) the bench must exist -- neither command has a `--standalone`
+    # mode to exempt from that check.
+    #
     # `fm ngrok` left the canonical block when the tunnel learned which hostname it answers for. One
     # tunnel rewrites the Host header to ONE name, so on a multi-site bench it reaches exactly one
     # site; it used to always pick the primary whatever was asked. The population is DOMAINS because
     # an alias is a legitimate thing to expose, and the bench must still exist, which is why this is
     # `bench_served_domain_callback` and not the ssl commands' permissive one.
-    "fm ngrok": BenchnameSpec(
-        help="Bench, or BENCH/DOMAIN to reach one hostname it serves. Without a domain part, the bench's primary site is used.",
-        metavar="BENCH(/DOMAIN)",
-        default=None,
-        required=False,
-        type_name="text",
-        autocompletion=bench_domain_autocompletion_callback,
-        callback=bench_served_domain_callback,
-    ),
+    #
+    # `fm domain remove` takes the address grammar rather than an argument -- once a domain exists
+    # it is addressable, the same asymmetry `fm ssl remove` has against `fm ssl add`'s arguments.
+    **{
+        f"fm {command}": BenchnameSpec(
+            help="Bench, or BENCH/DOMAIN to reach one hostname it serves. Without a domain part, the bench's primary site is used.",
+            metavar="BENCH(/DOMAIN)",
+            default=None,
+            required=False,
+            type_name="text",
+            autocompletion=bench_domain_autocompletion_callback,
+            callback=bench_served_domain_callback,
+        )
+        for command in ("ngrok", "domain remove")
+    },
     # dns-config credentials can be global, hence its own wording.
     "fm ssl dns-config cloudflare": BenchnameSpec(
         help="Bench to configure. Omit for global credentials.",
@@ -494,6 +516,10 @@ def test_shared_callables_are_the_same_object_everywhere():
         "fm reset",
         "fm update",
         "fm maintenance",
+        "fm domain add",
+        "fm apps add",
+        "fm tools enable",
+        "fm tools disable",
     }
     assert by_completer[bench_domain_autocompletion_callback] == {
         "fm ngrok",
@@ -501,6 +527,7 @@ def test_shared_callables_are_the_same_object_everywhere():
         "fm ssl list",
         "fm ssl remove",
         "fm ssl renew",
+        "fm domain remove",
     }
     assert by_completer[bench_all_autocompletion_callback] == {"fm migrate"}
 

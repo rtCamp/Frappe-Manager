@@ -13,7 +13,7 @@ uv tool install --python 3.13 frappe-manager
 ### How do I update FM itself?
 
 ```bash
-fm self update
+fm self upgrade
 fm migrate all
 ```
 
@@ -29,7 +29,7 @@ Yes. Each bench gets its own containers, workspace, apps and database schema. Tw
 
 ### How do I install ERPNext?
 
-At create time, `fm create mybench --apps erpnext`. On an existing `mount` bench, `fm update mybench --apps erpnext`. Refs, private repos and monorepo layouts: [App Management](guides/app-management.md).
+At create time, `fm create mybench --apps erpnext`. On an existing `mount` bench, `fm apps add mybench erpnext`. Refs, private repos and monorepo layouts: [App Management](guides/app-management.md).
 
 ### How do I check installed apps and versions?
 
@@ -39,7 +39,7 @@ fm info mybench
 
 ### How do I use a private GitHub repo for an app?
 
-Pass `--github-token YOUR_TOKEN` to `fm create`, or export `GITHUB_TOKEN` before running it. fm stores the token in the bench config, so a later `fm update --apps` reuses it; `fm update` has no `--github-token` flag of its own. Either way fm checks the repo and ref with `git ls-remote` before it starts building, so a bad token fails early. See [App Management](guides/app-management.md).
+Pass `--github-token YOUR_TOKEN` to `fm create`, or export `GITHUB_TOKEN` before running it. fm stores the token in the bench config, so a later `fm apps add` reuses it; `fm apps add` has no `--github-token` flag of its own. Either way fm checks the repo and ref with `git ls-remote` before it starts building, so a bad token fails early. See [App Management](guides/app-management.md).
 
 ### How do I change the Administrator password?
 

@@ -15,9 +15,10 @@ The expected panel for an ordinary command is DERIVED from its own positional ar
 (`frappe_manager/commands/arguments.py` builds every one of `BENCH`, `BENCH(/SITE...)`,
 `BENCH(/DOMAIN...)` from a small family of `Annotated` aliases), not hand-listed, for the same
 reason `test_option_scope_panels.py` derives its expectations instead of hardcoding them: a
-hand-written list is a second place to update and the first one to rot. The three sub-apps
-(`services`, `self`, `ssl`) have no positional of their own at the top level to derive a panel
-from -- their bucket is a deliberate taxonomy decision, pinned by hand below.
+hand-written list is a second place to update and the first one to rot. The six sub-apps
+(`services`, `self`, `ssl`, `apps`, `domain`, `tools`) have no positional of their own at the top
+level to derive a panel from -- their bucket is a deliberate taxonomy decision, pinned by hand
+below.
 """
 
 import click
@@ -37,12 +38,15 @@ def _group() -> click.Group:
     return group
 
 
-# The 3 sub-apps have no address of their own to derive a panel from; hand-pinned because there
-# are only three of them and their bucket is a taxonomy decision, not a derivable fact.
+# The 6 sub-apps have no address of their own to derive a panel from; hand-pinned because there
+# are only a few of them and their bucket is a taxonomy decision, not a derivable fact.
 GROUP_PANELS = {
     "services": _PANEL_GLOBAL,
     "self": _PANEL_GLOBAL,
     "ssl": _PANEL_DOMAIN,
+    "apps": _PANEL_SITE,
+    "domain": _PANEL_DOMAIN,
+    "tools": _PANEL_SITE,
 }
 
 

@@ -18,7 +18,7 @@ Both are **version-aware**: FM records the version each one is migrated to and o
 
 !!! tip "After updating the CLI"
     ```bash
-    fm self update            # update the CLI
+    fm self upgrade           # upgrade the CLI
     fm migrate                # FM infrastructure only
     fm migrate all            # then the benches
     ```

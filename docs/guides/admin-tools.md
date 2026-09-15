@@ -5,13 +5,13 @@ Mailpit catches every mail the site sends and Adminer browses its database. Both
 Enable admin tools:
 
 ```bash
-fm update mybench --admin-tools enable
+fm tools enable mybench
 ```
 
 Disable:
 
 ```bash
-fm update mybench --admin-tools disable
+fm tools disable mybench
 ```
 
 Access:
@@ -38,10 +38,10 @@ On a bench serving several sites the tools answer on every hostname it has, beca
 
 ```bash
 # /adminer/ and /mailpit/ stop answering on this site's hostnames and its aliases
-fm update mybench/b.example.com --admin-tools disable
+fm tools disable mybench/b.example.com
 
 # and back
-fm update mybench/b.example.com --admin-tools enable
+fm tools enable mybench/b.example.com
 ```
 
 This is what to reach for when a bench serves an internal hostname you administer from and a customer-facing domain: the tools stay reachable on the first and stop existing on the second.
@@ -55,10 +55,10 @@ The address says the scope, and the mechanism follows from it:
 
 `mybench/all` sets the route on every site the bench serves, which is how you clear several opt-outs in one call. It is not the bench form: the containers keep running, so a bench-wide `disable` and `all disable` differ in whether Adminer is up at all.
 
-The bench form is a floor: `fm update mybench/b.example.com --admin-tools enable` is refused while the bench's tools are off, since routing a hostname at a stopped container is a 502 rather than an enable.
+The bench form is a floor: `fm tools enable mybench/b.example.com` is refused while the bench's tools are off, since routing a hostname at a stopped container is a 502 rather than an enable.
 
 !!! note "Needs a bench whose nginx conf has one server block per site"
-    The conf is rendered once, at the nginx container's first boot, so it reflects whatever image created the bench. On a bench whose conf predates per-site server blocks, `fm update BENCH/SITE --admin-tools` is refused rather than recorded and ignored: nginx would include none of it. Update the bench's nginx image, then `fm restart BENCH --nginx --container`. The bench-wide form works on every bench.
+    The conf is rendered once, at the nginx container's first boot, so it reflects whatever image created the bench. On a bench whose conf predates per-site server blocks, `fm tools enable`/`fm tools disable BENCH/SITE` is refused rather than recorded and ignored: nginx would include none of it. Update the bench's nginx image, then `fm restart BENCH --nginx --container`. The bench-wide form works on every bench.
 
 ### Why this and not a per-site password
 
@@ -68,13 +68,13 @@ Removing the route is a real reduction instead. A hostname with no `location ^~ 
 
 ## Mailpit as the site's mail server
 
-`--mailpit-as-default-mail-server` writes `mail_server`, `mail_port` and `disable_mail_smtp_authentication` into `common_site_config.json`. It is only read on the `--admin-tools enable` path, so pass both flags in the same call, whether or not the tools are already on:
+`--mailpit-as-default-mail-server` writes `mail_server`, `mail_port` and `disable_mail_smtp_authentication` into `common_site_config.json`. It is only applied on `fm tools enable`, so pass `--mailpit-as-default-mail-server` in that same call, whether or not the tools are already on:
 
 ```bash
-fm update mybench --admin-tools enable --mailpit-as-default-mail-server
+fm tools enable mybench --mailpit-as-default-mail-server
 ```
 
-`fm update mybench --admin-tools disable` takes those three keys back out, but only where they still hold fm's values: a `mail_server` you have since pointed at a real relay is left alone.
+`fm tools disable mybench` takes those three keys back out, but only where they still hold fm's values: a `mail_server` you have since pointed at a real relay is left alone.
 
 If you need the SMTP endpoint manually (inside the Docker network): host `fm__<benchname>__mailpit`, port 1025, where `<benchname>` is the full bench name with dots replaced by underscores. For example, bench `mybench` (full name `mybench.localhost`) → host `fm__mybench_localhost__mailpit`.
 
@@ -160,7 +160,7 @@ Each flag **replaces** its stored list rather than appending, and omitting the f
 
 ### Two things that catch people out
 
-- `fm auth --protect tools` on a bench whose admin tools are **disabled** stores the intent and warns: there are no `/adminer/` and `/mailpit/` locations to gate yet. It starts applying once you run `fm update mybench --admin-tools enable`.
+- `fm auth --protect tools` on a bench whose admin tools are **disabled** stores the intent and warns: there are no `/adminer/` and `/mailpit/` locations to gate yet. It starts applying once you run `fm tools enable mybench`.
 - `--protect web` is refused on a bench whose nginx conf predates the `Authorization`-header fix, because nginx would forward the credentials it just checked and frappe would answer 401 to every authenticated request. `fm migrate` re-renders the conf on a mount bench; an image bench needs `fm bake` then `fm switch`. The `tools` surface is unaffected either way.
 
 See also: [Environments](environments.md) for the dev/prod defaults behind these tools, [`[auth]`](../reference/configuration.md#auth) for the config keys `fm auth` writes, and [Architecture](../reference/architecture.md) for how the tools are routed inside the bench.

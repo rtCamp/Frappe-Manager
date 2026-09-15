@@ -4,10 +4,9 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
-from frappe_manager import CLI_BENCHES_DIRECTORY, EnableDisableOptionsEnum
+from frappe_manager import EnableDisableOptionsEnum
 from frappe_manager.commands import check_bench_migration_required
-from frappe_manager.commands.arguments import BenchSiteAllArgument
-from frappe_manager.metadata_manager import FMConfigManager
+from frappe_manager.commands.arguments import BenchSiteArgument
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.bench_config import (
     AppConfig,
@@ -16,6 +15,7 @@ from frappe_manager.site_manager.bench_config import (
     MonitoringConfig,
     NewRelicConfig,
     RestartPolicyEnum,
+    WorkersConfig,
     extract_node_version_requirement,
     extract_python_version_requirement,
     parse_node_version_for_runtime,
@@ -24,20 +24,12 @@ from frappe_manager.site_manager.bench_config import (
     validate_node_version_compatibility,
     validate_python_version_compatibility,
 )
-from frappe_manager.site_manager.domain_conflict import DomainConflictError, validate_domains_unique
 from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.site import Bench
-from frappe_manager.utils.callbacks import (
-    RESERVED_BENCH_NAME,
-    alias_domains_validation_callback,
-    apps_list_validation_callback,
-)
 
 # Rich help panels for `fm update --help`, titled by the segment of the `BENCH/SITE` address each
 # flag acts on. Same rule as `fm create`: scope is where the value LANDS, not how the help reads.
-# `--mailpit-as-default-mail-server` said "the site's outgoing mail" while writing
-# `common_site_config`, which every site of the bench shares.
 #
 # Rich renders panels in order of first appearance in the signature, so the bench-scoped parameters
 # are all declared before the first site-scoped one.
@@ -52,20 +44,73 @@ def is_immutable_update_request(
     python_version: str | None,
     node_version: str | None,
     developer_mode: EnableDisableOptionsEnum | None = None,
-    apps: list | None = None,
 ) -> bool:
     """True when an update requests changes that are immutable in image runtime.
 
     Thin adapter over ``requests_immutable_runtime_inputs``, which holds the rule beside the
     schema so ``fm create`` enforces the same one. This maps update's tri-state
-    ``--developer-mode`` onto the predicate's boolean.
+    ``--developer-mode`` onto the predicate's boolean. Apps no longer reach this command -- they
+    moved to ``fm apps add``, which answers the same image-runtime redirect on its own -- so this
+    adapter, unlike the shared predicate, carries no ``apps`` parameter.
     """
     return requests_immutable_runtime_inputs(
         python_version=python_version,
         node_version=node_version,
-        apps=apps,
         developer_mode_enable=developer_mode == EnableDisableOptionsEnum.enable,
     )
+
+
+def _demote_to_mount(bench: Bench, output) -> None:
+    """image -> mount: extract an editable workspace from the CURRENTLY DEPLOYED image.
+
+    Not a deploy: code on disk already equals the running code, so there is nothing to migrate
+    and no ``DeployOrchestrator`` run -- just a workspace materialize and a container recreate
+    on the mount compose shape.
+    """
+    deploy_state = bench.bench_config.deploy_state
+    demotion_image = deploy_state.current_image if deploy_state else None
+    if not demotion_image:
+        output.display_error("No deployed image recorded; cannot materialize the workspace.")
+        raise typer.Exit(1)
+
+    from frappe_manager.site_manager.modules.transport import fetch_image
+    from frappe_manager.site_manager.modules.workspace_seed import (
+        materialize_workspace_from_image,
+        stash_conflicting_seed_paths,
+    )
+
+    output.change_head(f"Materializing editable workspace from {demotion_image}")
+    fetch_image(bench.docker_client, demotion_image, output=output)
+    frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
+    # Leftover code trees from an earlier mount life are STALE vs the deployed image; keeping
+    # them would break "code on disk == running code". Stash them aside (never delete) and
+    # extract fresh.
+    stash = stash_conflicting_seed_paths(frappe_bench_dir, output=output)
+    if stash:
+        output.warning(
+            f"Existing workspace code was stale vs {demotion_image}; moved to {stash} -- review and delete it.",
+        )
+    extracted = materialize_workspace_from_image(bench.docker_client, demotion_image, frappe_bench_dir, output=output)
+    output.print(f"Extracted from image: {', '.join(extracted) if extracted else 'nothing (already present)'}")
+
+    bench.bench_config.runtime = BenchRuntime.mount
+
+    compose_inputs = bench.bench_config.export_to_compose_inputs()
+    compose_inputs.setdefault("environment", {}).setdefault("frappe", {})
+    compose_inputs["environment"]["frappe"]["FRAPPE_ENV"] = bench.bench_config.environment_type.value
+    bench.generate_compose(compose_inputs)
+    if bench.workers.compose_file_manager.compose_path.exists():
+        bench.workers.generate_compose()
+
+    output.print("Recreating containers on the mount runtime..")
+    bench.docker_client.compose.up(detach=True, force_recreate=True, pull="never")
+    bench.workers.docker_client.compose.up(services=[], detach=True, pull="never", stream=False)
+
+    output.print(f"Switched runtime to mount (workspace from {demotion_image})")
+    # Persisted the moment the demotion completes: the workspace is extracted and the
+    # containers already run it, so deferring this write would let a later failure in this
+    # command leave bench_config.toml claiming image runtime for a bench now running on mount.
+    bench.save_bench_config()
 
 
 @example(
@@ -74,19 +119,8 @@ def is_immutable_update_request(
     benchname="mybench",
 )
 @example(
-    "Enable the admin tools",
-    "{benchname} --admin-tools enable",
-    benchname="mybench",
-)
-@example(
     "Turn on developer mode",
     "{benchname} --developer-mode enable",
-    benchname="mybench",
-)
-@example(
-    "Add an alias domain",
-    "{benchname} --add-alias www.example.com",
-    detail="No certificate is issued for the new domain; run fm ssl add afterwards.",
     benchname="mybench",
 )
 @example(
@@ -95,34 +129,25 @@ def is_immutable_update_request(
     benchname="mybench",
 )
 @example(
-    "Install an app into one site of a multi-site bench",
-    "{benchname}/shop.example.com --apps erpnext:version-15",
+    "Raise the upload size limit",
+    "{benchname} --upload-limit 500M",
     benchname="mybench",
 )
 @example(
-    "Install an app into every site the bench serves",
-    "{benchname}/all --apps erpnext:version-15",
-    detail="Installs and migrates site by site, reporting failures per site instead of stopping at the first.",
+    "Demote an image bench to an editable workspace",
+    "{benchname} --runtime mount",
+    detail="Extracts the workspace from the currently deployed image; converting back to image runtime runs through fm switch instead.",
     benchname="mybench",
 )
 def update(
     ctx: typer.Context,
-    address: BenchSiteAllArgument = None,
-    admin_tools: Annotated[
-        EnableDisableOptionsEnum | None,
-        typer.Option(
-            "--admin-tools",
-            help="Enable/disable admin tools (Adminer at /adminer, Mailpit at /mailpit). BENCH starts or stops the one container pair the bench has; BENCH/SITE only adds or removes the routes from that site's hostnames, leaving the tools running for the bench's other sites.",
-            show_default=False,
-            rich_help_panel=_PANEL_BENCH,
-        ),
-    ] = None,
+    address: BenchSiteArgument = None,
     environment: Annotated[
         FMBenchEnvType | None,
         typer.Option(
             "--environment",
             "-e",
-            help="Switch the bench between dev and prod serving (FRAPPE_ENV), recreating the frappe container. Admin tools and developer mode are left as they are; use --admin-tools or --developer-mode to change those.",
+            help="Switch the bench between dev and prod serving (FRAPPE_ENV), recreating the frappe container. Admin tools and developer mode are left as they are; use 'fm tools enable'/'fm tools disable' or --developer-mode to change those.",
             show_default=False,
             rich_help_panel=_PANEL_BENCH,
         ),
@@ -131,22 +156,11 @@ def update(
         BenchRuntime | None,
         typer.Option(
             "--runtime",
-            help="Convert the bench runtime. 'mount' extracts an editable workspace from the currently deployed image, stashing anything stale it finds; converting back is a deploy, so use fm switch.",
+            help="Convert the bench's runtime: 'mount' demotes an image bench to an editable workspace extracted from the currently deployed image (no migrate -- code on disk already equals what is running). 'image' is a no-op confirmation on an already-image bench; converting mount -> image runs through 'fm switch' instead, since that migrates the site onto a baked image.",
             show_default=False,
             rich_help_panel=_PANEL_RUNTIME,
         ),
     ] = None,
-    apps: Annotated[
-        list[str],
-        typer.Option(
-            "--apps",
-            "-a",
-            help="Replace or add an app on the running bench (repeatable; appname:ref or org/repo:ref). Replaced code is stashed, never deleted; assets rebuild and the site migrates.",
-            callback=apps_list_validation_callback,
-            show_default=False,
-            rich_help_panel=_PANEL_MOUNT,
-        ),
-    ] = [],
     developer_mode: Annotated[
         EnableDisableOptionsEnum | None,
         typer.Option(
@@ -155,15 +169,6 @@ def update(
             rich_help_panel=_PANEL_MOUNT,
         ),
     ] = None,
-    mailpit_as_default_mail_server: Annotated[
-        bool,
-        typer.Option(
-            "--mailpit-as-default-mail-server",
-            help="Route outgoing mail to Mailpit for every site the bench holds. Applies when enabling admin tools.",
-            show_default=False,
-            rich_help_panel=_PANEL_BENCH,
-        ),
-    ] = False,
     upload_limit: Annotated[
         str | None,
         typer.Option(
@@ -171,6 +176,33 @@ def update(
             help="Set the maximum file upload size, e.g. 100M or 1G.",
             show_default=False,
             rich_help_panel=_PANEL_BENCH,
+        ),
+    ] = None,
+    restart_policy: Annotated[
+        RestartPolicyEnum | None,
+        typer.Option(
+            "--restart-policy",
+            help="Update Docker restart policy for all bench services.",
+            show_default=False,
+            rich_help_panel=_PANEL_BENCH,
+        ),
+    ] = None,
+    newrelic: Annotated[
+        bool | None,
+        typer.Option(
+            "--newrelic/--no-newrelic",
+            help="Enable or disable NewRelic APM monitoring for the web process.",
+            show_default=False,
+            rich_help_panel=_PANEL_MONITORING,
+        ),
+    ] = None,
+    newrelic_license_key: Annotated[
+        str | None,
+        typer.Option(
+            "--newrelic-license-key",
+            help="NewRelic ingest license key. Required the first time you enable NewRelic.",
+            show_default=False,
+            rich_help_panel=_PANEL_MONITORING,
         ),
     ] = None,
     python_version: Annotated[
@@ -209,61 +241,6 @@ def update(
             rich_help_panel=_PANEL_MOUNT,
         ),
     ] = True,
-    restart: Annotated[
-        RestartPolicyEnum | None,
-        typer.Option(
-            "--restart",
-            help="Update Docker restart policy for all bench services.",
-            show_default=False,
-            rich_help_panel=_PANEL_BENCH,
-        ),
-    ] = None,
-    allow_domain_conflicts: Annotated[
-        bool,
-        typer.Option(
-            "--allow-domain-conflicts",
-            help="Add an alias domain even when another bench already serves it.",
-            show_default=False,
-        ),
-    ] = False,
-    newrelic: Annotated[
-        bool | None,
-        typer.Option(
-            "--newrelic/--no-newrelic",
-            help="Enable or disable NewRelic APM monitoring for the web process.",
-            show_default=False,
-            rich_help_panel=_PANEL_MONITORING,
-        ),
-    ] = None,
-    newrelic_license_key: Annotated[
-        str | None,
-        typer.Option(
-            "--newrelic-license-key",
-            help="NewRelic ingest license key. Required the first time you enable NewRelic.",
-            show_default=False,
-            rich_help_panel=_PANEL_MONITORING,
-        ),
-    ] = None,
-    add_alias: Annotated[
-        str | None,
-        typer.Option(
-            "--add-alias",
-            help="Add alias domains (comma-separated, e.g. www.example.com,api.example.com).",
-            callback=alias_domains_validation_callback,
-            show_default=False,
-            rich_help_panel=_PANEL_SITE,
-        ),
-    ] = None,
-    remove_alias: Annotated[
-        str | None,
-        typer.Option(
-            "--remove-alias",
-            help="Remove alias domains (comma-separated, e.g. shop.example.com).",
-            callback=alias_domains_validation_callback,
-            show_default=False,
-            rich_help_panel=_PANEL_SITE,
-        ),
-    ] = None,
     db_ca: Annotated[
         Path | None,
         typer.Option(
@@ -278,69 +255,48 @@ def update(
     ] = None,
 ):
     """
-    Change a bench's settings and runtime.
+    Change a bench's settings.
 
-    Not bench update: app code ships with fm bake then fm switch. The bench must be running, and the mount-only options need an editable workspace, so demote an image bench with --runtime mount first.
+    Not bench update: app code ships with fm bake then fm switch. Apps are managed with fm apps add, alias domains with fm domain, admin tools with fm tools. --runtime mount demotes an image bench to an editable workspace, extracted from the currently deployed image; converting the other direction runs through fm switch instead.
 
-    Most options change the whole bench. The few that describe one site are grouped as Site Options in the help below, and a plain fm update BENCH applies those to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one.
-
-    --apps is the exception, because fetching an app's code and installing it into a site's database are different things. A plain fm update BENCH fetches the code and records the app on the bench, so any site created afterwards gets it, and installs it into nothing. fm update BENCH/SITE installs and migrates that one site, and fm update BENCH/all does every site the bench serves, reporting failures per site and exiting non-zero without stopping at the first.
+    Most options change the whole bench. --db-ca is the one Site Option below, and a plain fm update BENCH applies it to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one.
     """
 
     services_manager = ctx.obj["services"]
-    fm_config: FMConfigManager = ctx.obj["fm_config_manager"]
 
     output = get_global_output_handler()
     check_bench_migration_required(address)
 
-    # The site half of the address. `all` stays the literal reserved word: only the `--apps` block
-    # can fan out, so it is the one that expands it against `bench_config.site_names`.
-    apps_site = ctx.obj.get("site") if ctx.obj else None
-
-    # An alias, a database CA and a tool route belong to ONE site: there is no sensible way to
-    # attach the same alternate hostname to every site, a per-site CA path is per-site by
-    # construction, and routing the tools from no site at all while their containers run is what
-    # `--admin-tools disable` is for. Refused rather than silently applied to the primary, which is
-    # what an unguarded `all` would do.
-    if apps_site == RESERVED_BENCH_NAME:
-        fanned = [
-            name
-            for name, given in (
-                ("--add-alias", add_alias),
-                ("--remove-alias", remove_alias),
-                ("--db-ca", db_ca),
-            )
-            if given
-        ]
-        if fanned:
-            output.display_error(
-                f"{', '.join(fanned)} names one site, so it cannot take 'all'. Name the site as "
-                "BENCH/SITE, or drop the site part to use the bench's primary."
-            )
-            raise typer.Exit(1)
-
     bench = Bench.get_object(address, services_manager, output_handler=output)
 
-    demoting_to_mount = runtime == BenchRuntime.mount
-    if (
-        bench.bench_config.runtime == BenchRuntime.image
-        and not demoting_to_mount  # --runtime mount in the same command: demotion runs FIRST, then these apply
-        and is_immutable_update_request(
-            python_version=python_version, node_version=node_version, developer_mode=developer_mode, apps=apps
-        )
+    if bench.bench_config.runtime == BenchRuntime.image and is_immutable_update_request(
+        python_version=python_version, node_version=node_version, developer_mode=developer_mode
     ):
+        if runtime == BenchRuntime.mount:
+            output.display_error(
+                "--runtime mount cannot combine with Python/Node/developer-mode changes in the same run: "
+                f"demote first with 'fm update {bench.name} --runtime mount', then re-run with the workspace flags.",
+            )
+        else:
+            output.display_error(
+                f"{bench.name} is image runtime; code, apps, Python/Node and developer mode are immutable -- "
+                "ship changes with 'fm bake' then 'fm switch', install apps with 'fm apps add', or demote to "
+                f"an editable workspace first with 'fm update {bench.name} --runtime mount'. "
+                "'fm update' on an image bench still changes environment, restart policy, NewRelic and the database CA.",
+            )
+        raise typer.Exit(1)
+
+    if runtime == BenchRuntime.image and bench.bench_config.runtime == BenchRuntime.mount:
         output.display_error(
-            f"{bench.name} is image runtime; code, apps, Python/Node and developer mode are immutable -- "
-            "ship changes with 'fm bake' then 'fm switch', or demote to an editable workspace "
-            f"(add --runtime mount, or run: fm update {bench.name} --runtime mount first). "
-            "'fm update' on an image bench changes settings only (SSL/env/domains/policy).",
+            "mount -> image conversion runs through the deploy pipeline (it must migrate the site onto the "
+            f"baked image) -- run 'fm switch {bench.name} REPO:TAG'.",
         )
         raise typer.Exit(1)
 
     # Validated up front, beside the image-runtime gate: this check used to sit in the middle of the
-    # decision table, so an --environment or --runtime change of the same invocation had already been
-    # rendered and force-recreated on the running containers when the usage error aborted the command
-    # -- and the pending bench_config.toml save with it, leaving disk and containers disagreeing.
+    # decision table, so an --environment change of the same invocation had already been rendered and
+    # force-recreated on the running containers when the usage error aborted the command -- and the
+    # pending bench_config.toml save with it, leaving disk and containers disagreeing.
     current_newrelic = bench.bench_config.get_newrelic_config()
     if newrelic is True and not (newrelic_license_key or (current_newrelic and current_newrelic.license_key)):
         raise typer.BadParameter("--newrelic-license-key is required when enabling NewRelic.")
@@ -350,26 +306,6 @@ def update(
     # force-recreated containers by the time it fires, and it exits before the terminal
     # save_bench_config(), leaving bench_config.toml and the running containers permanently
     # disagreeing. A refused `fm update` must change nothing.
-    materializing_workspace = demoting_to_mount and bench.bench_config.runtime == BenchRuntime.image
-
-    if runtime == BenchRuntime.image and bench.bench_config.runtime != BenchRuntime.image:
-        output.display_error(
-            "mount -> image conversion runs through the deploy pipeline (it must migrate the "
-            "site onto the baked image): set runtime = 'image' and a top-level image in "
-            f"bench_config.toml, then run fm switch {bench.name} <repo:tag>.",
-        )
-        raise typer.Exit(1)
-
-    # The image the demotion extracts the workspace from; an image bench with no recorded deploy has
-    # nothing to materialize.
-    demotion_image: str | None = None
-    if materializing_workspace:
-        deploy_state = bench.bench_config.deploy_state
-        demotion_image = deploy_state.current_image if deploy_state else None
-        if not demotion_image:
-            output.display_error("No deployed image recorded; cannot materialize the workspace.")
-            raise typer.Exit(1)
-
     database_config = None
     if db_ca is not None:
         database_config = bench.bench_config.get_database_config()
@@ -380,83 +316,69 @@ def update(
             )
             raise typer.Exit(1)
 
-    add_domains_list = add_alias if add_alias else []
-    remove_domains_list = remove_alias if remove_alias else []
-    if add_domains_list:
-        skip_check = allow_domain_conflicts or not fm_config.validation.enforce_domain_uniqueness
-        try:
-            validate_domains_unique(
-                add_domains_list,
-                benches_root=CLI_BENCHES_DIRECTORY,
-                exclude_bench=bench.name,
-                skip_check=skip_check,
-            )
-        except DomainConflictError as e:
-            output.display_error(str(e))
-            output.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
-            raise typer.Exit(1) from e
-
     bench_config_save = False
 
     if not bench.running:
         raise BenchNotRunning(bench_name=bench.name)
 
-    def validate_version_requests() -> tuple[dict, str | None, str | None]:
-        """Refuse an incompatible --python/--node before either one is written, and hand the block
-        that applies them the values it reports with.
-
-        A callable rather than another entry in the validation block above because frappe's own
-        requirement is read from the workspace's apps/frappe, and when the same command demotes an
-        image bench that workspace does not exist until the demotion has run.
-        """
+    # Refused before any mutation runs, and BOTH requested versions are validated before EITHER is
+    # written: a node refusal used to run after python_version had been assigned to the in-memory
+    # bench_config and announced as updated, then exited before save_bench_config() -- so the
+    # accepted half of the request was reported as done and silently discarded. Inlined here rather
+    # than deferred behind a closure: that indirection existed only so a same-invocation runtime
+    # demotion could materialize the workspace this reads from before the check ran, and the
+    # combination refusal above already keeps --runtime mount from reaching this validation
+    # alongside these mount-only flags in the same invocation.
+    current_versions: dict = {}
+    frappe_python_req: str | None = None
+    frappe_node_req: str | None = None
+    if python_version or node_version:
         frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"
         current_versions = bench.app_manager.get_current_runtime_versions(use_run=True)
 
-        python_req = None
-        node_req = None
         if frappe_app_path.exists():
             if python_version:
-                python_req = extract_python_version_requirement(frappe_app_path)
+                frappe_python_req = extract_python_version_requirement(frappe_app_path)
             if node_version:
-                node_req = extract_node_version_requirement(frappe_app_path)
+                frappe_node_req = extract_node_version_requirement(frappe_app_path)
 
-        # BOTH requested versions are validated before EITHER is written: the node refusal used to
-        # run after python_version had been assigned to the in-memory bench_config and announced as
-        # updated, then exited before save_bench_config() -- so the accepted half of the request was
-        # reported as done and silently discarded.
-        if python_version and python_req and not skip_version_check:
-            is_compatible, error_msg = validate_python_version_compatibility(python_version, python_req)
+        if python_version and frappe_python_req and not skip_version_check:
+            is_compatible, error_msg = validate_python_version_compatibility(python_version, frappe_python_req)
             if not is_compatible:
                 output.change_head("Python version validation failed")
                 output.print(f"Python: {current_versions.get('python') or 'not set'} -> {python_version}")
-                output.print(f"Frappe requires: {python_req}")
+                output.print(f"Frappe requires: {frappe_python_req}")
                 output.display_error(f"{error_msg}", emoji_code=":cross_mark:")
-                suggested = parse_python_version_for_runtime(python_req)
+                suggested = parse_python_version_for_runtime(frappe_python_req)
                 if suggested:
                     output.print(f"Hint: Try --python {suggested}", emoji_code=":light_bulb:")
                 output.print("Use --skip-version-check to bypass this validation (not recommended)")
                 raise typer.Exit(code=1)
 
-        if node_version and node_req and not skip_version_check:
-            is_compatible, error_msg = validate_node_version_compatibility(node_version, node_req)
+        if node_version and frappe_node_req and not skip_version_check:
+            is_compatible, error_msg = validate_node_version_compatibility(node_version, frappe_node_req)
             if not is_compatible:
                 output.change_head("Node version validation failed")
                 output.print(f"Node: {current_versions.get('node') or 'not set'} -> {node_version}")
-                output.print(f"Frappe requires: {node_req}")
+                output.print(f"Frappe requires: {frappe_node_req}")
                 output.display_error(f"{error_msg}", emoji_code=":cross_mark:")
-                suggested = parse_node_version_for_runtime(node_req)
+                suggested = parse_node_version_for_runtime(frappe_node_req)
                 if suggested:
                     output.print(f"Hint: Try --node {suggested}", emoji_code=":light_bulb:")
                 output.print("Use --skip-version-check to bypass this validation (not recommended)")
                 raise typer.Exit(code=1)
 
-        return current_versions, python_req, node_req
-
-    version_requests = None
-    if (python_version or node_version) and not materializing_workspace:
-        version_requests = validate_version_requests()
-
     with spinner(output, "Updating bench configuration"):
+        if runtime == BenchRuntime.mount:
+            if bench.bench_config.runtime == BenchRuntime.mount:
+                output.print(f"Bench runtime is already '{BenchRuntime.mount.value}'")
+            else:
+                _demote_to_mount(bench, output)
+        elif runtime == BenchRuntime.image:
+            # Reaching here means the bench is already image runtime: a mount bench asking for
+            # --runtime image was refused above, before any mutation ran.
+            output.print(f"Bench runtime is already '{BenchRuntime.image.value}'")
+
         if db_ca is not None:
             output.change_head("Refreshing the external database CA")
             # Captured BEFORE the rewrite below: [database.<site>].ca is what put db_ssl_ca into
@@ -523,70 +445,16 @@ def update(
             output.print(f"Switched bench environment to {environment.value}")
             bench_config_save = True
 
-        if runtime:
-            if runtime == bench.bench_config.runtime:
-                output.print(f"Bench runtime is already '{runtime.value}'")
-            else:
-                # image -> mount demotion (mount -> image was refused up front): extract the
-                # editable workspace from the CURRENTLY DEPLOYED image -- code on disk == running
-                # code, so no migrate is needed; site data already lives host-side and is untouched.
-                from frappe_manager.site_manager.modules.transport import fetch_image
-                from frappe_manager.site_manager.modules.workspace_seed import (
-                    materialize_workspace_from_image,
-                    stash_conflicting_seed_paths,
-                )
-
-                output.change_head(f"Materializing editable workspace from {demotion_image}")
-                fetch_image(bench.docker_client, demotion_image, output=output)
-                frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
-                # Leftover code trees from an earlier mount life are STALE vs the
-                # deployed image; keeping them would break "code on disk == running
-                # code". Stash them aside (never delete) and extract fresh.
-                stash = stash_conflicting_seed_paths(frappe_bench_dir, output=output)
-                if stash:
-                    output.warning(
-                        f"Existing workspace code was stale vs {demotion_image}; moved to {stash} -- review and delete it.",
-                    )
-                extracted = materialize_workspace_from_image(
-                    bench.docker_client, demotion_image, frappe_bench_dir, output=output
-                )
-                output.print(
-                    f"Extracted from image: {', '.join(extracted) if extracted else 'nothing (already present)'}"
-                )
-
-                bench.bench_config.runtime = BenchRuntime.mount
-
-                compose_inputs = bench.bench_config.export_to_compose_inputs()
-                compose_inputs.setdefault("environment", {}).setdefault("frappe", {})
-                compose_inputs["environment"]["frappe"]["FRAPPE_ENV"] = bench.bench_config.environment_type.value
-                bench.generate_compose(compose_inputs)
-                if bench.workers.compose_file_manager.compose_path.exists():
-                    bench.workers.generate_compose()
-
-                output.print("Recreating containers on the mount runtime..")
-                bench.docker_client.compose.up(detach=True, force_recreate=True, pull="never")
-                bench.workers.docker_client.compose.up(services=[], detach=True, pull="never", stream=False)
-
-                output.print(f"Switched runtime to mount (workspace from {demotion_image})")
-                # Persisted the moment the demotion completes, like the NewRelic block below.
-                # The workspace is extracted and the containers already run it, and the one refusal
-                # still ahead of us -- an incompatible --python/--node -- can only be checked
-                # against the workspace this step just created, so it cannot be hoisted with the
-                # others. Deferring this write to the terminal save would let that refusal leave
-                # bench_config.toml claiming image runtime for a bench now running on mount.
-                bench.save_bench_config()
-                bench_config_save = False
-
-        if restart:
+        if restart_policy:
             old_policy = bench.bench_config.restart_policy.value
-            if restart != bench.bench_config.restart_policy:
-                output.change_head(f"Updating restart policy from '{old_policy}' to '{restart.value}'")
+            if restart_policy != bench.bench_config.restart_policy:
+                output.change_head(f"Updating restart policy from '{old_policy}' to '{restart_policy.value}'")
 
-                if restart == RestartPolicyEnum.no and bench.bench_config.environment_type == FMBenchEnvType.prod:
+                if restart_policy == RestartPolicyEnum.no and bench.bench_config.environment_type == FMBenchEnvType.prod:
                     output.warning("Setting restart policy to 'no' on production bench")
                     output.warning("Containers will not auto-recover from failures or system reboots")
 
-                bench.bench_config.restart_policy = restart
+                bench.bench_config.restart_policy = restart_policy
                 bench.generate_compose(bench.bench_config.export_to_compose_inputs())
 
                 if bench.workers.compose_file_manager.compose_path.exists():
@@ -607,120 +475,10 @@ def update(
                 if bench.admin_tools.compose_file_manager.compose_path.exists():
                     bench.admin_tools.enable(force_recreate_container=True)
 
-                output.print(f"Updated restart policy to '{restart.value}'")
+                output.print(f"Updated restart policy to '{restart_policy.value}'")
                 bench_config_save = True
             else:
-                output.print(f"Restart policy is already set to '{restart.value}'")
-
-        if admin_tools:
-            wanted = admin_tools == EnableDisableOptionsEnum.enable
-
-            if apps_site:
-                # The site half narrows the SAME flag, exactly as `fm auth BENCH/SITE` narrows
-                # `--protect web`: the address is what says the scope. What differs is only the
-                # mechanism the scope implies. Off for the bench means stop the one container pair,
-                # because nothing is left needing it; off for one site can only mean drop that
-                # site's routes, because the bench's other sites still reach the same containers.
-                #
-                # `all` fans out like `--apps` does, and unlike the alias and CA flags above: a
-                # route is a boolean per site, so "every site" is well defined. It is NOT the same
-                # as the bare bench form -- that stops the containers, this leaves them running -- and
-                # the enable direction is the only way to clear several sites' opt-outs at once.
-                recorded = bench.bench_config.sites or {}
-                fanning = apps_site == RESERVED_BENCH_NAME
-                targets = list(bench.bench_config.site_names) if fanning else [apps_site]
-
-                missing = [site for site in targets if site not in recorded]
-                if missing:
-                    output.display_error(
-                        f"Bench '{bench.name}' records no entry for site {', '.join(repr(s) for s in missing)}, so there is nowhere to store tool routing."
-                    )
-                    raise typer.Exit(1)
-
-                if not bench.nginx_conf_serves_per_site():
-                    output.display_error(
-                        f"Bench '{bench.name}' nginx conf predates one server block per site, so tool routing cannot be set per site yet: nginx would include none of it and the tools would answer on no hostname at all. Run 'fm migrate' to re-render it, or recreate the nginx container with 'fm restart {bench.name} --nginx --container'. 'fm update {bench.name} --admin-tools' for the whole bench works today."
-                    )
-                    raise typer.Exit(1)
-
-                label = "every site" if fanning else apps_site
-                if wanted and not bench.bench_config.admin_tools:
-                    # Nothing to route to: routing a hostname at a stopped container is a 502.
-                    output.display_error(
-                        f"Admin tools are disabled on {bench.name}, so there is nothing to route from {label}. Start them for the bench first with 'fm update {bench.name} --admin-tools enable'."
-                    )
-                    raise typer.Exit(1)
-
-                output.change_head(f"{'Routing' if wanted else 'Unrouting'} admin tools for {label}")
-                for site in targets:
-                    recorded[site].serve_admin_tools = wanted
-                bench_config_save = True
-
-                # Creating and removing the location files is the command's job; ensure_fm_nginx_confs
-                # only REFRESHES ones already on disk, so a site getting its first one renders here.
-                bench.admin_tools.save_nginx_location_config()
-                try:
-                    bench.bench_nginx_controller.reload()
-                except Exception as e:
-                    output.warning(f"Config written but nginx did not reload, so it applies on next start: {e}")
-                output.print(
-                    f"/adminer/ and /mailpit/ {'now answer' if wanted else 'no longer answer'} on {label} and {'their' if fanning else 'its'} aliases"
-                )
-                if fanning and not wanted:
-                    # Otherwise this reads as `--admin-tools disable` on the bench, and the running
-                    # containers look like the command failing to do what it said.
-                    output.print(
-                        f"The Adminer and Mailpit containers are still running; stop them with 'fm update {bench.name} --admin-tools disable'"
-                    )
-
-            elif wanted:
-                output.change_head("Enabling Admin-tools")
-                bench.bench_config.admin_tools = True
-
-                if not bench.admin_tools.compose_file_manager.compose_path.exists():
-                    # Seeds the compose file and brings the tools up, but it carries no mail choice of
-                    # its own (it enables with force_configure defaulted to False), so the mail keys are
-                    # written right after it -- otherwise --mailpit-as-default-mail-server is silently
-                    # dropped on every bench that never had admin tools, i.e. every `-e prod` one.
-                    bench.sync_admin_tools_compose()
-                    if mailpit_as_default_mail_server:
-                        bench.admin_tools.configure_mailpit_as_default_server()
-                else:
-                    bench.admin_tools.enable(force_configure=mailpit_as_default_mail_server)
-
-                # The tools vhost renders `auth_basic_user_file .../<bench>.htpasswd`, but that file is owned
-                # solely by ensure_fm_nginx_confs(), whose guard skips it while admin tools are off -- so on a
-                # bench created with -e prod (or one where tools were disabled) it is absent and the freshly
-                # enabled tools surface answers HTTP 500. Mint it now that the surface exists.
-                bench.ensure_fm_nginx_confs()
-
-                bench_config_save = True
-                output.print("Enabled Admin-tools")
-
-            elif (
-                not bench.admin_tools.compose_file_manager.compose_path.exists()
-                or not bench.bench_config.admin_tools
-            ):
-                # Report and fall through. An early `return` here would abort the WHOLE command,
-                # silently dropping every other flag of the same invocation -- including work already
-                # done (a --db-ca install awaiting the terminal save) and work still queued.
-                output.print("Admin tools is already disabled")
-
-            else:
-                bench.bench_config.admin_tools = False
-                bench.admin_tools.disable()
-                bench_config_save = True
-
-        if add_alias or remove_alias:
-            output.change_head("Updating alias domains")
-            # An alias is an alternate for a SITE, so `fm update BENCH/SITE` names the one it
-            # attaches to and a bare `fm update BENCH` means the bench's primary site.
-            bench.update_alias_domains(
-                add_domains=add_domains_list,
-                remove_domains=remove_domains_list,
-                site=apps_site,
-            )
-            output.print("Alias domains updated successfully")
+                output.print(f"Restart policy is already set to '{restart_policy.value}'")
 
         # Handle upload limit update
         if upload_limit:
@@ -741,8 +499,11 @@ def update(
             bench.bench_config.monitoring = monitoring
 
             bench.generate_compose(bench.bench_config.export_to_compose_inputs())
-            bench.save_bench_config()
-            bench_config_save = False
+
+            # No eager save here (unlike the python/node block below): python/node were already
+            # validated up front before the spinner even started, so nothing left in this command
+            # can refuse. This folds into the one terminal save at the bottom like every other flag.
+            bench_config_save = True
 
             bench.supervisor.setup_newrelic(bench.path)
 
@@ -750,67 +511,7 @@ def update(
             bench.docker_client.compose.up(services=["frappe"], detach=True, force_recreate=True)
             output.print("NewRelic configuration updated")
 
-        if apps:
-            from typing import cast
-
-            apps_overrides = cast("list[AppConfig]", apps)
-            added, apps_stash = bench.app_manager.graft_apps(apps_overrides, stash=True, use_run=False)
-            if apps_stash:
-                output.warning(f"Replaced app code moved to {apps_stash} -- review and delete it.")
-
-            # Fetching the code and installing it into a site are two different operations, and only
-            # the second writes to a database. The address says which sites get the second: a bare
-            # bench name does the code only, so the bench's `apps` list grows and any site created
-            # later picks it up, while nothing existing is migrated without being named. This used
-            # to install with no site at all, which resolved to `install_app_to_site`'s default of
-            # the BENCH name: `bench --site shop install-app` on a bench serving `shop.localhost`
-            # names a site that does not exist, so the step failed outright.
-            targets: list[str] = []
-            if apps_site == RESERVED_BENCH_NAME:
-                targets = list(bench.bench_config.site_names)
-            elif apps_site:
-                targets = [apps_site]
-
-            failed: list[str] = []
-            for site in targets:
-                try:
-                    for app_name in added:
-                        output.change_head(f"Installing {app_name} into {site}")
-                        bench.app_manager.install_app_to_site(app_name, site_name=site)
-                    output.change_head(f"Running bench migrate on {site}")
-                    migrate_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", site, "migrate"])
-                    bench.app_manager._container_run(migrate_cmd)
-                except Exception as e:
-                    # Report and continue, like `fm ssl renew all`: stopping here would leave the
-                    # sites already migrated on the new code and the rest on the old, with no
-                    # record of which is which.
-                    output.warning(f"{site}: {e}")
-                    failed.append(site)
-
-            output.change_head("Restarting services to load grafted apps")
-            bench.restart_web_containers_services(use_container_restart=False)
-            bench.restart_workers_containers_services(use_container_restart=False)
-            bench_config_save = True
-
-            if failed:
-                output.display_error(f"Apps grafted, but these sites failed: {', '.join(failed)}")
-                raise typer.Exit(1)
-
-            if targets:
-                output.print(f"Grafted apps applied to {', '.join(targets)}: {', '.join(a.name for a in apps_overrides)}")
-            else:
-                output.print(
-                    f"Grafted app code into the bench: {', '.join(a.name for a in apps_overrides)}. "
-                    f"Install it with 'fm update {bench.name}/all --apps ...' or name one site."
-                )
-
         if python_version or node_version:
-            # Refused up front unless this same command materializes the workspace the requirement
-            # is read from, in which case it could not be checked any earlier than here.
-            current_versions, frappe_python_req, frappe_node_req = (
-                version_requests if version_requests is not None else validate_version_requests()
-            )
-
             if python_version:
                 old_python = current_versions.get("python") or "not set"
 
@@ -847,6 +548,9 @@ def update(
 
                 bench_config_save = True
 
+            # Persisted here, ahead of the venv rebuild below: a crash mid-rebuild must not leave
+            # the new Python/Node recorded on disk without the environment to match, or leave an
+            # accepted version change unsaved because the rebuild it also triggered failed.
             bench.save_bench_config()
             bench_config_save = False
 
@@ -882,8 +586,13 @@ def update(
             output.print("Restarting web services (frappe, socketio)..")
             bench.restart_web_containers_services(use_container_restart=False)
             output.print("Restarting worker services (schedule, workers)..")
+            kill_timeout = (bench.bench_config.workers or WorkersConfig()).kill_timeout
+            output.warning(
+                f"Restarting workers WITHOUT draining: in-flight jobs are interrupted "
+                f"(SIGUSR1, force-stop after {kill_timeout}s)"
+            )
             bench.restart_workers_containers_services(use_container_restart=False)
             output.print("All services restarted successfully")
 
-        if bench_config_save:
-            bench.save_bench_config()
+    if bench_config_save:
+        bench.save_bench_config()

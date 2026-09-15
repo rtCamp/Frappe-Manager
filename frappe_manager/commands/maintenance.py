@@ -464,7 +464,7 @@ def maintenance(
             disable(path)
             removed += 1
 
-        # A domain dropped from the bench (`fm update B --remove-alias x`) keeps its vhost.d
+        # A domain dropped from the bench (`fm domain remove B/x`) keeps its vhost.d
         # file, and the loop above only knows the CURRENT bench_config.toml -- so its
         # maintenance block would stay live: still listed by --status, and inherited (page and
         # bypass token) by whichever bench claims that domain next. Sweep those orphans, which

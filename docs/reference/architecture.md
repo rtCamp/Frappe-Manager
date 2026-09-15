@@ -290,7 +290,7 @@ Container names are prefixed `fm__<benchname>__`, with dots in the bench name re
 
 **Workers** (`docker-compose.workers.yml`): one container per RQ queue, generated from the supervisor configs in the bench's `config/` directory rather than hard-coded. `short-worker` consumes `short,default` and `long-worker` consumes `long,default,short`, so a `default` job is picked up by whichever is free. Extra queues come from the `workers` key of `common_site_config.json`, each getting its own container. Each container runs `background_workers` RQ processes (default 1, also from `common_site_config.json`); see [Workers & Background Jobs](../concepts/background-jobs.md).
 
-**Admin tools** (`docker-compose.admin-tools.yml`, only when [`admin_tools`](configuration.md#admin-tools) is true, which is the default in `dev`): mailpit at `/mailpit/` catching all outgoing mail, adminer at `/adminer/` for the database. Toggle with `fm update <bench> --admin-tools enable|disable`; see the [Admin Tools guide](../guides/admin-tools.md).
+**Admin tools** (`docker-compose.admin-tools.yml`, only when [`admin_tools`](configuration.md#admin-tools) is true, which is the default in `dev`): mailpit at `/mailpit/` catching all outgoing mail, adminer at `/adminer/` for the database. Toggle with `fm tools enable|disable <bench>`; see the [Admin Tools guide](../guides/admin-tools.md).
 
 All of a bench's services start and stop together with `fm start` and `fm stop`. Auto-recovery after a daemon or host restart is governed by [`restart_policy`](configuration.md#restart-policy).
 

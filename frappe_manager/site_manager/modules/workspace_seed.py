@@ -5,7 +5,7 @@ The baked image carries the complete provisioned ``/workspace/frappe-bench``
 installed against the same container path a mount bench binds its workspace to,
 so extracting those paths onto the host yields a working editable tree with no
 clone / dependency install / asset build. This is ``fm bake`` in reverse; it
-powers the image -> mount runtime demotion (``fm update --runtime mount``) and
+powers the image -> mount runtime demotion (``fm update BENCH --runtime mount``) and
 image-seeded mount creates.
 
 Site data (``sites/<site>``, ``common_site_config.json``, ``apps.txt``,

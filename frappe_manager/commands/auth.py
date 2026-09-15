@@ -496,7 +496,7 @@ def auth(
     # reporting it as protected without this would be a lie.
     if not site and applied.tools and not bench.bench_config.admin_tools:
         output.warning(
-            f"Admin tools are disabled on {bench.name}, so nothing enforces the tools surface yet; it applies once you run 'fm update {bench.name} --admin-tools enable'"
+            f"Admin tools are disabled on {bench.name}, so nothing enforces the tools surface yet; it applies once you run 'fm tools enable {bench.name}'"
         )
 
     _print_state(output, applied, hint_when_off=False)

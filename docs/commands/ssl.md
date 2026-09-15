@@ -141,7 +141,7 @@ fm ssl list all
 
 Issue or import an SSL certificate for a domain and point nginx at it.
 
-Bench mode takes a bench name and one of its configured domains (add new ones with fm update --add-alias). Naming just the bench offers its domains to pick from. --standalone issues for an external Docker project instead.
+Bench mode takes a bench name and one of its configured domains (add new ones with fm domain add BENCH DOMAIN). Naming just the bench offers its domains to pick from. --standalone issues for an external Docker project instead.
 
 **Usage**:
 

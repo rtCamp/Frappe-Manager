@@ -74,11 +74,11 @@ The Docker restart policy is a **per-bench setting** (`restart_policy` in `bench
 Change it any time, independently of the environment:
 
 ```bash
-fm update mybench --restart unless-stopped   # no | always | on-failure | unless-stopped
+fm update mybench --restart-policy unless-stopped   # no | always | on-failure | unless-stopped
 ```
 
 !!! warning "Switching environments does not change the restart policy"
-    `fm update mybench --environment prod` switches the serving mode but keeps the bench's existing restart policy. A bench created as `dev` keeps policy `no` until you set `--restart unless-stopped` yourself. FM warns if you set policy `no` on a production bench.
+    `fm update mybench --environment prod` switches the serving mode but keeps the bench's existing restart policy. A bench created as `dev` keeps policy `no` until you set `--restart-policy unless-stopped` yourself. FM warns if you set policy `no` on a production bench.
 
 ---
 
@@ -102,7 +102,7 @@ fm update mybench --developer-mode enable
 fm update mybench --developer-mode disable
 ```
 
-`--developer-mode` is a mount-runtime option. An `image` bench bakes developer mode into the image, so `fm update` refuses the flag there; demote with `--runtime mount` first.
+`--developer-mode` is a mount-runtime option. An `image` bench bakes developer mode into the image, so `fm update` refuses the flag there; demote with `fm update BENCH --runtime mount` first.
 
 !!! info "Environment vs developer mode"
     **Environment** (`dev`/`prod`) controls the web server type and restart policy. **Developer mode** controls Frappe's debug features. They're related but independent: you can run prod environment with developer mode enabled, though this isn't recommended for production servers.
@@ -121,8 +121,8 @@ Both are enabled at create time on `dev` benches and disabled on `prod` ones. Th
 You can toggle admin tools **independently** of the environment:
 
 ```bash
-fm update mybench --admin-tools enable
-fm update mybench --admin-tools disable
+fm tools enable mybench
+fm tools disable mybench
 ```
 
 See [Admin Tools](admin-tools.md) for details.

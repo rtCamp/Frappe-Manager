@@ -6,7 +6,7 @@ whose failure mode is "every bench on this host", not "this command misbehaved":
 
 * `fm self stop` must actually stop a bench whose containers are up, and must tear the stack down
   in dependency order (benches, then the proxy, then the database it fronts).
-* `fm self update` must never offer or perform a DOWNGRADE of the CLI underneath benches whose
+* `fm self upgrade` must never offer or perform a DOWNGRADE of the CLI underneath benches whose
   on-disk state was written by a newer fm.
 * `fm self compose` must hand docker the compose files in the order fm's own
   DockerComposeWrapper uses, so `docker-compose.override.yml` still wins.
@@ -31,7 +31,7 @@ from typer.testing import CliRunner
 from frappe_manager.commands.self.compose import compose
 from frappe_manager.commands.self.real_ip import real_ip
 from frappe_manager.commands.self.stop import stop
-from frappe_manager.commands.self.update import update
+from frappe_manager.commands.self.upgrade import upgrade
 from frappe_manager.commands.services.shell import shell_services
 from frappe_manager.commands.services.start import start_services
 from frappe_manager.commands.services.stop import stop_services
@@ -230,27 +230,27 @@ def test_global_only_cannot_fail_on_a_bench_it_never_looked_at(out):
 
 
 # =========================================================================== #
-# fm self update
+# fm self upgrade
 # =========================================================================== #
 
 
-def run_update(published: str, current: str, *, yes: bool = True):
+def run_upgrade(published: str, current: str, *, yes: bool = True):
     ctx = MagicMock(spec=typer.Context)
     payload = MagicMock()
     payload.text = json.dumps({"info": {"version": published}})
     with (
-        patch("frappe_manager.commands.self.update.requests.get", return_value=payload),
-        patch("frappe_manager.commands.self.update.get_current_fm_version", return_value=current),
-        patch("frappe_manager.commands.self.update.install_package") as install,
+        patch("frappe_manager.commands.self.upgrade.requests.get", return_value=payload),
+        patch("frappe_manager.commands.self.upgrade.get_current_fm_version", return_value=current),
+        patch("frappe_manager.commands.self.upgrade.install_package") as install,
     ):
-        update(ctx, yes=yes)
+        upgrade(ctx, yes=yes)
     return install
 
 
 def test_a_published_version_older_than_the_installed_one_is_never_installed(out):
     """D58: the test was plain string inequality, so a dev build (which is AHEAD of the published
     release) was offered the PyPI version -- and `--yes` performed that downgrade unattended."""
-    install = run_update(published="0.19.3", current="0.20.0.dev0")
+    install = run_upgrade(published="0.19.3", current="0.20.0.dev0")
 
     install.assert_not_called()
     assert "New update available" not in joined(out.print)
@@ -258,13 +258,13 @@ def test_a_published_version_older_than_the_installed_one_is_never_installed(out
 
 
 def test_an_identical_version_is_not_an_update(out):
-    install = run_update(published="0.19.3", current="0.19.3")
+    install = run_upgrade(published="0.19.3", current="0.19.3")
 
     install.assert_not_called()
 
 
 def test_a_newer_published_version_is_still_installed(out):
-    install = run_update(published="0.21.0", current="0.20.0.dev0")
+    install = run_upgrade(published="0.21.0", current="0.20.0.dev0")
 
     install.assert_called_once_with("frappe-manager", "0.21.0")
 

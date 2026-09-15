@@ -19,7 +19,7 @@ This page shows how to install Frappe Manager. Choose the installation method th
 On Windows, see the [WSL guide](../guides/wsl.md).
 
 !!! note "Which tool owns which flag"
-    fm does not install itself. That first install belongs to `uv`, `pipx`, or `pip`, so `--python`, `--from`, `--reinstall`, `--force`, and `--upgrade` on this page are **their** flags, not fm's. Once fm is on your PATH, `fm --version` and `fm self update` are fm's own.
+    fm does not install itself. That first install belongs to `uv`, `pipx`, or `pip`, so `--python`, `--from`, `--reinstall`, `--force`, and `--upgrade` on this page are **their** flags, not fm's. Once fm is on your PATH, `fm --version` and `fm self upgrade` are fm's own.
 
 ## Stable Release (Recommended)
 
@@ -104,8 +104,8 @@ Install the latest development version directly from the GitHub `develop` branch
     pipx install --force --python 3.13 git+https://github.com/rtcamp/frappe-manager@develop
     ```
 
-!!! note "`fm self update` will not move a dev build"
-    A dev build is ahead of the released version on PyPI, so `fm self update` reports it as up to date and leaves it alone rather than downgrade the CLI under benches a newer fm wrote. Re-run the install command above instead.
+!!! note "`fm self upgrade` will not move a dev build"
+    A dev build is ahead of the released version on PyPI, so `fm self upgrade` reports it as up to date and leaves it alone rather than downgrade the CLI under benches a newer fm wrote. Re-run the install command above instead.
 
 ## Verify the install
 
@@ -133,7 +133,7 @@ Frappe Manager keeps everything under `~/frappe/`. Set `FRAPPE_MANAGER_HOME` to 
 Run these two commands, in this order. The first updates the CLI; the second brings fm's own config, the global services, and your benches up to match it.
 
 ```bash
-fm self update
+fm self upgrade
 fm migrate all
 ```
 

@@ -32,10 +32,9 @@ from frappe_manager.site_manager.bench_config import DatabaseConfig, SiteConfig
 BENCH_PREFIX = "Bench Options"
 SITE_PREFIX = "Site Options"
 
-# Options that belong to NEITHER half: they decide whether the site part happens at all, decide
-# what a FAILED create does, or wave a guard through. They stay in the default box, which is why
-# it is not renamed.
-UNSCOPED = {"bench_only", "remove_on_failure", "allow_domain_conflicts", "help"}
+# Options that belong to NEITHER half: they decide whether the site part happens at all or decide
+# what a FAILED create does. They stay in the default box, which is why it is not renamed.
+UNSCOPED = {"bench_only", "remove_on_failure", "help"}
 
 # `fm create` and `fm update` are the only address commands with enough options for panels to beat
 # one list: the other eight have between one and eight, where splitting is noise. Asserted below so

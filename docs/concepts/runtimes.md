@@ -17,7 +17,7 @@ fm create mybench --seed-image repo:tag    # or seed the workspace from a baked 
 
 Your apps live at `~/frappe/sites/<bench>/workspace/frappe-bench/apps/`, a normal bench directory you can edit, commit from, and debug against. Everything code-related works here:
 
-- `fm update --apps app:branch`: graft apps onto the bench (`appname:ref` or `org/repo:ref`; replaced code is stashed, never deleted, then assets rebuild and the site migrates)
+- `fm apps add mybench app:branch`: graft apps onto the bench (`appname:ref` or `org/repo:ref`; replaced code is stashed, never deleted, then assets rebuild and the site migrates)
 - `fm update --python 3.12 --node 22`: swap toolchains (recreates the venv and reinstalls apps; `--no-recreate-python-env` keeps the existing venv)
 - `fm bake`: provision this bench's apps into an immutable image, or snapshot the workspace as it stands with `--source workspace`
 
@@ -33,7 +33,7 @@ In that second form, `--base-image` names the release the bench is *born* on, no
 A bake produces two images: the app image holds the code, the venv and the built assets, and the paired `<repo>-nginx` image holds those assets again for the bench's nginx to serve. The bench itself keeps only mutable data host-side: the site directory, `common_site_config.json`, `apps.txt`, logs and config. The database is never in an image; it stays on whichever server the bench uses, `global-db` or an external one. There is nothing to edit, and that's the point:
 
 - deploys are atomic and repeatable, and rollback is one command away; see [Deployment](../deploy/index.md) and [Rolling back](../deploy/rollback.md)
-- `fm update` accepts settings only: environment, alias domains, admin tools, upload limit, restart policy, NewRelic, external-database CA. `--apps`, `--python`, `--node` and `--developer-mode enable` are refused, since those are baked in
+- `fm update` accepts settings only: environment, upload limit, restart policy, NewRelic, external-database CA. `--python`, `--node` and `--developer-mode enable` are refused, since those are baked in. Alias domains (`fm domain add`/`fm domain remove`), admin tools (`fm tools enable`/`fm tools disable`) and app code (`fm apps add`) are separate commands now; the last of those still needs an editable workspace, so it is refused on an image bench the same way
 
 The full pipeline (baking, zero-downtime rolling swaps, rollbacks with DB restore, release pruning) is covered in the [Deployment guide](../deploy/index.md).
 
@@ -45,7 +45,7 @@ stateDiagram-v2
     [*] --> mount : fm create
     [*] --> image : fm create --runtime image --base-image IMAGE
     mount --> image : config edit + fm switch BENCH IMAGE
-    image --> mount : fm update --runtime mount
+    image --> mount : fm update BENCH --runtime mount
     mount --> mount : fm bake
     image --> image : fm bake then fm switch IMAGE / --previous
 ```

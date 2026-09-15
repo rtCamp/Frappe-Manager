@@ -288,7 +288,7 @@ admin_tools = true
 - Mailpit: `http://<benchname>/mailpit/`
 - Adminer: `http://<benchname>/adminer/`
 
-**Change via:** `fm update BENCH --admin-tools enable|disable`
+**Change via:** `fm tools enable|disable BENCH`
 
 **See also:** [`[auth]`](#auth), which puts a password prompt in front of these tools
 
@@ -315,7 +315,7 @@ environment = "prod"
 | Logs | `web.dev.log` (single file) | `web.log` + `web.error.log` (split) |
 
 !!! warning "Switching recreates only the frappe container"
-    `fm update -e` recreates the frappe web container alone: workers, nginx, Redis and MariaDB keep running. `developer_mode` and `admin_tools` are left exactly as they are, so the defaults in the table above apply at create time only; change them afterwards with `--developer-mode` or `--admin-tools`.
+    `fm update -e` recreates the frappe web container alone: workers, nginx, Redis and MariaDB keep running. `developer_mode` and `admin_tools` are left exactly as they are, so the defaults in the table above apply at create time only; change them afterwards with `--developer-mode` or `fm tools enable|disable`.
 
 **Change via:** `fm update BENCH --environment dev|prod`
 
@@ -360,7 +360,7 @@ restart_policy = "unless-stopped"
 | `on-failure` | Restart only on crash (exit code ≠ 0) |
 | `unless-stopped` | Restart unless manually stopped (**recommended for prod**) |
 
-**Change via:** `fm update BENCH --restart unless-stopped`
+**Change via:** `fm update BENCH --restart-policy unless-stopped`
 
 ---
 
@@ -412,7 +412,7 @@ alias_domains = ["www.mybench.com", "alt.mybench.com"]
     about the unrecognised key rather than loading it in silence. `fm migrate` moves a top-level
     list from an older bench under its primary site.
 
-**Change via:** `fm update BENCH/SITE --add-alias www.example.com,alt.example.com` / `--remove-alias www.example.com`
+**Change via:** `fm domain add BENCH www.example.com,alt.example.com` / `fm domain remove BENCH/www.example.com`
 
 **See also:** [fm ssl add command](../commands/ssl.md)
 
@@ -585,7 +585,7 @@ admin_tools = true
 serve_admin_tools = false
 ```
 
-**Change via:** `fm update BENCH/SITE --admin-tools disable`. The same flag without a site part addresses the bench and starts or stops the containers instead.
+**Change via:** `fm tools disable BENCH/SITE`. The same command without a site part addresses the bench and starts or stops the containers instead.
 
 A site with no route carries no `location ^~ /adminer/` in its server block at all, so the request falls through to Frappe. That is a reduction rather than a second lock: every hostname reaches the same container pair, so a per-site password would be a bypass, which is why `fm auth` refuses a site part for `--protect tools`.
 

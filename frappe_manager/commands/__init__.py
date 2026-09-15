@@ -249,6 +249,13 @@ _PANEL_SITE = "Site commands (BENCH/SITE)"
 _PANEL_DOMAIN = "Domain commands (BENCH/DOMAIN)"
 _PANEL_GLOBAL = "Global commands (no address)"
 
+# `apps`, `domain`, and `tools` commands call `check_bench_migration_required` (defined above)
+# at their own module's import time, so these three must be imported after that function exists
+# in this module's namespace -- unlike `self`/`services`/`ssl` above, which do not call it.
+from frappe_manager.commands.apps import apps_app
+from frappe_manager.commands.domain import domain_app
+from frappe_manager.commands.tools import tools_app
+
 # Register subcommands
 app.add_typer(services_app, name="services", help="Handle global services.", rich_help_panel=_PANEL_GLOBAL)
 app.add_typer(
@@ -258,6 +265,9 @@ app.add_typer(
     rich_help_panel=_PANEL_GLOBAL,
 )
 app.add_typer(ssl_app, name="ssl", help="Perform operations related to ssl.", rich_help_panel=_PANEL_DOMAIN)
+app.add_typer(apps_app, name="apps", help="Manage the apps installed on a bench.", rich_help_panel=_PANEL_SITE)
+app.add_typer(domain_app, name="domain", help="Manage a bench's alias domains.", rich_help_panel=_PANEL_DOMAIN)
+app.add_typer(tools_app, name="tools", help="Manage a bench's admin tools.", rich_help_panel=_PANEL_SITE)
 
 
 # App callback (runs before all commands)
@@ -400,12 +410,12 @@ def app_callback(
                 """
                 Build full command path from sys.argv for multi-level commands.
 
-                Multi-level commands (self, ssl, services) have subcommands and return paths like "ssl add".
+                Multi-level commands (self, ssl, services, apps, domain, tools) have subcommands and return paths like "ssl add".
                 Single-level commands take arguments (start, stop, create) and return just the base command.
                 Stops parsing at flags (--) or path-like arguments (/ or ~). Limits depth to 2 levels max.
                 """
                 # Commands that have subcommands (multi-level structure)
-                MULTI_LEVEL_COMMANDS = {"self", "ssl", "services"}
+                MULTI_LEVEL_COMMANDS = {"self", "ssl", "services", "apps", "domain", "tools"}
 
                 if len(sys.argv) < 2:
                     return invoked_command

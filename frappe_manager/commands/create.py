@@ -93,7 +93,7 @@ _FLAG_TO_CONFIG: dict[str, tuple[str, ...]] = {
     "newrelic_license_key": ("monitoring", "newrelic", "license_key"),
     "node_version": ("node_version",),
     "python_version": ("python_version",),
-    "restart": ("restart_policy",),
+    "restart_policy": ("restart_policy",),
     "runtime": ("runtime",),
     "seed_image": ("seed_image",),
 }
@@ -858,23 +858,15 @@ def create(
             rich_help_panel=_PANEL_MOUNT,
         ),
     ] = None,
-    restart: Annotated[
+    restart_policy: Annotated[
         RestartPolicyEnum | None,
         typer.Option(
-            "--restart",
+            "--restart-policy",
             help="Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).",
             show_default=False,
             rich_help_panel=_PANEL_BENCH,
         ),
     ] = None,
-    allow_domain_conflicts: Annotated[
-        bool,
-        typer.Option(
-            "--allow-domain-conflicts",
-            help="Skip the domain uniqueness check.",
-            show_default=False,
-        ),
-    ] = False,
     runtime: Annotated[
         BenchRuntime | None,
         typer.Option(
@@ -954,6 +946,15 @@ def create(
             rich_help_panel=_PANEL_BENCH,
         ),
     ] = "admin",
+    allow_domain_conflicts: Annotated[
+        bool,
+        typer.Option(
+            "--allow-domain-conflicts",
+            help="Skip the domain uniqueness check.",
+            show_default=False,
+            rich_help_panel=_PANEL_SITE,
+        ),
+    ] = False,
     alias_domains: Annotated[
         str | None,
         typer.Option(
@@ -1137,7 +1138,7 @@ def create(
                     "newrelic_license_key": newrelic_license_key,
                     "node_version": node_version,
                     "python_version": python_version,
-                    "restart": restart,
+                    "restart_policy": restart_policy,
                     "runtime": runtime,
                     "seed_image": seed_image,
                 },

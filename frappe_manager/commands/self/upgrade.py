@@ -11,18 +11,18 @@ from frappe_manager.utils.helpers import get_current_fm_version, install_package
 
 
 @example(
-    "Update fm to the latest release",
+    "Upgrade fm to the latest release",
     "",
 )
 @example(
-    "Update without the confirmation prompt",
+    "Upgrade without the confirmation prompt",
     "--yes",
 )
-def update(
+def upgrade(
     ctx: typer.Context,
-    yes: Annotated[bool, typer.Option("--yes", "-y", help="Update without asking for confirmation.")] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Upgrade without asking for confirmation.")] = False,
 ):
-    """Update fm to the latest release published on PyPI.
+    """Upgrade fm to the latest release published on PyPI.
 
     An install already ahead of PyPI, such as a dev or pre-release build, is reported as up to date and left alone: fm is never downgraded under benches whose on-disk state a newer fm wrote.
     """
@@ -40,7 +40,7 @@ def update(
         if Version(latest_version) > Version(fm_version):
             update_msg = (
                 f":arrows_counterclockwise: New update available [fm.accent]v{latest_version}[/fm.accent]"
-                "\nDo you want to update ?"
+                "\nDo you want to upgrade ?"
             )
             continue_update = output.prompt_ask(
                 prompt=update_msg,

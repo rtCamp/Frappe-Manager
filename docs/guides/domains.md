@@ -24,8 +24,8 @@ A bench can serve additional domains alongside its primary name:
 fm create mybench --alias-domains www.example.com,api.example.com
 
 # on an existing bench
-fm update mybench --add-alias shop.example.com
-fm update mybench --remove-alias shop.example.com
+fm domain add mybench shop.example.com
+fm domain remove mybench/shop.example.com
 ```
 
 - Aliases are registered with the proxy and land on the same site.

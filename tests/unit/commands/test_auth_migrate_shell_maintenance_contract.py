@@ -614,7 +614,7 @@ def test_protecting_tools_on_a_bench_without_admin_tools_says_nothing_enforces_i
     assert _saved(bench).tools is True
     body = joined(out.warning)
     assert "Admin tools are disabled on mybench" in body
-    assert "fm update mybench --admin-tools enable" in body
+    assert "fm tools enable mybench" in body
 
 
 def test_no_admin_tools_warning_when_the_tools_locations_exist(out, tmp_path):

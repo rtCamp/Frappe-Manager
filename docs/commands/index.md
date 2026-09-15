@@ -297,7 +297,7 @@ fm migrate all
 Update `fm`, pull latest Docker images, run raw docker-compose commands on benches, or stop everything FM manages.
 
 ```bash
-fm self update
+fm self upgrade
 fm self update-images
 fm self compose mybench ps
 fm self stop

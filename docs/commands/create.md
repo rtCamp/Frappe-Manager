@@ -28,8 +28,7 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `-t, --github-token`: Token for cloning private app repos.
 * `--python`: Python version, e.g. '3.11'. Auto-detected by default.
 * `--node`: Node version, e.g. '20'. Auto-detected by default.
-* `--restart`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
-* `--allow-domain-conflicts`: Skip the domain uniqueness check.
+* `--restart-policy`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
 * `--runtime`: 'mount' (default) live-mounts an editable workspace; 'image' runs a pre-built app image, moved to a new image with 'fm switch'.
 * `--base-image`: The image the bench's containers run (repo:tag). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another image.
 * `--seed-image`: Mount runtime: seed the workspace from a baked app image (repo:tag) instead of cloning and installing apps. --apps, --python and --node then override what it carries. This is a one-time copy, not what the containers run: see --base-image.
@@ -39,6 +38,7 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `--redis-cache`: External redis URL for the framework cache, e.g. redis://r.example:6379/0. Requires --redis-queue.
 * `--redis-queue`: External redis URL for the queue and realtime. Use a different logical index from --redis-cache: a restore mass-deletes the cache index.
 * `--admin-pass`: Administrator password for sites created on this bench.
+* `--allow-domain-conflicts`: Skip the domain uniqueness check.
 * `--alias-domains`: Extra domains THIS SITE answers on (comma-separated). Certificates come from 'fm ssl add'.
 * `--db-host`: External MariaDB host, replacing fm's global-db container. MySQL is not a supported backend.
 * `--db-port`: Port of the external database server.

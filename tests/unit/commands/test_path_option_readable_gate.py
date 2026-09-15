@@ -168,7 +168,6 @@ def update_world(tmp_path):
 
     with (
         patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", tmp_path),
-        patch("frappe_manager.commands.update.CLI_BENCHES_DIRECTORY", tmp_path),
         patch("frappe_manager.commands.update.Bench", bench_cls),
         patch("frappe_manager.commands.update.check_bench_migration_required"),
         patch("frappe_manager.commands.update.spinner", _null_spinner),
@@ -181,7 +180,7 @@ def _invoke_update(update_world, db_ca_arg):
     return runner.invoke(
         app,
         [bench_name, "--db-ca", str(db_ca_arg)],
-        obj={"services": MagicMock(), "fm_config_manager": MagicMock(), "site": None},
+        obj={"services": MagicMock(), "site": None},
     )
 
 

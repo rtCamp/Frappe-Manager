@@ -426,9 +426,10 @@ ADDRESS_GRAMMAR = [
     (["shell"], "[BENCH(/SITE)]"),
     (["delete"], "[BENCH(/SITE)]"),
     (["reset"], "[BENCH(/SITE)]"),
-    # --apps installs into a site's database, which can legitimately mean every site, so `update`
-    # advertises the `all` form the other site-addressed commands refuse.
-    (["update"], "[BENCH(/SITE|all)]"),
+    # `--db-ca` is the one remaining Site Option, so `update` takes the same `BENCH(/SITE)` grammar
+    # as the other three site-addressed commands; it no longer advertises `all` now that installing
+    # an app (the reason it used to) lives on `fm apps add`.
+    (["update"], "[BENCH(/SITE)]"),
     # bench, or one hostname it serves
     (["ssl", "add"], "[BENCH(/DOMAIN)]"),
     (["ssl", "remove"], "[BENCH(/DOMAIN)]"),

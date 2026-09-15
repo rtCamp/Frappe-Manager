@@ -435,7 +435,7 @@ class BenchOrchestrator:
         """Graft ``--apps`` overrides onto the seeded workspace.
 
         Delegates to :meth:`BenchAppManager.graft_apps` (shared with
-        ``fm update --apps``). Fresh bench: replaced baked copies are removed,
+        ``fm apps add``). Fresh bench: replaced baked copies are removed,
         not stashed. Added apps need no site handling here -- phase 6 installs
         every app in ``apps_list`` to the new site.
         """
