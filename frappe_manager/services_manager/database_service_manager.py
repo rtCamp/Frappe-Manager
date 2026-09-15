@@ -24,6 +24,7 @@ from frappe_manager.services_manager.services_exceptions import (
     DatabaseServiceUserRemoveFailError,
 )
 from frappe_manager.site_manager.exceptions import BenchException
+from frappe_manager.utils.site import host_bench_dir
 
 
 # TODO this class will be used for validation for main config
@@ -80,8 +81,8 @@ class DatabaseServerServiceInfo(BaseModel):
         # Keyed by SITE: `sites/<site>/site_config.json` is where the endpoint lives. The
         # parameter was called `bench_name`, which is the same string only while a bench holds one
         # site named after it.
-        site_config_file: Path = bench_path / "workspace" / "frappe-bench" / "sites" / site_name / "site_config.json"
-        common_site_config_file: Path = bench_path / "workspace" / "frappe-bench" / "sites" / COMMON_SITE_CONFIG_FILE
+        site_config_file: Path = host_bench_dir(bench_path) / "sites" / site_name / "site_config.json"
+        common_site_config_file: Path = host_bench_dir(bench_path) / "sites" / COMMON_SITE_CONFIG_FILE
 
         info: dict[str, Any] = {"external": external}
 

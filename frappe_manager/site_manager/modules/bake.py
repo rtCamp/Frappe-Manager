@@ -35,7 +35,12 @@ from frappe_manager.site_manager.modules.transport import push_images
 from frappe_manager.site_manager.provisioner import provision
 from frappe_manager.utils.docker import host_run_cp, run_command_with_exit_code
 from frappe_manager.utils.helpers import ImageRef, digest_pinned_refusal
-from frappe_manager.utils.site import read_bench_app_refs, read_bench_node_version, read_bench_python_version
+from frappe_manager.utils.site import (
+    host_bench_dir,
+    read_bench_app_refs,
+    read_bench_node_version,
+    read_bench_python_version,
+)
 
 
 class BakeError(FrappeManagerException):
@@ -180,7 +185,7 @@ class BakeManager:
         origin URL + current branch become a reproducible clone spec.
         """
         bench_dir = Path(self.bench_config.root_path).parent
-        frappe_bench = bench_dir / "workspace" / "frappe-bench"
+        frappe_bench = host_bench_dir(bench_dir)
         apps_dir = frappe_bench / "apps"
         if not apps_dir.is_dir():
             raise BakeError(f"Bench apps directory not found: {apps_dir}")
@@ -318,7 +323,7 @@ class BakeManager:
         code+assets. Relies on fm's constant ``/workspace/frappe-bench`` container path,
         so the relocatable uv venv keeps working after the copy.
         """
-        src = Path(self.bench_config.root_path).parent / "workspace" / "frappe-bench"
+        src = host_bench_dir(Path(self.bench_config.root_path).parent)
         if not src.is_dir():
             raise BakeError(f"Workspace not found for source=workspace: {src}")
         apps = self._derive_apps_list()  # read git specs from the real workspace first
@@ -473,7 +478,7 @@ class BakeManager:
 
         context_dir = Path(tempfile.mkdtemp(prefix="fm-bake-"))
         try:
-            frappe_bench_dir = context_dir / "workspace" / "frappe-bench"
+            frappe_bench_dir = host_bench_dir(context_dir)
             source = (self.bench_config.build.source if self.bench_config.build else None) or "provision"
 
             if source == "workspace":
@@ -521,7 +526,7 @@ class BakeManager:
             py_version = read_bench_python_version(frappe_bench_dir)
             node_version = read_bench_node_version(frappe_bench_dir)
             git_src = (
-                Path(self.bench_config.root_path).parent / "workspace" / "frappe-bench"
+                host_bench_dir(Path(self.bench_config.root_path).parent)
                 if source == "workspace"
                 else frappe_bench_dir
             )

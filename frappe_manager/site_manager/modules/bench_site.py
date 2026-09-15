@@ -34,6 +34,7 @@ from frappe_manager.site_manager.modules.compose_shape import RedisIdentity, red
 from frappe_manager.site_manager.modules.db_probe import get_lock_sql, lock_refusal
 from frappe_manager.utils.docker import run_command_with_exit_code
 from frappe_manager.utils.helpers import get_redis_cache_addr, get_redis_queue_addr
+from frappe_manager.utils.site import host_bench_dir
 
 # Redis' own default, shared by `redis://` and `rediss://`.
 DEFAULT_REDIS_PORT = 6379
@@ -114,7 +115,7 @@ class BenchSiteManager:
         self.compose_file_manager = compose_file_manager
         self.output = output_handler or RichOutputHandler()
 
-        self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
+        self.frappe_bench_dir: Path = host_bench_dir(bench_path)
         self.bench_cli_cmd = ["/opt/user/.bin/bench"]
 
     def wait_for_required_services(self, timeout: int = 120) -> None:

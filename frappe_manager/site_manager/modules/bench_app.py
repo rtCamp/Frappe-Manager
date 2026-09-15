@@ -29,6 +29,7 @@ from frappe_manager.site_manager.exceptions import (
 )
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.modules.app_cloner import AppCloner, AppClonerError
+from frappe_manager.utils.site import host_bench_dir
 
 
 def merge_app_overrides(current: list[AppConfig], overrides: list[AppConfig]) -> list[AppConfig]:
@@ -108,7 +109,7 @@ class BenchAppManager:
         self.output = output_handler or RichOutputHandler()
         self.provision_image = provision_image
 
-        self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
+        self.frappe_bench_dir: Path = host_bench_dir(bench_path)
         self.bench_cli_cmd = ["/opt/user/.bin/bench"]
 
     def get_current_runtime_versions(self, use_run: bool = False) -> dict[str, str | None]:

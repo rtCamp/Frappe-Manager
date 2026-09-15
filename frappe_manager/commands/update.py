@@ -27,6 +27,7 @@ from frappe_manager.site_manager.bench_config import (
 from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.site import Bench
+from frappe_manager.utils.site import host_bench_dir
 
 # Rich help panels for `fm update --help`, titled by the segment of the `BENCH/SITE` address each
 # flag acts on. Same rule as `fm create`: scope is where the value LANDS, not how the help reads.
@@ -81,7 +82,7 @@ def _demote_to_mount(bench: Bench, output) -> None:
 
     output.change_head(f"Materializing editable workspace from {demotion_image}")
     fetch_image(bench.docker_client, demotion_image, output=output)
-    frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
+    frappe_bench_dir = host_bench_dir(bench.path)
     # Leftover code trees from an earlier mount life are STALE vs the deployed image; keeping
     # them would break "code on disk == running code". Stash them aside (never delete) and
     # extract fresh.
@@ -333,7 +334,7 @@ def update(
     frappe_python_req: str | None = None
     frappe_node_req: str | None = None
     if python_version or node_version:
-        frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"
+        frappe_app_path = host_bench_dir(bench.path) / "apps" / "frappe"
         current_versions = bench.app_manager.get_current_runtime_versions(use_run=True)
 
         if frappe_app_path.exists():
@@ -561,7 +562,7 @@ def update(
             output.print("Runtime versions updated successfully")
 
             if venv_recreated:
-                apps_txt_path = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
+                apps_txt_path = host_bench_dir(bench.path) / "sites" / "apps.txt"
                 if apps_txt_path.exists():
                     installed_apps = [line.strip() for line in apps_txt_path.read_text().splitlines() if line.strip()]
                     apps_list_dicts = [{"app": app_name, "branch": None} for app_name in installed_apps]

@@ -7,6 +7,7 @@ from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.commands.arguments import BenchNameArgument
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.site import Bench
+from frappe_manager.utils.site import host_bench_dir
 
 
 @example(
@@ -43,7 +44,7 @@ def list_apps(
         for app in apps:
             typer.echo(f"  {app.name:<{width}}  {app.repo}:{app.ref or 'default'}")
 
-    apps_txt = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
+    apps_txt = host_bench_dir(bench.path) / "sites" / "apps.txt"
     if apps_txt.exists():
         installed = [line.strip() for line in apps_txt.read_text().splitlines() if line.strip()]
         typer.echo(f"{bench.name} installed on disk:")

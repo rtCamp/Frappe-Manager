@@ -58,7 +58,7 @@ from frappe_manager.utils.helpers import (
     get_container_name_prefix,
     save_dict_to_file,
 )
-from frappe_manager.utils.site import domain_level
+from frappe_manager.utils.site import domain_level, host_bench_dir
 
 
 @dataclass(frozen=True)
@@ -535,7 +535,7 @@ class Bench:
         extra = {"operation": "config_set_common", "bench_name": self.name, "config_keys": list(config.keys())}
         self.logger.debug(f"Setting common bench configuration: {self.name}", extra_fields=extra)
         try:
-            common_bench_config_path = self.path / "workspace/frappe-bench/sites/common_site_config.json"
+            common_bench_config_path = host_bench_dir(self.path) / "sites/common_site_config.json"
             if not common_bench_config_path.exists():
                 raise BenchException(self.name, message=f"File not found {common_bench_config_path.name}.")
 
@@ -554,7 +554,7 @@ class Bench:
         answer. Deploy-time merges apply to every site; a certificate's host_name applies to the
         one site that certificate is for.
         """
-        site_config_path = self.path / "workspace/frappe-bench/sites" / site / "site_config.json"
+        site_config_path = host_bench_dir(self.path) / "sites" / site / "site_config.json"
         if not site_config_path.exists():
             raise BenchException(self.name, message=f"File not found {site_config_path.name}.")
         save_dict_to_file(config, site_config_path)
@@ -568,7 +568,7 @@ class Bench:
         the site afterwards, so a file fm wrote first survives untouched and is what the rest of
         `new-site` reads. Unlike `set_bench_site_config` this creates the directory and the file.
         """
-        site_dir = self.path / "workspace/frappe-bench/sites" / self.site_name
+        site_dir = host_bench_dir(self.path) / "sites" / self.site_name
         site_dir.mkdir(parents=True, exist_ok=True)
         site_config_path = site_dir / "site_config.json"
         # save_dict_to_file merges, so it reads the file before writing and cannot create one.
@@ -1196,7 +1196,7 @@ class Bench:
     @property
     def sites_dir(self) -> Path:
         """Frappe's `sites/` directory, which holds one directory per site plus its shared files."""
-        return self.path / "workspace" / "frappe-bench" / "sites"
+        return host_bench_dir(self.path) / "sites"
 
     def site_schemas(self) -> list[SiteSchema]:
         """The sites fm MANAGES, from `[sites]`, each with the schema read off its own site config.
@@ -1902,7 +1902,7 @@ class Bench:
         upload_limit = self.bench_config.upload_limit
         changed = False
 
-        sites_dir = self.path / "workspace" / "frappe-bench" / "sites"
+        sites_dir = host_bench_dir(self.path) / "sites"
         wanted_bytes = self._parse_size_to_bytes(upload_limit)
         for site in self.bench_config.site_names or [self.site_name]:
             site_config = sites_dir / site / "site_config.json"

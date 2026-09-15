@@ -16,7 +16,13 @@ from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchNotFoundError
 from frappe_manager.utils.address import SEPARATOR, Address, parse_address
 from frappe_manager.utils.helpers import get_current_fm_version
-from frappe_manager.utils.site import get_sitename_from_current_path, is_fqdn, is_wildcard_fqdn, validate_sitename
+from frappe_manager.utils.site import (
+    get_sitename_from_current_path,
+    host_bench_dir,
+    is_fqdn,
+    is_wildcard_fqdn,
+    validate_sitename,
+)
 
 
 def apps_list_validation_callback(value: list[str] | None):
@@ -204,7 +210,7 @@ def _sites_on_disk(bench_dir: Path) -> list[str]:
     A directory counts as a site when it holds a `site_config.json`; that is what separates the
     sites from `assets`, `apps.txt` and the rest of the bench's own furniture.
     """
-    sites_dir = bench_dir / "workspace" / "frappe-bench" / "sites"
+    sites_dir = host_bench_dir(bench_dir) / "sites"
     try:
         entries = sorted(sites_dir.iterdir())
     except OSError:

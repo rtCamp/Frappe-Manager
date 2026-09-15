@@ -10,6 +10,15 @@ from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchException
 
 
+def host_bench_dir(bench_path: Path) -> Path:
+    """Host-side root of a bench's frappe-bench workspace: the bind-mount SOURCE of
+    CONTAINER_BENCH_DIR. The one place the ``workspace/frappe-bench`` layout is spelled;
+    versioned migrations (migration_manager/migrations/migrate_*.py) deliberately keep
+    their own literal joins -- a time capsule writes the paths of its era.
+    """
+    return bench_path / "workspace" / "frappe-bench"
+
+
 def read_bench_python_version(frappe_bench_dir: Path) -> str | None:
     """Active Python version (e.g. "3.12.9") from the uv python-default symlink, or None."""
     symlink = frappe_bench_dir / ".uv" / "python-default"
@@ -203,8 +212,8 @@ def get_bench_db_connection_info(site_name: str, bench_path: Path):
     returns a dict with no `name` key, and every caller silently does nothing.
     """
     db_info = {}
-    site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / site_name / "site_config.json"
-    common_site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / COMMON_SITE_CONFIG_FILE
+    site_config_file = host_bench_dir(bench_path) / "sites" / site_name / "site_config.json"
+    common_site_config_file = host_bench_dir(bench_path) / "sites" / COMMON_SITE_CONFIG_FILE
 
     db_info["password"] = None
 

@@ -21,6 +21,7 @@ from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.site_manager.exceptions import BenchOperationException
 from frappe_manager.utils.helpers import get_template_path
+from frappe_manager.utils.site import host_bench_dir
 
 
 # Custom worker queue names become supervisor program names
@@ -242,8 +243,8 @@ class BenchSupervisor:
     def generate_supervisor_config(self, bench_path, user="frappe", skip_redis=True) -> tuple[str, dict]:
         from pathlib import Path
 
-        host_bench_dir = Path(bench_path).resolve() / "workspace" / "frappe-bench"
-        common_site_config_path = host_bench_dir / "sites" / COMMON_SITE_CONFIG_FILE
+        bench_dir = host_bench_dir(Path(bench_path).resolve())
+        common_site_config_path = bench_dir / "sites" / COMMON_SITE_CONFIG_FILE
 
         config = {}
         if common_site_config_path.exists():
@@ -287,7 +288,7 @@ class BenchSupervisor:
         import configparser
         from pathlib import Path
 
-        bench_dir = Path(bench_path).resolve() / "workspace" / "frappe-bench"
+        bench_dir = host_bench_dir(Path(bench_path).resolve())
         config_dir = bench_dir / "config"
 
         self.output.change_head("Checking supervisor configuration")
@@ -315,7 +316,7 @@ class BenchSupervisor:
     def setup_newrelic(self, bench_path) -> None:
         from pathlib import Path
 
-        bench_dir = Path(bench_path).resolve() / "workspace" / "frappe-bench"
+        bench_dir = host_bench_dir(Path(bench_path).resolve())
         config_dir = bench_dir / "config"
         config_dir.mkdir(parents=True, exist_ok=True)
 

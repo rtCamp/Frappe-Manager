@@ -35,6 +35,7 @@ from frappe_manager.site_manager.exceptions import (
     BenchNotRunning,
 )
 from frappe_manager.utils.helpers import capture_and_format_exception
+from frappe_manager.utils.site import host_bench_dir
 
 if TYPE_CHECKING:
     from frappe_manager.docker.compose_file import ComposeFile
@@ -86,7 +87,7 @@ class BenchDevTools:
         Returns:
             List of package specs with versions
         """
-        apps_path = self.bench_path / "workspace" / "frappe-bench" / "apps"
+        apps_path = host_bench_dir(self.bench_path) / "apps"
         apps_path = apps_path.absolute()
 
         pattern = "**/pyproject.toml"

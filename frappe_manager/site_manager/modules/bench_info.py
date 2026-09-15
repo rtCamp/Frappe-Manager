@@ -29,6 +29,7 @@ from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.utils.helpers import format_ssl_certificate_time_remaining
 from frappe_manager.utils.site import (
+    host_bench_dir,
     read_bench_app_refs,
     read_bench_node_version,
     read_bench_python_version,
@@ -123,7 +124,7 @@ class BenchInfo:
         Raises:
             BenchException: If common_site_config.json not found
         """
-        common_bench_config_path = self.bench_path / "workspace/frappe-bench/sites/common_site_config.json"
+        common_bench_config_path = host_bench_dir(self.bench_path) / "sites/common_site_config.json"
         if not common_bench_config_path.exists():
             raise BenchException(self.bench_name, message="common_site_config.json not found.")
         return json.loads(common_bench_config_path.read_text())
@@ -146,7 +147,7 @@ class BenchInfo:
         # raised "site_config.json not found" at the end of a successful create, and `fm create`
         # then offered to roll the finished bench back.
         target = site or self.bench_config.primary_site
-        site_config_path = self.bench_path / "workspace/frappe-bench/sites" / target / "site_config.json"
+        site_config_path = host_bench_dir(self.bench_path) / "sites" / target / "site_config.json"
         if not site_config_path.exists():
             raise BenchException(self.bench_name, message=f"site_config.json not found for site '{target}'.")
         return json.loads(site_config_path.read_text())
@@ -166,7 +167,7 @@ class BenchInfo:
                 return json.loads(raw) if raw else []
             except (ValueError, TypeError):
                 return []
-        return read_bench_app_refs(self.bench_path / "workspace" / "frappe-bench")
+        return read_bench_app_refs(host_bench_dir(self.bench_path))
 
     @staticmethod
     def _short_ts(iso: str) -> str:
@@ -222,7 +223,7 @@ class BenchInfo:
         """
         if self.bench_config.runtime == BenchRuntime.image:
             return self._image_label("fm.python.version")
-        return read_bench_python_version(self.bench_path / "workspace/frappe-bench") or "N/A"
+        return read_bench_python_version(host_bench_dir(self.bench_path)) or "N/A"
 
     def get_node_version(self) -> str:
         """Active Node version.
@@ -232,7 +233,7 @@ class BenchInfo:
         """
         if self.bench_config.runtime == BenchRuntime.image:
             return self._image_label("fm.node.version")
-        return read_bench_node_version(self.bench_path / "workspace/frappe-bench") or "N/A"
+        return read_bench_node_version(host_bench_dir(self.bench_path)) or "N/A"
 
     def _image_label(self, key: str) -> str:
         """Read ``key`` off the pinned image (deploy_state.current_image); ``N/A`` if absent."""
@@ -254,7 +255,7 @@ class BenchInfo:
         Returns:
             list: List of existing log file paths
         """
-        base_log_dir = self.bench_path / "workspace/frappe-bench/logs"
+        base_log_dir = host_bench_dir(self.bench_path) / "logs"
         if self.bench_config.environment_type.value == "dev":
             bench_dev_server_log_path = base_log_dir / "web.dev.log"
             return [p for p in [bench_dev_server_log_path] if p.exists()]

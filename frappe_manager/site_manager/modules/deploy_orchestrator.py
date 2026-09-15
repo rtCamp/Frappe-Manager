@@ -53,6 +53,7 @@ from frappe_manager.site_manager.modules.compose_shape import (
     redis_server_identity,
 )
 from frappe_manager.utils.docker import run_command_with_exit_code
+from frappe_manager.utils.site import host_bench_dir
 
 if TYPE_CHECKING:
     from frappe_manager.site_manager.site import Bench
@@ -700,7 +701,7 @@ class DeployOrchestrator:
         the count against the site list to decide whether the set is complete.
         """
         backup_dir.mkdir(parents=True, exist_ok=True)
-        sites_dir = self.bench_path / "workspace" / "frappe-bench" / "sites"
+        sites_dir = host_bench_dir(self.bench_path) / "sites"
 
         # Config snapshots FIRST, and deliberately ahead of the running gate below: these are
         # host-side file copies that never needed the container, so a bench whose frappe is
@@ -1100,7 +1101,7 @@ class DeployOrchestrator:
             self.output.warning(f"Skipping {phase} hook: no running frappe container.")
             return
         self.output.change_head(f"Running {phase} hook (container)")
-        logs_dir = self.bench_path / "workspace" / "frappe-bench" / "logs"
+        logs_dir = host_bench_dir(self.bench_path) / "logs"
         logs_dir.mkdir(parents=True, exist_ok=True)
         name = f".fm_hook_{phase}_{int(time.time())}.sh"
         host_script = logs_dir / name
@@ -1146,7 +1147,7 @@ class DeployOrchestrator:
         """
         budget = self.switch_config.migrate_timeout
         log_name = f"deploy-migrate-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}.log"
-        self._migrate_log_host = self.bench_path / "workspace" / "frappe-bench" / "logs" / log_name
+        self._migrate_log_host = host_bench_dir(self.bench_path) / "logs" / log_name
         self._migrate_log_container = f"{CONTAINER_BENCH_DIR}/logs/{log_name}"
         collected: list[str] = []
 

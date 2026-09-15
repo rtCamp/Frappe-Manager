@@ -19,6 +19,7 @@ from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, AdminToolsFailedToStop, BenchException
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version, get_template_path
+from frappe_manager.utils.site import host_bench_dir
 
 if TYPE_CHECKING:
     from frappe_manager.site_manager.site import Bench
@@ -163,7 +164,7 @@ class BenchAdminTools:
         self.nginx_config_location_path.unlink(missing_ok=True)
 
     def _get_common_site_config_path(self) -> Path:
-        return self.compose_path.parent / "workspace/frappe-bench/sites/common_site_config.json"
+        return host_bench_dir(self.compose_path.parent) / "sites/common_site_config.json"
 
     def _get_common_site_config(self) -> dict:
         config_path = self._get_common_site_config_path()

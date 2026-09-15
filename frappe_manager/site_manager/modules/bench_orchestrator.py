@@ -35,6 +35,7 @@ from frappe_manager.site_manager.bench_config import BenchRuntime, DatabaseConfi
 from frappe_manager.site_manager.exceptions import BenchException, BenchOperationException
 from frappe_manager.site_manager.modules import db_probe, db_tls
 from frappe_manager.site_manager.provisioner import provision
+from frappe_manager.utils.site import host_bench_dir
 
 if TYPE_CHECKING:
     from frappe_manager.site_manager.site import Bench
@@ -267,7 +268,7 @@ class BenchOrchestrator:
         fetch_image(bench.docker_client, image, output=self.output)
 
         # Seed apps.txt from the baked image and drive apps_list off it.
-        apps_txt = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
+        apps_txt = host_bench_dir(bench.path) / "sites" / "apps.txt"
         host_run_cp(image, f"{CONTAINER_SITES_DIR}/apps.txt", str(apps_txt), bench.docker_client)
         baked = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
         bench.bench_config.apps_list = [AppConfig.from_string(n) for n in baked]
@@ -283,7 +284,7 @@ class BenchOrchestrator:
             # Pre-create the site dir (frappe-owned) so the per-site bind isn't auto-created
             # root-owned by `compose up`; new-site --force then populates that existing empty
             # dir. (The compose was already projected to the image shape in phase 1.)
-            (bench.path / "workspace" / "frappe-bench" / "sites" / bench.site_name).mkdir(
+            (host_bench_dir(bench.path) / "sites" / bench.site_name).mkdir(
                 parents=True, exist_ok=True
             )
 
@@ -393,7 +394,7 @@ class BenchOrchestrator:
 
         self.output.change_head(f"Seeding workspace from image {image}")
         fetch_image(bench.docker_client, image, output=self.output)
-        frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
+        frappe_bench_dir = host_bench_dir(bench.path)
         materialize_workspace_from_image(bench.docker_client, image, frappe_bench_dir, output=self.output)
 
         # The baked app set drives apps.txt and the per-site installs.
@@ -771,7 +772,7 @@ class BenchOrchestrator:
         for bench_dir in sorted(CLI_BENCHES_DIRECTORY.iterdir()):
             if not bench_dir.is_dir() or bench_dir.name == self.bench.name:
                 continue
-            sites_dir = bench_dir / "workspace" / "frappe-bench" / "sites"
+            sites_dir = host_bench_dir(bench_dir) / "sites"
             for site_config_path in sites_dir.glob("*/site_config.json"):
                 try:
                     site_config = json.loads(site_config_path.read_text())

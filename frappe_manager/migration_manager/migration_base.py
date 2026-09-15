@@ -21,6 +21,7 @@ from frappe_manager.services_manager.database_service_manager import DatabaseSer
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.modules.compose_shape import container_transit_path
 from frappe_manager.utils.helpers import capture_and_format_exception
+from frappe_manager.utils.site import host_bench_dir
 
 
 class MigrationBase(ABC):
@@ -209,7 +210,7 @@ class MigrationBase(ABC):
 
         self.backup_manager.backup(bench.path / "docker-compose.yml", bench_name=bench.name)
 
-        bench_common_site_config = bench.path / "workspace" / "frappe-bench" / "sites" / COMMON_SITE_CONFIG_FILE
+        bench_common_site_config = host_bench_dir(bench.path) / "sites" / COMMON_SITE_CONFIG_FILE
         self.backup_manager.backup(bench_common_site_config, bench_name=bench.name)
 
         # Every recorded site, not just one named after the bench. A migration that backed up one
@@ -220,7 +221,7 @@ class MigrationBase(ABC):
         # backing up anything at all. `raise_exception=False` never covered that, because it only
         # guards the password check further down.
         for site in bench.site_names:
-            site_config = bench.path / "workspace" / "frappe-bench" / "sites" / site / "site_config.json"
+            site_config = host_bench_dir(bench.path) / "sites" / site / "site_config.json"
             if not site_config.is_file():
                 self.output.warning(
                     f"{bench.name}: no site_config.json for recorded site '{site}', skipping its backup. "

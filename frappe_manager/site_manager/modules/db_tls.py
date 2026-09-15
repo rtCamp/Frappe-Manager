@@ -24,6 +24,7 @@ import shutil
 from pathlib import Path
 
 from frappe_manager import CONTAINER_BENCH_DIR
+from frappe_manager.utils.site import host_bench_dir
 
 TLS_CONTAINER_ROOT = f"{CONTAINER_BENCH_DIR}/config/tls"
 
@@ -51,7 +52,7 @@ def site_ca_container_path(site: str) -> str:
 
 
 def tls_host_root(bench_path: Path) -> Path:
-    return bench_path / "workspace" / "frappe-bench" / "config" / "tls"
+    return host_bench_dir(bench_path) / "config" / "tls"
 
 
 def site_tls_host_dir(bench_path: Path, site: str) -> Path:

@@ -22,6 +22,7 @@ from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.site_manager.site import Bench
+from frappe_manager.utils.site import host_bench_dir
 
 # `fm list` is the overview, `fm info` the detail view and `--json` the complete record, so the card
 # names the sites an operator can address and stops at three: the names ARE the payload here (they
@@ -245,7 +246,7 @@ class BenchService:
                     bench = self.get_bench(bench_name, workers_check=False, admin_tools_check=False)
                     config = bench.bench_config
 
-                    apps_txt = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
+                    apps_txt = host_bench_dir(bench.path) / "sites" / "apps.txt"
                     if apps_txt.exists():
                         apps = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
                     else:

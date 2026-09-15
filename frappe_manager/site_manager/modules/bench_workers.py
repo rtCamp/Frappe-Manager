@@ -24,7 +24,7 @@ from frappe_manager.site_manager.exceptions import (
 from frappe_manager.site_manager.modules.ssl_ca_trust import CONTAINER_CA_PATH, resolve_ca_trust
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
 from frappe_manager.utils.network import get_proxy_ip_on_frontend
-from frappe_manager.utils.site import is_default_worker
+from frappe_manager.utils.site import host_bench_dir, is_default_worker
 
 if TYPE_CHECKING:
     from frappe_manager.site_manager.site import Bench
@@ -56,7 +56,7 @@ class BenchWorkers:
         """
         self.bench = bench
         self.compose_path = self.bench.path / "docker-compose.workers.yml"
-        self.config_dir = self.bench.path / "workspace" / "frappe-bench" / "config"
+        self.config_dir = host_bench_dir(self.bench.path) / "config"
         self.supervisor_config_path = self.config_dir / "supervisor.conf"
         self.output = output_handler or RichOutputHandler()
         self.compose_file_manager = ComposeFile(self.compose_path, template_name="docker-compose.workers.tmpl")

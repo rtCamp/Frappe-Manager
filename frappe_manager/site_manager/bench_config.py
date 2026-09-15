@@ -30,6 +30,7 @@ from frappe_manager.utils.helpers import (
     get_current_fm_version,
     has_explicit_tag,
 )
+from frappe_manager.utils.site import host_bench_dir
 
 
 def extract_app_python_module_name(app_path: Path) -> str:
@@ -1378,7 +1379,7 @@ def read_default_site(bench_root: Path | str | None) -> str | None:
     """
     if not bench_root:
         return None
-    path = Path(bench_root) / "workspace" / "frappe-bench" / "sites" / COMMON_SITE_CONFIG_FILE
+    path = host_bench_dir(Path(bench_root)) / "sites" / COMMON_SITE_CONFIG_FILE
     try:
         value = json.loads(path.read_text()).get("default_site")
     except Exception:
@@ -1401,7 +1402,7 @@ def read_sites_on_disk(bench_root: Path | str | None) -> set[str]:
     """
     if not bench_root:
         return set()
-    sites_dir = Path(bench_root) / "workspace" / "frappe-bench" / "sites"
+    sites_dir = host_bench_dir(Path(bench_root)) / "sites"
     try:
         return {entry.name for entry in sites_dir.iterdir() if (entry / "site_config.json").is_file()}
     except OSError:
