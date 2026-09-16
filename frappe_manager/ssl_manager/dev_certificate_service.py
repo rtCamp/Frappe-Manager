@@ -124,14 +124,21 @@ class DevCertificateService:
         return ca_key, ca_cert
 
     def _ensure_ca_installed(self) -> None:
-        """Install CA into system trust stores (one-time, guarded by sentinel)."""
+        """Install CA into system trust stores (one-time, guarded by sentinel).
+
+        Best-effort: a host that cannot install the CA (no sudo on Linux, a locked
+        keychain on macOS) still gets its certificate -- only the trust step is skipped,
+        with manual instructions printed by the trust store manager. The sentinel is
+        written ONLY on success, so a later run with the needed privileges retries the
+        install instead of assuming it is already done.
+        """
         if self.ca_sentinel_path.exists():
             return
 
         self.output.change_head("Installing dev CA into system trust store")
-        TrustStoreManager(self.output).install(self.ca_cert_path)
-        self.ca_sentinel_path.touch()
-        self.output.print("Dev CA installed — browsers will now trust local dev certificates")
+        if TrustStoreManager(self.output).install(self.ca_cert_path):
+            self.ca_sentinel_path.touch()
+            self.output.print("Dev CA installed — browsers will now trust local dev certificates")
 
     # ------------------------------------------------------------------
     # SSLCertificateService Protocol implementation

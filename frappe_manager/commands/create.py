@@ -1211,7 +1211,7 @@ def create(
     # actually finishes ("Created bench: ..."), so this stays silent rather than pre-announce it.
     if sitename != address and not bench_only:
         output.print(
-            f"Bench [fm.info]{address}[/fm.info] will serve the site [fm.info]{sitename}[/fm.info].",
+            f"Bench [fm.info]{address}[/fm.info] will serve the site [fm.info]{sitename}[/fm.info]",
             emoji_code=":globe_with_meridians:",
         )
 
@@ -1221,7 +1221,7 @@ def create(
     if site_database is not None:
         output.print(
             f"External database: this site lives on [fm.info]{site_database.host}:{site_database.port}"
-            f"[/fm.info] in schema [fm.info]{site_database.name}[/fm.info], not the global-db container.",
+            f"[/fm.info] in schema [fm.info]{site_database.name}[/fm.info], not the global-db container",
             emoji_code=":floppy_disk:",
         )
 

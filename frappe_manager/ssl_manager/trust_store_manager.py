@@ -21,27 +21,64 @@ class TrustStoreManager:
     def __init__(self, output_handler: OutputHandler | None = None):
         self.output = output_handler or RichOutputHandler()
 
-    def install(self, ca_cert_path: Path) -> None:
+    def install(self, ca_cert_path: Path) -> bool:
         """
-        Install CA certificate into all available trust stores.
+        Install the CA into the host OS and browser trust stores. BEST-EFFORT.
+
+        Returns True when the host OS store was updated, False when it could not be.
+        Never raises for a missing privilege or tool: issuing a dev certificate must not
+        depend on trusting it HERE. A headless server has no browser -- the operator
+        trusts the CA on their own machine -- and on Linux the OS store needs sudo, which
+        a non-interactive run cannot supply. On failure the exact manual steps are printed.
 
         Args:
             ca_cert_path: Path to the CA certificate PEM file
 
-        Raises:
-            RuntimeError: If primary trust store installation fails
+        Returns:
+            True if the host OS trust store was updated, else False.
         """
         if sys.platform == "darwin":
-            self._install_macos(ca_cert_path)
+            installer = self._install_macos
         elif sys.platform.startswith("linux"):
-            self._install_linux(ca_cert_path)
+            installer = self._install_linux
         else:
             self.output.warning(f"Unsupported platform '{sys.platform}' for automatic trust store installation.")
             self.output.print(f"Manually trust the CA certificate at: {ca_cert_path}")
-            return
+            return False
+
+        installed = False
+        try:
+            installer(ca_cert_path)
+            installed = True
+        except RuntimeError as e:
+            # No sudo on Linux, locked/denied keychain on macOS: the cert is still issued;
+            # only the host trust step is skipped, with instructions to finish it by hand.
+            self.output.warning(f"Could not install the dev CA into this host's trust store: {e}")
+            self._print_manual_instructions(ca_cert_path)
 
         # Best-effort NSS (Firefox/Chrome on Linux, Firefox on macOS)
         self._install_nss(ca_cert_path)
+        return installed
+
+    def _print_manual_instructions(self, ca_cert_path: Path) -> None:
+        """Print how to trust the CA by hand -- on this host, and on any other machine
+        (a laptop/browser) that will talk to these dev certificates."""
+        self.output.print("The dev certificate was still issued; to make clients trust it, install the CA:")
+        self.output.print(f"  CA file: {ca_cert_path}")
+        if sys.platform == "darwin":
+            self.output.print(
+                f"  This host: security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db {ca_cert_path}"
+            )
+        elif sys.platform.startswith("linux"):
+            self.output.print(
+                f"  This host (Debian/Ubuntu): sudo cp {ca_cert_path} /usr/local/share/ca-certificates/fm-dev-ca.crt && sudo update-ca-certificates"
+            )
+            self.output.print(
+                f"  This host (Fedora/RHEL): sudo cp {ca_cert_path} /etc/pki/ca-trust/source/anchors/fm-dev-ca.crt && sudo update-ca-trust extract"
+            )
+        self.output.print(
+            "  Another machine (e.g. your browser's): copy the CA file there and add it to that machine's trust store."
+        )
 
     def _install_macos(self, ca_cert_path: Path) -> None:
         """Install into macOS login keychain (current user, no sudo required)."""

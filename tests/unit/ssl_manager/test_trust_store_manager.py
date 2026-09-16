@@ -96,6 +96,54 @@ class TestTrustStoreManagerLinux:
 
 
 @pytest.mark.unit
+class TestTrustStoreManagerInstallIsBestEffort:
+    """install() is the policy layer: the low-level _install_* raise, install() never does,
+    because issuing a dev certificate must not depend on trusting it on this host."""
+
+    def test_returns_true_on_success(self, tmp_path):
+        ca_cert = tmp_path / "ca.pem"
+        ca_cert.write_text("FAKE")
+        mgr = make_manager()
+        with (
+            patch("frappe_manager.ssl_manager.trust_store_manager.sys.platform", "linux"),
+            patch.object(mgr, "_install_linux") as installer,
+            patch.object(mgr, "_install_nss"),
+        ):
+            result = mgr.install(ca_cert)
+        installer.assert_called_once()
+        assert result is True
+
+    def test_a_privilege_failure_returns_false_with_actionable_instructions_and_never_raises(self, tmp_path):
+        """The headless-Linux case: no sudo -> _install_linux raises -> install() warns,
+        prints the exact manual trust command AND the CA path, and returns False."""
+        ca_cert = tmp_path / "ca.pem"
+        ca_cert.write_text("FAKE")
+        mgr = make_manager()
+        with (
+            patch("frappe_manager.ssl_manager.trust_store_manager.sys.platform", "linux"),
+            patch.object(mgr, "_install_linux", side_effect=RuntimeError("sudo: a terminal is required")),
+            patch.object(mgr, "_install_nss"),
+        ):
+            result = mgr.install(ca_cert)  # must not raise
+        assert result is False
+        mgr.output.warning.assert_called_once()
+        printed = " ".join(str(c.args[0]) for c in mgr.output.print.call_args_list)
+        assert str(ca_cert) in printed
+        assert "update-ca-certificates" in printed
+
+    def test_nss_still_attempted_after_a_host_store_failure(self, tmp_path):
+        ca_cert = tmp_path / "ca.pem"
+        ca_cert.write_text("FAKE")
+        mgr = make_manager()
+        with (
+            patch("frappe_manager.ssl_manager.trust_store_manager.sys.platform", "linux"),
+            patch.object(mgr, "_install_linux", side_effect=RuntimeError("no sudo")),
+            patch.object(mgr, "_install_nss") as nss,
+        ):
+            mgr.install(ca_cert)
+        nss.assert_called_once_with(ca_cert)
+
+@pytest.mark.unit
 class TestTrustStoreManagerNSS:
     def test_skipped_when_certutil_not_found(self, tmp_path):
         ca_cert = tmp_path / "ca.pem"

@@ -170,3 +170,23 @@ class TestDevCertificateServiceTrustStore:
         with patch("frappe_manager.ssl_manager.dev_certificate_service.TrustStoreManager") as mock_ts:
             svc.generate_certificate(make_cert(), dry_run=False)
         mock_ts.return_value.install.assert_not_called()
+
+    def test_a_trust_store_failure_still_issues_the_certificate(self, tmp_path):
+        """The headless-server bug: the trust-store install raised (no sudo) and aborted
+        issuance BEFORE the leaf cert existed. Issuing a dev cert must not depend on
+        trusting it on this host -- the operator trusts the CA on their own machine."""
+        svc = make_service(tmp_path)
+        with patch("frappe_manager.ssl_manager.dev_certificate_service.TrustStoreManager") as mock_ts:
+            mock_ts.return_value.install.return_value = False  # host trust could not be written
+            key_path, fullchain = svc.generate_certificate(make_cert("headless.localhost"))
+        assert fullchain.exists()
+        assert key_path.exists()
+        # Not marked installed, so the next run (perhaps with sudo) retries instead of skipping.
+        assert not svc.ca_sentinel_path.exists()
+
+    def test_a_successful_install_writes_the_sentinel(self, tmp_path):
+        svc = make_service(tmp_path)
+        with patch("frappe_manager.ssl_manager.dev_certificate_service.TrustStoreManager") as mock_ts:
+            mock_ts.return_value.install.return_value = True
+            svc.generate_certificate(make_cert(), dry_run=False)
+        assert svc.ca_sentinel_path.exists()
