@@ -957,6 +957,13 @@ class SwitchHookScripts(BaseModel):
         description="After `bench migrate` -- runs on success AND failure "
         "(hook env: MIGRATE_STATUS=migrated|failed, full log at MIGRATE_LOG_FILE[_HOST]).",
     )
+    on_rollback: str | None = Field(
+        None,
+        description="After fm rolls a failed deploy back: a failed migrate (old image kept) or a "
+        "post-swap health-check rollback. Runs on both. For external-DB restores fm cannot do "
+        "itself (hook env: ROLLBACK_REASON=migrate_failed|health_check_failed, FAILED_IMAGE, "
+        "ROLLBACK_TO_IMAGE, plus MIGRATE_STATUS/MIGRATE_LOG_FILE).",
+    )
 
 
 class SwitchHooks(SwitchHookScripts):

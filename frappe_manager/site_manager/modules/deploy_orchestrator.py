@@ -1057,7 +1057,7 @@ class DeployOrchestrator:
                 self.output.change_head(f"Merging site_config keys into {site}")
                 self.bench.set_bench_site_config(site, site_keys)
 
-    def _hook_script(self, value: str, deploy_image: str) -> str:
+    def _hook_script(self, value: str, deploy_image: str, extra_env: dict[str, str] | None = None) -> str:
         """``set -e`` + exported env + resolved content, so no exec env passthrough is needed."""
         core = {"SITE_NAME": self.site, "BENCH_PATH": str(self.bench_path), "DEPLOY_IMAGE": deploy_image}
         if self._migrate_status is not None:
@@ -1065,15 +1065,19 @@ class DeployOrchestrator:
         if self._migrate_log_container is not None:
             core["MIGRATE_LOG_FILE"] = self._migrate_log_container
             core["MIGRATE_LOG_FILE_HOST"] = str(self._migrate_log_host)
+        if extra_env:
+            core.update(extra_env)
         env = hook_env(core, self.switch_config)
         return hook_script(value, env)
 
-    def _run_host_hook(self, value: str | None, phase: str, deploy_image: str) -> None:
+    def _run_host_hook(
+        self, value: str | None, phase: str, deploy_image: str, extra_env: dict[str, str] | None = None
+    ) -> None:
         if not value:
             return
         self.output.change_head(f"Running {phase} hook (host)")
         with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as fh:
-            fh.write(self._hook_script(value, deploy_image))
+            fh.write(self._hook_script(value, deploy_image, extra_env))
             script_path = fh.name
         try:
             proc = subprocess.run(  # noqa: S603
@@ -1094,7 +1098,9 @@ class DeployOrchestrator:
             with contextlib.suppress(OSError):
                 Path(script_path).unlink()
 
-    def _run_container_hook(self, value: str | None, phase: str, deploy_image: str) -> None:
+    def _run_container_hook(
+        self, value: str | None, phase: str, deploy_image: str, extra_env: dict[str, str] | None = None
+    ) -> None:
         if not value:
             return
         if not self._frappe_running():
@@ -1106,7 +1112,7 @@ class DeployOrchestrator:
         name = f".fm_hook_{phase}_{int(time.time())}.sh"
         host_script = logs_dir / name
         container_script = f"{CONTAINER_BENCH_DIR}/logs/{name}"
-        host_script.write_text(self._hook_script(value, deploy_image))
+        host_script.write_text(self._hook_script(value, deploy_image, extra_env))
         try:
             result = self._exec_frappe(f"bash {container_script}")
             for line in getattr(result, "stdout", None) or []:
@@ -1210,6 +1216,38 @@ class DeployOrchestrator:
                 runner(value, phase, new_image)
             except Exception as e:
                 self.output.warning(f"{phase} hook failed on the migrate-failure path (continuing): {e}")
+
+    def _run_rollback_hooks(self, reason: str, failed_image: str | None, rollback_image: str | None) -> None:
+        """Fire ``on_rollback`` hooks (container then host) when a deploy is rolled back.
+
+        Runs on BOTH rollback paths -- a failed migrate (old image kept) and a post-swap
+        health-gate image rollback -- so an external-database operator can act in lock-step with
+        fm's own rollback (e.g. restore an RDS snapshot; fm only ever restores its own logical
+        dumps). Best-effort like ``_notify_after_migrate``: this fires while the deploy is ALREADY
+        failing, so a broken rollback hook must never mask the error that triggered it.
+
+        Hook env adds ``ROLLBACK_REASON`` (``migrate_failed`` | ``health_check_failed``),
+        ``FAILED_IMAGE`` (the image that was being deployed) and ``ROLLBACK_TO_IMAGE`` (the image
+        now live again), on top of the usual ``MIGRATE_STATUS`` / ``MIGRATE_LOG_FILE[_HOST]``.
+        ``ROLLBACK_TO_IMAGE``, not ``ROLLBACK_IMAGE``: ``hook_env`` already exports the
+        ``[switch].rollback_image`` bool under that name, so the target image needs its own.
+        """
+        extra = {
+            "ROLLBACK_REASON": reason,
+            "FAILED_IMAGE": failed_image or "",
+            "ROLLBACK_TO_IMAGE": rollback_image or "",
+        }
+        # DEPLOY_IMAGE stays "the image this deploy was moving to" across every phase (here the
+        # one that failed); the image now live again is ROLLBACK_TO_IMAGE.
+        deploy_image = failed_image or rollback_image or ""
+        for value, phase, runner in (
+            (self._switch_hook("on_rollback"), "on_rollback", self._run_container_hook),
+            (self._switch_hook("on_rollback", host=True), "host_on_rollback", self._run_host_hook),
+        ):
+            try:
+                runner(value, phase, deploy_image, extra_env=extra)
+            except Exception as e:
+                self.output.warning(f"{phase} hook failed on the rollback path (continuing): {e}")
 
     def _current_deployed_image(self) -> str | None:
         state = self.config.deploy_state
@@ -1435,6 +1473,9 @@ class DeployOrchestrator:
                                 self._restore_db(site, db_dumps[site])
                             except RestoreNotConfirmed as declined:
                                 self.output.warning(str(declined))
+                    # External-DB rollback seam: fm has kept the old image (and restored its own
+                    # dumps if configured); fire on_rollback so the operator can restore theirs.
+                    self._run_rollback_hooks("migrate_failed", new_image, old_image)
                     raise DeployError(
                         f"Migration failed; kept old image ({old_image or 'dev/mount'}). "
                         f"Compose reverted, no swap performed. Re-run deploy after fixing: {e}",
@@ -1483,6 +1524,7 @@ class DeployOrchestrator:
             if self.switch_config.rollback_image and old_image:
                 self.output.warning("New image unhealthy; rolling back to previous image.")
                 self.rollback(old_image, restore_db_dumps=db_dumps if self.switch_config.rollback_db else None)
+                self._run_rollback_hooks("health_check_failed", new_image, old_image)
                 raise DeployError(
                     f"Deploy of {new_image} failed health check; rolled back to {old_image}.",
                 )

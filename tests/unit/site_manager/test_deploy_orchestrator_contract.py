@@ -844,7 +844,9 @@ class TestMigrateFailure:
         phases = [phase for _n, phase, _v in r.hook_phases()]
         assert "after_migrate" not in phases
         assert "host_after_migrate" not in phases
-        assert phases == ["host_before_migrate", "before_migrate"]
+        # The failure path still fires on_rollback (container then host): the seam an external-DB
+        # operator uses to undo its own side of the deploy while fm keeps the old image.
+        assert phases == ["host_before_migrate", "before_migrate", "on_rollback", "host_on_rollback"]
 
     def test_migrate_failure_marks_the_status_for_the_hook_env(self, rig):
         r = rig(_migrate={"side_effect": docker_error("patch blew up")})

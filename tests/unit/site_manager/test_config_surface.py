@@ -52,6 +52,7 @@ DYNAMIC_OR_INDIRECT: dict[str, str] = {
     "SwitchHookScripts.after_restart": "getattr(hooks, name)",
     "SwitchHookScripts.before_migrate": "getattr(hooks, name)",
     "SwitchHookScripts.after_migrate": "getattr(hooks, name)",
+    "SwitchHookScripts.on_rollback": "getattr(hooks, name)",
     # `MigrationState.migrated_to`/`last_migration_date` used to be exempted here (raw-TOML read
     # in bench_migration_state.py, never a `.field` access) -- now mutated via plain attribute
     # assignment (`config.migration_state.migrated_to = ...`) in bench_migration_state.py and

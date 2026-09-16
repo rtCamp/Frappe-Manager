@@ -90,6 +90,11 @@
 # After `bench migrate` -- runs on success AND failure (hook env: MIGRATE_STATUS=migrated|failed,
 # full log at MIGRATE_LOG_FILE[_HOST]). [optional, unset by default]
 # after_migrate = ...
+# After fm rolls a failed deploy back: a failed migrate (old image kept) or a post-swap health-
+# check rollback. Runs on both. For external-DB restores fm cannot do itself (hook env:
+# ROLLBACK_REASON=migrate_failed|health_check_failed, FAILED_IMAGE, ROLLBACK_TO_IMAGE, plus
+# MIGRATE_STATUS/MIGRATE_LOG_FILE). [optional, unset by default]
+# on_rollback = ...
 #
 # Switch-phase hooks for a single location (container or host).
 # [switch.hooks.host]
@@ -102,6 +107,11 @@
 # After `bench migrate` -- runs on success AND failure (hook env: MIGRATE_STATUS=migrated|failed,
 # full log at MIGRATE_LOG_FILE[_HOST]). [optional, unset by default]
 # after_migrate = ...
+# After fm rolls a failed deploy back: a failed migrate (old image kept) or a post-swap health-
+# check rollback. Runs on both. For external-DB restores fm cannot do itself (hook env:
+# ROLLBACK_REASON=migrate_failed|health_check_failed, FAILED_IMAGE, ROLLBACK_TO_IMAGE, plus
+# MIGRATE_STATUS/MIGRATE_LOG_FILE). [optional, unset by default]
+# on_rollback = ...
 
 # ---- [workers] -----------------------------------------------------------------------------
 
