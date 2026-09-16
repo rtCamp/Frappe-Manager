@@ -18,7 +18,9 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
+from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME
 from frappe_manager.commands.bake import bake
+from frappe_manager.site_manager.bench_config import BenchConfig, BenchRuntime, DeployState
 from frappe_manager.site_manager.modules.bake import BakeManager
 
 # `frappe_manager.commands` re-exports the `bake` FUNCTION under the same name, shadowing the
@@ -87,3 +89,34 @@ def test_apps_alone_still_bakes_without_a_bench(cli, wired):
 
     assert result.exit_code == 0, result.output
     baked.assert_called_once()
+
+
+def test_image_runtime_bench_mode_bake_is_refused_before_any_overlay(cli, wired, monkeypatch, tmp_path):
+    """An image-runtime bench mounts no editable workspace and keeps its apps inside the image, so
+    there is nothing on disk to bake FROM. A bench-mode bake must refuse it with guidance toward
+    the standalone bake + `fm switch` flow, and refuse BEFORE persisting a `--config` overlay --
+    the old code fell through to `_derive_apps_list` and died on a missing `apps/` path instead."""
+    picker, baked = wired  # picker -> "picked.localhost"
+    monkeypatch.setattr(bake_cmd, "CLI_BENCHES_DIRECTORY", tmp_path)
+    bench_dir = tmp_path / "picked.localhost"
+    bench_dir.mkdir()
+    (bench_dir / CLI_BENCH_CONFIG_FILE_NAME).write_text("")  # the existence check must pass
+
+    image_cfg = BenchConfig.model_construct(
+        runtime=BenchRuntime.image,
+        image="local/mydep",
+        deploy_state=DeployState(current_image="local/mydep:v2"),
+    )
+    monkeypatch.setattr(BenchConfig, "import_from_toml", classmethod(lambda cls, path: image_cfg))
+    overlay = MagicMock(name="apply_config_overlays")
+    monkeypatch.setattr(bake_cmd, "apply_config_overlays", overlay)
+
+    result = runner.invoke(cli, ["picked.localhost", "--config", "x = 1"])
+
+    # Flatten rich's line wrapping so multi-word phrases are matchable.
+    flat = " ".join(result.output.split())
+    assert result.exit_code != 0
+    assert "image-runtime bench" in flat
+    assert "fm switch picked.localhost" in flat  # the supported way forward, naming the bench
+    overlay.assert_not_called()  # refused before anything is persisted to disk
+    baked.assert_not_called()  # and before the build

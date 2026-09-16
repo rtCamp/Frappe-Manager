@@ -23,7 +23,7 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from frappe_manager import COMMON_SITE_CONFIG_FILE, CONTAINER_BENCH_DIR
+from frappe_manager import CLI_DIR, COMMON_SITE_CONFIG_FILE, CONTAINER_BENCH_DIR
 from frappe_manager.docker import DockerClient
 from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.logger import get_logger
@@ -45,6 +45,26 @@ from frappe_manager.utils.site import (
 
 class BakeError(FrappeManagerException):
     """Raised when a bake cannot proceed or fails."""
+
+
+def _bake_tempdir_base() -> str | None:
+    """Base directory for bake's large temp trees, or ``None`` to use the system default.
+
+    Bake writes the whole provisioned ``frappe-bench`` (code, venv, built assets) into one temp
+    tree and a second copy of the assets into another for the nginx image -- several GB for a real
+    app. ``/tmp`` is commonly a RAM-backed tmpfs (systemd sizes it near half of RAM), so the
+    default location overflows with a misleading ``[Errno 122] Disk quota exceeded`` on a host with
+    tens of GB free elsewhere. Default instead to a directory on fm's own data filesystem
+    (``CLI_DIR``), which is sized for benches and images by definition.
+
+    An explicit ``TMPDIR`` wins (return ``None`` so ``tempfile`` honours it): an operator who set
+    it is pointing bake at scratch space of their own.
+    """
+    if os.environ.get("TMPDIR"):
+        return None
+    base = CLI_DIR / "cache" / "bake"
+    base.mkdir(parents=True, exist_ok=True)
+    return str(base)
 
 
 class BakeManager:
@@ -476,7 +496,7 @@ class BakeManager:
         if platform:
             os.environ["DOCKER_DEFAULT_PLATFORM"] = platform
 
-        context_dir = Path(tempfile.mkdtemp(prefix="fm-bake-"))
+        context_dir = Path(tempfile.mkdtemp(prefix="fm-bake-", dir=_bake_tempdir_base()))
         try:
             frappe_bench_dir = host_bench_dir(context_dir)
             source = (self.bench_config.build.source if self.bench_config.build else None) or "provision"
@@ -640,7 +660,7 @@ class BakeManager:
         # Build from a staging context with app assets resolved to REAL files. Each
         # `sites/assets/<app>` symlinks into `apps/<app>/.../public`, but the nginx image
         # has no `apps/`, so the symlink would dangle at runtime (assets 404).
-        staging = Path(tempfile.mkdtemp(prefix="fm-bake-nginx-"))
+        staging = Path(tempfile.mkdtemp(prefix="fm-bake-nginx-", dir=_bake_tempdir_base()))
         try:
             if assets_dir.is_dir():
                 self._materialize_assets(assets_dir, frappe_bench_dir, staging / "sites" / "assets")

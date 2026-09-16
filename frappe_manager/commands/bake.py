@@ -12,7 +12,7 @@ from frappe_manager import (
     STABLE_APP_BRANCH_MAPPING_LIST,
 )
 from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig, BuildConfig
+from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig, BenchRuntime, BuildConfig
 from frappe_manager.site_manager.deploy_config_overlay import (
     ConfigOverlayError,
     apply_config_overlays,
@@ -35,6 +35,19 @@ def _bake_name(image: str | None) -> str:
         if name:
             return name
     return "fm-bake"
+
+
+def _image_bench_bake_refusal(name: str, bc: BenchConfig) -> str:
+    """Why a bench-mode bake refuses an image-runtime bench, and what to run instead."""
+    current = bc.deploy_state.current_image if bc.deploy_state else None
+    runs = f" It currently runs {current}." if current else ""
+    repo = bc.image or "ghcr.io/acme/mybench"
+    return (
+        f"'{name}' is an image-runtime bench, so it has no editable workspace to bake from and its "
+        f"apps live inside the image, not in bench_config.toml.{runs} Build a new image from your app "
+        f"source with a standalone bake -- 'fm bake --apps <app:branch> --image {repo}' (or a --config "
+        f"carrying \\[\\[apps]]) -- then deploy it here with 'fm switch {name} <image>'."
+    )
 
 
 def _base_image_callback(value: str | None) -> str | None:
@@ -289,6 +302,13 @@ def bake(
         bench_config_path = CLI_BENCHES_DIRECTORY / resolved_name / CLI_BENCH_CONFIG_FILE_NAME
         if not bench_config_path.exists():
             output.display_error(f"Bench '{resolved_name}' not found ({bench_config_path} missing).")
+            raise typer.Exit(1)
+        # Image benches carry their apps inside the image and mount no editable workspace, so there
+        # is nothing on disk to bake FROM. Refuse before any --config overlay is persisted, and point
+        # at the standalone bake + fm switch flow that is how an image bench moves to a new image.
+        pre = BenchConfig.import_from_toml(bench_config_path)
+        if pre.runtime == BenchRuntime.image:
+            output.display_error(_image_bench_bake_refusal(resolved_name, pre))
             raise typer.Exit(1)
         try:
             apply_config_overlays(bench_config_path, config)
