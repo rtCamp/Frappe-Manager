@@ -24,6 +24,7 @@ Everything external is mocked at its seam: no docker daemon, no network, no real
 """
 
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -316,6 +317,52 @@ def test_compose_files_are_ordered_base_first_and_override_last(tmp_path, out):
         "docker-compose.override.yml",
         "ps",
     ]
+
+
+def test_compose_double_dash_shifts_the_bound_token_into_the_args_and_picks_the_bench(
+    tmp_path, out, monkeypatch
+):
+    """`fm compose -- ps`: click consumes the `--` and binds 'ps' to BENCH, so the command must
+    read argv to tell this apart from `fm compose ps`, treat 'ps' as the first docker compose
+    argument, and resolve the bench the way every bench command does when the name is omitted."""
+    bench_path = tmp_path / "picked.localhost"
+    bench_path.mkdir()
+    (bench_path / "docker-compose.yml").write_text("services: {}\n")
+
+    ctx = MagicMock(spec=typer.Context)
+    ctx.args = ["-a"]
+    monkeypatch.setattr(sys, "argv", ["fm", "compose", "--", "ps", "-a"])
+
+    with (
+        patch("frappe_manager.commands.compose.CLI_BENCHES_DIRECTORY", tmp_path),
+        patch(
+            "frappe_manager.commands.compose.sitename_callback", return_value="picked.localhost"
+        ) as resolver,
+        patch("os.chdir") as chdir,
+        patch("os.execvp") as execvp,
+    ):
+        compose(ctx, benchname="ps")
+
+    resolver.assert_called_once_with(None)
+    chdir.assert_called_once_with(bench_path)
+    assert execvp.call_args.args[1] == ["docker", "compose", "-f", "docker-compose.yml", "ps", "-a"]
+
+
+def test_compose_named_bench_not_found_teaches_the_double_dash_form(tmp_path, out, monkeypatch):
+    """A typo'd bench must still fail loudly -- never be silently handed to docker compose --
+    and the refusal names the escape hatch."""
+    from frappe_manager.commands.compose import _benchname_callback
+    from frappe_manager.site_manager.exceptions import BenchNotFoundError
+
+    monkeypatch.setattr(sys, "argv", ["fm", "compose", "ps"])
+
+    with (
+        patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", tmp_path),
+        pytest.raises(BenchNotFoundError) as excinfo,
+    ):
+        _benchname_callback("ps")
+
+    assert "fm compose -- ps" in str(excinfo.value)
 
 
 # =========================================================================== #

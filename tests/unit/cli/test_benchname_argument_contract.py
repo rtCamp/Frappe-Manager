@@ -29,6 +29,7 @@ import pytest
 import typer
 
 from frappe_manager.commands import app
+from frappe_manager.commands.compose import _benchname_callback as _compose_benchname_callback
 from frappe_manager.commands.maintenance import _maintenance_sitename_callback
 from frappe_manager.exceptions import FrappeManagerException, NonInteractiveError
 from frappe_manager.output_manager import get_global_output_handler
@@ -195,6 +196,20 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         type_name="text",
         autocompletion=sites_autocompletion_callback,
         callback=sitename_callback,
+    ),
+    # `compose` is a passthrough with a second grammar: `fm compose -- ARGS` deliberately
+    # omits the bench (picked interactively, CWD first) and hands everything to docker
+    # compose. Its callback wraps `sitename_callback`: identical must-exist resolution for a
+    # NAMED bench (plus a not-found hint teaching the `--` form), skipped entirely for the
+    # `--` form, where the bound value is a docker compose argument rather than a bench.
+    "fm compose": BenchnameSpec(
+        help="Bench to act on. Omit to pick from the benches you have; 'fm compose -- ARGS' also picks, passing ARGS to docker compose.",
+        metavar="BENCH",
+        default=None,
+        required=False,
+        type_name="text",
+        autocompletion=sites_autocompletion_callback,
+        callback=_compose_benchname_callback,
     ),
     # The four `ssl` subcommands address a DOMAIN rather than a site: a certificate is keyed by
     # hostname and a bench serves its sites' names AND their aliases, so the population is wider
@@ -562,6 +577,7 @@ def test_commands_that_skip_the_must_exist_check_are_only_the_documented_ones():
     skipping = {name for name, param in BENCHNAME_ARGUMENTS.items() if unwrap_callback(param) not in must_exist}
     expected = {
         "fm bake",
+        "fm compose",  # wraps sitename_callback: must-exist for a named bench, skipped for `--`
         "fm create",
         "fm maintenance",
         "fm ssl add",
