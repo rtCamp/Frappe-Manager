@@ -260,6 +260,10 @@ class DeployOrchestrator:
         self._migrate_status: str | None = None
         self._migrate_log_host: Path | None = None
         self._migrate_log_container: str | None = None
+        # Terminal deploy outcome + rollback reason, set during a deploy and read by the
+        # after_deploy hook that fires once at the end (see deploy / _deploy_impl).
+        self._deploy_outcome: str | None = None
+        self._rollback_reason: str | None = None
         self.compose = bench.compose_file_manager
         self.docker_ops = bench.docker_ops
         self.output = output_handler or RichOutputHandler()
@@ -1217,37 +1221,36 @@ class DeployOrchestrator:
             except Exception as e:
                 self.output.warning(f"{phase} hook failed on the migrate-failure path (continuing): {e}")
 
-    def _run_rollback_hooks(self, reason: str, failed_image: str | None, rollback_image: str | None) -> None:
-        """Fire ``on_rollback`` hooks (container then host) when a deploy is rolled back.
+    def _run_after_switch_hooks(self, outcome: str, new_image: str, old_image: str | None) -> None:
+        """Fire the terminal ``after_switch`` hooks (container then host), once, best-effort.
 
-        Runs on BOTH rollback paths -- a failed migrate (old image kept) and a post-swap
-        health-gate image rollback -- so an external-database operator can act in lock-step with
-        fm's own rollback (e.g. restore an RDS snapshot; fm only ever restores its own logical
-        dumps). Best-effort like ``_notify_after_migrate``: this fires while the deploy is ALREADY
-        failing, so a broken rollback hook must never mask the error that triggered it.
+        Called from ``deploy``'s finally on EVERY exit -- success and every failure -- after fm's
+        own recovery (compose restore, maintenance unwind, record), so the bench is in its final
+        state when the hook runs. Best-effort like ``_notify_after_migrate``: a broken terminal
+        hook must never mask the deploy's own result. Unconfigured hooks are skipped (real no-op).
 
-        Hook env adds ``ROLLBACK_REASON`` (``migrate_failed`` | ``health_check_failed``),
-        ``FAILED_IMAGE`` (the image that was being deployed) and ``ROLLBACK_TO_IMAGE`` (the image
-        now live again), on top of the usual ``MIGRATE_STATUS`` / ``MIGRATE_LOG_FILE[_HOST]``.
+        ``DEPLOY_OUTCOME`` is succeeded | rolled_back | halted | aborted. Non-success outcomes carry
+        ``FAILED_IMAGE`` (the image being deployed); a rollback also carries ``ROLLBACK_REASON``
+        (migrate_failed | health_check_failed) and ``ROLLBACK_TO_IMAGE`` (the image now live again).
         ``ROLLBACK_TO_IMAGE``, not ``ROLLBACK_IMAGE``: ``hook_env`` already exports the
         ``[switch].rollback_image`` bool under that name, so the target image needs its own.
         """
-        extra = {
-            "ROLLBACK_REASON": reason,
-            "FAILED_IMAGE": failed_image or "",
-            "ROLLBACK_TO_IMAGE": rollback_image or "",
-        }
-        # DEPLOY_IMAGE stays "the image this deploy was moving to" across every phase (here the
-        # one that failed); the image now live again is ROLLBACK_TO_IMAGE.
-        deploy_image = failed_image or rollback_image or ""
+        extra = {"DEPLOY_OUTCOME": outcome}
+        if outcome != "succeeded":
+            extra["FAILED_IMAGE"] = new_image or ""
+        if outcome == "rolled_back":
+            extra["ROLLBACK_REASON"] = self._rollback_reason or ""
+            extra["ROLLBACK_TO_IMAGE"] = old_image or ""
         for value, phase, runner in (
-            (self._switch_hook("on_rollback"), "on_rollback", self._run_container_hook),
-            (self._switch_hook("on_rollback", host=True), "host_on_rollback", self._run_host_hook),
+            (self._switch_hook("after_switch"), "after_switch", self._run_container_hook),
+            (self._switch_hook("after_switch", host=True), "host_after_switch", self._run_host_hook),
         ):
+            if not value:
+                continue
             try:
-                runner(value, phase, deploy_image, extra_env=extra)
+                runner(value, phase, new_image, extra_env=extra)
             except Exception as e:
-                self.output.warning(f"{phase} hook failed on the rollback path (continuing): {e}")
+                self.output.warning(f"{phase} hook failed (continuing): {e}")
 
     def _current_deployed_image(self) -> str | None:
         state = self.config.deploy_state
@@ -1304,21 +1307,61 @@ class DeployOrchestrator:
         prune_keep: int | None = None,
         restore_confirmed: bool = False,
     ) -> None:
-        """Run the image deploy to ``new_image``.
+        """Run the image deploy to ``new_image``, firing the terminal ``after_switch`` hook.
 
-        Uses the rolling web swap when eligible (see ``rolling_eligible``) and
-        the old stack is up; otherwise the recreate-swap. ``rolling`` is the
-        ``--rolling/--no-rolling`` override.
+        Uses the rolling web swap when eligible (see ``rolling_eligible``) and the old stack is up;
+        otherwise the recreate-swap. ``rolling`` is the ``--rolling/--no-rolling`` override.
+        ``migrate_override`` overrides ``[switch].migrate`` for THIS run only (rollbacks pass False:
+        old code must never migrate a newer schema). ``restore_db_dumps`` maps SITE to a dump
+        imported at the quiesced point before the swap -- code and data go back together, for every
+        site the rollback covers. A restore is a schema-grade step: it gates maintenance/rolling
+        exactly like a migrate, and each one is confirmed before it runs unless ``restore_confirmed``
+        (``--yes``).
 
-        ``migrate_override`` overrides ``[switch].migrate`` for THIS run only
-        (rollbacks pass False: old code must never migrate a newer schema).
-        ``restore_db_dumps`` maps SITE to a dump imported at the quiesced point before
-        the swap -- code and data go back together, for every site the rollback covers.
-        A restore is a schema-grade step: it gates maintenance/rolling exactly like a
-        migrate, and each one is confirmed before it runs unless ``restore_confirmed``
-        (``--yes``)."""
-        self._require_image_mode()
+        Thin wrapper over ``_deploy_impl``: it captures the pre-deploy image and, whatever happens,
+        fires ``after_deploy`` exactly once with the classified ``DEPLOY_OUTCOME`` -- succeeded |
+        rolled_back | halted | aborted. ``_deploy_impl`` sets the outcome at each terminal decision;
+        anything it raises without classifying is ``aborted`` (failed before any change).
+        """
         old_image = self._current_deployed_image()
+        self._deploy_outcome = None
+        self._rollback_reason = None
+        try:
+            self._deploy_impl(
+                new_image,
+                old_image,
+                rolling=rolling,
+                migrate_override=migrate_override,
+                restore_db_dumps=restore_db_dumps,
+                prune_keep=prune_keep,
+                restore_confirmed=restore_confirmed,
+            )
+            if self._deploy_outcome is None:
+                self._deploy_outcome = "succeeded"
+        except Exception:
+            if self._deploy_outcome is None:
+                self._deploy_outcome = "aborted"
+            raise
+        finally:
+            self._run_after_switch_hooks(self._deploy_outcome or "aborted", new_image, old_image)
+
+    def _deploy_impl(
+        self,
+        new_image: str,
+        old_image: str | None,
+        rolling: bool | None = None,
+        migrate_override: bool | None = None,
+        restore_db_dumps: dict[str, Path] | None = None,
+        prune_keep: int | None = None,
+        restore_confirmed: bool = False,
+    ) -> None:
+        """Run the switch pipeline; ``deploy`` wraps this to fire the terminal after_switch hook.
+
+        Sets ``self._deploy_outcome``/``self._rollback_reason`` at each terminal decision
+        (rolled_back, halted); a clean return is ``succeeded`` and any unclassified raise is
+        ``aborted``. ``old_image`` is the pre-deploy image, captured by ``deploy`` before ``_record``.
+        """
+        self._require_image_mode()
         self._warn_unmanaged_sites()
 
         # 0. Redis identity preflight: cheapest point to refuse in the whole pipeline, because
@@ -1473,9 +1516,11 @@ class DeployOrchestrator:
                                 self._restore_db(site, db_dumps[site])
                             except RestoreNotConfirmed as declined:
                                 self.output.warning(str(declined))
-                    # External-DB rollback seam: fm has kept the old image (and restored its own
-                    # dumps if configured); fire on_rollback so the operator can restore theirs.
-                    self._run_rollback_hooks("migrate_failed", new_image, old_image)
+                    # Terminal outcome: old code kept over a schema the migrate may have partly
+                    # changed. after_deploy(rolled_back) fires from the wrapper so an external-DB
+                    # operator can restore their own snapshot.
+                    self._deploy_outcome = "rolled_back"
+                    self._rollback_reason = "migrate_failed"
                     raise DeployError(
                         f"Migration failed; kept old image ({old_image or 'dev/mount'}). "
                         f"Compose reverted, no swap performed. Re-run deploy after fixing: {e}",
@@ -1524,10 +1569,14 @@ class DeployOrchestrator:
             if self.switch_config.rollback_image and old_image:
                 self.output.warning("New image unhealthy; rolling back to previous image.")
                 self.rollback(old_image, restore_db_dumps=db_dumps if self.switch_config.rollback_db else None)
-                self._run_rollback_hooks("health_check_failed", new_image, old_image)
+                self._deploy_outcome = "rolled_back"
+                self._rollback_reason = "health_check_failed"
                 raise DeployError(
                     f"Deploy of {new_image} failed health check; rolled back to {old_image}.",
                 )
+            # No previous image to roll back to: the new (unhealthy) image stays pinned and the
+            # bench sits in maintenance. New code on new schema -- matched, so NOT a rollback.
+            self._deploy_outcome = "halted"
             raise DeployError(
                 f"Deploy of {new_image} failed health check and is halted in maintenance mode "
                 f"(no previous image to roll back to). Investigate the new containers.",
@@ -1559,6 +1608,9 @@ class DeployOrchestrator:
                 with contextlib.suppress(Exception):
                     self._set_maintenance(0)
             self._record(new_image, migrate_status, backups=db_dumps)
+            # The image IS live and recorded -- the deploy committed; a failing post-restart hook
+            # is surfaced but the outcome is success, not an abort.
+            self._deploy_outcome = "succeeded"
             raise
 
         if maintenance:
