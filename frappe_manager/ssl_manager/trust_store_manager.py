@@ -62,23 +62,36 @@ class TrustStoreManager:
 
     def _print_manual_instructions(self, ca_cert_path: Path) -> None:
         """Print how to trust the CA by hand -- on this host, and on any other machine
-        (a laptop/browser) that will talk to these dev certificates."""
-        self.output.print("The dev certificate was still issued; to make clients trust it, install the CA:")
-        self.output.print(f"  CA file: {ca_cert_path}")
+        (a laptop/browser) that will talk to these dev certificates.
+
+        Emitted as ONE soft-wrapped block: a single leading marker, indented command
+        lines, and soft_wrap so the terminal reflows long commands instead of Rich
+        inserting hard breaks mid-command (which would corrupt a copy-paste).
+        """
         if sys.platform == "darwin":
-            self.output.print(
-                f"  This host: security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db {ca_cert_path}"
-            )
+            host_lines = [
+                "  this host:",
+                f"    security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db {ca_cert_path}",
+            ]
         elif sys.platform.startswith("linux"):
-            self.output.print(
-                f"  This host (Debian/Ubuntu): sudo cp {ca_cert_path} /usr/local/share/ca-certificates/fm-dev-ca.crt && sudo update-ca-certificates"
-            )
-            self.output.print(
-                f"  This host (Fedora/RHEL): sudo cp {ca_cert_path} /etc/pki/ca-trust/source/anchors/fm-dev-ca.crt && sudo update-ca-trust extract"
-            )
-        self.output.print(
-            "  Another machine (e.g. your browser's): copy the CA file there and add it to that machine's trust store."
+            host_lines = [
+                "  this host (Debian/Ubuntu):",
+                f"    sudo cp {ca_cert_path} /usr/local/share/ca-certificates/fm-dev-ca.crt && sudo update-ca-certificates",
+                "  this host (Fedora/RHEL):",
+                f"    sudo cp {ca_cert_path} /etc/pki/ca-trust/source/anchors/fm-dev-ca.crt && sudo update-ca-trust extract",
+            ]
+        else:
+            host_lines = [f"  this host: add {ca_cert_path} to the OS trust store"]
+
+        block = "\n".join(
+            [
+                "The dev certificate was still issued. To make clients trust it, install the CA:",
+                *host_lines,
+                "  another machine (your browser's): copy the CA file there and add it to that trust store:",
+                f"    {ca_cert_path}",
+            ]
         )
+        self.output.print(block, emoji_code=":page_facing_up:", soft_wrap=True, highlight=False)
 
     def _install_macos(self, ca_cert_path: Path) -> None:
         """Install into macOS login keychain (current user, no sudo required)."""
