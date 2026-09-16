@@ -41,12 +41,12 @@ _FLAG_RE = re.compile(r"(?<![\w-])(--[a-z][a-z0-9-]{2,})")
 # `get_all_examples` uses, so an entry here can only ever widen the check for the one command it
 # names -- adding a foreign flag anywhere is a deliberate, reviewable edit to this dict.
 #
-# `fm shell` and `fm ssl acme-sh` need entries; `fm self compose` and `fm services shell` were
+# `fm shell` and `fm ssl acme-sh` need entries; `fm compose` and `fm services shell` were
 # considered and deliberately do NOT get one:
 #
-# - `fm self compose` (`self/compose.py`) is a real `ctx.args` passthrough to `docker compose`
-#   (`self/__init__.py:23` sets `allow_extra_args`), but its four examples
-#   (`self/compose.py:13-32`) only use bare docker subcommands and short flags (`ps`,
+# - `fm compose` (`commands/compose.py`) is a real `ctx.args` passthrough to `docker compose`
+#   (its registration in `commands/__init__.py` sets `allow_extra_args`), but its four examples
+#   (`commands/compose.py:13-32`) only use bare docker subcommands and short flags (`ps`,
 #   `logs -f frappe`, `exec frappe bash`, `restart frappe`) -- nothing `_FLAG_RE` matches. No
 #   entry is needed today; the first example naming a long docker flag (e.g. `--profile`) fails
 #   this test until someone adds one here on purpose.

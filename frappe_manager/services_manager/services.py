@@ -91,8 +91,10 @@ class ServicesManager:
             # The root callback passes ctx.invoked_subcommand, which for the sub-Typers is the
             # group name ("services"/"self"), never a singular "service". Those two families act
             # ON the global stack (stop/start/shell/self stop) and must be able to run against a
-            # deliberately stopped stack instead of silently starting it first.
-            if self.invoked_subcommand not in ("services", "self"):
+            # deliberately stopped stack instead of silently starting it first. `compose` is a
+            # diagnostic passthrough to docker compose: `fm compose BENCH ps` against a stopped
+            # stack must report it stopped, not boot it.
+            if self.invoked_subcommand not in ("services", "self", "compose"):
                 services = self.compose_file_manager.get_services_list(exclude_disabled=True)
                 containers = self.compose_file_manager.get_container_names().values()
                 all_statuses = self.docker_client.compose.get_all_services_status()

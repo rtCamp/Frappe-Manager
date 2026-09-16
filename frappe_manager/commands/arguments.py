@@ -79,8 +79,8 @@ addressable here and are not in :data:`BenchSiteArgument`:
   BENCH and refuses a domain part outright: naming one would narrow a listing
   command, not target an action.
 
-Commands whose address argument genuinely differs (`create`, `self compose`,
-`bake`, `maintenance`, `auth`, `ssl dns-config cloudflare`) keep their own inline
+Commands whose address argument genuinely differs (`create`, `bake`,
+`maintenance`, `auth`, `ssl dns-config cloudflare`) keep their own inline
 declaration on purpose and must NOT be moved here.
 """
 

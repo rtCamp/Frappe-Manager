@@ -258,19 +258,19 @@ class TestMigrationCheckWhitelist:
         assert ctx.obj["services"] is gate.services_manager_cls.return_value
 
     def test_whitelisted_full_command_path_skips_the_gate(self, gate):
-        """``fm self compose`` is whitelisted by full command path, not by invoked command."""
+        """``fm self update-images`` is whitelisted by full command path, not by invoked command."""
         gate.set_infra_version(OLD_VERSION)
 
-        gate.run("self", argv=["fm", "self", "compose"])
+        gate.run("self", argv=["fm", "self", "update-images"])
 
         assert gate.prompts == []
         assert gate.executors == []
 
     def test_flag_after_multi_level_command_still_resolves_the_whitelisted_path(self, gate):
-        """argv parsing stops at flags: ``fm self compose --extra`` is still ``self compose``."""
+        """argv parsing stops at flags: ``fm self update-images --extra`` is still ``self update-images``."""
         gate.set_infra_version(OLD_VERSION)
 
-        gate.run("self", argv=["fm", "self", "compose", "--extra"])
+        gate.run("self", argv=["fm", "self", "update-images", "--extra"])
 
         assert gate.prompts == []
 

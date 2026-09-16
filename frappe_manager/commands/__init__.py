@@ -446,7 +446,7 @@ def app_callback(
                     # Stop at paths (likely bench names like /path or ~/path)
                     if arg.startswith("/") or arg.startswith("~"):
                         break
-                    # Limit to max 2 command levels (e.g., "self compose")
+                    # Limit to max 2 command levels (e.g., "self update-images")
                     if len(command_parts) >= 2:
                         break
 
@@ -590,6 +590,7 @@ def app_callback(
 from frappe_manager.commands.auth import auth
 from frappe_manager.commands.bake import bake
 from frappe_manager.commands.code import code
+from frappe_manager.commands.compose import compose
 
 # Import extracted complex commands (Step 5)
 from frappe_manager.commands.create import create
@@ -617,6 +618,11 @@ app.command(name="start", rich_help_panel=_PANEL_BENCH)(start)
 app.command(name="stop", rich_help_panel=_PANEL_BENCH)(stop)
 app.command(name="code", rich_help_panel=_PANEL_BENCH)(code)
 app.command(name="logs", rich_help_panel=_PANEL_BENCH)(logs)
+app.command(
+    name="compose",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    rich_help_panel=_PANEL_BENCH,
+)(compose)
 app.command(name="info", rich_help_panel=_PANEL_BENCH)(info)
 app.command(name="restart", rich_help_panel=_PANEL_BENCH)(restart)
 app.command(name="migrate", rich_help_panel=_PANEL_BENCH)(migrate)

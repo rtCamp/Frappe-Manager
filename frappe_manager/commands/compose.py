@@ -2,8 +2,8 @@ import typer
 from typer_examples import example
 
 from frappe_manager import CLI_BENCHES_DIRECTORY
+from frappe_manager.commands.arguments import BenchNameArgument
 from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.utils.callbacks import sitename_callback
 
 # docker merges later -f files over earlier ones, so the base must come first and the user's
 # .override.yml last, matching DockerComposeWrapper.
@@ -32,7 +32,7 @@ _COMPOSE_ORDER = {"docker-compose.yml": 0, "docker-compose.workers.yml": 1, "doc
 )
 def compose(
     ctx: typer.Context,
-    benchname: str = typer.Argument(..., metavar="BENCH", help="Bench to act on."),
+    benchname: BenchNameArgument = None,
 ):
     """
     Run docker compose against a bench with all of its compose files already wired up.
@@ -41,8 +41,7 @@ def compose(
 
     docker compose runs with the bench directory as its working directory, so a relative path in the arguments resolves there and not against the directory you called fm from.
     """
-    bench_name = sitename_callback(benchname)
-    bench_path = CLI_BENCHES_DIRECTORY / bench_name
+    bench_path = CLI_BENCHES_DIRECTORY / str(benchname)
     output = get_global_output_handler()
 
     # Order matters: docker merges later -f files over earlier ones. Glob-sorted order puts

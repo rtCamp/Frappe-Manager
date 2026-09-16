@@ -15,7 +15,7 @@ TIMESTAMP_COLLISION_RETRY_DELAY_SECONDS = 0.001
 
 MIGRATION_CHECK_WHITELIST_COMMANDS: list[str] = [
     "list",
-    "self compose",
+    "compose",
     "self update-images",
     "migrate",
     "bake",

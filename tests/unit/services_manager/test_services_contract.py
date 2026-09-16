@@ -406,15 +406,19 @@ def test_status_rows_for_foreign_containers_are_ignored(tmp_path):
     manager.docker_client.compose.up.assert_not_called()
 
 
-@pytest.mark.parametrize("family", ["services", "self"])
-def test_the_services_and_self_command_families_are_exempt_from_auto_start(tmp_path, family):
-    """`fm services stop global-db` and `fm self stop` must act on a stopped stack, not start it.
+@pytest.mark.parametrize("family", ["services", "self", "compose"])
+def test_the_exempt_command_families_do_not_auto_start_the_stack(tmp_path, family):
+    """`fm services stop global-db`, `fm self stop` and `fm compose BENCH ps` must act on a
+    stopped stack, not start it: the first two act ON the stack, and `compose` is a diagnostic
+    passthrough that must report a stopped stack as stopped.
 
     This used to be pinned as `invoked_subcommand="service"`, which no command ever produces: the
     root callback passes `ctx.invoked_subcommand`, and for a sub-Typer registered as
     `add_typer(services_app, name="services")` that value is the GROUP name. The guard was
     therefore dead, and `fm services stop global-db` first ran `compose up` for both globals --
     restarting a `global-nginx-proxy` the operator had deliberately stopped.
+
+    `compose` is top-level, so for it the value is the command name itself.
     """
     write_compose(tmp_path)
     containers = {"global-db": "fm-global-db"}

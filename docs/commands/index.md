@@ -155,6 +155,16 @@ fm logs mybench -f
 fm logs mybench --service nginx
 ```
 
+### :material-docker: [`fm compose`](compose.md) {.command-heading}
+**Run docker compose on a bench**
+
+Raw docker compose against a bench with all of its compose files already wired up; everything after the bench name is passed through untouched.
+
+```bash
+fm compose mybench ps
+fm compose mybench logs -f frappe
+```
+
 ### :material-information: [`fm info`](info.md) {.command-heading}
 **Show bench details**
 
@@ -294,12 +304,11 @@ fm migrate all
 ### :material-wrench: [`fm self`](self.md) {.command-heading}
 **Manage the tool itself**
 
-Update `fm`, pull latest Docker images, run raw docker-compose commands on benches, or stop everything FM manages.
+Update `fm`, pull latest Docker images, or stop everything FM manages.
 
 ```bash
 fm self upgrade
 fm self update-images
-fm self compose mybench ps
 fm self stop
 ```
 

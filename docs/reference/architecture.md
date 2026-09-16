@@ -297,8 +297,8 @@ All of a bench's services start and stop together with `fm start` and `fm stop`.
 Inspect the effective stack, images and all, with:
 
 ```bash
-fm self compose mybench config
-fm self compose mybench ps
+fm compose mybench config
+fm compose mybench ps
 ```
 
 ---
@@ -334,8 +334,8 @@ A bench is three compose files layered together: `docker-compose.yml` always, `d
 `fm` wires all of the present files up for you, and exposes that wiring:
 
 ```bash
-fm self compose mybench ps
-fm self compose mybench logs -f frappe
+fm compose mybench ps
+fm compose mybench logs -f frappe
 ```
 
 ---

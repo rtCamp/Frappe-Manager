@@ -8,8 +8,9 @@ whose failure mode is "every bench on this host", not "this command misbehaved":
   in dependency order (benches, then the proxy, then the database it fronts).
 * `fm self upgrade` must never offer or perform a DOWNGRADE of the CLI underneath benches whose
   on-disk state was written by a newer fm.
-* `fm self compose` must hand docker the compose files in the order fm's own
-  DockerComposeWrapper uses, so `docker-compose.override.yml` still wins.
+* `fm self compose` moved to top-level `fm compose` with the canonical bench selection; it must
+  still hand docker the compose files in the order fm's own DockerComposeWrapper uses, so
+  `docker-compose.override.yml` still wins.
 * `fm services real-ip` writes into the LIVE proxy's conf.d: the header is validated before any
   write, and a file nginx rejects is rolled back instead of being left to break the proxy's next
   start.
@@ -31,7 +32,7 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from frappe_manager.commands.self.compose import compose
+from frappe_manager.commands.compose import compose
 from frappe_manager.commands.self.stop import stop
 from frappe_manager.commands.self.upgrade import upgrade
 from frappe_manager.commands.services.info import info as services_info
@@ -274,7 +275,7 @@ def test_a_newer_published_version_is_still_installed(out):
 
 
 # =========================================================================== #
-# fm self compose
+# fm compose
 # =========================================================================== #
 
 
@@ -295,8 +296,7 @@ def test_compose_files_are_ordered_base_first_and_override_last(tmp_path, out):
     ctx.args = ["ps"]
 
     with (
-        patch("frappe_manager.commands.self.compose.sitename_callback", side_effect=lambda n: n),
-        patch("frappe_manager.commands.self.compose.CLI_BENCHES_DIRECTORY", tmp_path),
+        patch("frappe_manager.commands.compose.CLI_BENCHES_DIRECTORY", tmp_path),
         patch("os.chdir"),
         patch("os.execvp") as execvp,
     ):

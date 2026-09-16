@@ -32,7 +32,7 @@ A bench that is behind the CLI is refused, not silently used. Two gates enforce 
 - **The top-level callback**, before any subcommand runs. If the FM infrastructure or the bench named on the command line is behind, it warns and asks: **Update now** (runs the migration inline, with `--auto-proceed` and `--on-failure=rollback`) or **Update later**. Choosing later exits with status 1, so the command never runs.
 - **The command's own check** (`check_bench_migration_required`), carried by every command that reads or mutates a live bench. It does not prompt: it prints `Run: fm migrate <bench>` and exits 1. This catches the cases where the callback could not resolve the bench name out of `sys.argv`.
 
-Commands that skip the callback gate entirely: `list`, `migrate`, `bake`, `deploy`, `switch`, `self compose`, `self update-images`.
+Commands that skip the callback gate entirely: `list`, `migrate`, `bake`, `deploy`, `switch`, `compose`, `self update-images`.
 
 The bench half of the callback gate is additionally skipped for `stop`, `delete`, and `maintenance`. Of those, only `stop` and `delete` carry no in-command check either, so those two are the ones you can always run against a bench you cannot migrate. `maintenance` still refuses, just without the offer to migrate inline.
 

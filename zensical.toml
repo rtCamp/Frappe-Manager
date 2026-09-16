@@ -56,6 +56,7 @@ nav = [
     { "fm info"     = "commands/info.md" },
     { "fm logs"     = "commands/logs.md" },
     { "fm shell"    = "commands/shell.md" },
+    { "fm compose"  = "commands/compose.md" },
     { "fm code"     = "commands/code.md" },
     { "fm update"   = "commands/update.md" },
     { "fm bake"     = "commands/bake.md" },

@@ -196,16 +196,6 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         autocompletion=sites_autocompletion_callback,
         callback=sitename_callback,
     ),
-    # `self compose` is a maintenance escape hatch: required, no completion, no callback.
-    "fm self compose": BenchnameSpec(
-        help="Bench to act on.",
-        metavar="BENCH",
-        default=None,
-        required=True,
-        type_name="text",
-        autocompletion=None,
-        callback=None,
-    ),
     # The four `ssl` subcommands address a DOMAIN rather than a site: a certificate is keyed by
     # hostname and a bench serves its sites' names AND their aliases, so the population is wider
     # than `BenchSiteArgument`'s. `bench_domain_callback` parses `BENCH/DOMAIN` and hands the
@@ -574,7 +564,6 @@ def test_commands_that_skip_the_must_exist_check_are_only_the_documented_ones():
         "fm bake",
         "fm create",
         "fm maintenance",
-        "fm self compose",
         "fm ssl add",
         "fm ssl dns-config cloudflare",
         "fm ssl list",
