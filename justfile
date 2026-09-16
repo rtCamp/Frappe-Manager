@@ -110,6 +110,49 @@ shell-lint:
 deadcode:
     uv run --with vulture python scripts/deadcode.py
 
+# ── Remote sync ──────────────────────────────────────────────────────────────
+# Target host for the fm test server. NEVER defaulted here: a real host baked
+# into a committed file is infrastructure leakage. Set it in the environment --
+# the gitignored .env (loaded by direnv) is its home:
+#   echo 'export FM_REMOTE=user@host' >> .env && direnv allow
+# or per-invocation: FM_REMOTE=user@host just sync
+
+_remote     := env_var_or_default("FM_REMOTE", "")
+_remote_dir := "fm-src/"
+_rsync      := "rsync -azi --delete -e 'ssh -o ControlMaster=auto -o ControlPath=/tmp/fm-sync-%r@%h -o ControlPersist=120' --exclude .git --exclude .venv --exclude htmlcov --exclude node_modules --exclude .omp --exclude __pycache__ --exclude .pytest_cache --exclude .ruff_cache"
+
+_require_remote:
+    @test -n "{{_remote}}" || { echo "FM_REMOTE is not set (user@host). Put it in .env or pass it inline."; exit 1; }
+
+# Push the working tree to $FM_REMOTE's ~/fm-src (its direnv venv is an
+# EDITABLE install, so synced edits take effect there immediately; the uv-tool
+# fm on its PATH stays frozen until `uv tool install --force .` is re-run)
+sync: _require_remote
+    {{_rsync}} ./ {{_remote}}:{{_remote_dir}}
+
+# Continuous sync. Event-driven via fswatch when installed (sub-second push on
+# save, idle costs nothing); otherwise a 2s rsync delta poll over a persistent
+# ssh control socket. Ctrl-C to stop.
+sync-watch: _require_remote sync
+    #!/usr/bin/env bash
+    push() {
+        out=$({{_rsync}} ./ {{_remote}}:{{_remote_dir}} 2>&1)
+        if [ -n "$out" ]; then
+            echo "[$(date +%H:%M:%S)] synced:"
+            echo "$out" | sed 's/^/  /'
+        fi
+    }
+    if command -v fswatch >/dev/null; then
+        echo "watching (fswatch) . -> {{_remote}}:{{_remote_dir}}"
+        # -o coalesces event bursts (editor atomic saves) into one batch;
+        # excluded dirs still emit events, but the resulting rsync is a no-op.
+        fswatch -o -l 0.3 -e '\.git' -e '\.venv' -e node_modules -e __pycache__ -e '\.omp' -e htmlcov . \
+            | while read -r _; do push; done
+    else
+        echo "watching (2s rsync poll; brew install fswatch for event-driven) . -> {{_remote}}:{{_remote_dir}}"
+        while true; do push; sleep 2; done
+    fi
+
 # Auto-fix fixable lint issues on changed files only
 lint-fix:
     #!/usr/bin/env bash
