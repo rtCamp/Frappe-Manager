@@ -19,3 +19,4 @@ htmlcov/
 
 # Agent behavior rules: local to each checkout, never shared
 AGENTS.md
+.direnv/

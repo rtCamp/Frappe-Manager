@@ -119,7 +119,7 @@ deadcode:
 
 _remote     := env_var_or_default("FM_REMOTE", "")
 _remote_dir := "fm-src/"
-_rsync      := "rsync -azi --delete -e 'ssh -o ControlMaster=auto -o ControlPath=/tmp/fm-sync-%r@%h -o ControlPersist=120' --exclude .git --exclude .venv --exclude htmlcov --exclude node_modules --exclude .omp --exclude __pycache__ --exclude .pytest_cache --exclude .ruff_cache"
+_rsync      := "rsync -azi --delete -e 'ssh -o ControlMaster=auto -o ControlPath=/tmp/fm-sync-%r@%h -o ControlPersist=120' --exclude .git --exclude .venv --exclude .env --exclude .direnv --exclude htmlcov --exclude node_modules --exclude .omp --exclude __pycache__ --exclude .pytest_cache --exclude .ruff_cache"
 
 _require_remote:
     @test -n "{{_remote}}" || { echo "FM_REMOTE is not set (user@host). Put it in .env or pass it inline."; exit 1; }
