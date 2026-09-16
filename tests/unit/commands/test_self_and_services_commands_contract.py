@@ -10,9 +10,12 @@ whose failure mode is "every bench on this host", not "this command misbehaved":
   on-disk state was written by a newer fm.
 * `fm self compose` must hand docker the compose files in the order fm's own
   DockerComposeWrapper uses, so `docker-compose.override.yml` still wins.
-* `fm self real-ip` writes into the LIVE proxy's conf.d: the header is validated before any
+* `fm services real-ip` writes into the LIVE proxy's conf.d: the header is validated before any
   write, and a file nginx rejects is rolled back instead of being left to break the proxy's next
   start.
+* `fm services info` is where the shared root-db credentials moved when they left the bench
+  card, so it must actually carry them, and it must report a service whose container does not
+  exist as stopped rather than omitting it.
 * `fm services start|stop <service>` confirms the work it did, not only the work it skipped, and
   `fm services shell all` is refused up front instead of failing as a bogus shell exit code.
 
@@ -29,9 +32,10 @@ import typer
 from typer.testing import CliRunner
 
 from frappe_manager.commands.self.compose import compose
-from frappe_manager.commands.self.real_ip import real_ip
 from frappe_manager.commands.self.stop import stop
 from frappe_manager.commands.self.upgrade import upgrade
+from frappe_manager.commands.services.info import info as services_info
+from frappe_manager.commands.services.real_ip import real_ip
 from frappe_manager.commands.services.shell import shell_services
 from frappe_manager.commands.services.start import start_services
 from frappe_manager.commands.services.stop import stop_services
@@ -315,7 +319,7 @@ def test_compose_files_are_ordered_base_first_and_override_last(tmp_path, out):
 
 
 # =========================================================================== #
-# fm self real-ip
+# fm services real-ip
 # =========================================================================== #
 
 EXISTING_CONF = "# fm-real-ip\nset_real_ip_from 10.0.0.0/8;\nreal_ip_header X-Forwarded-For;\n"
@@ -420,6 +424,124 @@ def test_a_stopped_proxy_is_reported_as_pending_not_active(tmp_path, out):
     h.services.docker_client.compose.exec.assert_not_called()
     assert "Real-ip active" not in joined(out.print)
     assert "applies on next start" in joined(out.print)
+
+
+# =========================================================================== #
+# fm services info
+# =========================================================================== #
+
+
+class _CardSpy:
+    """Stand-in for railcard.Card recording the facts the command decided on."""
+
+    made: list = []
+
+    def __init__(self, name, meta, active=True, link=None):
+        self.name, self.meta, self.active, self.link = name, meta, active, link
+        self.rows: list[tuple[str, str]] = []
+        _CardSpy.made.append(self)
+
+    def fact(self, label, value):
+        self.rows.append((label, value))
+        return self
+
+    def section(self, title):
+        return self
+
+    def render(self):
+        return f"<rendered {self.name}>"
+
+    @property
+    def facts(self) -> dict:
+        return dict(self.rows)
+
+
+class ServicesInfoHarness:
+    def __init__(self, tmp_path: Path, *, statuses=None):
+        self.confd = tmp_path / "confd"
+        self.confd.mkdir(parents=True)
+
+        self.services = MagicMock(name="services_manager")
+        self.services.path = tmp_path / "services"
+        self.services.database_manager.database_server_info = SimpleNamespace(
+            user="root", password="rootpass", host="global-db"
+        )
+        self.services.proxy_storage.dirs.confd.host = str(self.confd)
+        self.services.compose_file_manager.get_services_list.return_value = [
+            "global-db",
+            "global-nginx-proxy",
+        ]
+        self.services.compose_file_manager.get_container_names.return_value = {
+            "global-db": "fm__global-db",
+            "global-nginx-proxy": "fm__global-nginx-proxy",
+        }
+        default = [
+            {"Service": "global-db", "State": "running", "Name": "fm__global-db"},
+            {"Service": "global-nginx-proxy", "State": "running", "Name": "fm__global-nginx-proxy"},
+        ]
+        self.services.docker_client.compose.get_all_services_status.return_value = (
+            default if statuses is None else statuses
+        )
+
+        self.ctx = MagicMock(spec=typer.Context)
+        self.ctx.obj = {"services": self.services}
+
+    def run(self, monkeypatch) -> _CardSpy:
+        from frappe_manager.output_manager import railcard
+
+        _CardSpy.made = []
+        monkeypatch.setattr(railcard, "Card", _CardSpy)
+        services_info(self.ctx)
+        (card,) = _CardSpy.made
+        return card
+
+
+def test_services_info_carries_the_root_db_credentials(tmp_path, out, monkeypatch):
+    """The row moved off the bench card, so this card is now the ONLY place fm prints the
+    shared global-db root credentials."""
+    h = ServicesInfoHarness(tmp_path)
+
+    card = h.run(monkeypatch)
+
+    assert card.facts["root db"] == (
+        "root [fm.muted]/[/fm.muted] [fm.secret]rootpass[/fm.secret] [fm.muted]@[/fm.muted] global-db"
+    )
+    assert card.active
+
+
+def test_services_info_summarizes_an_active_realip_conf(tmp_path, out, monkeypatch):
+    h = ServicesInfoHarness(tmp_path)
+    (h.confd / "fm-real-ip.conf").write_text(
+        build_proxy_realip_conf(["203.0.113.0/24", "2400:cb00::/32"], "CF-Connecting-IP", recursive=True)
+    )
+
+    card = h.run(monkeypatch)
+
+    assert card.facts["real-ip"] == "trusting 2 range(s), restoring client IP from CF-Connecting-IP"
+
+
+def test_services_info_never_describes_a_foreign_conf_as_fms(tmp_path, out, monkeypatch):
+    """A hand-written fm-real-ip.conf (no fm marker) must read as not configured, the same
+    ownership rule every fm-managed nginx file follows."""
+    h = ServicesInfoHarness(tmp_path)
+    (h.confd / "fm-real-ip.conf").write_text("set_real_ip_from 10.0.0.0/8;\n")
+
+    card = h.run(monkeypatch)
+
+    assert "not configured" in card.facts["real-ip"]
+
+
+def test_services_info_reports_a_missing_container_as_stopped(tmp_path, out, monkeypatch):
+    """get_all_services_status only reports containers that exist, so a never-created service
+    would otherwise silently vanish from the card."""
+    h = ServicesInfoHarness(
+        tmp_path, statuses=[{"Service": "global-db", "State": "running", "Name": "fm__global-db"}]
+    )
+
+    card = h.run(monkeypatch)
+
+    assert "stopped:[/fm.muted] global-nginx-proxy" in card.facts["global"]
+    assert not card.active
 
 
 # =========================================================================== #

@@ -156,7 +156,7 @@ Each flag **replaces** its stored list rather than appending, and omitting the f
     Passing it when the resulting state does not protect `web` is an error, not a silent no-op. There is no path-level exemption for the admin tools: `/adminer/` and `/mailpit/` are all-or-nothing.
 
 !!! warning "Allow lists behind a proxy"
-    `--allow-ip` matches the address nginx sees. Behind a CDN or load balancer that is the proxy, not your client, until real-IP forwarding is configured. See `fm self real-ip`.
+    `--allow-ip` matches the address nginx sees. Behind a CDN or load balancer that is the proxy, not your client, until real-IP forwarding is configured. See `fm services real-ip`.
 
 ### Two things that catch people out
 

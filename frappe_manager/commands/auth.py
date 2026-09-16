@@ -170,7 +170,7 @@ def auth(
         list[str],
         typer.Option(
             "--allow-ip",
-            help="Address or CIDR that skips the prompt (repeatable; replaces the stored list). Behind a CDN this needs real-IP forwarding, see fm self real-ip.",
+            help="Address or CIDR that skips the prompt (repeatable; replaces the stored list). Behind a CDN this needs real-IP forwarding, see fm services real-ip.",
             show_default=False,
             rich_help_panel=_PANEL_EXEMPTIONS,
         ),

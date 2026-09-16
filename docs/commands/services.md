@@ -14,10 +14,25 @@ $ fm services [OPTIONS] COMMAND [ARGS]...
 
 **Commands**:
 
+* `info`: Show the global services' card: live container state, the root database credentials and the proxy's real-ip trust.
 * `start`: Start the global services shared by every bench.
 * `stop`: Stop the global services shared by every bench.
 * `restart`: Restart the global services shared by every bench.
 * `shell`: Open a bash shell in one of the global service containers.
+* `real-ip`: Restore the visitor's real IP at the global nginx proxy when it sits behind a CDN or load balancer.
+
+
+### `fm services info`
+
+Show the global services' card: live container state, the root database credentials and the proxy's real-ip trust.
+
+The root database password is printed in cleartext. It belongs to the global-db container every bench shares, which is why it is on this card and not on any bench's fm info.
+
+**Usage**:
+
+```console
+$ fm services info
+```
 
 
 ### `fm services start`
@@ -101,7 +116,7 @@ $ fm services restart SERVICE_NAME
 
 ### Apply a change to the proxy
 
-A restart is what puts a new proxy config into effect, for instance after fm self real-ip.
+A restart is what puts a new proxy config into effect, for instance after fm services real-ip.
 
 ```bash
 fm services restart global-nginx-proxy
@@ -147,5 +162,51 @@ fm services shell global-db
 
 ```bash
 fm services shell global-nginx-proxy
+```
+
+
+### `fm services real-ip`
+
+Restore the visitor's real IP at the global nginx proxy when it sits behind a CDN or load balancer.
+
+Trust only the ranges you actually sit behind: whatever you trust fully controls the client IP that fm, your logs and frappe go on to see.
+
+**Usage**:
+
+```console
+$ fm services real-ip [OPTIONS]
+```
+
+**Options**:
+
+* `--cdn`: Trust a CDN's published ranges. Supported: cloudflare.
+* `--trust`: CIDR range or single IP of a proxy in front of fm (repeatable).
+* `--header`: Header the client IP is read from. Defaults to CF-Connecting-IP for --cdn cloudflare and X-Forwarded-For otherwise; anything that is not a valid header name is refused.
+* `--off`: Remove the configuration and reload the proxy.
+* `--status`: Show the active configuration. Writes nothing.
+
+
+## Examples
+
+### Trust Cloudflare
+
+Proxy logs, fm maintenance --allow-ip and frappe's rate limiting then see the visitor instead of Cloudflare's edge.
+
+```bash
+fm services real-ip --cdn cloudflare
+```
+
+### Trust your own load balancer
+
+Each run replaces the whole configuration, so pass every range you sit behind in one call.
+
+```bash
+fm services real-ip --trust 203.0.113.0/24
+```
+
+### Show what is trusted
+
+```bash
+fm services real-ip --status
 ```
 

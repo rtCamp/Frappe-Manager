@@ -62,7 +62,6 @@ SITE = "web.example.com"
 SECOND_SITE = "b.example.com"
 ADMIN_PW = "admin-pass"  # a literal here would trip S106
 AUTH_PW = "s3cr3t"
-ROOT_PW = "rootpass"
 
 
 def _docker_exc(cmd="docker pull x"):
@@ -427,9 +426,6 @@ def _displayable(tmp_path, *, site_config=None, apps=None, **over):
     site_dir.mkdir(exist_ok=True)
     (site_dir / "site_config.json").write_text(json.dumps(site_config or {}))
     info = _info(tmp_path, **over)
-    info.services.database_manager.database_server_info = SimpleNamespace(
-        user="root", password=ROOT_PW, host="global-db"
-    )
     info.workers.compose_file_manager.get_container_names.return_value = {}
     info.workers.docker_client.compose.get_all_services_status.return_value = []
     info.admin_tools.compose_file_manager.exists.return_value = False
@@ -521,15 +517,16 @@ def test_display_info_marks_the_bench_config_password_as_default(tmp_path, card_
     assert card.facts["frappe"].endswith("admin-pass (default)")
 
 
-def test_display_info_db_facts_fall_back_to_na_when_the_connection_info_is_empty(tmp_path, card_spy):
+def test_display_info_db_facts_fall_back_to_na_and_carry_no_root_credentials(tmp_path, card_spy):
+    """The db row degrades to N/A instead of crashing, and the shared global-db ROOT
+    credentials are absent: they moved to `fm services info`, so a bench card printing them
+    again would resurrect the bench-wide secret this move removed."""
     info = _displayable(tmp_path, get_db_connection_info_fn=MagicMock(return_value={}))
     info.display_info()
 
     (card,) = card_spy.made
     assert card.facts["db"] == "N/A [fm.muted]/[/fm.muted] [fm.secret]N/A[/fm.secret]"
-    assert card.facts["root db"] == (
-        "root [fm.muted]/[/fm.muted] [fm.secret]rootpass[/fm.secret] [fm.muted]@[/fm.muted] global-db"
-    )
+    assert "root db" not in card.facts
 
 
 def test_display_info_apps_label_only_on_the_first_row_and_em_dash_for_a_missing_ref(tmp_path, card_spy):

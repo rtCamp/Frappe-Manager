@@ -284,7 +284,7 @@ Removal mirrors this, and it is the security-relevant half: when `fm ssl remove`
 
 fm checks where the domain resolves when you run `fm ssl add`. A domain inside Cloudflare's published ranges without `--behind-proxy` gets a hint that the flag may be wanted; `--behind-proxy` on a domain that does not currently resolve into a known CDN range gets a note that it may be unnecessary. Both are advisory: nothing blocks, and when DNS cannot answer within a few seconds fm says nothing rather than guessing.
 
-`--behind-proxy` handles the scheme. Real client IPs are the other half of sitting behind an edge: run `fm self real-ip` so logs, `fm auth --allow-ip` and frappe's rate limiting see the visitor rather than the edge ([Hosting guide](hosting.md)).
+`--behind-proxy` handles the scheme. Real client IPs are the other half of sitting behind an edge: run `fm services real-ip` so logs, `fm auth --allow-ip` and frappe's rate limiting see the visitor rather than the edge ([Hosting guide](hosting.md)).
 
 ---
 

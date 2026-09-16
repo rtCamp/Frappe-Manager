@@ -24,7 +24,7 @@ $ fm maintenance BENCH(/SITE) [OPTIONS]
 * `--status`: Report maintenance state per domain, with the bypass URL.
 * `--response-code`: HTTP status code served while maintenance is on (400-599).
 * `--retry-after`: Retry-After header in seconds; 0 omits it.
-* `--allow-ip`: Client IP that reaches the real site (repeatable; single addresses, no CIDR). Behind a CDN see fm self real-ip.
+* `--allow-ip`: Client IP that reaches the real site (repeatable; single addresses, no CIDR). Behind a CDN see fm services real-ip.
 * `--allow-path`: Request path served the real site, e.g. /api/method/ping (repeatable). Exact match; append * for a prefix.
 * `--message`: Text shown on fm's built-in maintenance page.
 * `--page`: HTML file served as the page, instead of --message. A bench's configs/maintenance.html is used automatically.

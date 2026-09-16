@@ -9,7 +9,7 @@ Composed entirely from primitives that already exist:
 - `DNSValidator.validate_a_record` (frappe_manager.ssl_manager.dns_validator) does the DNS query and
   already collapses "no record", "timeout" and "dig missing" into a single `valid=False`.
 - `CLOUDFLARE_FALLBACK_RANGES` (frappe_manager.site_manager.modules.realip) is the vendored CIDR list
-  `fm self real-ip` already trusts and tests as valid; this module makes no network call of its own,
+  `fm services real-ip` already trusts and tests as valid; this module makes no network call of its own,
   because it runs on a latency-sensitive interactive path (see `detect_cloudflare_proxy`'s `timeout`).
 - stdlib `ipaddress` for range membership.
 

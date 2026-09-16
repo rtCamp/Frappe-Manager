@@ -49,7 +49,6 @@ OTHER = "admin.example.com"
 FOREIGN_A = "a.example.com"
 FOREIGN_B = "b.example.com"
 UNMANAGED = "test.localhost"
-ROOT_PW = "rootpass"  # a literal at the call site would trip S106
 
 
 def _external(host: str = "rds.internal", **over) -> DatabaseConfig:
@@ -235,7 +234,6 @@ def _info(tmp_path: Path, config: BenchConfig, *, unmanaged=(), site_config=None
         (site_dir / "site_config.json").write_text(json.dumps(content))
 
     services = MagicMock()
-    services.database_manager.database_server_info = SimpleNamespace(user="root", password=ROOT_PW, host="global-db")
     workers = MagicMock()
     workers.compose_file_manager.get_container_names.return_value = {}
     workers.docker_client.compose.get_all_services_status.return_value = []

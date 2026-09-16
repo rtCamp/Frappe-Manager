@@ -296,7 +296,8 @@ class BenchInfo:
 
         config = self.bench_config
         bench_db_info = self.get_db_connection_info()
-        services_db_info = self.services.database_manager.database_server_info
+        # The global-db ROOT credentials are deliberately absent: they belong to the shared
+        # global-db container, not to any one bench, and live on `fm services info` now.
         protocol = "https" if self.has_certificate() else "http"
         active = self.is_running()
 
@@ -482,11 +483,6 @@ class BenchInfo:
                 "db" if i == 0 else "",
                 f"{named}{db_name} [fm.muted]/[/fm.muted] [fm.secret]{db_pass}[/fm.secret]",
             )
-        card.fact(
-            "root db",
-            f"{services_db_info.user} [fm.muted]/[/fm.muted] [fm.secret]{services_db_info.password}[/fm.secret] "
-            f"[fm.muted]@[/fm.muted] {services_db_info.host}",
-        )
         # ---- tools: reachable only on the hostnames that route them
         unrouted = [site for site in sites if not config.serves_admin_tools(site)]
         routed = [site for site in sites if config.serves_admin_tools(site)]

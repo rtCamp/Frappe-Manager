@@ -293,7 +293,7 @@ def maintenance(
         list[str],
         typer.Option(
             "--allow-ip",
-            help="Client IP that reaches the real site (repeatable; single addresses, no CIDR). Behind a CDN see fm self real-ip.",
+            help="Client IP that reaches the real site (repeatable; single addresses, no CIDR). Behind a CDN see fm services real-ip.",
             show_default=False,
         ),
     ] = [],

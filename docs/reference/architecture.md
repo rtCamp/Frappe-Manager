@@ -103,17 +103,17 @@ Because every request reaches bench nginx from the proxy's own frontend-network 
 fm fixes this in two halves:
 
 - **Bench nginx** gets an fm-generated `configs/nginx/conf/custom/real-ip.conf` containing `set_real_ip_from <frontend subnet>;` and `real_ip_header X-Real-IP;`. The frontend network being the only route in is what makes trusting that whole subnet safe. The file is regenerated whenever the compose file is regenerated and on every `fm start`, so a bench never boots without it once the subnet is known.
-- **The global proxy** needs the same treatment only when something else sits in front of it. `fm self real-ip --cdn cloudflare` (or `--trust <CIDR>`, repeatable) writes the trusted ranges and the header to read into the proxy's `conf.d`. Without it, a CDN's edge address is what the proxy calls the client, and that is what it forwards on.
+- **The global proxy** needs the same treatment only when something else sits in front of it. `fm services real-ip --cdn cloudflare` (or `--trust <CIDR>`, repeatable) writes the trusted ranges and the header to read into the proxy's `conf.d`. Without it, a CDN's edge address is what the proxy calls the client, and that is what it forwards on.
 
 ```bash
 # Trust Cloudflare's published ranges, reading the client from CF-Connecting-IP
-fm self real-ip --cdn cloudflare
+fm services real-ip --cdn cloudflare
 
 # Trust your own load balancer instead (X-Forwarded-For by default)
-fm self real-ip --trust 203.0.113.0/24
+fm services real-ip --trust 203.0.113.0/24
 
 # Show what is trusted right now
-fm self real-ip --status
+fm services real-ip --status
 ```
 
 !!! warning "Trust only what you actually sit behind"
@@ -228,7 +228,7 @@ fm keeps everything under a single root directory (default `~/frappe/`).
 8. **acme.sh installation**: the certificate automation tool and its state.
 9. **Certificate symlinks**: what `global-nginx-proxy` actually reads. Each link's target is a container path (the proxy mounts `ssl/` at `/usr/share/nginx/ssl`), pointing at the real files in `ssl/acmesh/<domain>/`, `ssl/dev/<domain>/` or `ssl/custom/<domain>/`.
 10. **Per-domain vhost snippets**: the HTTP-to-HTTPS redirects written by `fm ssl add`.
-11. **Global nginx `conf.d`**: fm's own snippets (the `fm self real-ip` config, `fm_headers.conf`) plus custom server blocks for non-fm Docker projects.
+11. **Global nginx `conf.d`**: fm's own snippets (the `fm services real-ip` config, `fm_headers.conf`) plus custom server blocks for non-fm Docker projects.
 12. **All benches**: one subdirectory per bench.
 13. **Bench configuration**: environment, runtime, SSL, upload limit, restart policy, auth, worker care.
 14. **Compose files**: the layered core, workers and admin-tools stacks.

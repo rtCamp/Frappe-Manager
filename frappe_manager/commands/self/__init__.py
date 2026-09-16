@@ -4,7 +4,6 @@ import typer
 from typer_examples import install
 
 from frappe_manager.commands.self.compose import compose
-from frappe_manager.commands.self.real_ip import real_ip
 from frappe_manager.commands.self.stop import stop
 from frappe_manager.commands.self.update_images import update_images
 from frappe_manager.commands.self.upgrade import upgrade
@@ -22,4 +21,3 @@ self_app.command()(upgrade)
 self_app.command(name="update-images")(update_images)
 self_app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})(compose)
 self_app.command()(stop)
-self_app.command(name="real-ip")(real_ip)

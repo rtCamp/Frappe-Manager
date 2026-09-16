@@ -9,12 +9,11 @@ from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.modules.realip import (
     CLOUDFLARE_FALLBACK_RANGES,
     CLOUDFLARE_IPS_URLS,
+    PROXY_CONF_FILENAME,
     build_proxy_realip_conf,
     is_fm_realip_conf,
     validate_cidrs,
 )
-
-_CONF_FILENAME = "fm-real-ip.conf"
 
 # nginx header names are tokens. Without this an `--header 'X-Real-IP; deny all; #'` lands
 # verbatim in `real_ip_header <value>;`, injecting arbitrary directives into the LIVE global
@@ -119,7 +118,7 @@ def real_ip(
     services = ctx.obj["services"]
 
     confd_dir = Path(services.proxy_storage.dirs.confd.host)
-    conf_path = confd_dir / _CONF_FILENAME
+    conf_path = confd_dir / PROXY_CONF_FILENAME
 
     if off and status:
         output.error("--off cannot be combined with --status", exception=typer.Exit(code=1))
@@ -191,7 +190,7 @@ def real_ip(
     if valid is False:
         _restore_conf(conf_path, previous)
         output.error(
-            f"nginx rejected the configuration; {_CONF_FILENAME} was rolled back and the proxy left untouched",
+            f"nginx rejected the configuration; {PROXY_CONF_FILENAME} was rolled back and the proxy left untouched",
             exception=typer.Exit(code=1),
         )
 

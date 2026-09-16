@@ -2,7 +2,7 @@
 
 Show a bench's URL, credentials, apps, deploy history and live service state.
 
-Every secret on the card is printed in cleartext: the administrator password, the site and root database passwords, and the basic auth password while a surface is protected.
+Every secret on the card is printed in cleartext: the administrator password, the site database password, and the basic auth password while a surface is protected. The shared global-db root credentials moved to fm services info.
 
 **Usage**:
 

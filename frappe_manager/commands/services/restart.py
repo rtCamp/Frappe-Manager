@@ -11,7 +11,7 @@ from frappe_manager.services_manager.services import ServicesManager
 @example(
     "Apply a change to the proxy",
     "global-nginx-proxy",
-    detail="A restart is what puts a new proxy config into effect, for instance after fm self real-ip.",
+    detail="A restart is what puts a new proxy config into effect, for instance after fm services real-ip.",
 )
 @example(
     "Restart the whole global stack",

@@ -18,7 +18,6 @@ $ fm self [OPTIONS] COMMAND [ARGS]...
 * `update-images`: Pull the docker images fm's stack runs on.
 * `compose`: Run docker compose against a bench with all of its compose files already wired up.
 * `stop`: Stop every bench on this host, then the global services (global-nginx-proxy, global-db).
-* `real-ip`: Restore the visitor's real IP at the global nginx proxy when it sits behind a CDN or load balancer.
 
 
 ### `fm self upgrade`
@@ -152,51 +151,5 @@ fm self stop --global-only
 
 ```bash
 fm self stop --benches-only
-```
-
-
-### `fm self real-ip`
-
-Restore the visitor's real IP at the global nginx proxy when it sits behind a CDN or load balancer.
-
-Trust only the ranges you actually sit behind: whatever you trust fully controls the client IP that fm, your logs and frappe go on to see.
-
-**Usage**:
-
-```console
-$ fm self real-ip [OPTIONS]
-```
-
-**Options**:
-
-* `--cdn`: Trust a CDN's published ranges. Supported: cloudflare.
-* `--trust`: CIDR range or single IP of a proxy in front of fm (repeatable).
-* `--header`: Header the client IP is read from. Defaults to CF-Connecting-IP for --cdn cloudflare and X-Forwarded-For otherwise; anything that is not a valid header name is refused.
-* `--off`: Remove the configuration and reload the proxy.
-* `--status`: Show the active configuration. Writes nothing.
-
-
-## Examples
-
-### Trust Cloudflare
-
-Proxy logs, fm maintenance --allow-ip and frappe's rate limiting then see the visitor instead of Cloudflare's edge.
-
-```bash
-fm self real-ip --cdn cloudflare
-```
-
-### Trust your own load balancer
-
-Each run replaces the whole configuration, so pass every range you sit behind in one call.
-
-```bash
-fm self real-ip --trust 203.0.113.0/24
-```
-
-### Show what is trusted
-
-```bash
-fm self real-ip --status
 ```
 
