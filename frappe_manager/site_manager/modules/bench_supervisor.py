@@ -441,6 +441,11 @@ class BenchSupervisor:
             f" --max-requests-jitter {context['gunicorn_max_requests_jitter']}"
             f" -t {context['http_timeout']}"
             f" --graceful-timeout 30"
+            # Heartbeat file on tmpfs, not the container's overlay fs: gthread/sync workers touch
+            # it every second, and on a busy overlay mount that write can stall long enough for the
+            # arbiter to kill a healthy worker with a spurious WORKER TIMEOUT. /dev/shm is a small
+            # tmpfs present in every Linux container; the heartbeat file is a few bytes.
+            f" --worker-tmp-dir /dev/shm"
             f" frappe.app:application --preload"
         )
 
