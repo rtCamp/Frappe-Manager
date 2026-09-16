@@ -166,9 +166,9 @@
 
 # ---- [sites.<key>] -------------------------------------------------------------------------
 
-# The Frappe sites this bench holds, keyed by site name ([sites."<site>"]). Exactly one entry
-# today. Replaces the old [database."<site>"] table, whose contents now live at
-# [sites."<site>".database].
+# The Frappe sites this bench holds, keyed by site name ([sites."<site>"]). Several are allowed;
+# `fm create BENCH/SITE` adds one. Replaces the old [database."<site>"] table, whose contents now
+# live at [sites."<site>".database].
 # [sites.<key>]
 #
 # The database server one site lives on (`[sites."<site>".database]`).
