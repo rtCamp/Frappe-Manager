@@ -1474,9 +1474,11 @@ def resolve_primary_site(
 class SiteConfig(BaseModel):
     """One Frappe site inside a bench (`[sites."<name>"]`).
 
-    A bench holds exactly one site today, so this collection has one entry keyed by the site's
-    name. It exists now so that the things that are per-site have somewhere to live BEFORE a bench
-    can hold several, which is what makes the later change additive rather than a re-shaping.
+    A bench may hold several sites, each keyed by its name; `fm create BENCH/SITE` adds one to a
+    bench that already exists (`commands/create.py:_add_site_to_bench`). This type was introduced
+    while a bench still held exactly one, so that the per-site things had somewhere to live BEFORE
+    the multi-site create path landed, which is what made that change additive rather than a
+    re-shaping.
 
     The rule for what belongs here: fm stores what the OPERATOR told fm; Frappe stores what Frappe
     generated. `database` is the first kind, which is why it can move here cleanly: the operator
@@ -1666,8 +1668,8 @@ class BenchConfig(BaseModel):
     sites: dict[str, SiteConfig] | None = Field(
         None,
         description='The Frappe sites this bench holds, keyed by site name ([sites."<site>"]). '
-        'Exactly one entry today. Replaces the old [database."<site>"] table, whose contents now '
-        'live at [sites."<site>".database].',
+        'Several are allowed; `fm create BENCH/SITE` adds one. Replaces the old [database."<site>"] '
+        'table, whose contents now live at [sites."<site>".database].',
     )
     redis: RedisConfig | None = Field(
         None,
