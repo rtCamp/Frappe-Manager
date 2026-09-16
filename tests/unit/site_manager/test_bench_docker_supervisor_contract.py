@@ -1830,8 +1830,8 @@ class TestGunicornWrapper:
         script = (tmp_path / "fm-web-server.sh").read_text()
         assert (
             "-b 0.0.0.0:8080 -w 3 --worker-class=gthread --threads 2 --max-requests 500"
-            " --max-requests-jitter 50 -t 300 --graceful-timeout 30 --worker-tmp-dir /dev/shm"
-            " frappe.app:application --preload" in script
+            " --max-requests-jitter 50 -t 300 --graceful-timeout 30 --keep-alive 65"
+            " --worker-tmp-dir /dev/shm frappe.app:application --preload" in script
         )
 
     @pytest.mark.timeout(15)

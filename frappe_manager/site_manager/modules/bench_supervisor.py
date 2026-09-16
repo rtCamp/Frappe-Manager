@@ -441,6 +441,13 @@ class BenchSupervisor:
             f" --max-requests-jitter {context['gunicorn_max_requests_jitter']}"
             f" -t {context['http_timeout']}"
             f" --graceful-timeout 30"
+            # Two jobs. Lifts gunicorn's 2s default, which forced nginx to rebuild the upstream
+            # conn after every >2s idle gap on a quiet bench. And stays LONGER than bench nginx's
+            # upstream keepalive_timeout (60s in template.conf): nginx must always be the side
+            # that closes an idle kept-alive connection, or it can reuse one gunicorn just closed
+            # and serve a 502. gthread parks idle keepalive sockets on its event loop, not on a
+            # worker thread, so held-open conns cost no request concurrency.
+            f" --keep-alive 65"
             # Heartbeat file on tmpfs, not the container's overlay fs: gthread/sync workers touch
             # it every second, and on a busy overlay mount that write can stall long enough for the
             # arbiter to kill a healthy worker with a spurious WORKER TIMEOUT. /dev/shm is a small
