@@ -238,10 +238,10 @@ install(app)
 # single omission would silently jump that command above this grouping. Panel order follows first
 # appearance while registering commands (`typer/core.py` keeps declaration order, not alphabetical),
 # so this order matches the order the `app.command(...)` block below registers them in.
-_PANEL_BENCH = "Bench commands (BENCH)"
-_PANEL_SITE = "Site commands (BENCH/SITE)"
-_PANEL_DOMAIN = "Domain commands (BENCH/DOMAIN)"
-_PANEL_GLOBAL = "Global commands (no address)"
+_PANEL_BENCH = "BENCH address commands"
+_PANEL_SITE = "BENCH/SITE address commands"
+_PANEL_DOMAIN = "BENCH/DOMAIN address commands"
+_PANEL_GLOBAL = "GLOBAL address commands"
 
 # `apps`, `domain`, and `tools` commands call `check_bench_migration_required` (defined above)
 # at their own module's import time, so these three must be imported after that function exists
