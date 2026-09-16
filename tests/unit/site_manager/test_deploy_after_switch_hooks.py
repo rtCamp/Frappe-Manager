@@ -166,6 +166,20 @@ def test_health_gate_failure_fires_rolled_back(tmp_path):
     assert env["ROLLBACK_TO_IMAGE"] == OLD
 
 
+def test_a_rollback_that_also_fails_fires_halted_not_aborted(tmp_path):
+    """If the auto-rollback ITSELF fails its health gate it raises, leaving the bench broken. That
+    is `halted` (attempted and stuck), never `aborted` (which means nothing changed)."""
+    orch = _orch(tmp_path, _switch(migrate=False), deploy_state=DeployState(current_image=OLD))
+    orch._health_check.return_value = False
+    orch.rollback.side_effect = DeployError("Rollback to OLD failed health check; bench halted")
+
+    with pytest.raises(DeployError, match="bench halted"):
+        orch.deploy(NEW)
+
+    orch.rollback.assert_called_once()
+    assert _env(orch)["DEPLOY_OUTCOME"] == "halted"
+
+
 def test_health_gate_failure_with_no_previous_image_fires_halted(tmp_path):
     """No previous image -> the new (unhealthy) image stays pinned; new code on new schema is
     matched, so this is `halted` (page it), NOT a rollback (do not restore the DB here)."""

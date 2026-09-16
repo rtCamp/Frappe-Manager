@@ -1568,6 +1568,10 @@ class DeployOrchestrator:
         if not self._health_check():
             if self.switch_config.rollback_image and old_image:
                 self.output.warning("New image unhealthy; rolling back to previous image.")
+                # A rollback that fails its OWN health gate raises and leaves the bench halted, so
+                # mark halted provisionally: only a rollback that returns is `rolled_back` (else the
+                # wrapper's except would misreport a broken bench as `aborted`).
+                self._deploy_outcome = "halted"
                 self.rollback(old_image, restore_db_dumps=db_dumps if self.switch_config.rollback_db else None)
                 self._deploy_outcome = "rolled_back"
                 self._rollback_reason = "health_check_failed"
