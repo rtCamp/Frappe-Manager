@@ -78,6 +78,8 @@ FOREIGN = {
     "--target",
     "--build-arg",
     "--label",  # docker/buildx
+    "--db-instance-identifier",
+    "--db-snapshot-identifier",  # aws rds
 }
 
 DASHES = {"\u2014": "em dash", "\u2013": "en dash", "\u2015": "horizontal bar", "\u2012": "figure dash"}

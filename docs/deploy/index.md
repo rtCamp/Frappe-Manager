@@ -151,6 +151,45 @@ Honest caveat: rolling is zero-**downtime**, not zero-**skew**; during the overl
 
 The same engine powers `fm restart --rolling`: a zero-downtime web-tier recreate on the *current* image (fresh containers, no release change). It needs an image bench; on a mount bench web restarts already go through supervisor, which is faster.
 
+## Switch hooks
+
+Every deploy can run your own scripts at fixed points. Hooks live under `[switch.hooks]` (scripts run inside the bench container) and `[switch.hooks.host]` (run on the host that owns the bench), each with the same field names. All are optional and unset by default.
+
+There are two kinds. **Phase hooks** bracket a step and run only if that step runs:
+
+| Hook | Fires | Env it adds |
+|---|---|---|
+| `before_migrate` | before `bench migrate`; a non-zero exit **aborts the deploy** before any change | none |
+| `after_migrate` | after `bench migrate`, on success **and** failure | `MIGRATE_STATUS` (`migrated`/`failed`), `MIGRATE_LOG_FILE`(`_HOST`) |
+| `before_restart` | before the container swap | none |
+| `after_restart` | after the swap, during finalize | none |
+
+**The terminal hook** `after_switch` fires **once at the very end, always** (on success and on every failure), carrying how the deploy ended in `DEPLOY_OUTCOME`:
+
+| `DEPLOY_OUTCOME` | What happened | Extra env |
+|---|---|---|
+| `succeeded` | new image live and recorded | none |
+| `rolled_back` | reverted to the previous image | `ROLLBACK_REASON` (`migrate_failed`/`health_check_failed`), `FAILED_IMAGE`, `ROLLBACK_TO_IMAGE` |
+| `halted` | health gate failed with no previous image; the bench is stuck in maintenance | `FAILED_IMAGE` |
+| `aborted` | failed before anything changed; the old stack never stopped serving | `FAILED_IMAGE` |
+
+Every hook also gets `SITE_NAME`, `BENCH_PATH` and `DEPLOY_IMAGE` (the image being deployed). Only `before_migrate` is a gate; the rest are best-effort at the tail, so a broken `after_migrate`/`after_switch` is warned and the deploy's own result stands.
+
+The mental model: `before_/after_migrate` and `before_/after_restart` bracket the two things that can go wrong (the **schema change** and the **code swap**), and `after_switch` fires last, telling you the **outcome**.
+
+```toml
+[switch.hooks.host]
+before_migrate = "notify.sh 'migrating $SITE_NAME'"   # gate: a non-zero exit stops the deploy
+after_switch = '''
+case "$DEPLOY_OUTCOME" in
+  succeeded) notify.sh "$SITE_NAME now on $DEPLOY_IMAGE" ;;
+  halted)    page-oncall.sh "$SITE_NAME HALTED on $FAILED_IMAGE" ;;
+esac
+'''
+```
+
+`after_switch` is also where an **external database** fm does not own is reconciled after a rollback: fm restores only its own logical dumps, so a managed-DB snapshot restore belongs here. See [Snapshots around a deploy](../guides/external-database.md#snapshots-around-a-deploy).
+
 ## Releases, history, and pruning
 
 ```bash

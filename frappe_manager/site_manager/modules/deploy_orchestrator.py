@@ -261,7 +261,7 @@ class DeployOrchestrator:
         self._migrate_log_host: Path | None = None
         self._migrate_log_container: str | None = None
         # Terminal deploy outcome + rollback reason, set during a deploy and read by the
-        # after_deploy hook that fires once at the end (see deploy / _deploy_impl).
+        # after_switch hook that fires once at the end (see deploy / _deploy_impl).
         self._deploy_outcome: str | None = None
         self._rollback_reason: str | None = None
         self.compose = bench.compose_file_manager
@@ -1319,7 +1319,7 @@ class DeployOrchestrator:
         (``--yes``).
 
         Thin wrapper over ``_deploy_impl``: it captures the pre-deploy image and, whatever happens,
-        fires ``after_deploy`` exactly once with the classified ``DEPLOY_OUTCOME`` -- succeeded |
+        fires ``after_switch`` exactly once with the classified ``DEPLOY_OUTCOME`` -- succeeded |
         rolled_back | halted | aborted. ``_deploy_impl`` sets the outcome at each terminal decision;
         anything it raises without classifying is ``aborted`` (failed before any change).
         """
@@ -1517,7 +1517,7 @@ class DeployOrchestrator:
                             except RestoreNotConfirmed as declined:
                                 self.output.warning(str(declined))
                     # Terminal outcome: old code kept over a schema the migrate may have partly
-                    # changed. after_deploy(rolled_back) fires from the wrapper so an external-DB
+                    # changed. after_switch(rolled_back) fires from the wrapper so an external-DB
                     # operator can restore their own snapshot.
                     self._deploy_outcome = "rolled_back"
                     self._rollback_reason = "migrate_failed"

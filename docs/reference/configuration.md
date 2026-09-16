@@ -776,7 +776,7 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm switch`, `fm prun
 | `keep_releases` | `7` | retention used by `fm prune` |
 | `common_site_config` | (none) | keys merged into `common_site_config.json` during finalize |
 | `site_config` | (none) | keys merged into every site's `site_config.json` during finalize |
-| `hooks` | (none) | `before/after_migrate`, `before/after_restart` (container + `host.*` variants) |
+| `hooks` | (none) | switch hooks: phase `before/after_migrate`, `before/after_restart` and the terminal `after_switch` (container + `host.*` variants); see [Switch hooks](../deploy/index.md#switch-hooks) |
 
 !!! info "Why `migrate` has no detect-it-for-me mode"
     The key is `true` or `false`. fm cannot work out for you whether a given deploy needs a schema step: a DocType field change ships with no patch and no app version bump, so probing the new image for pending patches and app-version drift reports "clean" while `bench migrate` would still run `sync_schema` and alter the table. A mode that can silently skip a schema change it could not see is worse than no mode, so it was removed rather than patched.

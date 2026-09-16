@@ -118,6 +118,35 @@ fm create mybench --redis-cache redis://r.example:6379/0 --redis-queue redis://r
 
 Both are required together, and they must not point at the same logical index: a restore mass-deletes the cache index and would take the queue with it. With them set, fm suppresses its own redis containers. The keys land in [`[redis]`](../reference/configuration.md#redis).
 
+## Snapshots around a deploy
+
+fm's own deploy safety net ([`[switch] backup_db` and `rollback_db`](../deploy/index.md)) is a **logical dump**: `mariadb-dump` over the wire into `deploy-<timestamp>/db-<schema>.sql`, imported back by `fm switch --previous --restore-db`. Against a managed server you may prefer the provider's native snapshot (RDS `create-db-snapshot`, Aurora cluster snapshots), which is faster and out of fm's hands.
+
+fm cannot take or restore a provider snapshot for you: a snapshot restore spins up a *new* endpoint, which is outside anything fm models. But the [switch hooks](../deploy/index.md#switch-hooks) give you the two exact moments.
+
+- **Snapshot before the schema changes**, in `before_migrate`. It runs after the workers have drained and, when a maintenance page is up, after requests are already 503'd, so the database is quiesced. It is a **gate**: a non-zero exit aborts the deploy before `bench migrate`, so a failed snapshot means no schema change.
+- **Restore after a rollback**, in `after_switch` when `DEPLOY_OUTCOME=rolled_back`. That is the only outcome where the running code is now older than the schema: a health-gate rollback put old code back over a fully-migrated schema, and a `migrate_failed` left a partly-changed one. `succeeded` and `halted` both leave code and schema matched, so do **not** restore there.
+
+```toml
+[switch]
+backup_db = false          # skip fm's logical dump; the provider snapshot is the backup
+rollback_db = false        # required when backup_db = false
+
+[switch.hooks.host]
+before_migrate = """
+aws rds create-db-snapshot --db-instance-identifier my-rds \
+  --db-snapshot-identifier pre-switch-$(date +%Y%m%d%H%M%S)
+aws rds wait db-snapshot-completed --db-instance-identifier my-rds
+"""
+after_switch = """
+[ "$DEPLOY_OUTCOME" = rolled_back ] && [ "$ROLLBACK_REASON" = health_check_failed ] \
+  && restore-rds-and-repoint.sh "$SITE_NAME"
+exit 0
+"""
+```
+
+Host hooks run on the machine that owns the bench, as the user running `fm`, so the provider CLI and its credentials (or instance role) must be reachable there. Restoring to a new endpoint means repointing the site afterwards, and because `[database]` is create-time only (see [Moving an existing bench](#moving-an-existing-bench)) that repoint is your script's job, not something fm does.
+
 ## Moving an existing bench
 
 There is no fm command that repoints a bench's site at a different server; `[database]` is written at create time and only its `ca` is editable afterwards. Hand-editing `site_config.json` is not a substitute: fm writes that file's database keys from `bench_config.toml` at create time and never reads them back, so an edited endpoint leaves fm and the site disagreeing. The guards above key on `[database]`, the CA and its client option file are installed per configured site, and none of that follows an edit fm cannot see. Back up the site, create a new bench with the flags above, and restore into it. Both halves are `bench` operations, and `bench restore` needs a login that can drop and recreate the schema on the target server, which fm does not hold for you. See [Backup & Restore](backup-restore.md).
