@@ -161,6 +161,12 @@ class TestAcmeShCertificateServiceEnsureInstalled:
             call_args = mock_run.call_args
             assert "curl -s https://get.acme.sh" in call_args[0][0]
             assert f"--home {acmesh_home}" in call_args[0][0]
+            # Load-bearing flags: without --nocron the installer adds a daily crontab
+            # entry that renews certs OUTSIDE fm (files rotate in acme's home, fm's
+            # nginx-proxy links stay stale, nginx never reloads); without --noprofile
+            # it patches the user's shell rc with its acme.sh.env line.
+            assert "--nocron" in call_args[0][0]
+            assert "--noprofile" in call_args[0][0]
             assert call_args[1]["shell"] is True
 
             mock_output_handler.change_head.assert_called_with("Installing acme.sh")

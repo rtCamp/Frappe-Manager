@@ -83,7 +83,18 @@ class AcmeShCertificateService:
         try:
             # Install acme.sh with default noreply email
             # Email notifications discontinued by Let's Encrypt (June 2025)
-            install_cmd = f"curl -s https://get.acme.sh | sh -s email=noreply@acme.sh --home {self.acmesh_home}"
+            #
+            # --nocron: acme.sh's default install adds a daily crontab entry that renews
+            # certificates OUTSIDE fm -- the renewed files sit in acme's home while the
+            # copies fm linked into nginx-proxy stay stale, and nginx never reloads.
+            # Renewal is fm's job (fm ssl renew), so the cron must never exist.
+            # --noprofile: nor may the installer patch the user's shell profile with its
+            # acme.sh.env line; fm always invokes the binary by absolute path.
+            # (get.acme.sh forwards every arg after email= to `acme.sh --install-online`.)
+            install_cmd = (
+                f"curl -s https://get.acme.sh | sh -s email=noreply@acme.sh"
+                f" --nocron --noprofile --home {self.acmesh_home}"
+            )
             result = subprocess.run(install_cmd, shell=True, check=True, capture_output=True, text=True)
 
             # Enable logging in account.conf (commented out by default)
