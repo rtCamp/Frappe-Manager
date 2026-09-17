@@ -16,7 +16,8 @@ from frappe_manager.site_manager.bench_config import (
     RestartPolicyEnum,
 )
 from frappe_manager.site_manager.modules import db_tls
-from frappe_manager.site_manager.modules.deploy_orchestrator import DeployOrchestrator, DrainUnavailable
+from frappe_manager.site_manager.modules.deploy_orchestrator import DeployOrchestrator
+from frappe_manager.site_manager.modules.worker_drain import drain_gate
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.process_lock import bench_lock
 from frappe_manager.utils.site import host_bench_dir
@@ -291,7 +292,7 @@ def apply_update(bench: Bench, plan: UpdatePlan, output, *, orchestrator=None, d
     drained = False
     if plan.touches_workers and orchestrator is not None:
         if drain:
-            drained = _drain_gate(orchestrator, output)
+            drained = drain_gate(orchestrator, output, action="update")
         else:
             output.warning(
                 f"Restarting workers WITHOUT draining: in-flight jobs are interrupted "
@@ -305,29 +306,6 @@ def apply_update(bench: Bench, plan: UpdatePlan, output, *, orchestrator=None, d
         # by an aborted apply would stay idle until something resumed them.
         if drained and orchestrator is not None:
             orchestrator.resume_workers()
-
-
-def _drain_gate(orchestrator, output) -> bool:
-    """Suspend workers and wait for in-flight jobs; on timeout resume them and abort.
-
-    Returns True when the workers really were suspended, i.e. when the caller owes them a resume.
-    An image with no fmx cannot be drained at all: that is warned about and the update carries on
-    undrained, because it is not a timeout and no drain_timeout can fix it.
-    """
-    try:
-        drained = orchestrator.drain_workers()
-    except DrainUnavailable as e:
-        output.warning(f"{e} Continuing without a drain: in-flight jobs may be interrupted.")
-        return False
-    if drained:
-        return True
-    orchestrator.resume_workers()
-    output.display_error(
-        f"Drain timed out after {orchestrator.workers_config.drain_timeout}s: workers still busy. "
-        "Nothing was changed. Raise \\[workers].drain_timeout or re-run with --no-drain to "
-        "interrupt in-flight jobs."
-    )
-    raise typer.Exit(1)
 
 
 def _apply_plan(bench: Bench, plan: UpdatePlan, output) -> None:

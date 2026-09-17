@@ -10,7 +10,8 @@ from frappe_manager.commands.arguments import BenchSiteAllArgument
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.bench_config import AppConfig, BenchRuntime, WorkersConfig
 from frappe_manager.site_manager.exceptions import BenchNotRunning
-from frappe_manager.site_manager.modules.deploy_orchestrator import DeployOrchestrator, DrainUnavailable
+from frappe_manager.site_manager.modules.deploy_orchestrator import DeployOrchestrator
+from frappe_manager.site_manager.modules.worker_drain import drain_gate
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, apps_list_validation_callback
 
@@ -102,28 +103,9 @@ def add_apps(
 
     orchestrator = DeployOrchestrator(bench, output_handler=output)
 
-    def _drain_gate() -> bool:
-        """Drain is a GATE: suspend workers and wait for in-flight jobs; on timeout resume the
-        workers and abort before any mutation runs. Returns True when the workers really were
-        suspended, i.e. when the caller owes them a resume."""
-        try:
-            drained = orchestrator.drain_workers()
-        except DrainUnavailable as e:
-            output.warning(f"{e} Continuing without a drain: in-flight jobs may be interrupted.")
-            return False
-        if drained:
-            return True
-        orchestrator.resume_workers()
-        output.display_error(
-            f"Drain timed out after {orchestrator.workers_config.drain_timeout}s: workers still busy. "
-            "Nothing was changed. Raise \\[workers].drain_timeout or re-run with --no-drain to "
-            "interrupt in-flight jobs."
-        )
-        raise typer.Exit(1)
-
     drained = False
     if drain:
-        drained = _drain_gate()
+        drained = drain_gate(orchestrator, output, action="app install")
     else:
         kill_timeout = (bench.bench_config.workers or WorkersConfig()).kill_timeout
         output.warning(
