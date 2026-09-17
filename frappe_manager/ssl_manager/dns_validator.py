@@ -60,11 +60,11 @@ class DNSValidator:
           _acme-challenge.<domain>  →  _acme-challenge.<challenge_alias>
 
         Example:
-          domain = "gg.alok.rtmake.com"
-          challenge_alias = "alok.rt.gw"
+          domain = "sub.example.com"
+          challenge_alias = "example.net"
 
           Expected CNAME:
-            _acme-challenge.gg.alok.rtmake.com  →  _acme-challenge.alok.rt.gw
+            _acme-challenge.sub.example.com  →  _acme-challenge.example.net
 
         Args:
             domain: The domain to issue certificate for

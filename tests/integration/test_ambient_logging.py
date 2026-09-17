@@ -164,11 +164,11 @@ class TestPrintDataMirror:
         handler = LoggingOutputHandler(SilentOutputHandler())
         handler.logger = FMLogger(logger, component="output")
 
-        handler.print_data(Group(Text("fm.alok.rt.gw", style="fm.ok"), Text("apps frappe")))
+        handler.print_data(Group(Text("fm.example.com", style="fm.ok"), Text("apps frappe")))
 
         contents = log_file.read_text()
         assert "<rich.console.Group object" not in contents
-        assert "fm.alok.rt.gw" in contents
+        assert "fm.example.com" in contents
         assert "apps frappe" in contents
 
     def test_plain_data_logged_verbatim(self, file_logger):

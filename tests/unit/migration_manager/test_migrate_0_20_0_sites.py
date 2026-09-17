@@ -479,7 +479,7 @@ def test_the_dump_is_filed_under_the_site_and_not_the_bench_directory(step, tmp_
 Early 0.20 dev builds recorded `current_tag`/`previous_tag` and `tag` on each history row; the
 rename to `current_image`/`previous_image`/`image` shipped WITHOUT a migration step. Such a bench
 failed `DeployStateEntry` validation (`image Field required`) on every `fm list`, and its rollback
-data was unreadable by `fm switch --previous` (seen live on fm.alok.rt.gw). The recorded values
+data was unreadable by `fm switch --previous` (seen live on a real bench). The recorded values
 were already full references, so the rename is pure and lossless -- which is why every test here
 asserts the result LOADS with the old values intact, not merely that the keys moved.
 """

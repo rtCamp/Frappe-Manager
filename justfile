@@ -231,6 +231,80 @@ docs-lint:
 docs port="8000":
     mike serve -F zensical.toml -a 127.0.0.1:{{port}}
 
+# Preview README.md (or any FILE) exactly as GitHub renders it, with live reload.
+# Renders through GitHub's own /markdown API using your gh auth, so GFM tables,
+# alerts and <div align="center"> look the same here as on the repo page.
+# Needs: gh extension install yusukebe/gh-markdown-preview (one-time).
+readme-preview file="README.md" port="3939":
+    #!/usr/bin/env bash
+    if ! gh extension list | grep -q markdown-preview; then
+        echo "Installing gh-markdown-preview (one-time)..."
+        gh extension install yusukebe/gh-markdown-preview
+    fi
+    gh markdown-preview {{file}} --port {{port}}
+
+# Regenerate the README hero image from REAL fm output on a live bench.
+# Captures over a pty (rich needs a tty for colour), drops spinner frames,
+# redacts the two passwords `fm info` prints, then renders with charm freeze.
+# `freeze` comes from the use_comma shim in .envrc; no manual install needed.
+# Host/bench/checkout come from .env (gitignored) so no real host is ever committed:
+# FM_REMOTE, FM_HERO_BENCH, FM_SRC. See .env.example. Override per run:
+#   just readme-hero user@host mybench docs/assets/fm-demo.svg
+readme-hero host=env_var_or_default("FM_REMOTE", "") bench=env_var_or_default("FM_HERO_BENCH", "") out="docs/assets/fm-demo.svg":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    host="{{host}}"; bench="{{bench}}"; src="${FM_SRC:-~/fm-src}"
+    if [ -z "$host" ] || [ -z "$bench" ]; then
+        echo "readme-hero needs a host and a bench. Set FM_REMOTE and FM_HERO_BENCH in .env"
+        echo "(copy .env.example), or pass them: just readme-hero user@host mybench"
+        exit 2
+    fi
+    command -v freeze >/dev/null || { echo "freeze not on PATH: run 'direnv allow' (needs nix comma), or 'nix run nixpkgs#charm-freeze'"; exit 1; }
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    ssh -tt "$host" "export COLUMNS=100 TERM=xterm-256color; cd $src && ./.venv/bin/fm info $bench" > "$tmp/raw.ansi"
+    python3 - "$tmp/raw.ansi" "$tmp/hero.ansi" "$bench" <<'PY'
+    import re, sys
+    raw = open(sys.argv[1], encoding="utf8", errors="replace").read()
+    braille = {chr(c) for c in range(0x2800, 0x2900)}
+    lines = []
+    for line in raw.split("\n"):
+        line = line.rstrip("\r")
+        plain = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", line).strip()
+        if not plain or "Working" in plain or "Getting bench info" in plain or "Connection to" in plain:
+            continue
+        if all(ch in braille or ch.isspace() for ch in plain):
+            continue            # spinner frame leftovers
+        lines.append(line)
+    body = "\n".join(lines)
+    # `fm info` prints the site DB password and the admin-tools basic-auth password.
+    # Never ship either in a committed image. The ANSI colour codes sit inside these
+    # lines, so match on the COLOUR-STRIPPED text, then replace the literal token in
+    # the coloured body. The schema name itself is not a secret and stays readable.
+    secrets = set()
+    for line in body.split("\n"):
+        plain = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", line)
+        if re.search(r"^\s*\S*\s*(db|auth)\b", plain):
+            for tok in re.findall(r"/\s+(\S{8,})", plain):
+                secrets.add(tok)
+    for tok in secrets:
+        body = body.replace(tok, "\u2022" * 16)
+    plain_body = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", body)
+    still_there = sorted(t for t in secrets if t in plain_body)
+    if still_there:
+        sys.exit(f"REFUSING to render: secret still present after redaction: {still_there}")
+    bench = sys.argv[3]
+    hero = (f"\x1b[1;32m$\x1b[0m \x1b[1;37mfm create {bench} --apps erpnext\x1b[0m\n"
+            "\x1b[2m\u2026bench created, containers up, ERPNext installed\x1b[0m\n\n"
+            f"\x1b[1;32m$\x1b[0m \x1b[1;37mfm info {bench}\x1b[0m\n" + body + "\n")
+    open(sys.argv[2], "w").write(hero)
+    print(f"redacted {len(secrets)} secret(s)")
+    PY
+    freeze "$tmp/hero.ansi" --language ansi --theme charm --font.family Menlo --font.size 14 \
+        --line-height 1.3 --window --border.radius 10 --padding "28,32" --margin 24 \
+        --shadow.blur 28 --shadow.y 12 --width 1000 --output {{out}}
+    echo "wrote {{out}}"
+
 # ── Docs styles ───────────────────────────────────────────────────────────────
 
 _scss := "docs/stylesheets/extra.scss"
