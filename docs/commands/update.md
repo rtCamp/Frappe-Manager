@@ -68,6 +68,14 @@ Extracts the workspace from the currently deployed image; converting back to ima
 fm update mybench --runtime mount
 ```
 
+### Rebuild a broken venv at the recorded versions
+
+No version change: recreates the venv on the bench's recorded Python/Node and reinstalls all apps. The repair verb for a corrupted or half-installed env/.
+
+```bash
+fm update mybench --recreate-python-env
+```
+
 ## Related
 
 - [App Management](../guides/app-management.md)

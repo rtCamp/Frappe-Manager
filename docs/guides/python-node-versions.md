@@ -58,6 +58,12 @@ fm update mybench --node 20
 fm update mybench --python 3.14 --no-recreate-python-env
 ```
 
+**Rebuilding a broken venv** needs no version change: `--recreate-python-env` on its own rebuilds `env/` at the bench's recorded Python/Node and reinstalls all apps -- the repair verb for a corrupted or half-installed venv.
+
+```bash
+fm update mybench --recreate-python-env
+```
+
 !!! warning "`fm info` reports the default interpreter, not the venv's"
     `fm info` and a bare `python` inside the bench both resolve through `.uv/python-default`, which step 2 has already moved. After `--no-recreate-python-env` they show the new version while the bench still runs the old one out of `env/`. Read `env/bin/python` directly to see what the bench actually uses.
 

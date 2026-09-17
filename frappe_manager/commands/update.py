@@ -110,6 +110,12 @@ def _demote_to_mount(bench: Bench, demotion_image: str, output) -> None:
     detail="Extracts the workspace from the currently deployed image; converting back to image runtime runs through fm switch instead.",
     benchname="mybench",
 )
+@example(
+    "Rebuild a broken venv at the recorded versions",
+    "{benchname} --recreate-python-env",
+    detail="No version change: recreates the venv on the bench's recorded Python/Node and reinstalls all apps. The repair verb for a corrupted or half-installed env/.",
+    benchname="mybench",
+)
 @bench_lock(param="address", operation="update")
 def update(
     ctx: typer.Context,
