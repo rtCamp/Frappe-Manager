@@ -111,20 +111,22 @@ deadcode:
     uv run --with vulture python scripts/deadcode.py
 
 # ── Remote sync ──────────────────────────────────────────────────────────────
-# Target host for the fm test server. NEVER defaulted here: a real host baked
-# into a committed file is infrastructure leakage. Set it in the environment --
-# the gitignored .env (loaded by direnv) is its home:
-#   echo 'export FM_REMOTE=user@host' >> .env && direnv allow
-# or per-invocation: FM_REMOTE=user@host just sync
+# Target host for the sync. NEVER defaulted here: a real host baked into a
+# committed file is infrastructure leakage. Set it in the environment -- the
+# gitignored .env (loaded by direnv) is its home, and .env.example is its
+# template. Each remote-using tool owns its own prefix (FM_MIGRATION_*, FM_SYNC_*,
+# FM_HERO_*) so one variable never means two things:
+#   echo 'export FM_SYNC_SSH=user@host' >> .env && direnv allow
+# or per-invocation: FM_SYNC_SSH=user@host just sync
 
-_remote     := env_var_or_default("FM_REMOTE", "")
+_remote     := env_var_or_default("FM_SYNC_SSH", "")
 _remote_dir := "fm-src/"
 _rsync      := "rsync -azi --delete -e 'ssh -o ControlMaster=auto -o ControlPath=/tmp/fm-sync-%r@%h -o ControlPersist=120' --exclude .git --exclude .venv --exclude .env --exclude .direnv --exclude htmlcov --exclude node_modules --exclude .omp --exclude __pycache__ --exclude .pytest_cache --exclude .ruff_cache"
 
 _require_remote:
-    @test -n "{{_remote}}" || { echo "FM_REMOTE is not set (user@host). Put it in .env or pass it inline."; exit 1; }
+    @test -n "{{_remote}}" || { echo "FM_SYNC_SSH is not set (user@host). Put it in .env or pass it inline."; exit 1; }
 
-# Push the working tree to $FM_REMOTE's ~/fm-src (its direnv venv is an
+# Push the working tree to $FM_SYNC_SSH's ~/fm-src (its direnv venv is an
 # EDITABLE install, so synced edits take effect there immediately; the uv-tool
 # fm on its PATH stays frozen until `uv tool install --force .` is re-run)
 sync: _require_remote
@@ -248,14 +250,14 @@ readme-preview file="README.md" port="3939":
 # redacts the two passwords `fm info` prints, then renders with charm freeze.
 # `freeze` comes from the use_comma shim in .envrc; no manual install needed.
 # Host/bench/checkout come from .env (gitignored) so no real host is ever committed:
-# FM_REMOTE, FM_HERO_BENCH, FM_SRC. See .env.example. Override per run:
+# FM_HERO_SSH, FM_HERO_BENCH, FM_HERO_SRC. See .env.example. Override per run:
 #   just readme-hero user@host mybench docs/assets/fm-demo.svg
-readme-hero host=env_var_or_default("FM_REMOTE", "") bench=env_var_or_default("FM_HERO_BENCH", "") out="docs/assets/fm-demo.svg":
+readme-hero host=env_var_or_default("FM_HERO_SSH", "") bench=env_var_or_default("FM_HERO_BENCH", "") out="docs/assets/fm-demo.svg":
     #!/usr/bin/env bash
     set -euo pipefail
-    host="{{host}}"; bench="{{bench}}"; src="${FM_SRC:-~/fm-src}"
+    host="{{host}}"; bench="{{bench}}"; src="${FM_HERO_SRC:-~/fm-src}"
     if [ -z "$host" ] || [ -z "$bench" ]; then
-        echo "readme-hero needs a host and a bench. Set FM_REMOTE and FM_HERO_BENCH in .env"
+        echo "readme-hero needs a host and a bench. Set FM_HERO_SSH and FM_HERO_BENCH in .env"
         echo "(copy .env.example), or pass them: just readme-hero user@host mybench"
         exit 2
     fi
@@ -350,17 +352,17 @@ docs-build: css docs-gen
 
 # ── Migration Testing ──────────────────────────────────────────────────────────
 # All defaults are in scripts/migrate-test.sh. Override via env vars:
-#   FM_BENCH=mybench just migrate-init
-#   FM_REPO=git+https://...@my-branch just migrate-test
+#   FM_MIGRATION_BENCH=mybench just migrate-init
+#   FM_MIGRATION_REPO=git+https://...@my-branch just migrate-test
 
 _check-server:
     #!/usr/bin/env bash
-    if [[ -z "${FM_SERVER:-}" ]]; then
-        echo "  ✗ FM_SERVER is not set"
+    if [[ -z "${FM_MIGRATION_SSH:-}" ]]; then
+        echo "  ✗ FM_MIGRATION_SSH is not set"
         exit 1
     fi
-    if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$FM_SERVER" "echo ok" 2>/dev/null; then
-        echo "  ✗ Server unreachable: $FM_SERVER"
+    if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$FM_MIGRATION_SSH" "echo ok" 2>/dev/null; then
+        echo "  ✗ Server unreachable: $FM_MIGRATION_SSH"
         exit 1
     fi
 
