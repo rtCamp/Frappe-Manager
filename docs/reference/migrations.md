@@ -123,7 +123,7 @@ Answering `no` prints the `uv tool install frappe-manager==<previous>` command t
 
 ## Backups
 
-Every migration backs up what it is about to touch, per bench and per version, before that version's steps run. After a *successful* run, the newest 3 backup sessions per location are kept and older ones pruned (reported, never silent); failed or rolled-back runs never prune, because those backups are the rollback. The layout on disk, restoring by hand, and the troubleshooting recipes live in [Backup & Restore](../guides/backup-restore.md#before-a-migration); version-specific extra artifacts are listed in the [Migration History](migration-history.md#version-backups).
+Every migration backs up what it is about to touch, per bench and per version, before that version's steps run. Backups are never deleted as a side effect: a successful run prints a hint when old sessions exceed the configured keep, and trimming is an explicit command (`fm prune BENCH`, `fm services prune`; retention in the [`[prune]` config table](configuration.md#fm-prune)). The layout on disk, restoring by hand, and the troubleshooting recipes live in [Backup & Restore](../guides/backup-restore.md#before-a-migration); version-specific extra artifacts are listed in the [Migration History](migration-history.md#version-backups).
 
 ### Skipping backups {#skip-backups}
 

@@ -29,7 +29,7 @@ One file per bench, so bench A's operations never affect bench B:
 | Who | Hold | Meaning |
 |---|---|---|
 | `fm bake BENCH` | shared | "long read in progress; don't mutate this bench under me" |
-| `switch`, `restart`, `delete`, `reset`, `update`, `create` | exclusive | "mutating this bench; everyone out" |
+| `switch`, `restart`, `delete`, `reset`, `update`, `create`, `prune` | exclusive | "mutating this bench; everyone out" |
 | `logs`, `info`, `shell`, other quick reads | none | fencing them would be noise |
 
 So a `delete` cannot remove a workspace mid-`bake`, two `switch`es cannot race the `[deploy_state]` rollback ledger, and a second mutator is refused naming the first:

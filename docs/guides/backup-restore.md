@@ -89,7 +89,7 @@ with `bench_config.toml`, `docker-compose.yml`, `common_site_config.json`, `site
 
 When a bench fails to migrate, fm restores **the copied configuration files only**. The SQL dump is never imported automatically; it is there for you to restore by hand with `bench restore` if a migration damaged data. `--on-failure` picks the policy: `prompt` (default) asks, `archive` sets the failed benches aside and keeps the rest migrated, `rollback` reverts every bench. A single-bench run always rolls back.
 
-**Retention**: after a *successful* migration, fm keeps the newest **3** backup sessions per location (each timestamp directory is one session) and deletes older ones, printing what it removed. Failed or rolled-back runs never prune anything, because those backups are the rollback: a host that keeps failing keeps every backup until a migration finally succeeds. Want more history than 3 sessions? Copy the directories somewhere else before the next successful run.
+**Retention is yours to trigger.** fm never deletes a backup as a side effect of anything: after a *successful* migration it prints how many old sessions the touched locations carry beyond the configured keep (`[prune].keep_backup_sessions`, 3 by default) and stops there. Trimming is a command: [`fm prune BENCH`](../reference/configuration.md#bench-prune) for a bench's sessions, `fm services prune` for the host tier -- both `--dry-run` capable, both reporting exactly what left the disk. Failed or rolled-back runs never even hint, because those backups are the rollback.
 
 Skipping the backup is possible and rarely wise:
 

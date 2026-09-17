@@ -622,7 +622,8 @@ from frappe_manager.commands.compose import compose
 # Import extracted complex commands (Step 5)
 from frappe_manager.commands.create import create
 from frappe_manager.commands.delete import delete
-from frappe_manager.commands.deploy import prune, switch
+from frappe_manager.commands.deploy import switch
+from frappe_manager.commands.prune import prune
 from frappe_manager.commands.info import info
 from frappe_manager.commands.list import list as list_benches
 from frappe_manager.commands.logs import logs

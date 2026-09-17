@@ -281,33 +281,34 @@ class MigrationExecutor:
 
         self.undo_stack = self.orchestrator.undo_stack
         self.error_handler.finalize_success()
-        # Retention runs ONLY here, on the success path: the failure/rollback paths above
-        # must keep every backup, because backups are the rollback.
-        self._prune_backup_sessions()
+        # A HINT, never a prune: cleanup in fm is command-triggered only (`fm prune`,
+        # `fm services prune`). A migration deleting backups as a side effect was tried
+        # and rejected -- the operator decides when history goes.
+        self._hint_backup_growth()
         return True
 
-    def _prune_backup_sessions(self):
-        """Keep the newest MIGRATION_BACKUP_KEEP_SESSIONS backup sessions per root this run
-        touched: the host tier only when the services tier actually ran, and each bench this
-        run migrated without an exception -- bench A's success never prunes bench B's history."""
-        from frappe_manager.migration_manager.backup_manager import (
-            CLI_MIGARATIONS_DIR,
-            MIGRATION_BACKUP_KEEP_SESSIONS,
-            prune_old_backup_sessions,
-        )
+    def _hint_backup_growth(self):
+        """After a successful run, say how much old backup history the touched locations
+        carry beyond the configured retention, and which command trims it. Print-only."""
+        from frappe_manager.migration_manager.backup_manager import CLI_MIGARATIONS_DIR
+        from frappe_manager.utils.prune import dir_size, format_size, stale_sessions
 
-        roots: list[Path] = []
+        keep = self.fm_config_manager.prune.keep_backup_sessions
+        hints: list[tuple[str, list[Path]]] = []
         if self.global_services_need_migration:
-            roots.append(CLI_MIGARATIONS_DIR / "migrations")
+            hints.append(("fm services prune", stale_sessions(CLI_MIGARATIONS_DIR / "migrations", keep)))
         for bench_name, bench_data in self.migrate_benches.items():
             if bench_data["exception"] is None:
-                roots.append(CLI_BENCHES_DIRECTORY / bench_name / "backups" / "migrations")
+                root = CLI_BENCHES_DIRECTORY / bench_name / "backups" / "migrations"
+                hints.append((f"fm prune {bench_name}", stale_sessions(root, keep)))
 
-        removed = [name for root in roots for name in prune_old_backup_sessions(root)]
-        if removed:
+        for command, stale in hints:
+            if not stale:
+                continue
+            size = sum(dir_size(p) for p in stale)
             self.output.print(
-                f"Pruned {len(removed)} old migration backup session(s), "
-                f"keeping the newest {MIGRATION_BACKUP_KEEP_SESSIONS} per location",
+                f"{len(stale)} backup session(s) beyond the configured keep of {keep} "
+                f"({format_size(size)}); trim with '{command}'",
                 emoji_code="",
             )
 

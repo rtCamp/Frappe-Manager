@@ -202,6 +202,22 @@ Static addressing for the global frontend Docker network: `subnet_cidr` is the C
 
 ---
 
+### `[prune]` (global) {#fm-prune}
+
+**Defaults:** `keep_backup_sessions = 3`, `keep_log_archives = 3`, `rotate_logs_over = "10M"`
+**File key:** `[prune]`
+
+Retention for the disk-hygiene commands, [`fm prune`](../commands/prune.md) and [`fm services prune`](../commands/services.md#fm-services-prune). Nothing in FM cleans up on its own: these values only take effect when one of those commands runs. A bench's own `[prune]` table (below) overrides per key; command flags override both for one run.
+
+```toml
+[prune]
+keep_backup_sessions = 3      # backup sessions kept per backups/migrations and backups/workers dir
+keep_log_archives    = 3      # rotated .gz files kept per log file
+rotate_logs_over     = "10M"  # only log files larger than this get rotated
+```
+
+---
+
 ### `migration_state` {#fm-migration-state}
 
 **File key:** `[migration_state]` → `migrated_to`
@@ -907,6 +923,22 @@ backup = "/home/user/frappe/sites/mybench/..."  # pre-migrate DB dump, used by `
 ```
 
 `fm prune` trims old history rows and their dumps/images, keeping the newest `keep_releases` (current + previous are always safe).
+
+---
+
+### `[prune]` (bench) {#bench-prune}
+
+**Default:** (absent; every key falls through to the global `[prune]` table)
+**File key:** `[prune]`
+
+Per-bench overrides for [`fm prune`](../commands/prune.md), same keys as the [global table](#fm-prune): `keep_backup_sessions`, `keep_log_archives`, `rotate_logs_over`. Set only what should differ, e.g. a production bench keeping more backup history:
+
+```toml
+[prune]
+keep_backup_sessions = 5
+```
+
+Release retention is not here: it predates this table as [`[switch].keep_releases`](#deploy-tables) and stays there.
 
 ---
 

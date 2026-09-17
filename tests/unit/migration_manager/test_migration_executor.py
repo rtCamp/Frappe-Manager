@@ -499,28 +499,99 @@ class TestExecutorIsTheSoleLedgerStamper:
         mock_fm_config.set_system_migration_version.assert_not_called()
 
 
-class TestBackupRetentionRunsOnSuccessOnly:
-    """P5: pruning old backup sessions happens exactly once, at the end of a SUCCESSFUL
-    run -- never on the failure/rollback paths, whose backups ARE the rollback."""
+class TestMigrationNeverPrunesOnlyHints:
+    """Cleanup is command-triggered only: a successful migration prints a size-aware hint
+    naming `fm services prune` and deletes NOTHING; a failed run does not even hint, its
+    backups are the rollback."""
 
-    @pytest.mark.timeout(15)
-    def test_a_successful_services_run_prunes_the_host_root(self, mock_fm_config):
+    @staticmethod
+    def _host_sessions(count):
+        """Session dirs under the (suite-isolated) host backups root."""
+        import os
+        import time
+
         from frappe_manager.migration_manager import backup_manager
 
-        with patch.object(backup_manager, "prune_old_backup_sessions", return_value=[]) as prune:
-            result = TestExecutorIsTheSoleLedgerStamper._run(mock_fm_config, migrate_global_services=True)
+        root = backup_manager.CLI_MIGARATIONS_DIR / "migrations"
+        root.mkdir(parents=True, exist_ok=True)
+        now = time.time()
+        for i in range(count):
+            d = root / f"session-{i}"
+            d.mkdir()
+            os.utime(d, (now - (count - i) * 100, now - (count - i) * 100))
+        return root
 
-        assert result is True
-        prune.assert_called_once_with(backup_manager.CLI_MIGARATIONS_DIR / "migrations")
+    @staticmethod
+    def _run(mock_fm_config, *, up=None):
+        """A services-tier run like TestExecutorIsTheSoleLedgerStamper._run, but returning
+        the output handler so the hint text itself can be asserted."""
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
 
-    @pytest.mark.timeout(15)
-    def test_a_failed_run_keeps_every_backup(self, mock_fm_config):
-        from frappe_manager.migration_manager import backup_manager
+        migration = Mock()
+        migration.version = Version("0.19.0")
+        migration.up = up or Mock()
+        migration.get_rollback_version = Mock(return_value=Version("0.19.0"))
 
-        with patch.object(backup_manager, "prune_old_backup_sessions") as prune:
-            result = TestExecutorIsTheSoleLedgerStamper._run(
-                mock_fm_config, migrate_global_services=True, up=Mock(side_effect=RuntimeError("boom"))
+        mock_output = Mock()
+        mock_output.prompt_ask = Mock(return_value="yes")
+
+        with (
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
+            patch("frappe_manager.services_manager.services.ServicesManager") as mock_services_cls,
+        ):
+            services = mock_services_cls.return_value
+            services.path.exists.return_value = True
+            services.is_service_running.return_value = True
+
+            executor = MigrationExecutor(
+                mock_fm_config,
+                migrate_global_services=True,
+                auto_proceed=True,
+                on_failure="rollback",
+                output_handler=mock_output,
             )
 
+            with (
+                patch.object(executor.discovery, "discover_migrations", return_value=[migration]),
+                patch.object(executor, "_check_benches_need_migration", return_value=False),
+            ):
+                result = executor.execute()
+
+        return result, mock_output
+
+    @pytest.mark.timeout(15)
+    def test_a_successful_run_hints_at_overflow_and_deletes_nothing(self, mock_fm_config):
+        mock_fm_config.prune.keep_backup_sessions = 3
+        root = self._host_sessions(5)
+
+        result, output = self._run(mock_fm_config)
+
+        assert result is True
+        assert len(list(root.iterdir())) == 5  # nothing deleted, ever
+        prints = " ".join(str(call) for call in output.print.call_args_list)
+        assert "fm services prune" in prints
+        assert "2 backup session(s) beyond the configured keep of 3" in prints
+
+    @pytest.mark.timeout(15)
+    def test_within_retention_there_is_no_hint(self, mock_fm_config):
+        mock_fm_config.prune.keep_backup_sessions = 3
+        self._host_sessions(2)
+
+        result, output = self._run(mock_fm_config)
+
+        assert result is True
+        prints = " ".join(str(call) for call in output.print.call_args_list)
+        assert "prune" not in prints
+
+    @pytest.mark.timeout(15)
+    def test_a_failed_run_neither_hints_nor_deletes(self, mock_fm_config):
+        mock_fm_config.prune.keep_backup_sessions = 3
+        root = self._host_sessions(5)
+
+        result, output = self._run(mock_fm_config, up=Mock(side_effect=RuntimeError("boom")))
+
         assert result is False
-        prune.assert_not_called()
+        assert len(list(root.iterdir())) == 5
+        prints = " ".join(str(call) for call in output.print.call_args_list)
+        assert "fm services prune" not in prints

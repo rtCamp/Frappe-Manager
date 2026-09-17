@@ -56,33 +56,9 @@ class BackupData:
 
 CLI_MIGARATIONS_DIR = CLI_DIR / "backups"
 
-# Sessions kept per backups/migrations root (host-tier and per bench) after a SUCCESSFUL
-# migration run. A constant, not a config key: the number only matters to someone who wants
-# more history, and that person can copy the dirs elsewhere; lift it into fm_config if
-# anyone ever asks. Pruning never happens on failure or rollback -- those backups ARE the
-# rollback -- so a host that keeps failing keeps every backup until something succeeds.
-MIGRATION_BACKUP_KEEP_SESSIONS = 3
-
-
-def prune_old_backup_sessions(backups_root: Path, keep: int = MIGRATION_BACKUP_KEEP_SESSIONS) -> list[str]:
-    """Delete the oldest session dirs under ``backups_root`` beyond the newest ``keep``.
-
-    Sessions are ordered by directory mtime, NEVER by name: the ``DD-Mon-YY--HH-MM-SS``
-    timestamp format sorts by day-of-month lexically, so a name sort would prune the wrong
-    sessions twelve months a year. Returns the removed directory names, oldest first, so
-    the caller can report what left the disk -- deletions are never silent.
-    """
-    if not backups_root.is_dir():
-        return []
-
-    sessions = [p for p in backups_root.iterdir() if p.is_dir()]
-    sessions.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-
-    removed: list[str] = []
-    for stale in reversed(sessions[keep:]):  # oldest first
-        shutil.rmtree(stale, ignore_errors=True)
-        removed.append(stale.name)
-    return removed
+# No retention machinery lives here: cleanup is command-triggered only (`fm prune`,
+# `fm services prune`; engine in utils/prune.py). Migrations print a size-aware hint
+# after success -- they never delete history, because backups ARE the rollback.
 
 
 class BackupManager:

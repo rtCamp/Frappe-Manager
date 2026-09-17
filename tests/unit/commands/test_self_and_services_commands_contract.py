@@ -758,3 +758,90 @@ def test_services_migrate_hands_the_kind_scoped_backup_flags_through(out):
     assert kwargs["skip_db_backup"] is True
     assert kwargs["skip_config_backup"] is False
     assert kwargs["skip_backup"] is False
+
+
+# =========================================================================== #
+# fm services prune
+# =========================================================================== #
+
+
+def _run_services_prune(tmp_path, out, **kwargs):
+    """Drive the real command against a tmp host tree: [prune] defaults, no docker."""
+    import os
+    import time
+
+    from frappe_manager.commands.services import prune as prune_module
+    from frappe_manager.metadata_manager import FMPruneConfig
+
+    fm_config_manager = MagicMock()
+    fm_config_manager.prune = FMPruneConfig()
+    ctx = MagicMock(spec=typer.Context)
+    ctx.obj = {"fm_config_manager": fm_config_manager}
+
+    backups = tmp_path / "backups"
+    services = tmp_path / "services"
+    now = time.time()
+    sessions = backups / "migrations"
+    sessions.mkdir(parents=True)
+    for i in range(5):
+        d = sessions / f"s{i}"
+        d.mkdir()
+        (d / "cfg.toml").write_bytes(b"x" * 100)
+        os.utime(d, (now - (5 - i) * 60, now - (5 - i) * 60))
+    for i in range(4):
+        d = backups / f"services_2026-0{i + 1}-01_00-00-00"
+        d.mkdir()
+        os.utime(d, (now - (4 - i) * 60, now - (4 - i) * 60))
+    logs = services / "mariadb" / "logs"
+    logs.mkdir(parents=True)
+    (logs / "error.log").write_bytes(b"e" * 2048)
+
+    with (
+        patch.object(prune_module, "CLI_DIR", tmp_path),
+        patch.object(prune_module, "CLI_SERVICES_DIRECTORY", services),
+    ):
+        try:
+            prune_module.prune_services(ctx, **kwargs)
+            raised = None
+        except typer.Exit as exc:
+            raised = exc
+    return SimpleNamespace(exit=raised, backups=backups, sessions=sessions, logs=logs, output=out)
+
+
+def test_services_prune_trims_sessions_and_legacy_dirs_and_rotates_logs(tmp_path, out):
+    r = _run_services_prune(tmp_path, out, rotate_over="1K")
+
+    assert r.exit is None
+    assert sorted(p.name for p in r.sessions.iterdir()) == ["s2", "s3", "s4"]  # newest 3 kept
+    legacy = sorted(p.name for p in r.backups.iterdir() if p.name.startswith("services_"))
+    assert len(legacy) == 3  # oldest wholesale services backup gone
+    error_log = r.logs / "error.log"
+    assert error_log.stat().st_size == 0  # truncated in place
+    assert len(list(r.logs.glob("error.log.*.gz"))) == 1
+    prints = " ".join(c.args[0] for c in out.print.call_args_list if c.args)
+    assert "removed" in prints and "rotated" in prints and "Total" in prints
+
+
+def test_services_prune_dry_run_reports_and_touches_nothing(tmp_path, out):
+    r = _run_services_prune(tmp_path, out, rotate_over="1K", dry_run=True)
+
+    assert r.exit is None
+    assert len(list(r.sessions.iterdir())) == 5
+    assert (r.logs / "error.log").stat().st_size == 2048
+    assert not list(r.logs.glob("*.gz"))
+    prints = " ".join(c.args[0] for c in out.print.call_args_list if c.args)
+    assert "would remove" in prints and "would rotate" in prints
+
+
+def test_services_prune_only_logs_leaves_backups_alone(tmp_path, out):
+    r = _run_services_prune(tmp_path, out, rotate_over="1K", only="logs")
+
+    assert len(list(r.sessions.iterdir())) == 5
+    assert (r.logs / "error.log").stat().st_size == 0
+
+
+def test_services_prune_rejects_an_unknown_category(tmp_path, out):
+    import pytest as _pytest
+
+    with _pytest.raises(typer.BadParameter, match="releases"):
+        _run_services_prune(tmp_path, out, only="releases")

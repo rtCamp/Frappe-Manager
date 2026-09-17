@@ -238,13 +238,14 @@ fm switch mybench --previous --restore-db
 ```
 
 ### :material-broom: [`fm prune`](prune.md) {.command-heading}
-**Remove old deploy releases**
+**Reclaim a bench's disk: releases, backups, logs**
 
-Deletes old deploy history, DB dumps, and unused images, keeping the newest N releases (`keep_releases` in bench config, or `--keep`).
+Three categories, all by default: old deploy releases (history, dumps, images; `keep_releases` or `--keep-releases`), old backup sessions, and log rotation for files over the threshold. Retention in the `[prune]` config table; the host tier has `fm services prune`.
 
 ```bash
 fm prune mybench --dry-run
-fm prune mybench --keep 3
+fm prune mybench --only logs
+fm prune mybench --only releases --keep-releases 3
 ```
 
 ---

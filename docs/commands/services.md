@@ -21,6 +21,7 @@ $ fm services [OPTIONS] COMMAND [ARGS]...
 * `restart`: Restart the global services shared by every bench.
 * `shell`: Open a bash shell in one of the global service containers.
 * `real-ip`: Restore the visitor's real IP at the global nginx proxy when it sits behind a CDN or load balancer.
+* `prune`: Reclaim the host tier's disk: fm's own backup sessions and the shared services' logs.
 
 
 ### `fm services info`
@@ -258,5 +259,47 @@ fm services real-ip --trust 203.0.113.0/24
 
 ```bash
 fm services real-ip --status
+```
+
+
+### `fm services prune`
+
+Reclaim the host tier's disk: fm's own backup sessions and the shared services' logs.
+
+Covers ~/frappe/backups (migration sessions and services_<date> wholesale backups) and the shared services' log files. Retention comes from the \[prune] table in fm_config.toml; flags override for one run. fm.log is not touched: it rotates itself. The bench tier has its own command, fm prune BENCH.
+
+**Usage**:
+
+```console
+$ fm services prune [OPTIONS]
+```
+
+**Options**:
+
+* `--only`: Run only this category: backups or logs. Default: both.
+* `--keep-backups`: Backup sessions to keep per location instead of \[prune].keep_backup_sessions.
+* `--keep-logs`: Rotated archives to keep per log file instead of \[prune].keep_log_archives.
+* `--rotate-over`: Rotate log files larger than this (e.g. '500K', '10M') instead of \[prune].rotate_logs_over.
+* `--dry-run`: Report what would be pruned without deleting anything.
+
+
+## Examples
+
+### See what a prune would remove, without removing it
+
+```bash
+fm services prune --dry-run
+```
+
+### Reclaim host-tier disk: old backup sessions, oversized service logs
+
+```bash
+fm services prune
+```
+
+### Only rotate the shared services' logs
+
+```bash
+fm services prune --only logs
 ```
 

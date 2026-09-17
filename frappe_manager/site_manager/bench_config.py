@@ -1032,6 +1032,28 @@ class WorkersConfig(BaseModel):
     kill_poll: float = Field(3.0, description="Poll interval while waiting for a killed worker to exit.")
 
 
+class BenchPruneConfig(BaseModel):
+    """Per-bench disk-hygiene overrides (`[prune]` in bench_config.toml).
+
+    Every field optional: an absent key falls through to the host-wide `[prune]` table in
+    fm_config.toml, then to the built-in default. Command flags override both. See
+    `FMPruneConfig` (metadata_manager.py) for what each key means.
+    """
+
+    # extra="allow": same reasoning as SwitchConfig below.
+    model_config = ConfigDict(extra="allow")
+
+    keep_backup_sessions: int | None = Field(
+        None, description="Backup sessions kept per location; overrides the host-wide [prune] value."
+    )
+    keep_log_archives: int | None = Field(
+        None, description="Rotated .gz archives kept per log file; overrides the host-wide [prune] value."
+    )
+    rotate_logs_over: str | None = Field(
+        None, description="Only rotate log files larger than this (e.g. '10M'); overrides the host-wide value."
+    )
+
+
 class SwitchConfig(BaseModel):
     """Switch/migrate pipeline configuration (`[switch]` in bench_config.toml)."""
 
@@ -1658,6 +1680,9 @@ class BenchConfig(BaseModel):
     )
     image: str | None = Field(None, description="App image repo (image runtime); fm manages the :tag.")
     switch: SwitchConfig | None = Field(None, description="Switch/migrate pipeline configuration ([switch]).")
+    prune: BenchPruneConfig | None = Field(
+        None, description="Per-bench disk-hygiene overrides for fm prune ([prune])."
+    )
     workers: WorkersConfig | None = Field(
         None, description="Worker-care configuration for restart and switch ([workers])."
     )
@@ -2116,6 +2141,7 @@ class BenchConfig(BaseModel):
             "base_image": data.get("base_image", None),
             "seed_image": data.get("seed_image", None),
             "switch": SwitchConfig(**dict(data["switch"])) if data.get("switch") else None,
+            "prune": BenchPruneConfig(**dict(data["prune"])) if data.get("prune") else None,
             "workers": WorkersConfig(**dict(data["workers"])) if data.get("workers") else None,
             "build": BuildConfig(**dict(data["build"])) if data.get("build") else None,
             "monitoring": MonitoringConfig(**dict(data["monitoring"])) if data.get("monitoring") else None,

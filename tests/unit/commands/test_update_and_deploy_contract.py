@@ -41,7 +41,8 @@ import pytest
 import typer
 
 from frappe_manager import EnableDisableOptionsEnum
-from frappe_manager.commands.deploy import prune, switch
+from frappe_manager.commands.deploy import switch
+from frappe_manager.commands.prune import prune
 from frappe_manager.commands.update import update
 from frappe_manager.output_manager import set_global_output_handler
 from frappe_manager.output_manager.base import OutputHandler
@@ -804,9 +805,18 @@ class DeployWorld:
         self.bench.site_name = BENCH
         self.bench.primary_domain = BENCH
         self.bench.domains = [BENCH]
+        self.bench.path = tmp_path / "bench"
         cfg = self.bench.bench_config
         cfg.runtime = BenchRuntime.image
         cfg.deploy_state = None
+        # None -> the resolver falls through to the host [prune] table (a MagicMock here
+        # would reach int()/parse_size() and blow up for the wrong reason).
+        cfg.prune = None
+
+        from frappe_manager.metadata_manager import FMPruneConfig
+
+        self.fm_config = MagicMock(name="fm_config_manager")
+        self.fm_config.prune = FMPruneConfig()
 
         self.bench_cls = MagicMock(name="Bench class")
         self.bench_cls.get_object.return_value = self.bench
@@ -817,6 +827,9 @@ class DeployWorld:
         p = stack.enter_context
         p(patch("frappe_manager.commands.deploy.Bench", self.bench_cls))
         p(patch("frappe_manager.commands.deploy.DeployOrchestrator", self.orchestrator_cls))
+        p(patch("frappe_manager.commands.prune.Bench", self.bench_cls))
+        # fm prune imports the orchestrator from its home module at call time.
+        p(patch("frappe_manager.site_manager.modules.deploy_orchestrator.DeployOrchestrator", self.orchestrator_cls))
 
     @property
     def config(self):
@@ -832,7 +845,7 @@ class DeployWorld:
 
     def _ctx(self):
         ctx = MagicMock(spec=typer.Context)
-        ctx.obj = {"services": self.services}
+        ctx.obj = {"services": self.services, "fm_config_manager": self.fm_config}
         return ctx
 
     def switch(self, **kwargs):
@@ -988,25 +1001,35 @@ class TestSwitchTargetImageResolution:
 
 
 class TestPrune:
-    """``fm prune``: the same runtime refusal, and what the summary decides to report."""
+    """``fm prune --only releases``: what the releases category reports and refuses.
 
-    def test_prune_refuses_a_mount_runtime_bench(self, ship):
+    The command grew backups/logs categories (tests in this class narrow with --only so the
+    releases contract stays isolated), and a mount-runtime bench is no longer REFUSED: the
+    other categories apply to it, so releases just reports itself inapplicable.
+    """
+
+    @staticmethod
+    def _releases_only(ship, **kwargs):
+        from frappe_manager.commands.prune import PruneCategory
+
+        return ship.prune(only=[PruneCategory.releases], **kwargs)
+
+    def test_a_mount_runtime_bench_skips_releases_instead_of_refusing(self, ship):
         ship.config.runtime = BenchRuntime.mount
 
-        with pytest.raises(typer.Exit) as exc:
-            ship.prune()
+        self._releases_only(ship)
 
-        assert exc.value.exit_code == 1
-        assert ship.errors == [NOT_IMAGE_RUNTIME_REFUSAL]
+        assert ship.errors == []
+        assert ship.prints == ["Releases : not an image-runtime bench, nothing to prune"]
         ship.orchestrator_cls.assert_not_called()
 
     def test_nothing_to_prune_reports_the_retained_count(self, ship):
         ship.orchestrator.prune_releases.return_value = {"entries": 0, "kept": 4, "backups": [], "images": []}
 
-        ship.prune()
+        self._releases_only(ship)
 
         ship.orchestrator.prune_releases.assert_called_once_with(keep=None, dry_run=False)
-        assert ship.prints == ["Nothing to prune (4 release(s) recorded, all within retention)."]
+        assert ship.prints == ["Releases : nothing to prune (4 release(s) recorded, all within retention)"]
 
     def test_dry_run_lists_every_backup_dir_and_image(self, ship):
         ship.orchestrator.prune_releases.return_value = {
@@ -1016,17 +1039,19 @@ class TestPrune:
             "images": ["local/mybench:t1"],
         }
 
-        ship.prune(keep=3, dry_run=True)
+        self._releases_only(ship, keep_releases=3, dry_run=True)
 
         ship.orchestrator.prune_releases.assert_called_once_with(keep=3, dry_run=True)
         assert ship.prints == [
-            "Would prune 2 release(s), keep 3:",
+            "Releases : would prune 2 release(s), keep 3 · 2 backup dir(s) · 1 image(s)",
             "backup dir  /b/deploy-1",
             "backup dir  /b/deploy-2",
             "image       local/mybench:t1",
         ]
 
-    def test_a_real_prune_adds_no_output_of_its_own(self, ship):
+    def test_a_real_prune_names_what_left_the_disk(self, ship):
+        """Deletions are never silent: unlike the old command (summary only under --dry-run),
+        a real prune reports the same listing with 'pruned'."""
         ship.orchestrator.prune_releases.return_value = {
             "entries": 2,
             "kept": 3,
@@ -1034,18 +1059,81 @@ class TestPrune:
             "images": ["local/mybench:t1"],
         }
 
-        ship.prune(keep=3)
+        self._releases_only(ship, keep_releases=3)
 
-        assert ship.prints == []
+        assert ship.prints == [
+            "Releases : pruned 2 release(s), keep 3 · 1 backup dir(s) · 1 image(s)",
+            "backup dir  /b/deploy-1",
+            "image       local/mybench:t1",
+        ]
 
     def test_a_prune_failure_is_reported_as_exit_1(self, ship):
         ship.orchestrator.prune_releases.side_effect = DeployError("history unreadable")
 
         with pytest.raises(typer.Exit) as exc:
-            ship.prune()
+            self._releases_only(ship)
 
         assert exc.value.exit_code == 1
         assert ship.errors == ["history unreadable"]
+
+
+class TestPruneAllCategories:
+    """The default run covers all three categories and totals what it reclaimed."""
+
+    def test_default_run_reports_every_category(self, ship):
+        ship.orchestrator.prune_releases.return_value = {"entries": 0, "kept": 4, "backups": [], "images": []}
+
+        ship.prune(dry_run=True)
+
+        assert ship.prints == [
+            "Releases : nothing to prune (4 release(s) recorded, all within retention)",
+            "Backups  : nothing beyond retention",
+            "Logs     : nothing over the rotation threshold",
+        ]
+
+    def test_backups_category_removes_stale_sessions_and_reports_size(self, ship):
+        import os
+        import time
+
+        from frappe_manager.commands.prune import PruneCategory
+
+        root = ship.bench.path / "backups" / "migrations"
+        root.mkdir(parents=True)
+        now = time.time()
+        for i in range(5):
+            d = root / f"s{i}"
+            d.mkdir()
+            (d / "f").write_bytes(b"x" * 100)
+            os.utime(d, (now - (5 - i) * 60, now - (5 - i) * 60))
+
+        ship.prune(only=[PruneCategory.backups])
+
+        assert sorted(p.name for p in root.iterdir()) == ["s2", "s3", "s4"]  # newest 3 kept
+        assert any(p.startswith("Backups  : removed migrations: 2 session(s) beyond keep 3") for p in ship.prints)
+        assert any(p.startswith("Total    :") for p in ship.prints)
+
+    def test_logs_category_rotates_in_place_and_keeps_the_inode(self, ship):
+        from frappe_manager.commands.prune import PruneCategory
+
+        logs_dir = ship.bench.path / "workspace" / "frappe-bench" / "logs"
+        logs_dir.mkdir(parents=True)
+        big = logs_dir / "worker.error.log"
+        big.write_bytes(b"x" * 2048)
+        small = logs_dir / "web.log"
+        small.write_bytes(b"y" * 10)
+        inode = big.stat().st_ino
+
+        ship.prune(only=[PruneCategory.logs], rotate_over="1K")
+
+        assert big.stat().st_size == 0  # truncated in place...
+        assert big.stat().st_ino == inode  # ...same inode: the writers' fd stays valid
+        assert small.stat().st_size == 10  # under the threshold, untouched
+        archives = list(logs_dir.glob("worker.error.log.*.gz"))
+        assert len(archives) == 1
+        import gzip
+
+        with gzip.open(archives[0], "rb") as f:
+            assert f.read() == b"x" * 2048
 
 
 KEEP_FLOOR_REFUSAL = "--keep must be at least 1: the current release is never pruned."
@@ -1059,7 +1147,7 @@ class TestKeepFloor:
     @pytest.mark.parametrize("keep", [0, -5])
     def test_prune_refuses_keep_below_one(self, ship, keep):
         with pytest.raises(typer.Exit) as exc:
-            ship.prune(keep=keep)
+            ship.prune(keep_releases=keep)
 
         assert exc.value.exit_code == 1
         assert ship.errors == [KEEP_FLOOR_REFUSAL]
@@ -1076,6 +1164,6 @@ class TestKeepFloor:
     def test_keep_one_is_still_accepted(self, ship):
         ship.orchestrator.prune_releases.return_value = {"entries": 0, "kept": 1, "backups": [], "images": []}
 
-        ship.prune(keep=1)
+        ship.prune(keep_releases=1)
 
         ship.orchestrator.prune_releases.assert_called_once_with(keep=1, dry_run=False)

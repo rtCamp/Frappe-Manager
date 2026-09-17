@@ -20,6 +20,18 @@
 # Log level for file logs (DEBUG, INFO, WARNING, ERROR, CRITICAL) [default: 'DEBUG']
 # file_level = ...
 
+# ---- [prune] -------------------------------------------------------------------------------
+
+# Disk-hygiene retention (`[prune]` in fm_config.toml).
+# [prune]
+# Backup sessions (timestamped dirs under backups/migrations and backups/workers) kept per
+# location by the prune commands. The newest session is never pruned. [default: 3]
+# keep_backup_sessions = ...
+# Rotated .gz archives kept per log file by the prune commands. [default: 3]
+# keep_log_archives = ...
+# Only log files larger than this are rotated (e.g. '500K', '10M', '1G'). [default: '10M']
+# rotate_logs_over = ...
+
 # ---- [network] -----------------------------------------------------------------------------
 
 # Network configuration for the global frontend network.

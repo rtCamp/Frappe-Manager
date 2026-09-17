@@ -69,7 +69,7 @@ flowchart LR
 - `fm bake <bench> [--image REF] [--base-image REF]`: build the image pair only, deploying nothing (prints both images). `--image` is the app image produced; `--base-image` is what it is built from, the command-line form of [`[build].base_image`](../reference/configuration.md#deploy-tables).
 - `fm switch <bench> <image>`: deploy an already-built image (no bake).
 - `fm switch <bench> --previous`: roll back (same pipeline pointed backwards, migrate disabled).
-- `fm prune <bench>`: remove old releases; also available inline as `--keep N` on `fm switch`.
+- `fm prune <bench> --only releases`: remove old releases (the bare command also trims backup sessions and rotates logs); release pruning is also available inline as `--keep N` on `fm switch`.
 
 Every deploy is recorded in the bench's `bench_config.toml` under `[deploy_state]`: the current image, the previous image (the rollback target), the timestamp of the last successful deploy, and one history row per release carrying its image, timestamp, migrate status (`migrated`, `skipped`, `failed` or `rollback`) and the path of the DB dump taken. `fm info <bench>` shows the whole history in its **deploys** section.
 

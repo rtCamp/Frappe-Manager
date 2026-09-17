@@ -60,6 +60,43 @@ class FMLogsConfig(BaseModel):
         return cls(**toml_doc)
 
 
+class FMPruneConfig(BaseModel):
+    """Disk-hygiene retention (`[prune]` in fm_config.toml).
+
+    Host-wide defaults for `fm prune` and `fm services prune`; a bench's own `[prune]`
+    table overrides per key, and command flags override both. Cleanup only ever happens
+    when one of those commands runs -- never as a side effect of another operation.
+    """
+
+    # extra="allow": see the design note on FMValidationConfig above; same file, same reasoning.
+    model_config = ConfigDict(extra="allow")
+
+    keep_backup_sessions: int = Field(
+        default=3,
+        description="Backup sessions (timestamped dirs under backups/migrations and backups/workers) "
+        "kept per location by the prune commands. The newest session is never pruned.",
+    )
+    keep_log_archives: int = Field(
+        default=3,
+        description="Rotated .gz archives kept per log file by the prune commands.",
+    )
+    rotate_logs_over: str = Field(
+        default="10M",
+        description="Only log files larger than this are rotated (e.g. '500K', '10M', '1G').",
+    )
+
+    def get_toml_doc(self):
+        model_dict = self.model_dump(exclude_none=True)
+        toml_doc = tomlkit.document()
+        for key, value in model_dict.items():
+            toml_doc[key] = value
+        return toml_doc
+
+    @classmethod
+    def import_from_toml_doc(cls, toml_doc):
+        return cls(**toml_doc)
+
+
 class FMOutputConfig(BaseModel):
     """Terminal output appearance: color THEME + layout STYLE + token overrides."""
 
@@ -164,6 +201,7 @@ class FMConfigManager(BaseModel):
     ngrok_auth_token: str | None = Field(None, description="Ngrok authentication token")
     validation: FMValidationConfig = Field(default=FMValidationConfig())
     logs: FMLogsConfig = Field(default=FMLogsConfig())
+    prune: FMPruneConfig = Field(default=FMPruneConfig())
     network: FMNetworkConfig = Field(default=FMNetworkConfig())
     output: FMOutputConfig = Field(default=FMOutputConfig())
 
@@ -269,6 +307,7 @@ class FMConfigManager(BaseModel):
         input_data["ngrok_auth_token"] = None
         input_data["validation"] = FMValidationConfig()
         input_data["logs"] = FMLogsConfig()
+        input_data["prune"] = FMPruneConfig()
         input_data["network"] = FMNetworkConfig()
         input_data["output"] = FMOutputConfig()
         input_data["dns_providers"] = None
@@ -309,6 +348,9 @@ class FMConfigManager(BaseModel):
 
             if "logs" in data:
                 input_data["logs"] = FMLogsConfig(**data["logs"])
+
+            if "prune" in data:
+                input_data["prune"] = FMPruneConfig(**data["prune"])
 
             if "network" in data:
                 input_data["network"] = FMNetworkConfig(**data["network"])

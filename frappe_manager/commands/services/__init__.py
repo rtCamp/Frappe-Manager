@@ -5,6 +5,7 @@ from typer_examples import install
 
 from frappe_manager.commands.services.info import info as info_services
 from frappe_manager.commands.services.migrate import migrate_services
+from frappe_manager.commands.services.prune import prune_services
 from frappe_manager.commands.services.real_ip import real_ip
 from frappe_manager.commands.services.restart import restart_services
 from frappe_manager.commands.services.shell import shell_services
@@ -23,3 +24,4 @@ services_app.command(name="stop", no_args_is_help=True)(stop_services)
 services_app.command(name="restart", no_args_is_help=True)(restart_services)
 services_app.command(name="shell", no_args_is_help=True)(shell_services)
 services_app.command(name="real-ip")(real_ip)
+services_app.command(name="prune")(prune_services)

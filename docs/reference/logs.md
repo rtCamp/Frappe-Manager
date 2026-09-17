@@ -185,7 +185,9 @@ $ fm --version
 
 ## Rotating Bench Logs
 
-Frappe does not rotate its own logs, and neither does FM. On long-lived hosts, hand them to logrotate:
+Frappe does not rotate its own logs, and FM does not rotate them on a schedule. Two options, and on a long-lived Linux server you want the first:
+
+**logrotate (Linux servers).** The OS rotates matching logs nightly whether or not anyone runs fm:
 
 ```
 # /etc/logrotate.d/frappe-manager
@@ -202,5 +204,7 @@ Frappe does not rotate its own logs, and neither does FM. On long-lived hosts, h
 ```
 
 `copytruncate` matters here: the processes hold their log files open and will not reopen them, so renaming out from under them would silently stop the logging.
+
+**`fm prune` (everywhere else, or until you set that up).** [`fm prune BENCH --only logs`](../commands/prune.md) rotates the bench's frappe and nginx logs on demand: files over `rotate_logs_over` (10 MB by default) are gzipped to `<name>.log.<timestamp>.gz` and truncated in place, keeping `keep_log_archives` archives per file. [`fm services prune --only logs`](../commands/services.md#fm-services-prune) does the same for the shared mariadb and nginx-proxy logs. Thresholds live in the [`[prune]`](configuration.md#fm-prune) config table. If logrotate already keeps a file small, `fm prune` finds nothing to do; the two coexist safely.
 
 **See also:** [Configuration reference](configuration.md), [Architecture reference](architecture.md)

@@ -115,6 +115,20 @@
 # unset by default]
 # after_switch = ...
 
+# ---- [prune] -------------------------------------------------------------------------------
+
+# Per-bench disk-hygiene overrides for fm prune ([prune]).
+# [prune]
+# Backup sessions kept per location; overrides the host-wide [prune] value. [optional, unset by
+# default]
+# keep_backup_sessions = ...
+# Rotated .gz archives kept per log file; overrides the host-wide [prune] value. [optional, unset
+# by default]
+# keep_log_archives = ...
+# Only rotate log files larger than this (e.g. '10M'); overrides the host-wide value. [optional,
+# unset by default]
+# rotate_logs_over = ...
+
 # ---- [workers] -----------------------------------------------------------------------------
 
 # Worker-care configuration for restart and switch ([workers]).
