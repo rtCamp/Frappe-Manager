@@ -238,6 +238,17 @@ class MigrationExecutor:
         except MigrationExceptionInBench as e:
             self.undo_stack = self.orchestrator.undo_stack
             return self.error_handler.handle_bench_migration_failure(e)
+        except KeyboardInterrupt:
+            # BaseException, so the handlers below never see it: Ctrl+C used to walk away
+            # from a half-migrated host with no rollback, no halt and no record -- pressed,
+            # of course, at exactly the moment a cutover looks hung and every bench is down.
+            # Route it through the same --on-failure policy as any other failure (a second
+            # Ctrl+C during the prompt still raises through, so dying on the spot remains
+            # possible), then re-raise so the exit status stays an interrupt.
+            self.undo_stack = self.orchestrator.undo_stack
+            self.output.warning("Interrupted (Ctrl+C) mid-migration.")
+            self.error_handler.handle_system_migration_failure(Exception("interrupted by Ctrl+C"))
+            raise
         except Exception as e:
             self.undo_stack = self.orchestrator.undo_stack
             return self.error_handler.handle_system_migration_failure(e)

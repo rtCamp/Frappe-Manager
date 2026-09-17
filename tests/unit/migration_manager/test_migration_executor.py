@@ -339,6 +339,47 @@ class TestMigrationExecutorUserPrompt:
         assert result is False
         failing.down.assert_called_once_with()
 
+    @pytest.mark.timeout(15)
+    def test_ctrl_c_mid_migration_rolls_back_and_still_exits_as_interrupted(self, mock_fm_config):
+        """KeyboardInterrupt is a BaseException, so the Exception handler never saw it:
+        Ctrl+C walked away from a half-migrated host with no rollback and no record --
+        pressed, of course, at exactly the moment a cutover looks hung. It now routes
+        through the same --on-failure machinery and then re-raises, so the process still
+        dies as interrupted."""
+        mock_fm_config.version = Version("0.18.0")
+
+        interrupted = Mock()
+        interrupted.version = Version("0.19.0")
+        interrupted.up = Mock(side_effect=KeyboardInterrupt)
+        interrupted.get_rollback_version = Mock(return_value=Version("0.19.0"))
+
+        mock_output = Mock()
+        mock_output.prompt_ask = Mock(return_value="yes")
+
+        with (
+            patch(
+                "frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"
+            ),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
+            patch("frappe_manager.services_manager.services.ServicesManager") as mock_services_cls,
+        ):
+            services = mock_services_cls.return_value
+            services.path.exists.return_value = True
+            services.is_service_running.return_value = True
+
+            executor = MigrationExecutor(
+                mock_fm_config, migrate_global_services=True, on_failure="rollback", output_handler=mock_output
+            )
+
+            with (
+                patch.object(executor.discovery, "discover_migrations", return_value=[interrupted]),
+                patch.object(executor, "_check_benches_need_migration", return_value=False),
+                pytest.raises(KeyboardInterrupt),
+            ):
+                executor.execute()
+
+        interrupted.down.assert_called_once_with()
+
     def test_aborts_and_reverts_when_user_says_no(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
 
