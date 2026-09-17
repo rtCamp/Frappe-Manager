@@ -557,6 +557,25 @@ def app_callback(
                         skip_hint=f"Run 'fm migrate {bench_arg}' first",
                     )
 
+            # Every ordinary command holds the host lock SHARED for its lifetime: the grip
+            # means "don't migrate under me". Shared grips never contend with each other, so
+            # daily life is unchanged; a running migration (which holds it EXCLUSIVE in
+            # MigrationExecutor.execute) makes this refuse instead. Taken AFTER the gate and
+            # skipped for the migration commands, because a process conflicts with its own
+            # grips: the gate's inline migration takes the exclusive grip and releases it
+            # before this line runs.
+            if full_command not in ("migrate", "services migrate"):
+                from frappe_manager.utils import process_lock
+
+                host_lock = process_lock.acquire(
+                    process_lock.migration_lock_path(), exclusive=False, holder=full_command
+                )
+                if host_lock is None:
+                    culprit = process_lock.read_holder(process_lock.migration_lock_path()) or "a migration"
+                    output.exit(f"{culprit} is in progress on this host; wait for it to finish and retry.")
+                # Referenced for the command's whole lifetime; the grip dies with the process.
+                ctx.obj["host_lock"] = host_lock
+
             # The FULL command path ("services migrate", not just the group name): the
             # services manager gates its pre-rename escape hatch and its auto-start
             # behavior on which command is running, and the group name alone cannot tell

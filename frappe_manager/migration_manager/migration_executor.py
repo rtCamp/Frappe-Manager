@@ -95,11 +95,31 @@ class MigrationExecutor:
         return self.validator.check_benches_need_migration()
 
     def execute(self):
+        """Take the EXCLUSIVE host grip, run the migration, release the grip.
+
+        The grip means "I am rewriting fm's state on this host": it is refused instantly
+        while ANY other fm process runs (they all hold `locks/migration.lock` shared), and
+        while held it keeps every other fm process out. Released in `finally`, explicitly,
+        because the command that triggered an inline gate migration goes on to take its own
+        SHARED grip afterwards -- and a process conflicts with its own holds.
         """
-        Execute the migration.
-        This method will execute the migration and return the number of
-        executed statements.
-        """
+        from frappe_manager.utils import process_lock
+
+        lock_path = process_lock.migration_lock_path()
+        host_lock = process_lock.acquire(lock_path, exclusive=True, holder="migration")
+        if host_lock is None:
+            culprit = process_lock.read_holder(lock_path) or "another fm command"
+            self.output.display_error(
+                f"fm is busy: {culprit} is running on this host. Let it finish, then re-run."
+            )
+            return False
+        try:
+            return self._execute()
+        finally:
+            host_lock.close()
+
+    def _execute(self):
+        """The migration run itself; `execute` holds the host grip around it."""
 
         global_services_version_outdated = self.rerun or (self.prev_version < self.current_version)
         global_services_need_migration = self.migrate_global_services and global_services_version_outdated

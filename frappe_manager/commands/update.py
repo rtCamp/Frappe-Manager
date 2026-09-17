@@ -28,6 +28,7 @@ from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.site import host_bench_dir
+from frappe_manager.utils.process_lock import bench_lock
 
 # Rich help panels for `fm update --help`, titled by the segment of the `BENCH/SITE` address each
 # flag acts on. Same rule as `fm create`: scope is where the value LANDS, not how the help reads.
@@ -140,6 +141,7 @@ def _demote_to_mount(bench: Bench, output) -> None:
     detail="Extracts the workspace from the currently deployed image; converting back to image runtime runs through fm switch instead.",
     benchname="mybench",
 )
+@bench_lock(param="address", operation="update")
 def update(
     ctx: typer.Context,
     address: BenchSiteArgument = None,

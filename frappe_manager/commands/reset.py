@@ -7,6 +7,7 @@ from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.commands.arguments import BenchSiteArgument
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.site import Bench
+from frappe_manager.utils.process_lock import bench_lock
 
 
 @example(
@@ -31,6 +32,7 @@ from frappe_manager.site_manager.site import Bench
     detail="Skips the confirmation. Nothing else about the reset changes.",
     benchname="mybench",
 )
+@bench_lock(param="address", operation="reset")
 def reset(
     ctx: typer.Context,
     address: BenchSiteArgument = None,

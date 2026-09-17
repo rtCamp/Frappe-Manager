@@ -46,6 +46,7 @@ from frappe_manager.utils.callbacks import (
 )
 from frappe_manager.utils.helpers import ImageRef
 from frappe_manager.utils.site import validate_sitename
+from frappe_manager.utils.process_lock import bench_lock
 
 # Rich help panels for `fm create --help`. The FIRST word of every title is the segment of the
 # `BENCH/SITE` address the flag acts on, because that is the question the address form raises and
@@ -783,6 +784,7 @@ def _resolve_external_options(
     detail="Pair with fm's own global -n: fm -n create {benchname} --apps erpnext --remove-on-failure removes the bench and its containers on failure instead of leaving them, and still exits non-zero either way.",
     benchname="mybench",
 )
+@bench_lock(param="address", operation="create")
 def create(
     ctx: typer.Context,
     address: Annotated[

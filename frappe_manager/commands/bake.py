@@ -25,6 +25,7 @@ from frappe_manager.utils.callbacks import (
     sites_autocompletion_callback,
 )
 from frappe_manager.utils.helpers import ImageRef, has_explicit_tag
+from frappe_manager.utils.process_lock import bench_lock
 
 
 def _bake_name(image: str | None) -> str:
@@ -165,6 +166,7 @@ def _build_standalone_config(
     "--config ci/build.toml",
     detail="The config supplies the image, [[apps]] and [build]; nothing else on disk is needed.",
 )
+@bench_lock(shared=True, operation="bake")
 def bake(
     ctx: typer.Context,
     benchname: Annotated[

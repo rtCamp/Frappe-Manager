@@ -43,6 +43,17 @@ The bench half of the callback gate is additionally skipped for `stop`, `delete`
 
 ---
 
+## One fm at a Time Where It Matters {#locks}
+
+fm processes on one host coordinate through lock files under `~/frappe/locks/`, using the operating system's `flock`: a hold vanishes the instant its process exits or dies (no stale locks, ever), and a refused process is told instantly instead of waiting.
+
+- **`migration.lock`** (host-wide): every ordinary command holds it shared, meaning "don't migrate under me"; a migration holds it exclusive. So a migration refuses to start while anything else runs (`fm is busy: bake (pid 4242) is running on this host`), and every command refuses while a migration runs (`migration (pid 4242) is in progress on this host`). Day to day nothing changes: shared holds never contend with each other.
+- **`bench-<name>.lock`** (per bench): the bench mutators (`switch`, `restart`, `delete`, `reset`, `update`, `create`) hold it exclusive; `fm bake BENCH` holds it shared, so a mutator cannot rewrite a bench out from under a running bake, and a second `switch` on the same bench is refused naming the first. Quick reads (`logs`, `info`, `shell`) hold nothing, and bench A's lock never affects bench B. A standalone bake (`--apps`/`--config`) touches no bench and takes no bench lock.
+
+The locks cover fm-vs-fm on this host only: not other machines, and not hand-run `docker` commands.
+
+---
+
 ## Version Tracking
 
 **Global services & configuration**, in `~/frappe/fm_config.toml` (the on-disk key keeps its historical name):

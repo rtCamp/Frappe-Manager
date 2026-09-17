@@ -10,6 +10,7 @@ from frappe_manager.site_manager.bench_config import BenchRuntime
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError, DeployOrchestrator
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.helpers import digest_pinned_refusal, has_explicit_tag, is_digest_pinned
+from frappe_manager.utils.process_lock import bench_lock
 
 
 def _load_image_bench(ctx: typer.Context, benchname: str) -> Bench:
@@ -126,6 +127,7 @@ def _find_current_deploy_backups(state) -> "tuple[dict[str, str], str | None]":
     detail="--previous only knows the last image, so name an older one explicitly and keep migrate off.",
     benchname="mybench",
 )
+@bench_lock(operation="switch")
 def switch(
     ctx: typer.Context,
     benchname: RequiredBenchNameArgument,

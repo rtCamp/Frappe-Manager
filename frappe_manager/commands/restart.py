@@ -9,6 +9,7 @@ from frappe_manager.commands.arguments import BenchNameArgument
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.bench_config import WorkersConfig
 from frappe_manager.site_manager.site import Bench
+from frappe_manager.utils.process_lock import bench_lock
 
 # Rich help panels for `fm restart --help`, grouped by concern.
 _PANEL_SCOPE = "Scope (which services)"
@@ -43,6 +44,7 @@ _PANEL_ADVANCED = "Advanced"
     "{benchname} --rolling",
     benchname="mybench",
 )
+@bench_lock(operation="restart")
 def restart(
     ctx: typer.Context,
     benchname: BenchNameArgument = None,

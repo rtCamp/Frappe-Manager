@@ -7,6 +7,7 @@ from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.commands.arguments import BenchSiteArgument
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_service import BenchService
+from frappe_manager.utils.process_lock import bench_lock
 
 
 def _plural(count: int, noun: str) -> str:
@@ -122,6 +123,7 @@ def _site_schemas(bench_service: BenchService, benchname: str) -> list:
     detail="--yes skips the confirmation; --all-sites is still required, so no script deletes more than it named.",
     benchname="mybench",
 )
+@bench_lock(param="address", operation="delete")
 def delete(
     ctx: typer.Context,
     address: BenchSiteArgument = None,
