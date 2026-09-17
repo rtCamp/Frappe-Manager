@@ -385,24 +385,31 @@ class ComposeFile:
         return volumes
 
     def get_service_volumes(self, service: str) -> list[DockerVolumeMount]:
-        """
-        Get specific service volume mounts.
-        """
-        volumes_set = set()
+        """Parsed mounts for one service, deduped, in the order the file lists them.
 
+        `dict.fromkeys` rather than a `set`: both dedupe on the same hash equality, but the set
+        also discarded ORDER, and every writer round-trips through this getter (`apply_specs` and
+        `generate_compose` read, filter, append and write back). So each regen rewrote the volume
+        list in a fresh arbitrary order, which changed docker's service config hash and left the
+        container dirty -- the next plain `compose up` recreated it though nothing had been asked
+        for, and the restart was attributed to whichever command ran next.
+
+        Worse than "unstable": there was no fixed point to reach. Each run's set was built from
+        the previous run's output, so with PYTHONHASHSEED pinned the output alternated between two
+        orders forever instead of settling. Repeated identical regens are now byte-identical.
+        """
         try:
-            volumes_list = self.yml["services"][service]["volumes"]
-            for volume in volumes_list:
-                volumes_set.add(volume)
+            raw_volumes = self.yml["services"][service]["volumes"]
         except KeyError as e:
-            raise ComposeServiceNotFound(service_name=service)
+            # `from e` rather than bare: the missing key names WHICH level was absent (the
+            # service, or its volumes), which the service-name-only exception drops.
+            raise ComposeServiceNotFound(service_name=service) from e
 
-        volumes_list = []
-
-        for volume in volumes_set:
-            volumes_list.append(parse_docker_volume(volume, self.get_all_volumes(), self.compose_path))
-
-        return volumes_list
+        all_volumes = self.get_all_volumes()
+        return [
+            parse_docker_volume(volume, all_volumes, self.compose_path)
+            for volume in dict.fromkeys(raw_volumes)
+        ]
 
     def set_service_volumes(self, service: str, volumes: list[DockerVolumeMount]) -> None:
         """

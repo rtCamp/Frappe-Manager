@@ -3,9 +3,9 @@
 `pin_workers_to_image` delegates to the compose_shape projection: the first pin
 converts the mount-template shape (base image + wholesale ./workspace bind) to
 the app image + data-only binds; later re-pins change ONLY the image tag --
-no duplicated data binds, and any user-added mount is preserved. Reads dedupe
-via a set, so assertions inspect the raw compose yaml where duplicates would
-actually be written.
+no duplicated data binds, and any user-added mount is preserved. Reads dedupe,
+so assertions inspect the raw compose yaml where duplicates would actually be
+written.
 """
 
 from types import SimpleNamespace
