@@ -702,7 +702,7 @@ dns_provider = "client-zones"
 | `dns_provider = "<label>"` | that label in the bench table, then that label in the global table | error naming the missing label and listing the labels that do exist |
 | no `dns_provider` | the label `cloudflare` in the bench table, then in the global table | error: no DNS-01 credentials configured |
 
-There is no third tier. A machine set up before 0.20.0 kept its default Cloudflare credential in a table of its own in `~/frappe/fm_config.toml`, consulted after the labels; the 0.20.0 migration moves that credential to the `cloudflare` label here, after which it is an ordinary labelled set a certificate can also name explicitly. See the [migration inventory](migrations.md#inventory).
+There is no third tier. A machine set up before 0.20.0 kept its default Cloudflare credential in a table of its own in `~/frappe/fm_config.toml`, consulted after the labels; the 0.20.0 migration moves that credential to the `cloudflare` label here, after which it is an ordinary labelled set a certificate can also name explicitly. See the [migration history](migration-history.md#inventory).
 
 A named label is never quietly substituted. If a certificate sets `dns_provider = "client-zones"` and no `client-zones` entry exists at either scope, issuance and renewal fail. Falling back would authenticate against whichever account happened to be configured and report success, which is the one outcome worth failing over.
 

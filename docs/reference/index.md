@@ -20,6 +20,18 @@ Lookup, not learning. Every page here is meant to be searched and deep-linked ra
 
     ---
 
-    What `fm migrate` does, why a stale bench is refused rather than used, how backups are grouped per migration version, what `--on-failure` decides, and how to restore by hand.
+    How the two migration tiers behave: why `fm migrate` refuses a stale services tier, why a stale bench is refused rather than used, what `--on-failure` decides, and which backups can be skipped.
+
+-   :material-history:{ .lg .middle } **[Migration History](migration-history.md)**
+
+    ---
+
+    What each shipped migration actually changed, version by version, plus the extra backup artifacts individual versions take. The archaeology page for installs that sat out several releases.
+
+-   :material-lock:{ .lg .middle } **[Process Locks](locks.md)**
+
+    ---
+
+    How fm processes on one host keep out of each other's way: the host-wide migration lock, the per-bench lock behind `switch`/`bake` refusals, and why observation commands are never fenced.
 
 </div>

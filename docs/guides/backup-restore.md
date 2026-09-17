@@ -85,7 +85,7 @@ These exist so fm can undo fm. Neither of them contains your uploaded files, so 
 ~/frappe/sites/<benchname>/backups/migrations/<DD-Mon-YY--HH-MM-SS>/<fm version>/
 ```
 
-with `bench_config.toml`, `docker-compose.yml`, `common_site_config.json`, `site_config.json` and a gzipped `db-<benchname>-<date>.sql.gz`. The global services' `docker-compose.yml` is copied to `~/frappe/backups/migrations/<timestamp>/<fm version>/`.
+with `bench_config.toml`, `docker-compose.yml`, `common_site_config.json`, `site_config.json` and a gzipped `db-<benchname>-<date>.sql.gz`. The global services' `docker-compose.yml` is copied to `~/frappe/backups/migrations/<timestamp>/<fm version>/`. Individual migration versions back up extra files they rewrite; those are listed in the [Migration History](../reference/migration-history.md#version-backups). Timestamps within one run that would collide get microseconds appended.
 
 When a bench fails to migrate, fm restores **the copied configuration files only**. The SQL dump is never imported automatically; it is there for you to restore by hand with `bench restore` if a migration damaged data. `--on-failure` picks the policy: `prompt` (default) asks, `archive` sets the failed benches aside and keeps the rest migrated, `rollback` reverts every bench. A single-bench run always rolls back.
 
@@ -98,6 +98,48 @@ fm migrate all --skip-backup                    # skip both kinds
 
 !!! danger
     With no backup there is nothing to restore from, so use these only when the backup itself is what fails.
+
+#### Restoring a migration backup by hand
+
+Backups are grouped by the migration version that took them, so the version subdirectory is part of the path.
+
+```bash
+BENCH=mybench.localhost
+BACKUP=~/frappe/sites/$BENCH/backups/migrations/12-Apr-26--14-30-45/0.20.0
+
+fm stop $BENCH
+
+# config files
+cp "$BACKUP/bench_config.toml" ~/frappe/sites/$BENCH/
+
+# database: the dump has to be inside the workspace, because that is the only
+# part of the bench directory mounted into the containers
+cp "$BACKUP"/db-*.sql.gz ~/frappe/sites/$BENCH/workspace/frappe-bench/sites/
+
+fm start $BENCH
+fm shell $BENCH -c "bench --site $BENCH restore sites/db-*.sql.gz"
+```
+
+The Frappe site name is the bench name, which is why the same variable serves both.
+
+#### When migration backups misbehave
+
+**Backup creation fails.** Usually disk space:
+
+```bash
+df -h ~/frappe
+rm -rf ~/frappe/sites/mybench.localhost/backups/migrations/<old-timestamp>/
+```
+
+If space is genuinely unavailable and you have backups elsewhere, `--skip-backup` (or `--skip-db-backup`, keeping the near-free config backups) gets the migration through.
+
+**A bench is stuck half-migrated.** The rollback was skipped, or the process was killed mid-run. List the backup timestamps and restore the right one by hand (see above); the format sorts by day-of-month, not chronologically, so read the dates rather than piping through `sort`:
+
+```bash
+ls ~/frappe/sites/mybench.localhost/backups/migrations/
+```
+
+**"Already up to date" but the config looks wrong.** Use `fm migrate mybench.localhost --rerun` rather than editing `[migration_state]` by hand: it re-applies the current release's steps against the bench as it is now.
 
 ### Before a deploy or switch
 

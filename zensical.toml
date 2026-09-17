@@ -76,6 +76,8 @@ nav = [
     "reference/index.md",
     { "Configuration Files" = "reference/configuration.md" },
     { "Migrations"          = "reference/migrations.md" },
+    { "Migration History"   = "reference/migration-history.md" },
+    { "Process Locks"       = "reference/locks.md" },
     { "Logs & Debugging"    = "reference/logs.md" },
   ]},
   { "FAQ"       = "faq.md" },
