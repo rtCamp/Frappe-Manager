@@ -240,9 +240,11 @@
 # External redis for this bench ([redis]). Absent means fm starts and manages the per-bench redis
 # containers.
 # [redis]
-# Redis URL for the framework cache (e.g. 'redis://r.example:6379/0'). [required]
+# Redis URL for the framework cache; absent leaves it on fm's container. [optional, unset by
+# default]
 # cache = ...
-# Redis URL for the queue and realtime (e.g. 'redis://r.example:6379/1'). [required]
+# Redis URL for the queue and realtime; absent leaves it on fm's container. [optional, unset by
+# default]
 # queue = ...
 
 # ---- [telemetry] ---------------------------------------------------------------------------

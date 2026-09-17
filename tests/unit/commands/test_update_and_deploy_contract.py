@@ -106,12 +106,20 @@ class UpdateWorld:
         cfg.redis = None
         # The real payload shape, derived from the config so the redis keys the command pushes to
         # common_site_config.json are the ones the config actually holds.
-        cfg.get_commmon_site_config_data.side_effect = lambda: {
-            "redis_cache": cfg.redis.cache if cfg.redis else "redis://fm__mybench__redis-cache:6379",
-            "redis_queue": cfg.redis.queue if cfg.redis else "redis://fm__mybench__redis-queue:6379",
-            "redis_socketio": cfg.redis.cache if cfg.redis else "redis://fm__mybench__redis-cache:6379",
-            "developer_mode": cfg.developer_mode,
-        }
+        # Per SIDE, mirroring the real `get_bench_connection_config`: each absent side falls back
+        # to fm's own container address, which is what makes a split (external queue, local
+        # cache) a representable shape rather than a half-configured one.
+        def _common_config():
+            cache = (cfg.redis.cache if cfg.redis else None) or "redis://fm__mybench__redis-cache:6379"
+            queue = (cfg.redis.queue if cfg.redis else None) or "redis://fm__mybench__redis-queue:6379"
+            return {
+                "redis_cache": cache,
+                "redis_queue": queue,
+                "redis_socketio": cache,
+                "developer_mode": cfg.developer_mode,
+            }
+
+        cfg.get_commmon_site_config_data.side_effect = _common_config
         # The command reads telemetry through the helper and writes it back through the
         # attribute, so the double has to keep the two consistent.
         cfg.get_telemetry_config.side_effect = lambda provider="newrelic": getattr(cfg.telemetry, provider, None) if cfg.telemetry else None
@@ -1482,14 +1490,49 @@ class TestExternalRedis:
         assert pushed["redis_cache"] == self.CACHE
         assert pushed["redis_queue"] == self.QUEUE
 
-    def test_one_url_alone_is_refused_before_anything_is_written(self, world):
-        """A half-configured pair would leave the queue on fm's container while the cache moved."""
-        with pytest.raises(typer.BadParameter) as exc:
-            world.run(redis_cache=self.CACHE)
+    def test_one_side_alone_moves_only_that_side(self, world):
+        """A SPLIT is the point, not a half-configured mistake: the queue is the stateful half
+        worth paying a provider for, while the cache is throwaway and latency-sensitive. Frappe
+        has always taken the two as separate config keys -- requiring both was fm's restriction."""
+        world.run(redis_queue=self.QUEUE)
 
-        assert "--redis-queue" in exc.value.message
+        assert world.config.redis.queue == self.QUEUE
+        assert world.config.redis.cache is None
+        pushed = world.bench.set_common_bench_config.call_args.args[0]
+        assert pushed["redis_queue"] == self.QUEUE
+        assert pushed["redis_cache"] == "redis://fm__mybench__redis-cache:6379"
+
+    def test_moving_one_side_leaves_the_other_where_it_was(self, world):
+        """Starting from a split, naming the cache must not drag the queue back."""
+        world.config.redis = RedisConfig(queue=self.QUEUE)
+
+        world.run(redis_cache=self.CACHE)
+
+        assert world.config.redis.cache == self.CACHE
+        assert world.config.redis.queue == self.QUEUE
+
+    def test_a_side_can_be_reverted_on_its_own(self, world):
+        world.config.redis = RedisConfig(cache=self.CACHE, queue=self.QUEUE)
+
+        world.run(no_redis_queue=True)
+
+        assert world.config.redis.cache == self.CACHE
+        assert world.config.redis.queue is None
+
+    def test_reverting_the_last_side_drops_the_table(self, world):
+        """An empty `[redis]` table is not a shape: both-managed is spelled by having no table."""
+        world.config.redis = RedisConfig(queue=self.QUEUE)
+
+        world.run(no_redis_queue=True)
+
+        assert world.config.redis is None
+
+    def test_a_side_cannot_be_moved_and_reverted_at_once(self, world):
+        with pytest.raises(typer.BadParameter) as exc:
+            world.run(redis_queue=self.QUEUE, no_redis_queue=True)
+
+        assert "opposite intents" in exc.value.message
         assert world.saves == 0
-        assert world.compose_up_calls == []
 
     def test_an_unsupported_scheme_is_refused(self, world):
         """The validation create had and the hand-edit path never got."""
@@ -1529,7 +1572,7 @@ class TestExternalRedis:
         with pytest.raises(typer.BadParameter) as exc:
             world.run(no_redis=True, redis_cache=self.CACHE, redis_queue=self.QUEUE)
 
-        assert "--no-redis cannot combine" in exc.value.message
+        assert "--no-redis already covers both sides" in exc.value.message
         assert world.saves == 0
 
     def test_the_same_endpoints_again_is_nothing_to_do(self, world):
@@ -1537,7 +1580,10 @@ class TestExternalRedis:
 
         world.run(redis_cache=self.CACHE, redis_queue=self.QUEUE)
 
-        assert world.prints == ["mybench.localhost: nothing to do (redis already points at those endpoints)"]
+        assert world.prints == [
+            "mybench.localhost: nothing to do "
+            f"(redis is already cache {self.CACHE}, queue {self.QUEUE})"
+        ]
         assert world.compose_up_calls == []
         assert world.saves == 0
 
@@ -1572,6 +1618,15 @@ class TestExternalRedis:
 
         world.bench.docker_client.compose.rm.assert_called_once_with(
             services=["redis-cache", "redis-queue"], stop=True, force=True
+        )
+
+    def test_only_the_side_that_moved_out_is_removed(self, world):
+        """A bench with an external queue and a local cache must KEEP its redis-cache container:
+        removing both would take away the side fm still owns and serves."""
+        world.run(redis_queue=self.QUEUE)
+
+        world.bench.docker_client.compose.rm.assert_called_once_with(
+            services=["redis-queue"], stop=True, force=True
         )
 
     def test_reverting_does_not_remove_them(self, world):

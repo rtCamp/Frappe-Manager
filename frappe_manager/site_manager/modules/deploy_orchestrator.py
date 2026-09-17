@@ -328,7 +328,9 @@ class DeployOrchestrator:
         signal for the shapes the host-side string check can see.
         """
         redis_config = self.config.redis
-        if redis_config is None:
+        # Only when BOTH sides are external. A split has one side on fm's own container, so the
+        # two endpoints cannot be the same server by construction and there is nothing to probe.
+        if redis_config is None or not (redis_config.cache and redis_config.queue):
             return
         result = redis_server_identity(redis_config.cache, redis_config.queue, self._redis_identity_runner())
         if result.identity is RedisIdentity.SAME:

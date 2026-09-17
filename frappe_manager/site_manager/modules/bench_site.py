@@ -154,16 +154,23 @@ class BenchSiteManager:
             db_info = self.services.database_manager.database_server_info
             candidates.append((self.services.compose_file_manager, db_info.host, db_info.host, db_info.port))
 
+        # Per side, because `[redis]` is per side: an external queue is waited on at its own
+        # endpoint while the local cache is waited on as fm's container (and vice versa). Treating
+        # any `[redis]` table as "both external" waited on the wrong address for the managed half.
         redis_config = self.bench_config.redis
-        if redis_config:
+        prefix = self.bench_config.container_name_prefix
+        if redis_config and redis_config.cache:
             cache_host, cache_port = self._redis_endpoint(redis_config.cache, "cache")
-            queue_host, queue_port = self._redis_endpoint(redis_config.queue, "queue")
             candidates.append((None, None, cache_host, cache_port))
+        else:
+            cache_host, cache_port = get_redis_cache_addr(prefix)
+            candidates.append((self.compose_file_manager, "redis-cache", cache_host, cache_port))
+
+        if redis_config and redis_config.queue:
+            queue_host, queue_port = self._redis_endpoint(redis_config.queue, "queue")
             candidates.append((None, None, queue_host, queue_port))
         else:
-            cache_host, cache_port = get_redis_cache_addr(self.bench_config.container_name_prefix)
-            queue_host, queue_port = get_redis_queue_addr(self.bench_config.container_name_prefix)
-            candidates.append((self.compose_file_manager, "redis-cache", cache_host, cache_port))
+            queue_host, queue_port = get_redis_queue_addr(prefix)
             candidates.append((self.compose_file_manager, "redis-queue", queue_host, queue_port))
 
         for cfm, compose_service, host, port in candidates:
@@ -243,7 +250,9 @@ class BenchSiteManager:
         for the shapes it can see.
         """
         redis_config = self.bench_config.redis
-        if redis_config is None:
+        # Only when BOTH sides are external. A split has one side on fm's own container, so the
+        # two endpoints cannot be the same server by construction and there is nothing to probe.
+        if redis_config is None or not (redis_config.cache and redis_config.queue):
             return
         result = redis_server_identity(redis_config.cache, redis_config.queue, self._redis_identity_runner())
         if result.identity is RedisIdentity.SAME:

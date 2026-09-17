@@ -1851,16 +1851,25 @@ class Bench:
                     self.output.print(f"{action} supervisor processes - {service}")
 
     def restart_redis_services_containers(self):
-        """Restarts redis containers, unless this bench points at an external redis."""
+        """Restart the redis containers fm actually owns.
 
-        if self.bench_config.redis:
-            self.output.print("Bench uses an external redis. Skipping redis service restart")
+        Decided per SIDE, because `[redis]` is per side: a bench with an external queue and a
+        local cache still has a `redis-cache` container to restart. Skipping both on any
+        `[redis]` table -- the old behaviour -- left the one container fm does own un-restarted.
+        """
+        external = self.bench_config.redis
+        redis_services = [
+            service
+            for service, moved_out in (
+                (SiteServicesEnum.redis_cache.value, bool(external and external.cache)),
+                (SiteServicesEnum.redis_queue.value, bool(external and external.queue)),
+            )
+            if not moved_out
+        ]
+        if not redis_services:
+            self.output.print("Bench uses an external redis for both sides. Skipping redis service restart")
             return
 
-        redis_services = [
-            SiteServicesEnum.redis_cache.value,
-            SiteServicesEnum.redis_queue.value,
-        ]
         self.output.change_head(f"Restarting redis services - {' '.join(redis_services)}")
         self.docker_ops.restart_services(redis_services)
         self.output.print(f"Restarted redis services - {' '.join(redis_services)}")
