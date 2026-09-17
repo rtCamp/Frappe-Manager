@@ -1,0 +1,8 @@
+{
+  "hosts": {
+    "fm-test-server": {
+      "host": "178.105.214.28",
+      "username": "frappe"
+    }
+  }
+}
