@@ -29,7 +29,7 @@ def _load_with_warnings(tmp_path, body: str):
 def test_an_unknown_top_level_key_warns(tmp_path):
     config, handler = _load_with_warnings(tmp_path, 'typoed_kee = "x"\n')
 
-    assert config.version.version == "0.20.0.dev0"  # loads regardless
+    assert config.get_system_migration_version().version == "0.20.0.dev0"  # loads regardless (ledger seeded from the retired top-level `version`)
     handler.warning.assert_called_once()
     assert "typoed_kee" in handler.warning.call_args.args[0]
 
@@ -74,7 +74,7 @@ def test_a_typo_inside_migration_state_warns(tmp_path):
         tmp_path, '[migration_state]\nsystem_migrated_to = "0.19.0"\nsytem_migrated_at = "typo-value"\n'
     )
 
-    assert config.version.version == "0.20.0.dev0"  # loads regardless
+    assert config.get_system_migration_version().version == "0.19.0"  # loads regardless (ledger seeded from the pre-rename `system_migrated_to`)
     handler.warning.assert_called_once()
     assert "migration_state.sytem_migrated_at" in handler.warning.call_args.args[0]
 
@@ -134,7 +134,7 @@ def test_top_level_and_nested_unknown_keys_are_one_message(tmp_path):
         'typoed_kee = "x"\n[network]\nsubnett_cidr = "10.1.0.0/16"\n',
     )
 
-    assert config.version.version == "0.20.0.dev0"  # loads regardless
+    assert config.get_system_migration_version().version == "0.20.0.dev0"  # loads regardless (ledger seeded from the retired top-level `version`)
     handler.warning.assert_called_once()
     message = handler.warning.call_args.args[0]
     assert "typoed_kee" in message
@@ -150,7 +150,7 @@ def test_a_top_level_typo_is_named_exactly_once(tmp_path):
     ngrok_auth_tokenn' for two strays -- one typo, printed twice."""
     config, handler = _load_with_warnings(tmp_path, 'ngrok_auth_tokenn = "x"\n')
 
-    assert config.version.version == "0.20.0.dev0"  # loads regardless
+    assert config.get_system_migration_version().version == "0.20.0.dev0"  # loads regardless (ledger seeded from the retired top-level `version`)
     handler.warning.assert_called_once()
     message = handler.warning.call_args.args[0]
     assert message.count("ngrok_auth_tokenn") == 1, message
@@ -165,7 +165,7 @@ def test_two_top_level_and_one_nested_typo_are_one_sorted_deduplicated_message(t
         'ngrok_auth_tokenn = "x"\nanother_typo = 1\n[network]\nsubnett_cidr = "10.1.0.0/16"\n',
     )
 
-    assert config.version.version == "0.20.0.dev0"  # loads regardless
+    assert config.get_system_migration_version().version == "0.20.0.dev0"  # loads regardless (ledger seeded from the retired top-level `version`)
     handler.warning.assert_called_once()
     message = handler.warning.call_args.args[0]
     names = message.split("unrecognised key(s) ", 1)[1].split("; check", 1)[0].split(", ")
@@ -187,7 +187,7 @@ def test_top_level_nested_and_migration_state_typo_are_one_sorted_message(tmp_pa
         '[migration_state]\nsystem_migrated_to = "0.19.0"\nsytem_migrated_at = "typo-value"\n',
     )
 
-    assert config.version.version == "0.20.0.dev0"  # loads regardless
+    assert config.get_system_migration_version().version == "0.19.0"  # loads regardless (ledger seeded from the pre-rename `system_migrated_to`)
     handler.warning.assert_called_once()
     message = handler.warning.call_args.args[0]
     names = message.split("unrecognised key(s) ", 1)[1].split("; check", 1)[0].split(", ")

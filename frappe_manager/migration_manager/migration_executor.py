@@ -42,8 +42,11 @@ class MigrationExecutor:
     ):
         self.fm_config_manager: FMConfigManager = fm_config_manager
         self.rerun = rerun
-        self.prev_version = self.fm_config_manager.version
-        self.rollback_version = self.fm_config_manager.version
+        # The services-tier ledger, via the one getter both migration gates use -- NEVER the
+        # informational top-level `version` field. One source of truth: if the gate said
+        # "behind", discovery here must agree, and vice versa.
+        self.prev_version = self.fm_config_manager.get_system_migration_version()
+        self.rollback_version = self.prev_version
         self.current_version = Version(get_current_fm_version())
         self.migrations_path = Path(__file__).parent / "migrations"
         self.logger = get_logger(component="migration")

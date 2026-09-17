@@ -21,7 +21,7 @@ class TestMigrationFlowIntegration:
 
             assert result is True
             assert len(executor.migrations) == 0
-            assert config.version == Version("0.19.0")
+            assert config.get_system_migration_version() == Version("0.19.0")  # seeded from the retired `version` key
 
     def test_upgrade_from_0_18_0_to_0_19_0_discovers_migration(self, tmp_path):
         config_path = tmp_path / "fm_config.toml"

@@ -47,11 +47,11 @@ While a migration runs, every other fm command on the host is refused (and a mig
 
 ## Version Tracking
 
-**Global services & configuration**, in `~/frappe/fm_config.toml` (the on-disk key keeps its historical name):
+**Global services & configuration**, in `~/frappe/fm_config.toml` (files from older releases carry the key as `system_migrated_to`; it is renamed on the next migration):
 
 ```toml
 [migration_state]
-system_migrated_to = "0.20.0"
+migrated_to = "0.21.0"
 ```
 
 **Per bench**, in `~/frappe/sites/<bench>/bench_config.toml`:

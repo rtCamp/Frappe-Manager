@@ -14,7 +14,8 @@ These tests pin the CURRENT observable behaviour of the gate so the refactor is 
 - that ``execute()`` runs *inside* ``temporary_stop(output)``
 - that a falsy ``execute()`` result means ``display_error`` + exit code 1 and that the new
   version is NOT recorded
-- that success records the version (``set_system_migration_version`` / ``set_bench_migration_version``)
+- that success does NOT stamp the services-tier ledger here (the executor's ``finalize_success``
+  is the sole stamper) while the bench gate still records via ``set_bench_migration_version``
 - that answering "skip" refuses the command with exit code 1
 - the whitelist seams (invoked command, full command path, bench-command skip list)
 - the non-interactive route: ``required_flag`` makes the prompt raise ``NonInteractiveError``
@@ -370,14 +371,17 @@ class TestInfraMigrationPrompt:
         assert gate.events == ["prompt_ask", "temporary_stop:enter", "execute", "temporary_stop:exit"]
         assert gate.temporary_stop_args == [gate.output]
 
-    def test_update_success_records_new_infra_version(self, gate):
+    def test_update_success_does_not_stamp_the_ledger_itself(self, gate):
+        """The executor's finalize_success is the SOLE stamper of the services-tier ledger;
+        the gate stamping too was the duplicate write P2 removed. The executor is mocked
+        here, so a stamp observed on the config would be the gate's own -- forbidden."""
         gate.set_infra_version(OLD_VERSION)
         gate.answers = ["update"]
 
         gate.run("start")
 
-        gate.config.set_system_migration_version.assert_called_once_with(gate.current_version)
-        gate.config.export_to_toml.assert_called_once_with()
+        gate.config.set_system_migration_version.assert_not_called()
+        gate.config.export_to_toml.assert_not_called()
         assert gate.errors == []
 
     def test_failed_execute_errors_exits_and_does_not_record_version(self, gate):
@@ -573,7 +577,7 @@ class TestInfraThenBenchMigration:
             "execute",
             "temporary_stop:exit",
         ]
-        gate.config.set_system_migration_version.assert_called_once_with(gate.current_version)
+        gate.config.set_system_migration_version.assert_not_called()  # executor-owned, never the gate's
         gate.set_bench_migration_version.assert_called_once_with(bench_path, gate.current_version)
 
     def test_failed_infra_update_never_reaches_the_bench_prompt(self, gate):
@@ -601,7 +605,7 @@ class TestInfraThenBenchMigration:
         assert len(gate.prompts) == 1
         assert gate.errors == ["Cannot proceed - fm's global services & configuration need migration"]
 
-    def test_failed_nested_bench_migration_exits_after_recording_infra_version(self, gate):
+    def test_failed_nested_bench_migration_exits_without_the_gate_stamping_anything(self, gate):
         gate.set_infra_version(OLD_VERSION)
         gate.add_bench("mysite.localhost", needs_migration=True)
         gate.answers = ["update", "update"]
@@ -612,7 +616,7 @@ class TestInfraThenBenchMigration:
 
         assert exc.value.exit_code == 1
         assert gate.errors == ["Bench migration failed for 'mysite.localhost'"]
-        gate.config.set_system_migration_version.assert_called_once_with(gate.current_version)
+        gate.config.set_system_migration_version.assert_not_called()  # executor-owned, never the gate's
         gate.set_bench_migration_version.assert_not_called()
         gate.services_manager_cls.assert_not_called()
 

@@ -236,10 +236,11 @@ class MigrationErrorHandler:
 
     def _rollback_all(self, show_cli_downgrade_instructions: bool = True):
         """
-        Execute full rollback and update FM config version.
+        Execute full rollback and rewind the services-tier ledger.
 
-        Calls orchestrator's rollback, updates FM version, and optionally provides
-        user instructions for CLI version rollback.
+        Calls orchestrator's rollback, rewinds `[migration_state].migrated_to` when the
+        services tier was part of this run, and optionally provides user instructions
+        for CLI version rollback.
 
         Args:
             show_cli_downgrade_instructions: Whether to show pip install command
@@ -250,8 +251,10 @@ class MigrationErrorHandler:
         orchestrator.undo_stack = self.executor.undo_stack
         orchestrator.rollback_migrations()
 
-        self.executor.fm_config_manager.version = self.executor.rollback_version
-        self.executor.fm_config_manager.export_to_toml()
+        # Rewind the SAME key the gates read, and only when this run actually touched the
+        # services tier: a bench-only `fm migrate` failure must leave the host ledger alone.
+        if self.executor.global_services_need_migration:
+            self.executor.fm_config_manager.set_system_migration_version(self.executor.rollback_version)
 
         self.executor.output.print("", emoji_code="")
         self.executor.output.print("Rollback complete.", emoji_code="")
@@ -271,9 +274,11 @@ class MigrationErrorHandler:
 
     def finalize_success(self):
         """
-        Update FM config version after successful migration.
+        Stamp the services-tier ledger after a successful migration run.
 
-        Called when all migrations complete successfully.
+        Called when all migrations complete successfully. The executor is the ONLY stamper:
+        the `fm services migrate` command and the inline gate both rely on this, and a
+        bench-only run never touches the host ledger.
         """
-        self.executor.fm_config_manager.version = self.executor.current_version
-        self.executor.fm_config_manager.export_to_toml()
+        if self.executor.global_services_need_migration:
+            self.executor.fm_config_manager.set_system_migration_version(self.executor.current_version)

@@ -23,7 +23,7 @@ PREVIOUS_MINOR_FLOOR = Version("0.18.9999")
 
 def _run_execute(mock_fm_config, *, rerun: bool):
     """Execute with benches that report the current version, capturing discovery's bounds."""
-    mock_fm_config.version = Version(CURRENT)
+    mock_fm_config.get_system_migration_version.return_value = Version(CURRENT)
 
     with (
         patch(

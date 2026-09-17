@@ -711,17 +711,17 @@ def _run_services_migrate(*, system_version="0.20.0", current_version="0.21.0", 
     return SimpleNamespace(executor_cls=executor_cls, fm_config_manager=fm_config_manager, exit=raised)
 
 
-def test_services_migrate_runs_the_services_tier_only_and_stamps_on_success(out):
-    from frappe_manager.migration_manager.version import Version
-
+def test_services_migrate_runs_the_services_tier_only_and_never_stamps_itself(out):
+    """The mocked executor is the sole stamper of the services-tier ledger (its real
+    finalize_success). A stamp observed here would be the command's own duplicate write."""
     r = _run_services_migrate()
 
     kwargs = r.executor_cls.call_args.kwargs
     assert kwargs["migrate_global_services"] is True
     assert kwargs["target_benches"] is None
     assert r.exit is None
-    r.fm_config_manager.set_system_migration_version.assert_called_once_with(Version("0.21.0"))
-    r.fm_config_manager.export_to_toml.assert_called_once_with()
+    r.fm_config_manager.set_system_migration_version.assert_not_called()
+    r.fm_config_manager.export_to_toml.assert_not_called()
 
 
 def test_services_migrate_is_a_noop_when_already_current(out):

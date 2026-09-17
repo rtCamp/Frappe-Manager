@@ -24,8 +24,6 @@ Changes take effect on next `fm start` or service restart.
 Minimal example showing common settings:
 
 ```toml
-version = "0.20.0"
-
 ngrok_auth_token = "2abc..."
 
 [validation]
@@ -90,17 +88,9 @@ migrated_to = "0.20.0"
 
 Settings in `~/frappe/fm_config.toml` apply to all benches and FM operations.
 
-### `version` {#version}
+### `version` (retired) {#version}
 
-**Default:** (auto-managed)  
-**Type:** `string`  
-**File key:** `version`
-
-FM version that last wrote this config file. Automatically updated by FM. Do not edit manually.
-
-```toml
-version = "0.20.0"
-```
+Older releases kept a top-level `version` key recording the FM version that last wrote the file. It carried no meaning of its own and is retired: FM removes it on the next write, and the migration state below is the only version key. A leftover `version` line in an old file is harmless.
 
 ---
 
@@ -214,13 +204,13 @@ Static addressing for the global frontend Docker network: `subnet_cidr` is the C
 
 ### `migration_state` {#fm-migration-state}
 
-**File key:** `[migration_state]` → `system_migrated_to`
+**File key:** `[migration_state]` → `migrated_to`
 
-FM version the global infrastructure was last migrated to. Managed by `fm migrate`; do not edit.
+FM version the global services & configuration were last migrated to, stamped by `fm services migrate` (the same key name the per-bench ledger uses in `bench_config.toml`). Do not edit. Files written before the key rename carry `system_migrated_to`; FM reads it and rewrites it to the new name on the next migration.
 
 ```toml
 [migration_state]
-system_migrated_to = "0.20.0"
+migrated_to = "0.21.0"
 ```
 
 ---

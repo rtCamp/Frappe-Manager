@@ -154,7 +154,7 @@ def _prompt_and_run_migration(
     executor_kwargs: dict[str, Any],
     failure_error: str,
     failure_hint: str,
-    record_version: Callable[[], None],
+    record_version: Callable[[], None] | None,
     success_notice: str,
     skip_error: str,
     skip_hint: str,
@@ -178,10 +178,11 @@ def _prompt_and_run_migration(
     the wording and emoji placement (infra puts its emoji in the message and indents the
     detail line, bench passes the emoji separately), the executor arguments
     (``migrate_global_services`` vs ``target_benches``), where the new version is recorded
-    (``fm_config_manager.set_system_migration_version`` + ``export_to_toml`` vs
-    ``set_bench_migration_version(bench_path, ...)`` -- hence the ``record_version`` callback),
-    and the refusal text: the bench gate emits an extra "skipped"/"may not work" notice
-    (``skip_warning`` / ``skip_note``) that the infrastructure gate does not.
+    (the infra gate passes ``record_version=None`` because the executor itself is the sole
+    stamper of the services-tier ledger, while the bench gate still stamps via
+    ``set_bench_migration_version(bench_path, ...)`` -- hence the callback), and the refusal
+    text: the bench gate emits an extra "skipped"/"may not work" notice (``skip_warning`` /
+    ``skip_note``) that the infrastructure gate does not.
     """
     output.warning(warning)
     output.print(detail, emoji_code=detail_emoji)
@@ -211,7 +212,8 @@ def _prompt_and_run_migration(
             output.print(failure_hint, emoji_code="")
             raise typer.Exit(1)
 
-        record_version()
+        if record_version is not None:
+            record_version()
         output.print(success_notice, emoji_code="✅ ")
         return
 
@@ -410,9 +412,10 @@ def app_callback(
                         shutil.rmtree(CLI_DIR)
                     output.exit("Aborting. Not able to pull all required Docker images")
 
-                current_version = Version(get_current_fm_version())
-                fm_config_manager.version = current_version
-                fm_config_manager.export_to_toml()
+                # Stamp the services-tier ledger at the current version: everything this host
+                # will ever manage is being created by THIS fm, so there is nothing to migrate
+                # and the gates must read "current" from the very first command.
+                fm_config_manager.set_system_migration_version(Version(get_current_fm_version()))
 
             from frappe_manager.migration_manager.migration_constants import (
                 MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS,
@@ -492,10 +495,6 @@ def app_callback(
                 # after a successful infra update, exactly as when it was nested inside it.
                 if infra_needs_migration:
 
-                    def record_infra_version() -> None:
-                        fm_config_manager.set_system_migration_version(current_version)
-                        fm_config_manager.export_to_toml()
-
                     _prompt_and_run_migration(
                         output,
                         fm_config_manager,
@@ -517,7 +516,7 @@ def app_callback(
                         },
                         failure_error="Global services & configuration update failed",
                         failure_hint="Please run 'fm services migrate' manually to fix.",
-                        record_version=record_infra_version,
+                        record_version=None,
                         success_notice=f"Global services & configuration updated to v{current_version}\n",
                         skip_error="Cannot proceed - fm's global services & configuration need migration",
                         skip_hint="Run 'fm services migrate' when ready",

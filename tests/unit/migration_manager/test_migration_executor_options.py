@@ -8,7 +8,7 @@ from frappe_manager.migration_manager.version import Version
 
 class TestMigrationExecutorWithOptions:
     def test_executor_accepts_skip_backup_option(self, mock_fm_config):
-        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
@@ -23,7 +23,7 @@ class TestMigrationExecutorWithOptions:
             assert executor.on_failure == "prompt"
 
     def test_executor_accepts_the_kind_scoped_backup_flags(self, mock_fm_config):
-        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
@@ -36,7 +36,7 @@ class TestMigrationExecutorWithOptions:
             assert executor.skip_db_backup is True
 
     def test_executor_accepts_exclude_benches_list(self, mock_fm_config):
-        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
@@ -47,7 +47,7 @@ class TestMigrationExecutorWithOptions:
             assert executor.exclude_benches == ["old-bench", "test-bench"]
 
     def test_executor_accepts_auto_proceed_option(self, mock_fm_config):
-        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
@@ -58,7 +58,7 @@ class TestMigrationExecutorWithOptions:
             assert executor.auto_proceed is True
 
     def test_executor_accepts_all_options_combined(self, mock_fm_config):
-        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
@@ -82,7 +82,7 @@ class TestMigrationExecutorWithOptions:
 
 class TestMigrationExecutorAutoProceedFlag:
     def test_auto_proceed_skips_initial_confirmation_prompt(self, mock_fm_config):
-        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
         mock_fm_config.export_to_toml = Mock(return_value=True)
 
         class MockMigration:
@@ -138,7 +138,7 @@ class TestMigrationExecutorAutoProceedFlag:
             assert auto_proceed_call_found is True
 
     def test_without_auto_proceed_shows_confirmation_prompt(self, mock_fm_config):
-        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
         mock_fm_config.export_to_toml = Mock(return_value=True)
 
         with (
@@ -159,7 +159,7 @@ class TestMigrationExecutorAutoProceedFlag:
 
 class TestMigrationExecutorBackupOptions:
     def test_skip_backup_passed_to_migration_instance(self, mock_fm_config):
-        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
@@ -172,7 +172,7 @@ class TestMigrationExecutorBackupOptions:
     def test_skip_backup_for_stays_as_an_inert_empty_list_for_frozen_migrations(self, mock_fm_config):
         """No flag feeds this anymore (skips are by KIND), but the frozen v0.19.0 migration
         reads it off the executor; removing the attribute would break every upgrade chain."""
-        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
@@ -185,7 +185,7 @@ class TestMigrationExecutorBackupOptions:
 
 class TestMigrationExecutorExcludeBenches:
     def test_exclude_benches_list_available_to_migration(self, mock_fm_config):
-        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
@@ -202,14 +202,14 @@ class TestMigrationExecutorExcludeBenches:
 @pytest.fixture
 def mock_fm_config():
     config = Mock()
-    config.version = Version("0.18.0")
+    config.get_system_migration_version.return_value = Version("0.18.0")
     config.export_to_toml = Mock(return_value=True)
     return config
 
 
 class TestMigrationExecutorOnFailureParameter:
     def test_on_failure_archive_archives_failed_benches(self, mock_fm_config):
-        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
         mock_fm_config.export_to_toml = Mock(return_value=True)
 
         with (
@@ -222,7 +222,7 @@ class TestMigrationExecutorOnFailureParameter:
             assert executor.on_failure == "archive"
 
     def test_on_failure_rollback_rolls_back_all_benches(self, mock_fm_config):
-        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
         mock_fm_config.export_to_toml = Mock(return_value=True)
 
         with (
@@ -235,7 +235,7 @@ class TestMigrationExecutorOnFailureParameter:
             assert executor.on_failure == "rollback"
 
     def test_on_failure_prompt_asks_user(self, mock_fm_config):
-        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
         mock_fm_config.export_to_toml = Mock(return_value=True)
 
         with (
@@ -248,7 +248,7 @@ class TestMigrationExecutorOnFailureParameter:
             assert executor.on_failure == "prompt"
 
     def test_on_failure_default_is_prompt(self, mock_fm_config):
-        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
         mock_fm_config.export_to_toml = Mock(return_value=True)
 
         with (

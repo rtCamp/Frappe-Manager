@@ -50,7 +50,7 @@ def mock_services_path(tmp_path):
 def mock_fm_config():
     """Mock FMConfigManager."""
     config = Mock()
-    config.version = Version("0.18.0")
+    config.get_system_migration_version.return_value = Version("0.18.0")
     return config
 
 
