@@ -873,7 +873,9 @@ queue = "redis://r.example:6379/1"
 !!! danger "Cache and queue need different logical databases"
     Loading the config fails when they share one. A restore calls `frappe.cache.delete_keys("")`, a mass delete, so a shared index would wipe the queue along with the cache.
 
-**Set via:** `fm create BENCH --redis-cache URL --redis-queue URL`
+**Set via:** `fm create BENCH --redis-cache URL --redis-queue URL` at create time; `fm update BENCH --redis-cache URL --redis-queue URL` afterwards, and `fm update BENCH --no-redis` to go back to FM's own per-bench redis containers. Both URLs are always required together: a redis-less bench is not a thing, and a half-configured pair would leave the queue on FM's container while the cache moved away.
+
+Changing the endpoints re-renders the compose file and recreates the whole bench, because the two per-bench redis containers appear or disappear with this table and every process holds its connection from start-up. Queued jobs and cached sessions do **not** move with the endpoint: anything still in the old queue is left there, and sessions are invalidated by the cache change. Workers drain first, so in-flight jobs finish before the switch (see [`[workers]`](#workers)).
 
 ---
 

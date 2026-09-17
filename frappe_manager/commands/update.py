@@ -16,6 +16,7 @@ from frappe_manager.site_manager.bench_config import (
     RestartPolicyEnum,
 )
 from frappe_manager.site_manager.modules import db_tls
+from frappe_manager.site_manager.modules.compose_shape import BENCH_REDIS_SERVICES
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployOrchestrator
 from frappe_manager.site_manager.modules.worker_drain import drain_gate
 from frappe_manager.site_manager.site import Bench
@@ -30,6 +31,7 @@ from frappe_manager.utils.site import host_bench_dir
 _PANEL_BENCH = "Bench Options"
 _PANEL_RUNTIME = "Bench Options: Runtime"
 _PANEL_MOUNT = "Bench Options: Workspace (mount runtime only)"
+_PANEL_REDIS = "Bench Options: External Redis (every site)"
 _PANEL_SITE = "Site Options (BENCH alone means its primary site)"
 
 
@@ -210,6 +212,33 @@ def update(
             rich_help_panel=_PANEL_BENCH,
         ),
     ] = True,
+    redis_cache: Annotated[
+        str | None,
+        typer.Option(
+            "--redis-cache",
+            help="Point the bench's framework cache at an external redis, e.g. redis://r.example:6379/0. Requires --redis-queue.",
+            show_default=False,
+            rich_help_panel=_PANEL_REDIS,
+        ),
+    ] = None,
+    redis_queue: Annotated[
+        str | None,
+        typer.Option(
+            "--redis-queue",
+            help="Point the bench's queue and realtime at an external redis, e.g. redis://r.example:6379/1. Requires --redis-cache.",
+            show_default=False,
+            rich_help_panel=_PANEL_REDIS,
+        ),
+    ] = None,
+    no_redis: Annotated[
+        bool,
+        typer.Option(
+            "--no-redis",
+            help="Drop the external redis and go back to fm's own per-bench redis containers.",
+            show_default=False,
+            rich_help_panel=_PANEL_REDIS,
+        ),
+    ] = False,
     db_ca: Annotated[
         Path | None,
         typer.Option(
@@ -262,6 +291,9 @@ def update(
         skip_version_check=skip_version_check,
         recreate_python_env=recreate_python_env,
         db_ca=db_ca,
+        redis_cache=redis_cache,
+        redis_queue=redis_queue,
+        no_redis=no_redis,
     )
 
     orchestrator = DeployOrchestrator(bench, output_handler=output)
@@ -340,6 +372,9 @@ def _apply_plan(bench: Bench, plan: UpdatePlan, output) -> None:
     if plan.node_version is not None:
         bench.bench_config.node_version = plan.node_version
 
+    if plan.redis_change:
+        bench.bench_config.redis = plan.redis
+
     # Saved only when something above actually assigned a field. The two paths that own their own
     # write are deliberately excluded: `_demote_to_mount` persists the moment the workspace exists
     # (a later failure must not leave the file claiming image runtime for a bench now on mount),
@@ -372,6 +407,18 @@ def _apply_plan(bench: Bench, plan: UpdatePlan, output) -> None:
 
 def _apply_container_work(bench: Bench, plan: UpdatePlan, output) -> None:
     """Render compose and act on the accumulated container set, once each."""
+    if plan.redis_change:
+        # `common_site_config.json` is where every bench process reads its redis from, not the
+        # compose environment, so the config save alone changes nothing that runs. Written before
+        # the recreate below, which is what makes the processes pick it up.
+        output.change_head("Pointing the bench at its new redis")
+        redis_keys = {
+            key: value
+            for key, value in bench.bench_config.get_commmon_site_config_data().items()
+            if key.startswith("redis_")
+        }
+        bench.set_common_bench_config(redis_keys)
+
     if plan.regenerate_compose:
         compose_inputs = bench.bench_config.export_to_compose_inputs()
         # FRAPPE_ENV reaches no compose input of its own (`export_to_compose_inputs` omits it), so
@@ -386,6 +433,17 @@ def _apply_container_work(bench: Bench, plan: UpdatePlan, output) -> None:
                 bench.workers.generate_compose()
             if bench.admin_tools.compose_file_manager.compose_path.exists():
                 bench.admin_tools.generate_compose()
+
+    if plan.redis_change and plan.redis is not None:
+        # `set_service_disabled` puts the two per-bench redis services in the `disabled` profile,
+        # which stops compose STARTING them -- it does not stop ones already running, and a
+        # `compose up` simply ignores a service whose profile is inactive. Verified on a live
+        # bench: after a switch to an external redis both fm containers were still up, serving a
+        # queue nothing read any more. Removed explicitly, by name: `down --remove-orphans` would
+        # take the workers and admin-tools containers with them, since fm's compose files share
+        # one directory and therefore one compose project.
+        output.change_head("Removing the bench's own redis containers")
+        bench.docker_client.compose.rm(services=list(BENCH_REDIS_SERVICES), stop=True, force=True)
 
     if plan.recreate_everything:
         output.change_head("Recreating containers")

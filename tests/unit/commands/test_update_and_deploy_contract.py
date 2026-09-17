@@ -48,6 +48,7 @@ from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.site_manager.bench_config import (
     BenchRuntime,
     FMBenchEnvType,
+    RedisConfig,
     RestartPolicyEnum,
 )
 from frappe_manager.site_manager.exceptions import BenchNotRunning
@@ -100,6 +101,17 @@ class UpdateWorld:
         # kill_timeout (15s) instead of an unpredictable MagicMock repr.
         cfg.workers = None
         cfg.telemetry = None
+        # A bench on fm's own redis containers, i.e. no `[redis]` table. Left as a MagicMock it
+        # reads as an external redis, which is not the default a bench has.
+        cfg.redis = None
+        # The real payload shape, derived from the config so the redis keys the command pushes to
+        # common_site_config.json are the ones the config actually holds.
+        cfg.get_commmon_site_config_data.side_effect = lambda: {
+            "redis_cache": cfg.redis.cache if cfg.redis else "redis://fm__mybench__redis-cache:6379",
+            "redis_queue": cfg.redis.queue if cfg.redis else "redis://fm__mybench__redis-queue:6379",
+            "redis_socketio": cfg.redis.cache if cfg.redis else "redis://fm__mybench__redis-cache:6379",
+            "developer_mode": cfg.developer_mode,
+        }
         # The command reads telemetry through the helper and writes it back through the
         # attribute, so the double has to keep the two consistent.
         cfg.get_telemetry_config.side_effect = lambda provider="newrelic": getattr(cfg.telemetry, provider, None) if cfg.telemetry else None
@@ -1443,3 +1455,130 @@ class TestWorkerDrainGate:
             world.run(python_version="3.12")
 
         world.orchestrator.resume_workers.assert_called_once_with()
+
+
+class TestExternalRedis:
+    """`[redis]` stops being a one-way door.
+
+    `fm create --redis-cache/--redis-queue` wrote the table and nothing changed it afterwards, so
+    moving a bench onto a managed redis (or back off one) meant hand-editing bench_config.toml --
+    which was also the only path with NO validation, since create's scheme refusal never sees a
+    hand edit. That is why the loader warns instead of raising on a bad scheme: raising on read
+    would take `fm list` down for every bench on the host.
+    """
+
+    CACHE = "redis://r.example:6379/0"
+    QUEUE = "redis://r.example:6379/1"
+
+    def test_both_urls_are_recorded_and_pushed_to_the_bench(self, world):
+        """The config save alone changes nothing that RUNS: every process reads its redis from
+        common_site_config.json, so that file is what makes the endpoints take effect."""
+        world.run(redis_cache=self.CACHE, redis_queue=self.QUEUE)
+
+        assert world.config.redis.cache == self.CACHE
+        assert world.config.redis.queue == self.QUEUE
+        assert world.saves == 1
+        pushed = world.bench.set_common_bench_config.call_args.args[0]
+        assert pushed["redis_cache"] == self.CACHE
+        assert pushed["redis_queue"] == self.QUEUE
+
+    def test_one_url_alone_is_refused_before_anything_is_written(self, world):
+        """A half-configured pair would leave the queue on fm's container while the cache moved."""
+        with pytest.raises(typer.BadParameter) as exc:
+            world.run(redis_cache=self.CACHE)
+
+        assert "--redis-queue" in exc.value.message
+        assert world.saves == 0
+        assert world.compose_up_calls == []
+
+    def test_an_unsupported_scheme_is_refused(self, world):
+        """The validation create had and the hand-edit path never got."""
+        with pytest.raises(typer.BadParameter) as exc:
+            world.run(redis_cache="http://r.example:6379/0", redis_queue=self.QUEUE)
+
+        assert "--redis-cache" in exc.value.message
+        assert world.saves == 0
+
+    def test_a_shared_logical_database_is_refused(self, world):
+        """A restore calls `frappe.cache.delete_keys("")`, a mass delete, so one shared index
+        would destroy the queue along with the cache."""
+        with pytest.raises(typer.BadParameter):
+            world.run(redis_cache=self.CACHE, redis_queue=self.CACHE)
+
+        assert world.saves == 0
+
+    def test_no_redis_reverts_to_the_managed_containers(self, world):
+        world.config.redis = RedisConfig(cache=self.CACHE, queue=self.QUEUE)
+
+        world.run(no_redis=True)
+
+        assert world.config.redis is None
+        assert world.saves == 1
+
+    def test_clearing_the_table_still_saves_the_config(self, world):
+        """`--no-redis` sets the target to None, which an `is not None` scan reads as "not
+        changing": the save would be skipped and the recreated containers would run on a config
+        the file no longer described."""
+        world.config.redis = RedisConfig(cache=self.CACHE, queue=self.QUEUE)
+
+        world.run(no_redis=True)
+
+        world.bench.save_bench_config.assert_called_once_with()
+
+    def test_the_two_intents_cannot_be_combined(self, world):
+        with pytest.raises(typer.BadParameter) as exc:
+            world.run(no_redis=True, redis_cache=self.CACHE, redis_queue=self.QUEUE)
+
+        assert "--no-redis cannot combine" in exc.value.message
+        assert world.saves == 0
+
+    def test_the_same_endpoints_again_is_nothing_to_do(self, world):
+        world.config.redis = RedisConfig(cache=self.CACHE, queue=self.QUEUE)
+
+        world.run(redis_cache=self.CACHE, redis_queue=self.QUEUE)
+
+        assert world.prints == ["mybench.localhost: nothing to do (redis already points at those endpoints)"]
+        assert world.compose_up_calls == []
+        assert world.saves == 0
+
+    def test_no_redis_on_a_managed_bench_is_nothing_to_do(self, world):
+        world.run(no_redis=True)
+
+        assert any("already fm's own per-bench containers" in line for line in world.prints)
+        assert world.compose_up_calls == []
+
+    def test_the_whole_bench_is_recreated(self, world):
+        """The two per-bench redis CONTAINERS appear or disappear with this setting, and every
+        process holds its connection from start-up, so a named subset would leave a queue nothing
+        reads and a frappe still dialling the old endpoint."""
+        world.run(redis_cache=self.CACHE, redis_queue=self.QUEUE)
+
+        world.bench.generate_compose.assert_called_once()
+        assert world.compose_up_calls[0].kwargs == {"detach": True, "force_recreate": True}
+
+    def test_it_warns_that_queued_jobs_do_not_move(self, world):
+        world.run(redis_cache=self.CACHE, redis_queue=self.QUEUE, dry_run=True)
+
+        assert any("do NOT move with the endpoint" in w for w in world.warnings)
+        assert world.saves == 0
+
+    def test_going_external_removes_fms_own_redis_containers(self, world):
+        """The `disabled` compose profile stops compose STARTING them; it does not stop ones
+        already running, and an `up` ignores a service whose profile is inactive. Measured on a
+        live bench: after a switch both fm redis containers were still up, serving a queue nothing
+        read. Removed BY NAME, because `down --remove-orphans` would take the workers and
+        admin-tools containers with them: fm's compose files share one directory, so one project."""
+        world.run(redis_cache=self.CACHE, redis_queue=self.QUEUE)
+
+        world.bench.docker_client.compose.rm.assert_called_once_with(
+            services=["redis-cache", "redis-queue"], stop=True, force=True
+        )
+
+    def test_reverting_does_not_remove_them(self, world):
+        """Going back the other way must LEAVE them: the profile is cleared, so the recreate is
+        what starts them, and removing them first would be a pointless extra churn."""
+        world.config.redis = RedisConfig(cache=self.CACHE, queue=self.QUEUE)
+
+        world.run(no_redis=True)
+
+        world.bench.docker_client.compose.rm.assert_not_called()

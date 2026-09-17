@@ -32,11 +32,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import typer
+from pydantic import ValidationError
 
 from frappe_manager import EnableDisableOptionsEnum
 from frappe_manager.site_manager.bench_config import (
     BenchRuntime,
     FMBenchEnvType,
+    RedisConfig,
     RestartPolicyEnum,
     WorkersConfig,
     extract_node_version_requirement,
@@ -48,6 +50,7 @@ from frappe_manager.site_manager.bench_config import (
     validate_python_version_compatibility,
 )
 from frappe_manager.site_manager.exceptions import BenchNotRunning
+from frappe_manager.site_manager.modules.compose_shape import unsupported_redis_scheme
 from frappe_manager.site_manager.site import UPLOAD_LIMIT_RE, Bench
 from frappe_manager.utils.site import host_bench_dir
 
@@ -103,6 +106,11 @@ class UpdatePlan:
     python_version: str | None = None
     node_version: str | None = None
     recreate_python_env: bool = True
+    # `redis` carries None both for "not changing" and for "revert to the fm-managed
+    # containers", so the intent needs its own flag. Everything else on this list can say
+    # "unchanged" with None because None is not a legal value for it.
+    redis: RedisConfig | None = None
+    redis_change: bool = False
 
     # -- derived work ---------------------------------------------------------
     regenerate_compose: bool = False
@@ -126,7 +134,10 @@ class UpdatePlan:
         the point its other writes need it; counting them here produced a second, redundant write
         of the same file.
         """
-        return any(
+        # `redis_change` is tested, not `redis`: clearing `[redis]` sets the target to None, which
+        # an `is not None` scan reads as "not changing" and would silently skip the save, leaving
+        # the recreated containers on a config the file no longer describes.
+        return self.redis_change or any(
             value is not None
             for value in (
                 self.db_ca,
@@ -190,6 +201,78 @@ class UpdatePlan:
         return f"interrupt in-flight jobs (SIGUSR1, force-stop after {self.kill_timeout}s)"
 
 
+def _plan_redis(
+    plan: UpdatePlan,
+    config,
+    *,
+    redis_cache: str | None,
+    redis_queue: str | None,
+    no_redis: bool,
+) -> None:
+    """Move the bench between an external redis and fm's own per-bench containers.
+
+    Before this, `[redis]` was a one-way door: `fm create --redis-cache/--redis-queue` wrote it
+    and nothing could change it afterwards, so moving a bench onto a managed redis (or back off
+    one) meant hand-editing bench_config.toml. That was also the only path with NO validation --
+    `create.py`'s scheme refusal never sees a hand edit, which is exactly why the loader warns
+    instead of raising on a bad scheme (a raise there would take `fm list` down for every bench
+    on the host).
+
+    Both URLs are required together, same as at create: a redis-less bench is not a thing, and a
+    half-configured pair would leave the queue on fm's container while the cache moved away.
+    """
+    if no_redis and (redis_cache or redis_queue):
+        raise typer.BadParameter(
+            "--no-redis cannot combine with --redis-cache/--redis-queue: one reverts to fm's own "
+            "per-bench redis containers, the others point the bench at an external server."
+        )
+
+    if no_redis:
+        if config.redis is None:
+            plan.already.append("redis is already fm's own per-bench containers")
+            return
+        plan.redis, plan.redis_change = None, True
+        plan.changes.append(f"redis  external ({config.redis.cache}) -> fm's own per-bench containers")
+    elif redis_cache or redis_queue:
+        if not (redis_cache and redis_queue):
+            missing = "--redis-queue" if redis_cache else "--redis-cache"
+            raise typer.BadParameter(
+                f"--redis-cache and --redis-queue must be given together, and {missing} is missing. A "
+                "redis-less bench is not a thing: a missing redis_queue raises outright and redis_cache "
+                "backs the document cache and sessions."
+            )
+        for flag, url in (("--redis-cache", redis_cache), ("--redis-queue", redis_queue)):
+            problem = unsupported_redis_scheme(url)
+            if problem:
+                raise typer.BadParameter(f"{flag}: {problem}")
+        try:
+            wanted = RedisConfig(cache=redis_cache, queue=redis_queue)
+        except ValidationError as error:
+            raise typer.BadParameter(f"--redis-cache / --redis-queue: {error.errors()[0]['msg']}") from error
+
+        current = config.redis
+        if current and (current.cache, current.queue) == (wanted.cache, wanted.queue):
+            plan.already.append("redis already points at those endpoints")
+            return
+        plan.redis, plan.redis_change = wanted, True
+        was = f"external ({current.cache})" if current else "fm's own per-bench containers"
+        plan.changes.append(f"redis  {was} -> {wanted.cache} / {wanted.queue}")
+    else:
+        return
+
+    # Every process holds its redis connection from `common_site_config.json`, and the two
+    # per-bench redis CONTAINERS appear or disappear with this setting (`redis_service_specs`
+    # keys their compose profile off `[redis]` being absent). So the whole bench is re-rendered
+    # and recreated rather than a named subset: leaving the old containers up would keep a queue
+    # nothing reads, and leaving frappe up would keep it dialling the endpoint it started with.
+    plan.regenerate_compose = True
+    plan.recreate_everything = True
+    plan.warnings.append(
+        "queued jobs and cached sessions do NOT move with the endpoint: anything still in the old "
+        "queue is left there, and sessions are invalidated by the cache change.",
+    )
+
+
 def _refuse_immutable_runtime(bench: Bench, output, runtime: BenchRuntime | None) -> None:
     if runtime == BenchRuntime.mount:
         output.display_error(
@@ -221,6 +304,9 @@ def plan_update(
     skip_version_check: bool = False,
     recreate_python_env: bool | None = None,
     db_ca: Path | None = None,
+    redis_cache: str | None = None,
+    redis_queue: str | None = None,
+    no_redis: bool = False,
 ) -> UpdatePlan:
     """Decide the whole update, refusing anything invalid, without touching the bench.
 
@@ -369,6 +455,8 @@ def plan_update(
         else:
             plan.upload_limit = normalized
             plan.changes.append(f"upload limit  {config.upload_limit} -> {normalized}")
+
+    _plan_redis(plan, config, redis_cache=redis_cache, redis_queue=redis_queue, no_redis=no_redis)
 
     if python_version and python_version != config.python_version:
         plan.python_version = python_version
