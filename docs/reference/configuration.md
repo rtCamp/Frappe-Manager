@@ -809,7 +809,7 @@ Worker care: how `fm restart` and the `fm switch` pipeline treat RQ workers and 
 
 | Key | Default | Meaning |
 |---|---|---|
-| `drain` | `true` | drain RQ workers before cycling (fm restart, fm update, fm apps add, fm switch) |
+| `drain` | `true` | drain RQ workers before cycling or stopping (fm restart, fm update, fm stop, fm apps add, fm switch) |
 | `drain_timeout` | `300` | seconds to wait for in-flight jobs; restart and switch abort when exceeded |
 | `drain_poll` | `5` | poll interval while draining |
 | `skip_stale` | `true` | skip idle workers that stop responding |
