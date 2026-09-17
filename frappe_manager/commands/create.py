@@ -200,6 +200,42 @@ def _build_bench_config(
     return bc
 
 
+def _print_resolved_config(output, address: str, bc: BenchConfig) -> None:
+    """Print the bench_config.toml this invocation WOULD write, and nothing else.
+
+    Answers the one question `fm create`'s flag surface cannot: after create defaults, then each
+    ``--config``, then the explicit flags, what is the bench actually going to be? The layering is
+    resolved in `_build_bench_config` and was previously only observable by creating the bench and
+    reading the file afterwards.
+
+    Rendered through `export_to_toml`, the same writer `fm create` uses, rather than a second
+    formatter: a preview that can disagree with what lands on disk is worse than no preview. That
+    also means every field fm refuses to persist (`NOT_WRITTEN_TO_DISK`: the provisioning admin
+    credentials, the generated DB password, `admin_pass`) is absent here for free, because it is
+    absent from the real write.
+
+    The output is valid `--config` input, so it round-trips: preview, save, pass back.
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rendered = Path(tmp) / "bench_config.toml"
+        bc.export_to_toml(rendered)
+        text = rendered.read_text()
+
+    # `github_token` IS written to disk, so the writer keeps it -- but a preview goes to a terminal,
+    # a scrollback buffer and any CI log that captures stdout, and it is the user's GitHub
+    # credential rather than a bench-local generated one. Shown as present, never echoed.
+    if bc.github_token:
+        text = text.replace(bc.github_token, "<redacted>")
+
+    # Plain lines, not a rich panel: this is a copy target (see commands/list.py:61 -- rich cells
+    # truncate or fold, both of which corrupt a pasted path or an image ref).
+    output.stop()
+    typer.echo(f"# {address}: resolved bench_config.toml (nothing was created)")
+    typer.echo(text.rstrip())
+
+
 def _refuse_immutable_inputs(bc: BenchConfig) -> None:
     """Refuse mount-only inputs on an image bench, whichever way they were spelled.
 
@@ -828,6 +864,14 @@ def create(
             show_default=False,
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Print the bench_config.toml this invocation would write, after --config and the flags are merged, and exit without creating anything.",
+            show_default=False,
+        ),
+    ] = False,
     github_token: Annotated[
         str | None,
         typer.Option(
@@ -1263,6 +1307,10 @@ def create(
     if bench_config.restart_policy == RestartPolicyEnum.no and bench_config.environment_type == FMBenchEnvType.prod:
         output.warning("⚠️  Creating production bench with restart policy 'no'")
         output.warning("    Containers will not auto-recover from failures or system reboots")
+
+    if dry_run:
+        _print_resolved_config(output, address, bench_config)
+        return
 
     with spinner(output, "Creating bench"):
         bench_service.create_bench(address, bench_config, bench_only=bench_only, remove_on_failure=remove_on_failure)

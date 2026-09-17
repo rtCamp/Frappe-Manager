@@ -34,7 +34,9 @@ SITE_PREFIX = "Site Options"
 
 # Options that belong to NEITHER half: they decide whether the site part happens at all or decide
 # what a FAILED create does. They stay in the default box, which is why it is not renamed.
-UNSCOPED = {"bench_only", "remove_on_failure", "help"}
+# `--dry-run` joins them because the panels answer "which part of BENCH/SITE does this value land
+# on", and a mode that writes nothing lands on neither.
+UNSCOPED = {"bench_only", "remove_on_failure", "dry_run", "help"}
 
 # `fm create` and `fm update` are the only address commands with enough options for panels to beat
 # one list: the other eight have between one and eight, where splitting is noise. Asserted below so

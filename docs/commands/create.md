@@ -25,6 +25,7 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `--developer-mode`: Let DocType edits write app source files. Already on for a dev-environment bench.
 * `--bench-only`: Create the bench (config, directory, workspace or image, and containers) with no site in it. 'fm create BENCH/SITE' adds a site afterwards, into the workspace and containers already there. Every Site Option is ignored: there is no site yet for them to describe.
 * `--remove-on-failure`: On failure, skip the removal prompt and remove the bench directory and its containers, interactively or not, instead of asking (interactive) or declining and reporting (non-interactive). The command still exits non-zero either way: this cleans up, it does not turn the failure into success. Never drops a schema on an external database (--db-host); that stays declined whether this is passed or not.
+* `--dry-run`: Print the bench_config.toml this invocation would write, after --config and the flags are merged, and exit without creating anything.
 * `-t, --github-token`: Token for cloning private app repos.
 * `--python`: Python version, e.g. '3.11'. Auto-detected by default.
 * `--node`: Node version, e.g. '20'. Auto-detected by default.

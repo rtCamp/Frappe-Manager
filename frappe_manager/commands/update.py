@@ -221,7 +221,6 @@ def update(
             "--dry-run",
             help="Print what would change and exit without touching the bench.",
             show_default=False,
-            rich_help_panel=_PANEL_BENCH,
         ),
     ] = False,
 ):
