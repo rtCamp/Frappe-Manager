@@ -28,6 +28,7 @@ Same plan/execute seam `utils/prune.py` already uses (`plan_session_prune` ->
 code path that can drift from the real one.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -111,6 +112,10 @@ class UpdatePlan:
     # "unchanged" with None because None is not a legal value for it.
     redis: RedisConfig | None = None
     redis_change: bool = False
+    # Pending work on the redis the bench is leaving. Producers must be paused and the backlog
+    # drained before the switch, because queued jobs do NOT move with the endpoint.
+    quiesce_producers: bool = False
+    queued_jobs: int = 0
 
     # -- derived work ---------------------------------------------------------
     regenerate_compose: bool = False
@@ -210,6 +215,8 @@ def _plan_redis(
     no_redis_cache: bool,
     no_redis_queue: bool,
     no_redis: bool,
+    abandon_queued: bool,
+    queue_depth,
 ) -> None:
     """Move either redis side between an external server and fm's own per-bench container.
 
@@ -280,6 +287,33 @@ def _plan_redis(
     plan.redis, plan.redis_change = wanted, True
     plan.changes.append(f"redis  {_describe_redis(current)} -> {_describe_redis(wanted)}")
 
+    # The queue side is the only redis data that cannot be regenerated. The cache is derived
+    # (doctype meta, table columns) and WANTS to be cold after a cutover; realtime is pub/sub with
+    # nothing at rest. Pending jobs are work someone is waiting for, and they stay on the server
+    # being left behind -- so rather than copy redis (whose worker-registry keys would import
+    # phantom workers, and whose transport is blocked on the managed providers people move TO),
+    # producers are paused and the backlog is drained to zero first. Nothing to migrate then.
+    queue_side_moves = (wanted_queue or None) != (current.queue if current else None)
+    if queue_side_moves and not abandon_queued:
+        depth = queue_depth() if queue_depth else None
+        if depth is None:
+            # "Could not count" is not "empty": an unreachable endpoint or a provider that
+            # restricts the commands RQ uses lands here, and silence would read as nothing to lose.
+            plan.warnings.append(
+                "could not count what is queued on the current redis; if jobs are pending they "
+                "will be left behind -- check before proceeding, or pass --abandon-queued to accept it.",
+            )
+        elif sum(depth) > 0:
+            pending, started = depth
+            plan.quiesce_producers = True
+            plan.queued_jobs = pending
+            plan.changes.append(
+                f"queue  {pending} pending and {started} in flight: producers pause (maintenance page, "
+                "HTTP 503) until the backlog drains, since queued jobs do not move with the endpoint"
+            )
+        else:
+            plan.already.append("the current queue is empty, so no maintenance window is needed")
+
     # Every process holds its redis connection from `common_site_config.json`, and a side's
     # per-bench CONTAINER appears or disappears with it (`redis_service_specs` keys each
     # container's compose profile off that side being named). So the whole bench is re-rendered
@@ -341,6 +375,10 @@ def plan_update(
     no_redis_cache: bool = False,
     no_redis_queue: bool = False,
     no_redis: bool = False,
+    abandon_queued: bool = False,
+    # Injected rather than called from here: planning must stay side-effect free and unit
+    # testable, and counting a queue means execing a probe inside the bench container.
+    queue_depth: Callable[[], tuple[int, int] | None] | None = None,
 ) -> UpdatePlan:
     """Decide the whole update, refusing anything invalid, without touching the bench.
 
@@ -498,6 +536,8 @@ def plan_update(
         no_redis_cache=no_redis_cache,
         no_redis_queue=no_redis_queue,
         no_redis=no_redis,
+        abandon_queued=abandon_queued,
+        queue_depth=queue_depth,
     )
 
     if python_version and python_version != config.python_version:

@@ -697,3 +697,60 @@ def redis_server_identity(cache: str, queue: str, run: Runner) -> RedisIdentityR
             f"cache and queue are the same live redis server (run_id {cache_run_id}) on database index {cache_index}",
         )
     return RedisIdentityResult(RedisIdentity.DIFFERENT, "different server or different database index")
+
+
+# ------------------------------------------------------------------ queue depth
+
+# Same marker discipline as the identity probe: one JSON line, prefixed, so it survives a shell
+# profile banner or a driver warning landing on the same stream.
+REDIS_QUEUE_DEPTH_MARKER = "FM_REDIS_QUEUE_DEPTH"
+
+
+def redis_queue_depth_command(queue_url: str) -> str:
+    """``<bench venv python> -c '<script>'`` counting what is still waiting on ``queue_url``.
+
+    Read-only: ``LLEN`` per queue plus the started registry's cardinality, nothing written. Used
+    before a redis-queue cutover, where the count decides whether producers must be paused and
+    the backlog drained first -- pending jobs do NOT move with the endpoint, and they are the one
+    kind of redis data that cannot be regenerated.
+
+    Counted with RQ's own key names rather than a ``KEYS rq:*`` sweep: managed providers often
+    restrict ``KEYS``, and a sweep would also count job payloads and results, which are history
+    rather than work waiting to run.
+    """
+    url = json.dumps(queue_url)
+    return f"{BENCH_PYTHON} -c " + shlex.quote(
+        "import json\n"
+        "from redis import Redis\n"
+        "from rq import Queue\n"
+        "from rq.registry import StartedJobRegistry\n"
+        f"client = Redis.from_url({url}, socket_connect_timeout={REDIS_IDENTITY_TIMEOUT_SECONDS},"
+        f" socket_timeout={REDIS_IDENTITY_TIMEOUT_SECONDS})\n"
+        "pending = 0\n"
+        "started = 0\n"
+        "for name in Queue.all(connection=client):\n"
+        "    pending += name.count\n"
+        "    started += StartedJobRegistry(name.name, connection=client).count\n"
+        f'print("{REDIS_QUEUE_DEPTH_MARKER} " + json.dumps({{"pending": pending, "started": started}}))\n'
+    )
+
+
+def redis_queue_depth(queue_url: str, run: Runner) -> tuple[int, int] | None:
+    """``(pending, started)`` on ``queue_url``, or None when it could not be counted.
+
+    None is NOT zero, and callers must not treat it as such: an unreachable endpoint, a provider
+    that restricts the commands RQ uses, or a container that cannot run the probe all land here.
+    "I could not tell" must never read as "there is nothing to lose".
+    """
+    try:
+        text = run(redis_queue_depth_command(queue_url))
+    except Exception:
+        return None
+    for line in reversed(text.splitlines()):
+        if line.startswith(REDIS_QUEUE_DEPTH_MARKER):
+            try:
+                payload = json.loads(line[len(REDIS_QUEUE_DEPTH_MARKER) :].strip())
+                return int(payload["pending"]), int(payload["started"])
+            except (ValueError, KeyError, TypeError):
+                return None
+    return None

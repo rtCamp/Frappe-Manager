@@ -332,7 +332,7 @@ class DeployOrchestrator:
         # two endpoints cannot be the same server by construction and there is nothing to probe.
         if redis_config is None or not (redis_config.cache and redis_config.queue):
             return
-        result = redis_server_identity(redis_config.cache, redis_config.queue, self._redis_identity_runner())
+        result = redis_server_identity(redis_config.cache, redis_config.queue, self.container_command_runner())
         if result.identity is RedisIdentity.SAME:
             raise DeployError(
                 f"redis [cache] and [queue] are the same live server for bench '{self.bench.name}': "
@@ -342,7 +342,7 @@ class DeployOrchestrator:
         if result.identity is RedisIdentity.UNKNOWN:
             self.logger.debug(f"{self.bench.name}: redis identity check inconclusive: {result.detail}")
 
-    def _redis_identity_runner(self) -> Callable[[str], str]:
+    def container_command_runner(self) -> Callable[[str], str]:
         """Adapts ``_exec_frappe`` to the ``Runner`` contract ``redis_server_identity`` expects:
         one command in, its combined output text out, never raising."""
 
@@ -355,7 +355,14 @@ class DeployOrchestrator:
 
         return run
 
-    def _set_maintenance(self, value: int) -> None:
+    def set_maintenance_mode(self, value: int) -> None:
+        """Frappe's own `maintenance_mode`, not fm's nginx page.
+
+        Public because `fm update`'s redis-queue cutover needs it: this is the flag that makes
+        `is_scheduler_inactive` true (frappe/utils/scheduler.py), so it stops the scheduler
+        enqueuing -- which is what lets a backlog drain to zero instead of being topped up every
+        minute. `fm maintenance` writes only the nginx 503 block and does NOT set this.
+        """
         self._exec_frappe(f"{BENCH_BIN} --site {self.site} set-config -g maintenance_mode {value}")
 
     def _fetch_image(self, image: str) -> None:
@@ -963,7 +970,7 @@ class DeployOrchestrator:
         """
         if self._frappe_running():
             with contextlib.suppress(Exception):
-                self._set_maintenance(0)
+                self.set_maintenance_mode(0)
         self.resume_workers()
 
     def _site_installed_apps(self, site: str) -> set[str]:
@@ -1436,7 +1443,7 @@ class DeployOrchestrator:
             # 5. Maintenance ON (only for schema-grade steps: migrate/restore)
             if maintenance and self._frappe_running():
                 self.output.change_head("Enabling maintenance mode")
-                self._set_maintenance(1)
+                self.set_maintenance_mode(1)
 
             # 6. Drain workers (old container). A gate, like `fm restart`:
             # proceeding past a timed-out drain would take the backup while a
@@ -1612,7 +1619,7 @@ class DeployOrchestrator:
         except DeployError:
             if maintenance:
                 with contextlib.suppress(Exception):
-                    self._set_maintenance(0)
+                    self.set_maintenance_mode(0)
             self._record(new_image, migrate_status, backups=db_dumps)
             # The image IS live and recorded -- the deploy committed; a failing post-restart hook
             # is surfaced but the outcome is success, not an abort.
@@ -1620,7 +1627,7 @@ class DeployOrchestrator:
             raise
 
         if maintenance:
-            self._set_maintenance(0)
+            self.set_maintenance_mode(0)
 
         # 9. Record.
         self._record(new_image, migrate_status, backups=db_dumps)

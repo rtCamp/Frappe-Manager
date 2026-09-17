@@ -148,7 +148,7 @@ SPIED = (
     "_snapshot_compose",
     "_restore_compose",
     "_pin_workers",
-    "_set_maintenance",
+    "set_maintenance_mode",
     "drain_workers",
     "resume_workers",
     "_backup_all",
@@ -415,7 +415,7 @@ class TestDeployPhaseOrder:
             "_snapshot_compose",
             "render_image_compose",
             "_pin_workers",
-            "_set_maintenance",  # ON
+            "set_maintenance_mode",  # ON
             "drain_workers",
             "_backup_all",
             "_run_host_hook",  # host_before_migrate
@@ -433,7 +433,7 @@ class TestDeployPhaseOrder:
             "_exec_frappe",  # clear-cache
             "_run_container_hook",  # after_restart
             "_run_host_hook",  # host_after_restart
-            "_set_maintenance",  # OFF
+            "set_maintenance_mode",  # OFF
             "_record",
         ]
 
@@ -463,7 +463,7 @@ class TestDeployPhaseOrder:
         r = rig()
         r.orch.deploy(NEW_TAG)
         order = r.order
-        assert order.index("_set_maintenance") < order.index("drain_workers") < order.index("_backup_all")
+        assert order.index("set_maintenance_mode") < order.index("drain_workers") < order.index("_backup_all")
         assert order.index("_backup_all") < order.index("_migrate")
 
     def test_backup_directory_is_a_timestamped_deploy_dir_under_backups(self, rig, tmp_path):
@@ -633,9 +633,9 @@ class TestMaintenanceWindow:
     def test_window_opens_before_the_drain_and_closes_after_the_post_hooks(self, rig):
         r = rig()
         r.orch.deploy(NEW_TAG)
-        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
+        assert [a[0] for a, _k in r.calls("set_maintenance_mode")] == [1, 0]
         order = r.order
-        on, off = (i for i, n in enumerate(order) if n == "_set_maintenance")
+        on, off = (i for i, n in enumerate(order) if n == "set_maintenance_mode")
         assert on < order.index("drain_workers")
         assert on < order.index("_migrate")
         assert order.index("_rolling_swap") < off
@@ -646,12 +646,12 @@ class TestMaintenanceWindow:
     def test_no_schema_step_means_no_maintenance_page_at_all(self, rig):
         r = rig(switch=SwitchConfig(migrate=False))
         r.orch.deploy(NEW_TAG)
-        r.orch._set_maintenance.assert_not_called()
+        r.orch.set_maintenance_mode.assert_not_called()
 
     def test_maintenance_mode_false_migrates_without_the_page(self, rig):
         r = rig(switch=SwitchConfig(migrate=True, maintenance_mode=False))
         r.orch.deploy(NEW_TAG)
-        r.orch._set_maintenance.assert_not_called()
+        r.orch.set_maintenance_mode.assert_not_called()
         r.orch._migrate.assert_called_once()
 
     def test_maintenance_needs_a_running_container_to_switch_on(self, rig):
@@ -659,13 +659,13 @@ class TestMaintenanceWindow:
         deploy' -- the OFF write at the end is issued unconditionally."""
         r = rig(running=False)
         r.orch.deploy(NEW_TAG)
-        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [0]
+        assert [a[0] for a, _k in r.calls("set_maintenance_mode")] == [0]
 
     def test_a_restore_dump_opens_the_window_even_without_a_migrate(self, rig, tmp_path):
         dump = tmp_path / "old.sql"
         r = rig(switch=SwitchConfig(migrate=False))
         r.orch.deploy(NEW_TAG, restore_db_dumps={SITE: dump})
-        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
+        assert [a[0] for a, _k in r.calls("set_maintenance_mode")] == [1, 0]
         r.orch._restore_db.assert_called_once_with(SITE, dump, requested=True, confirmed=False)
 
     def test_empty_maintenance_phases_skips_the_maintenance_window(self, rig):
@@ -676,7 +676,7 @@ class TestMaintenanceWindow:
         phases to get a page-less additive migrate took the downtime anyway."""
         r = rig(switch=SwitchConfig(migrate=True, maintenance_mode=True, maintenance_mode_phases=[]))
         r.orch.deploy(NEW_TAG)
-        assert r.calls("_set_maintenance") == []
+        assert r.calls("set_maintenance_mode") == []
         r.orch._migrate.assert_called_once_with(NEW_TAG)
 
     def test_a_populated_phases_list_still_opens_the_window_for_a_restore(self, rig, tmp_path):
@@ -684,7 +684,7 @@ class TestMaintenanceWindow:
         phase name, and a restore under the default ``["migrate"]`` still gets the page."""
         r = rig(switch=SwitchConfig(migrate=False, maintenance_mode_phases=["migrate"]))
         r.orch.deploy(NEW_TAG, restore_db_dumps={SITE: tmp_path / "old.sql"})
-        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
+        assert [a[0] for a, _k in r.calls("set_maintenance_mode")] == [1, 0]
 
 
 # ======================================================== deploy: backup rule
@@ -763,7 +763,7 @@ class TestDrainAbortGate:
         with pytest.raises(DeployError):
             r.orch.deploy(NEW_TAG)
         r.orch._restore_compose.assert_called_once_with({"snap": b"x"})
-        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
+        assert [a[0] for a, _k in r.calls("set_maintenance_mode")] == [1, 0]
 
 
 # ================================================ deploy: pre-swap abort path
@@ -775,7 +775,7 @@ class TestPreSwapAbort:
         with pytest.raises(DeployError, match="hook exploded"):
             r.orch.deploy(NEW_TAG)
         r.orch._restore_compose.assert_called_once_with({"snap": b"x"})
-        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
+        assert [a[0] for a, _k in r.calls("set_maintenance_mode")] == [1, 0]
         r.orch._rolling_swap.assert_not_called()
         r.orch._record.assert_not_called()
 
@@ -784,7 +784,7 @@ class TestPreSwapAbort:
         with pytest.raises(DeployError, match="hook exploded"):
             r.orch.deploy(NEW_TAG)
         r.orch._restore_compose.assert_called_once()
-        r.orch._set_maintenance.assert_not_called()
+        r.orch.set_maintenance_mode.assert_not_called()
 
     def test_a_pre_swap_abort_always_un_suspends_the_workers(self, rig):
         """A drained deploy that aborts must not leave RQ suspended.
@@ -806,7 +806,7 @@ class TestPreSwapAbort:
         with pytest.raises(DeployError, match="hook exploded"):
             r.orch.deploy(NEW_TAG)
 
-        r.orch._set_maintenance.assert_not_called()
+        r.orch.set_maintenance_mode.assert_not_called()
         r.orch.resume_workers.assert_called()
 
     def test_a_failing_backup_is_not_swallowed(self, rig):
@@ -975,7 +975,7 @@ class TestHookInvocationPoints:
         r = rig(_run_container_hook={"side_effect": [None, None, None, DeployError("post hook died")]})
         with pytest.raises(DeployError, match="post hook died"):
             r.orch.deploy(NEW_TAG)
-        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
+        assert [a[0] for a, _k in r.calls("set_maintenance_mode")] == [1, 0]
         r.orch._record.assert_called_once_with(NEW_TAG, "migrated", backups=r.backups)
         r.orch._restore_compose.assert_not_called()
 
@@ -986,7 +986,7 @@ class TestHookInvocationPoints:
         )
         with pytest.raises(DeployError, match="post hook died"):
             r.orch.deploy(NEW_TAG)
-        r.orch._set_maintenance.assert_not_called()
+        r.orch.set_maintenance_mode.assert_not_called()
         r.orch._record.assert_called_once()
 
 
@@ -1151,7 +1151,7 @@ class TestSwapFailureUnwind:
         r = rig(_rolling_swap={"side_effect": DeployError("new frappe replica failed health check")})
         with pytest.raises(DeployError, match="new frappe replica failed health check"):
             r.orch.deploy(NEW_TAG)
-        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
+        assert [a[0] for a, _k in r.calls("set_maintenance_mode")] == [1, 0]
         r.orch.resume_workers.assert_called()
         r.orch._record.assert_not_called()
 
@@ -1168,7 +1168,7 @@ class TestSwapFailureUnwind:
         r = rig(compose_up={"side_effect": docker_error("no such image")})
         with pytest.raises(DockerException):
             r.orch.deploy(NEW_TAG, rolling=False)
-        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
+        assert [a[0] for a, _k in r.calls("set_maintenance_mode")] == [1, 0]
         r.orch.resume_workers.assert_called()
         r.orch._record.assert_not_called()
 
@@ -1178,7 +1178,7 @@ class TestSwapFailureUnwind:
         r = rig(running=False, compose_up={"side_effect": docker_error("boom")})
         with pytest.raises(DockerException):
             r.orch.deploy(NEW_TAG)
-        r.orch._set_maintenance.assert_not_called()
+        r.orch.set_maintenance_mode.assert_not_called()
         r.orch.resume_workers.assert_called()
 
 
@@ -1207,7 +1207,7 @@ class TestHealthGate:
         with pytest.raises(DeployError, match="halted in maintenance mode"):
             r.orch.deploy(NEW_TAG)
         r.orch.rollback.assert_not_called()
-        r.orch._set_maintenance.assert_called_once_with(1)
+        r.orch.set_maintenance_mode.assert_called_once_with(1)
 
     def test_rollback_image_disabled_halts_rather_than_reverting(self, rig):
         r = rig(
@@ -1415,7 +1415,7 @@ class TestRollback:
             ("_backup_all", {}),
             ("_run_host_hook", {}),
             ("_run_container_hook", {}),
-            ("_set_maintenance", {}),
+            ("set_maintenance_mode", {}),
         ):
             spy = MagicMock(**result)
             manager.attach_mock(spy, name)

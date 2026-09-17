@@ -40,7 +40,7 @@ SPIED = (
     "_restore_compose",
     "_unwind_maintenance",
     "_pin_workers",
-    "_set_maintenance",
+    "set_maintenance_mode",
     "drain_workers",
     "resume_workers",
     "_backup_all",
