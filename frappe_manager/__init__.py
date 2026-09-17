@@ -76,6 +76,29 @@ MARIADB_IMAGE = "mariadb:11.8"
 # FROM. On a CI runner that prefetch is a per-job tax for images the job never runs.
 STOCK_IMAGE_PREFETCH_SKIP_COMMANDS: frozenset[str] = frozenset({"bake"})
 
+# Commands that only OBSERVE fm's state: they read configs and container states and
+# mutate nothing. Two behaviors key off this set, and they must stay a pair:
+# - they hold no lock, so they keep working DURING a migration (mid-cutover is exactly
+#   when an operator wants to peek at what is happening);
+# - they never auto-start the global stack (an observer that boots infrastructure is
+#   not an observer -- and lock-free, it would boot the half-renamed stack mid-cutover).
+# Keyed by full command path ("ssl list"), matching app_callback's get_full_command_path.
+OBSERVE_ONLY_COMMANDS: frozenset[str] = frozenset(
+    {"list", "info", "logs", "services info", "ssl list", "apps list", "domain list", "tools status"}
+)
+
+# The two commands that RUN migrations. Everything gating on "is this a migration?"
+# reads this one set: the host lock (they take it EXCLUSIVE in the executor instead of
+# SHARED in the callback) and the pre-rename escape hatch in the services manager.
+MIGRATION_COMMANDS: frozenset[str] = frozenset({"migrate", "services migrate"})
+
+# Command families (matched on the FIRST token of the full command path) that never
+# auto-start a stopped global stack: `services`/`self` act ON the stack and must be able
+# to run against one that was deliberately stopped, and `compose` is a diagnostic
+# passthrough that must report a stopped stack as stopped. Observers are the other
+# exemption, via OBSERVE_ONLY_COMMANDS above.
+STACK_AUTOSTART_EXEMPT_PREFIXES: frozenset[str] = frozenset({"services", "self", "compose"})
+
 
 class EnableDisableOptionsEnum(str, Enum):
     enable = "enable"

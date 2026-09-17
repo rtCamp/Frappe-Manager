@@ -16,6 +16,8 @@ from frappe_manager import (
     CLI_DIR,
     CLI_FM_CONFIG_PATH,
     DEFAULT_EXTENSIONS,
+    MIGRATION_COMMANDS,
+    OBSERVE_ONLY_COMMANDS,
     STABLE_APP_BRANCH_MAPPING_LIST,
     STOCK_IMAGE_PREFETCH_SKIP_COMMANDS,
     EnableDisableOptionsEnum,
@@ -557,14 +559,16 @@ def app_callback(
                         skip_hint=f"Run 'fm migrate {bench_arg}' first",
                     )
 
-            # Every ordinary command holds the host lock SHARED for its lifetime: the grip
-            # means "don't migrate under me". Shared grips never contend with each other, so
-            # daily life is unchanged; a running migration (which holds it EXCLUSIVE in
-            # MigrationExecutor.execute) makes this refuse instead. Taken AFTER the gate and
-            # skipped for the migration commands, because a process conflicts with its own
-            # grips: the gate's inline migration takes the exclusive grip and releases it
-            # before this line runs.
-            if full_command not in ("migrate", "services migrate"):
+            # Every state-touching command holds the host lock SHARED for its lifetime: the
+            # grip means "don't migrate under me". Shared grips never contend with each
+            # other, so daily life is unchanged; a running migration (which holds it
+            # EXCLUSIVE in MigrationExecutor.execute) makes this refuse instead. Taken AFTER
+            # the gate and skipped for the migration commands, because a process conflicts
+            # with its own grips: the gate's inline migration takes the exclusive grip and
+            # releases it before this line runs. Pure observers hold NOTHING -- they must
+            # keep working mid-migration (see OBSERVE_ONLY_COMMANDS, which also keeps them
+            # from auto-starting the stack they are merely looking at).
+            if full_command not in MIGRATION_COMMANDS and full_command not in OBSERVE_ONLY_COMMANDS:
                 from frappe_manager.utils import process_lock
 
                 host_lock = process_lock.acquire(

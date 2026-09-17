@@ -133,6 +133,21 @@ class OutputHandler(ABC):
             Exception: Always raises the provided exception
         """
 
+    def exit(self, text: str, emoji_code: str = ":no_entry:", os_exit=False, error_msg=None) -> None:
+        """Display an error and terminate the command.
+
+        Part of the handler CONTRACT (production code calls ``output.exit`` freely), with a
+        working default rather than an abstractmethod so handlers that never overrode it
+        (JSON, silent) terminate cleanly instead of raising AttributeError mid-refusal.
+        Rich/logging handlers override this with their formatted versions.
+        """
+        import typer
+
+        self.display_error(text if not error_msg else f"{text}\n Error : {error_msg}", emoji_code)
+        if os_exit:
+            raise SystemExit(1)
+        raise typer.Exit(1)
+
     @abstractmethod
     def warning(self, text: str, emoji_code: str = ":warning:") -> None:
         """

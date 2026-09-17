@@ -8,7 +8,14 @@ from typing import Any
 import typer
 from jinja2 import Template
 
-from frappe_manager import CLI_DIR, CLI_SERVICES_DIRECTORY, MARIADB_IMAGE
+from frappe_manager import (
+    CLI_DIR,
+    CLI_SERVICES_DIRECTORY,
+    MARIADB_IMAGE,
+    MIGRATION_COMMANDS,
+    OBSERVE_ONLY_COMMANDS,
+    STACK_AUTOSTART_EXEMPT_PREFIXES,
+)
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import OutputHandler
@@ -100,7 +107,7 @@ class ServicesManager:
         command = self.invoked_subcommand or ""
         old_names = self.compose_file_manager.get_services_list()
         if "global-db" in old_names and "mariadb" not in old_names:
-            if command not in ("migrate", "services migrate") and command.split(" ")[0] != "self":
+            if command not in MIGRATION_COMMANDS and command.split(" ")[0] != "self":
                 self.output.exit(
                     "The global services predate the v0.21.0 rename (global-db -> mariadb). "
                     "Run 'fm services migrate' to cut this install over."
@@ -108,13 +115,15 @@ class ServicesManager:
             return
 
         if start:
-            # The root callback passes ctx.invoked_subcommand, which for the sub-Typers is the
-            # group name ("services"/"self"), never a singular "service". Those two families act
-            # ON the global stack (stop/start/shell/self stop) and must be able to run against a
+            # The root callback passes the FULL command path ("services migrate"); for the
+            # sub-Typers the group name comes first. The services/self families act ON the
+            # global stack (stop/start/shell/self stop) and must be able to run against a
             # deliberately stopped stack instead of silently starting it first. `compose` is a
             # diagnostic passthrough to docker compose: `fm compose BENCH ps` against a stopped
-            # stack must report it stopped, not boot it.
-            if command.split(" ")[0] not in ("services", "self", "compose"):
+            # stack must report it stopped, not boot it. Observers (fm list, fm info, ...) hold
+            # no host lock so they can run DURING a migration -- an auto-start here would boot
+            # the half-migrated stack; they report the stack as they find it instead.
+            if command.split(" ")[0] not in STACK_AUTOSTART_EXEMPT_PREFIXES and command not in OBSERVE_ONLY_COMMANDS:
                 services = self.compose_file_manager.get_services_list(exclude_disabled=True)
                 containers = self.compose_file_manager.get_container_names().values()
                 all_statuses = self.docker_client.compose.get_all_services_status()

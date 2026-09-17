@@ -729,3 +729,75 @@ class TestNonInteractiveRoute:
 
         assert "Cannot prompt in non-interactive mode: Migrate bench 'mysite.localhost' now?" in str(bench_exc.value)
         assert "Use: 'fm migrate mysite.localhost' (run migration explicitly)" in str(bench_exc.value)
+
+
+# --------------------------------------------------------------------------- #
+# the host lock at the callback: who grips, who is exempt, who is refused
+# --------------------------------------------------------------------------- #
+
+_LOCK_HOLDER_CODE = """
+import fcntl, sys
+handle = open(sys.argv[1], "a")
+fcntl.flock(handle, fcntl.LOCK_EX)
+print("held", flush=True)
+sys.stdin.readline()
+"""
+
+
+@contextmanager
+def _exclusive_holder():
+    """A real second process gripping the migration lock (two grips in one process never
+    contend, so an in-process holder would make these tests pass vacuously)."""
+    import subprocess
+
+    from frappe_manager.utils import process_lock
+
+    path = process_lock.migration_lock_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("migration (pid 4242)")
+    proc = subprocess.Popen(
+        [sys.executable, "-c", _LOCK_HOLDER_CODE, str(path)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert proc.stdout is not None
+    assert proc.stdout.readline().strip() == "held"
+    try:
+        yield
+    finally:
+        if proc.stdin is not None:
+            proc.stdin.close()
+        proc.wait(timeout=10)
+
+
+class TestHostLockAtTheCallback:
+    def test_an_observer_runs_freely_while_a_migration_holds_the_lock(self, gate):
+        """Mid-cutover is exactly when an operator wants `fm list`; observation must never
+        be fenced off (and gains no grip of its own)."""
+        with _exclusive_holder():
+            ctx = gate.run("list")
+
+        gate.output.exit.assert_not_called()
+        assert "host_lock" not in ctx.obj
+
+    def test_a_state_touching_command_is_refused_naming_the_migration(self, gate):
+        gate.output.exit.side_effect = typer.Exit(1)
+
+        with _exclusive_holder(), pytest.raises(typer.Exit):
+            gate.run("start", bench_arg="mysite.localhost")
+
+        assert "migration (pid 4242)" in gate.output.exit.call_args.args[0]
+
+    def test_a_state_touching_command_grips_shared_when_the_host_is_free(self, gate):
+        ctx = gate.run("start", bench_arg="mysite.localhost")
+
+        assert ctx.obj["host_lock"] is not None
+        ctx.obj["host_lock"].close()
+
+    def test_the_migration_commands_take_no_shared_grip_here(self, gate):
+        """They take the EXCLUSIVE grip inside the executor instead; a shared grip taken
+        first would collide with their own exclusive request."""
+        ctx = gate.run("migrate")
+
+        assert "host_lock" not in ctx.obj
