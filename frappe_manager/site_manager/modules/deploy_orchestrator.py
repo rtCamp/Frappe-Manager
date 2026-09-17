@@ -661,8 +661,8 @@ class DeployOrchestrator:
     def _restore_compose(self, snaps: dict[Path, bytes]) -> None:
         for p, data in snaps.items():
             p.write_bytes(data)
-        # Reload the in-memory compose managers from the restored files.
-        self.compose.__init__(self.compose.compose_path)  # type: ignore[misc]
+        # Reload the in-memory compose manager from the restored file.
+        self.compose.reload()
 
     def _external_db(self, site: str) -> DatabaseConfig | None:
         """That site's external database entry, or None for the mariadb container.

@@ -749,3 +749,43 @@ class TestSetEnvsAppend:
         cf.set_envs("frappe", {"DB_HOST": "mariadb"}, append=True)
 
         assert dict(cf.get_envs("frappe")) == {"DB_HOST": "mariadb"}
+
+
+class TestReload:
+    """`reload()` re-reads the file on disk into a live instance.
+
+    A live ComposeFile is a cache of the file at load time. The deploy rollback restores
+    compose files from a byte snapshot behind the live wrapper (`_restore_compose`) and then
+    reloads it -- a stale wrapper saved later would clobber the restored content.
+    """
+
+    @pytest.fixture
+    def cf(self, tmp_path):
+        path = tmp_path / "docker-compose.yml"
+        path.write_text(
+            "version: '3'\n"
+            "services:\n"
+            "  frappe:\n"
+            "    image: frappe:old\n",
+        )
+        return ComposeFile(loadfile=path)
+
+    def test_reload_picks_up_a_file_rewritten_behind_the_instance(self, cf):
+        cf.compose_path.write_text(
+            "version: '3'\n"
+            "services:\n"
+            "  frappe:\n"
+            "    image: frappe:restored\n",
+        )
+
+        cf.reload()
+
+        assert cf.yml["services"]["frappe"]["image"] == "frappe:restored"
+
+    def test_reload_drops_pending_changes_queued_against_the_abandoned_state(self, cf):
+        cf.with_envs({"frappe": {"STALE": "1"}})
+
+        cf.reload()
+        cf.commit()
+
+        assert "environment" not in cf.yml["services"]["frappe"]

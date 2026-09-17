@@ -67,13 +67,7 @@ class ComposeFile:
         self._snapshot: dict | None = None
         self._pending_snapshot: list[tuple[str, Any]] = []
 
-        # check for if the docker-compose.yml file is present if not then use template provided
-        if self.exists():
-            with open(self.compose_path) as f:
-                self.yml = yaml.load(f)
-        else:
-            self.yml = self.load_template()
-            self.is_template_loaded = True
+        self.reload()
 
     def exists(self):
         """
@@ -83,6 +77,28 @@ class ComposeFile:
             bool: True if the compose file exists, False otherwise.
         """
         return self.compose_path.exists()
+
+    def reload(self) -> "ComposeFile":
+        """Re-read ``yml`` from ``compose_path``, discarding all in-memory state.
+
+        A live ComposeFile is a cache of the file at load time: anything that rewrites the
+        file behind it (a backup restore, another writer on the same path) leaves this
+        instance stale, and a later save would clobber the newer content with the cached
+        copy. Call this after such an external rewrite. Pending changes and snapshots are
+        dropped too -- they described the abandoned state, not the file just read. Missing
+        file falls back to the template, same as construction.
+        """
+        self._pending_changes.clear()
+        self._snapshot = None
+        self._pending_snapshot = []
+        if self.exists():
+            with open(self.compose_path) as f:
+                self.yml = yaml.load(f)
+            self.is_template_loaded = False
+        else:
+            self.yml = self.load_template()
+            self.is_template_loaded = True
+        return self
 
     def load_template(self):
         """
