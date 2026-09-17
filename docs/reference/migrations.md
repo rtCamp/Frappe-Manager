@@ -248,7 +248,7 @@ fm migrate all --skip-db-backup
 
 One kind at a time: `--skip-db-backup` keeps the cheap config-file backups and skips the dumps (the usual reason: dump size or time), `--skip-config-backup` the reverse.
 
-`fm services migrate` takes `--skip-backup` too, and there it also covers whole-engine dumps like v0.20.0's pre-upgrade dump, where the dump is the only route back from a one-way engine upgrade: reach for it only when taking the dump is genuinely impossible.
+`fm services migrate` takes the same three flags. There, `--skip-db-backup` covers whole-engine dumps like v0.20.0's pre-upgrade dump, where the dump is the only route back from a one-way engine upgrade: reach for it only when taking the dump is genuinely impossible, and prefer it over `--skip-backup`, which also throws away the near-free config backups the rollback restores.
 
 !!! note "Undeterminable database name"
     If FM cannot work out a bench's database name from `site_config.json`, `bench_config.toml`, or the global service info, it asks whether to continue without a database backup. `--skip-backup` or `--skip-db-backup` answers that in advance.

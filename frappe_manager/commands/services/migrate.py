@@ -43,7 +43,21 @@ def migrate_services(
         bool,
         typer.Option(
             "--skip-backup",
-            help="Skip the pre-migration backups, including whole-engine database dumps (DANGEROUS; a skipped dump can be the only route back, use when taking it is impossible).",
+            help="Skip every pre-migration backup, both kinds (DANGEROUS; prefer --skip-db-backup, which keeps the near-free config backups the rollback restores).",
+        ),
+    ] = False,
+    skip_config_backup: Annotated[
+        bool,
+        typer.Option(
+            "--skip-config-backup",
+            help="Skip the config-file backups (the services compose, fm's own config).",
+        ),
+    ] = False,
+    skip_db_backup: Annotated[
+        bool,
+        typer.Option(
+            "--skip-db-backup",
+            help="Skip whole-engine database dumps (DANGEROUS; such a dump can be the only route back from a one-way engine upgrade, so use this only when taking it is impossible).",
         ),
     ] = False,
     on_failure: Annotated[
@@ -78,6 +92,8 @@ def migrate_services(
     migrations = MigrationExecutor(
         fm_config_manager,
         skip_backup=skip_backup,
+        skip_config_backup=skip_config_backup,
+        skip_db_backup=skip_db_backup,
         auto_proceed=auto_proceed,
         rerun=rerun,
         on_failure=(on_failure.value if on_failure else "rollback"),

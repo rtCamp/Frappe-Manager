@@ -53,7 +53,9 @@ $ fm services migrate [OPTIONS]
 **Options**:
 
 * `--auto-proceed`: Migrate without asking for confirmation.
-* `--skip-backup`: Skip the pre-migration backups, including whole-engine database dumps (DANGEROUS; a skipped dump can be the only route back, use when taking it is impossible).
+* `--skip-backup`: Skip every pre-migration backup, both kinds (DANGEROUS; prefer --skip-db-backup, which keeps the near-free config backups the rollback restores).
+* `--skip-config-backup`: Skip the config-file backups (the services compose, fm's own config).
+* `--skip-db-backup`: Skip whole-engine database dumps (DANGEROUS; such a dump can be the only route back from a one-way engine upgrade, so use this only when taking it is impossible).
 * `--on-failure`: What to do when the migration fails: rollback (revert, the default), halt (leave everything as it stopped and report), prompt (ask).
 * `--rerun`: Re-run the migration steps even when already up to date.
 

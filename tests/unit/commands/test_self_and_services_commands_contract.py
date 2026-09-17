@@ -746,3 +746,15 @@ def test_services_migrate_failure_exits_without_stamping_the_version(out):
 
     assert r.exit.exit_code == 1
     r.fm_config_manager.set_system_migration_version.assert_not_called()
+
+
+def test_services_migrate_hands_the_kind_scoped_backup_flags_through(out):
+    """--skip-db-backup alone is the flag the motivating case needs: skip the huge engine
+    dump while KEEPING the near-free config backups the rollback restores. The command's
+    only job is to hand each kind through unchanged."""
+    r = _run_services_migrate(skip_db_backup=True, skip_config_backup=False)
+
+    kwargs = r.executor_cls.call_args.kwargs
+    assert kwargs["skip_db_backup"] is True
+    assert kwargs["skip_config_backup"] is False
+    assert kwargs["skip_backup"] is False
