@@ -50,6 +50,7 @@ from frappe_manager.site_manager.bench_config import (
     FMBenchEnvType,
     RedisConfig,
     RestartPolicyEnum,
+    WorkersConfig,
 )
 from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError, DrainUnavailable
@@ -163,9 +164,21 @@ class UpdateWorld:
         self.orchestrator = MagicMock(name="DeployOrchestrator")
         self.orchestrator.drain_workers.return_value = True
         self.orchestrator.workers_config.drain_timeout = 300
+        # Queue depth the redis cutover probes. A tuple is a fixed answer, a list is a sequence of
+        # answers (a backlog draining), None is "could not count" -- which is NOT zero.
+        self.queue_depth: object = (0, 0)
 
         p = stack.enter_context
         p(patch("frappe_manager.commands.update.DeployOrchestrator", return_value=self.orchestrator))
+
+        def _depth(*_args, **_kwargs):
+            if isinstance(self.queue_depth, list):
+                return self.queue_depth.pop(0) if len(self.queue_depth) > 1 else self.queue_depth[0]
+            return self.queue_depth
+
+        p(patch("frappe_manager.commands.update.redis_queue_depth", _depth))
+        # The wait loop must not actually sleep between polls.
+        p(patch("frappe_manager.commands.update.time.sleep", lambda _seconds: None))
         p(patch("frappe_manager.commands.update.Bench", bench_cls))
         p(patch("frappe_manager.commands.update.spinner", _null_spinner))
         p(patch("frappe_manager.commands.update.AppConfig", self.app_config_cls))
@@ -1637,3 +1650,77 @@ class TestExternalRedis:
         world.run(no_redis=True)
 
         world.bench.docker_client.compose.rm.assert_not_called()
+
+    def test_an_empty_queue_needs_no_maintenance_window(self, world):
+        """A quiet bench switches straight through: there is nothing to lose, so no outage."""
+        world.queue_depth = (0, 0)
+
+        world.run(redis_queue=self.QUEUE)
+
+        assert any("queue is empty, so no maintenance window" in line for line in world.prints)
+        world.orchestrator.set_maintenance_mode.assert_not_called()
+
+    def test_a_backlog_pauses_producers_and_waits(self, world):
+        """The OPPOSITE of the drain gate, and both are needed. RQ's suspend stops workers PICKING
+        UP work, so it freezes a backlog and could never empty one; emptying means stopping the
+        producers instead (frappe's maintenance_mode makes is_scheduler_inactive true) and letting
+        the workers eat. Queued jobs are the only redis data that cannot be regenerated, and they
+        do not move with the endpoint."""
+        world.queue_depth = [(41, 2), (12, 0), (0, 0)]
+
+        world.run(redis_queue=self.QUEUE)
+
+        assert world.orchestrator.set_maintenance_mode.call_args_list[0].args == (1,)
+        assert world.orchestrator.set_maintenance_mode.call_args_list[-1].args == (0,)
+        assert world.config.redis.queue == self.QUEUE
+
+    def test_the_plan_says_a_window_is_coming_before_anything_changes(self, world):
+        world.queue_depth = (41, 2)
+
+        world.run(redis_queue=self.QUEUE, dry_run=True)
+
+        assert any("41 pending and 2 in flight" in line for line in world.prints)
+        assert any("maintenance page, HTTP 503" in line for line in world.prints)
+        assert world.saves == 0
+        world.orchestrator.set_maintenance_mode.assert_not_called()
+
+    def test_a_backlog_that_never_drains_changes_nothing(self, world):
+        """Producers are resumed on the way out, so the bench is left exactly as it was found."""
+        world.queue_depth = (41, 2)
+        world.config.workers = WorkersConfig(drain_timeout=0, drain_poll=0)
+
+        with pytest.raises(typer.Exit) as exc:
+            world.run(redis_queue=self.QUEUE)
+
+        assert exc.value.exit_code == 1
+        assert world.saves == 0
+        assert world.compose_up_calls == []
+        assert world.orchestrator.set_maintenance_mode.call_args_list[-1].args == (0,)
+        assert any("--abandon-queued" in e for e in world.errors)
+
+    def test_abandon_queued_switches_without_pausing_anything(self, world):
+        world.queue_depth = (41, 2)
+
+        world.run(redis_queue=self.QUEUE, abandon_queued=True)
+
+        world.orchestrator.set_maintenance_mode.assert_not_called()
+        assert world.config.redis.queue == self.QUEUE
+
+    def test_an_uncountable_queue_warns_rather_than_claiming_it_is_empty(self, world):
+        """"Could not tell" must never read as "nothing to lose": an unreachable endpoint or a
+        provider that restricts the commands RQ uses lands here."""
+        world.queue_depth = None
+
+        world.run(redis_queue=self.QUEUE, dry_run=True)
+
+        assert any("could not count what is queued" in w for w in world.warnings)
+
+    def test_moving_only_the_cache_never_pauses_producers(self, world):
+        """The cache is derived data that WANTS to be cold after a cutover; only the queue holds
+        work that cannot be regenerated."""
+        world.queue_depth = (41, 2)
+
+        world.run(redis_cache=self.CACHE)
+
+        world.orchestrator.set_maintenance_mode.assert_not_called()
+        assert world.config.redis.cache == self.CACHE

@@ -34,6 +34,7 @@ $ fm update BENCH(/SITE) [OPTIONS]
 * `--redis-queue`: Point the bench's queue and realtime at an external redis, e.g. redis://r.example:6379/1. Independent of the cache.
 * `--no-redis-cache`: Bring the framework cache back to fm's own per-bench redis container, leaving the queue as it is.
 * `--no-redis-queue`: Bring the queue and realtime back to fm's own per-bench redis container, leaving the cache as it is.
+* `--abandon-queued`: Switch the redis queue even though jobs are still pending, leaving them on the old server instead of pausing producers and waiting for the backlog to drain. Those jobs are never run.
 * `--no-redis`: Bring BOTH sides back to fm's own per-bench redis containers.
 * `--db-ca`: Reinstall the external database CA after a rotation: the site PEM, the bench ca-bundle.pem the dumps use, and the recorded path are refreshed together.
 * `--dry-run`: Print what would change and exit without touching the bench.

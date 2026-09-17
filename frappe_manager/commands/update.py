@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 from typing import Annotated
 
@@ -14,8 +15,10 @@ from frappe_manager.site_manager.bench_config import (
     BenchRuntime,
     FMBenchEnvType,
     RestartPolicyEnum,
+    WorkersConfig,
 )
 from frappe_manager.site_manager.modules import db_tls
+from frappe_manager.site_manager.modules.compose_shape import redis_queue_depth
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployOrchestrator
 from frappe_manager.site_manager.modules.worker_drain import drain_gate
 from frappe_manager.site_manager.site import Bench
@@ -247,6 +250,15 @@ def update(
             rich_help_panel=_PANEL_REDIS,
         ),
     ] = False,
+    abandon_queued: Annotated[
+        bool,
+        typer.Option(
+            "--abandon-queued",
+            help="Switch the redis queue even though jobs are still pending, leaving them on the old server instead of pausing producers and waiting for the backlog to drain. Those jobs are never run.",
+            show_default=False,
+            rich_help_panel=_PANEL_REDIS,
+        ),
+    ] = False,
     no_redis: Annotated[
         bool,
         typer.Option(
@@ -295,6 +307,7 @@ def update(
 
     # Decide everything first. Every refusal lives in here and nothing in it touches the bench, so
     # an invalid invocation cannot leave half an update applied -- the defect this split fixes.
+    orchestrator = DeployOrchestrator(bench, output_handler=output)
     plan = plan_update(
         bench,
         output,
@@ -313,9 +326,12 @@ def update(
         no_redis_cache=no_redis_cache,
         no_redis_queue=no_redis_queue,
         no_redis=no_redis,
+        abandon_queued=abandon_queued,
+        # Counted from inside the bench container, at PLAN time, so `--dry-run` can say whether a
+        # maintenance window is needed before anything is committed to.
+        queue_depth=lambda: redis_queue_depth(_current_queue_url(bench), orchestrator.container_command_runner()),
     )
 
-    orchestrator = DeployOrchestrator(bench, output_handler=output)
     report_plan(
         output,
         plan,
@@ -346,6 +362,11 @@ def apply_update(bench: Bench, plan: UpdatePlan, output, *, orchestrator=None, d
     ahead" self-heals while "containers ahead" silently flips serving later. Compose is rendered
     once, and the accumulated container set is acted on once.
     """
+    # Before ANY write: the backlog lives on the endpoint the bench is leaving, and
+    # `_current_queue_url` reads the recorded config, which the save below replaces.
+    if plan.quiesce_producers and orchestrator is not None:
+        _quiesce_producers(bench, plan, output, orchestrator)
+
     drained = False
     if plan.touches_workers and orchestrator is not None:
         if drain:
@@ -363,6 +384,11 @@ def apply_update(bench: Bench, plan: UpdatePlan, output, *, orchestrator=None, d
         # by an aborted apply would stay idle until something resumed them.
         if drained and orchestrator is not None:
             orchestrator.resume_workers()
+        # Same reasoning for `maintenance_mode`, which lives in site_config: a failed apply that
+        # left it set would keep the site serving 503 and the scheduler inactive indefinitely.
+        if plan.quiesce_producers and orchestrator is not None:
+            output.change_head("Resuming producers")
+            orchestrator.set_maintenance_mode(0)
 
 
 def _apply_plan(bench: Bench, plan: UpdatePlan, output) -> None:
@@ -422,6 +448,68 @@ def _apply_plan(bench: Bench, plan: UpdatePlan, output) -> None:
                 "in line -- fm renders containers FROM the recorded config, so nothing is lost.",
             )
         raise
+
+
+def _quiesce_producers(bench: Bench, plan: UpdatePlan, output, orchestrator) -> None:
+    """Pause what enqueues, then wait for the backlog to reach zero.
+
+    This is the OPPOSITE of the drain gate, and both are needed for different reasons. A drain
+    suspends the workers so in-flight jobs finish before containers die; RQ's suspend stops
+    workers PICKING UP work, so it deliberately freezes a backlog and could never empty one.
+    Emptying means stopping the producers instead and letting the workers eat: frappe's
+    `maintenance_mode` makes `is_scheduler_inactive` true, so the scheduler stops enqueuing, and
+    the 503 stops the web tier doing it.
+
+    Why bother: queued jobs are the only redis data that cannot be regenerated, and they do not
+    move with the endpoint. Copying redis instead would import the old server's worker-registry
+    keys (phantom workers, jobs started by processes that no longer exist), and the transports
+    that could copy it -- SYNC, MIGRATE, DEBUG -- are exactly what managed providers block.
+    """
+    config = bench.bench_config.workers or WorkersConfig()
+    output.change_head(f"Pausing producers, {plan.queued_jobs} job(s) still queued")
+    orchestrator.set_maintenance_mode(1)
+
+    deadline = time.monotonic() + config.drain_timeout
+    current_queue = _current_queue_url(bench)
+    while True:
+        depth = redis_queue_depth(current_queue, orchestrator.container_command_runner())
+        if depth is not None and sum(depth) == 0:
+            output.print("Queue is empty; nothing will be left behind by the switch")
+            return
+        if time.monotonic() >= deadline:
+            break
+        remaining = sum(depth) if depth else "an unknown number of"
+        output.change_head(f"Waiting for the queue to drain, {remaining} job(s) left")
+        time.sleep(config.drain_poll)
+
+    # Resumed BEFORE the refusal, the same way `drain_gate` resumes before aborting: this runs
+    # ahead of apply_update's try/finally, so leaving it set here would keep the site serving 503
+    # and the scheduler inactive after a command that changed nothing else.
+    orchestrator.set_maintenance_mode(0)
+    output.display_error(
+        f"The queue still has work after {config.drain_timeout}s. Nothing was changed. Wait for it to "
+        r"clear, raise \[workers].drain_timeout, or re-run with --abandon-queued to switch and leave "
+        "those jobs on the old redis.",
+    )
+    raise typer.Exit(1)
+
+
+def _current_queue_url(bench: Bench) -> str:
+    """The queue URL the bench is LEAVING -- the one whose backlog matters.
+
+    Read from the saved config, which at this point still describes the old endpoint only if the
+    save has not happened yet; `apply_update` saves first, so this reads the NEW value. Hence the
+    container prefix fallback is not enough: the probe must dial the OLD server, which is why the
+    caller resolves it before the config is written.
+    """
+    from frappe_manager.utils.helpers import get_bench_connection_config, get_container_name_prefix
+
+    redis = bench.bench_config.redis
+    return get_bench_connection_config(
+        get_container_name_prefix(bench.name),
+        redis.cache if redis else None,
+        redis.queue if redis else None,
+    )["redis_queue"]
 
 
 def _apply_container_work(bench: Bench, plan: UpdatePlan, output) -> None:
