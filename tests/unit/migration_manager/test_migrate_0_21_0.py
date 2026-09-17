@@ -12,7 +12,7 @@ The decisions defended here are the ones whose failure mode is data loss or a da
 """
 
 import json
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from ruamel.yaml import YAML
 
@@ -273,3 +273,72 @@ class TestDbHostRewrite:
 
         assert config_path.read_text() == "{not json"
         assert m.output.warning.called
+
+
+class TestRollbackPath:
+    """The undo code only ever runs during a real disaster, so it is rehearsed HERE.
+    Both of these pin bugs that were found live on a failed cutover: the services compose
+    was not restored (the framework's restore loop cannot be assumed to have run first),
+    and a legacy install's externally-declared networks were never recreated, so the
+    restored stack could not start."""
+
+    def _rollback_migration(self, tmp_path, compose_text):
+        m = MigrationV0210(output_handler=MagicMock())
+        m._was_running = set()
+        m._old_subnets = {"frontend-network": "10.0.1.0/24", "backend-network": None}
+        m.backup_manager = MagicMock()
+        m.services_manager = MagicMock()
+        compose_path = tmp_path / "docker-compose.yml"
+        compose_path.write_text(compose_text)
+        m.services_manager.compose_file_manager.compose_path = compose_path
+        return m, compose_path
+
+    def test_the_services_compose_is_restored_explicitly_before_the_stack_comes_up(self, tmp_path):
+        m, compose_path = self._rollback_migration(tmp_path, "services: {}\n")
+        backup = MagicMock()
+        backup.src = compose_path
+        m.backup_manager.backups = [MagicMock(src=tmp_path / "other"), backup]
+
+        with patch(
+            "frappe_manager.migration_manager.migrations.migrate_0_21_0.run_command_with_exit_code"
+        ):
+            m.undo_services_migrate()
+
+        m.backup_manager.restore.assert_called_once_with(backup, force=True)
+        # order: renamed stack down, THEN restore, THEN the restored stack up
+        m.services_manager.compose.down.assert_called_once()
+        m.services_manager.compose.up.assert_called_once()
+
+    def test_a_legacy_externally_declared_network_is_recreated_with_the_captured_subnet(self, tmp_path):
+        legacy = (
+            "networks:\n"
+            "  global-frontend-network:\n"
+            "    name: fm-global-frontend-network\n"
+            "    external: true\n"
+        )
+        m, compose_path = self._rollback_migration(tmp_path, legacy)
+        m.backup_manager.backups = []
+
+        with patch(
+            "frappe_manager.migration_manager.migrations.migrate_0_21_0.run_command_with_exit_code"
+        ) as run_cmd:
+            m.undo_services_migrate()
+
+        created = [c.args[0] for c in run_cmd.call_args_list if c.args[0][:3] == ["docker", "network", "create"]]
+        assert created == [
+            ["docker", "network", "create", "--subnet", "10.0.1.0/24", "fm-global-frontend-network"]
+        ]
+
+    def test_a_compose_that_owns_its_networks_gets_no_manual_network_creation(self, tmp_path):
+        """The server-shaped world: compose creates its own networks on up; creating them
+        by hand first would leave unlabeled networks compose then refuses to adopt."""
+        owned = "networks:\n  frontend-network:\n    name: fm-frontend-network\n"
+        m, compose_path = self._rollback_migration(tmp_path, owned)
+        m.backup_manager.backups = []
+
+        with patch(
+            "frappe_manager.migration_manager.migrations.migrate_0_21_0.run_command_with_exit_code"
+        ) as run_cmd:
+            m.undo_services_migrate()
+
+        assert not any(c.args[0][:3] == ["docker", "network", "create"] for c in run_cmd.call_args_list)
