@@ -497,3 +497,30 @@ class TestExecutorIsTheSoleLedgerStamper:
 
         assert result is True
         mock_fm_config.set_system_migration_version.assert_not_called()
+
+
+class TestBackupRetentionRunsOnSuccessOnly:
+    """P5: pruning old backup sessions happens exactly once, at the end of a SUCCESSFUL
+    run -- never on the failure/rollback paths, whose backups ARE the rollback."""
+
+    @pytest.mark.timeout(15)
+    def test_a_successful_services_run_prunes_the_host_root(self, mock_fm_config):
+        from frappe_manager.migration_manager import backup_manager
+
+        with patch.object(backup_manager, "prune_old_backup_sessions", return_value=[]) as prune:
+            result = TestExecutorIsTheSoleLedgerStamper._run(mock_fm_config, migrate_global_services=True)
+
+        assert result is True
+        prune.assert_called_once_with(backup_manager.CLI_MIGARATIONS_DIR / "migrations")
+
+    @pytest.mark.timeout(15)
+    def test_a_failed_run_keeps_every_backup(self, mock_fm_config):
+        from frappe_manager.migration_manager import backup_manager
+
+        with patch.object(backup_manager, "prune_old_backup_sessions") as prune:
+            result = TestExecutorIsTheSoleLedgerStamper._run(
+                mock_fm_config, migrate_global_services=True, up=Mock(side_effect=RuntimeError("boom"))
+            )
+
+        assert result is False
+        prune.assert_not_called()

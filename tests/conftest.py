@@ -27,3 +27,23 @@ def isolated_locks_dir(_locks_base, monkeypatch):
     cost across the whole suite.
     """
     monkeypatch.setattr(process_lock, "LOCKS_DIR", _locks_base / str(next(_lock_dir_counter)))
+
+
+@pytest.fixture(scope="session")
+def _backups_base(tmp_path_factory):
+    return tmp_path_factory.mktemp("migration-backups")
+
+
+@pytest.fixture(autouse=True)
+def isolated_migration_backups_root(_backups_base, monkeypatch):
+    """Retention pruning (MigrationExecutor._prune_backup_sessions) deletes session dirs
+    under the host backups root after a successful run -- and executor unit tests exercise
+    exactly that path. The root is read from ``backup_manager.CLI_MIGARATIONS_DIR`` at call
+    time (function-local import), so pointing the module attribute at a per-test path keeps
+    every test's pruning (and any stray BackupManager default) away from the developer's
+    real ~/frappe/backups. Same protection class as ``isolated_locks_dir`` above, same
+    cost profile: attribute-set only, the directory is never created here (the unit suite
+    once littered the real ~/frappe/backups with 21k empty session dirs)."""
+    from frappe_manager.migration_manager import backup_manager
+
+    monkeypatch.setattr(backup_manager, "CLI_MIGARATIONS_DIR", _backups_base / str(next(_lock_dir_counter)))

@@ -960,6 +960,10 @@ class MigrationV0200(MigrationBase):
 
         container_dump_path = CONTAINER_TMP / dump_name
         host_dump_path = self.backup_manager.backup_dir / dump_name
+        # Additive guard, not a behavior change: the session dir used to be created eagerly
+        # by BackupManager's constructor; it is lazy now, and this dump writes into the dir
+        # directly rather than through backup() (which mkdirs its own dest parent).
+        host_dump_path.parent.mkdir(parents=True, exist_ok=True)
 
         with spinner(self.output, "Backing up every database before the engine upgrade"):  # type: ignore[arg-type]
             database_manager.db_export_all(container_dump_path)

@@ -281,7 +281,35 @@ class MigrationExecutor:
 
         self.undo_stack = self.orchestrator.undo_stack
         self.error_handler.finalize_success()
+        # Retention runs ONLY here, on the success path: the failure/rollback paths above
+        # must keep every backup, because backups are the rollback.
+        self._prune_backup_sessions()
         return True
+
+    def _prune_backup_sessions(self):
+        """Keep the newest MIGRATION_BACKUP_KEEP_SESSIONS backup sessions per root this run
+        touched: the host tier only when the services tier actually ran, and each bench this
+        run migrated without an exception -- bench A's success never prunes bench B's history."""
+        from frappe_manager.migration_manager.backup_manager import (
+            CLI_MIGARATIONS_DIR,
+            MIGRATION_BACKUP_KEEP_SESSIONS,
+            prune_old_backup_sessions,
+        )
+
+        roots: list[Path] = []
+        if self.global_services_need_migration:
+            roots.append(CLI_MIGARATIONS_DIR / "migrations")
+        for bench_name, bench_data in self.migrate_benches.items():
+            if bench_data["exception"] is None:
+                roots.append(CLI_BENCHES_DIRECTORY / bench_name / "backups" / "migrations")
+
+        removed = [name for root in roots for name in prune_old_backup_sessions(root)]
+        if removed:
+            self.output.print(
+                f"Pruned {len(removed)} old migration backup session(s), "
+                f"keeping the newest {MIGRATION_BACKUP_KEEP_SESSIONS} per location",
+                emoji_code="",
+            )
 
     def set_bench_data(
         self,

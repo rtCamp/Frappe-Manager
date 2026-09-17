@@ -56,6 +56,34 @@ class BackupData:
 
 CLI_MIGARATIONS_DIR = CLI_DIR / "backups"
 
+# Sessions kept per backups/migrations root (host-tier and per bench) after a SUCCESSFUL
+# migration run. A constant, not a config key: the number only matters to someone who wants
+# more history, and that person can copy the dirs elsewhere; lift it into fm_config if
+# anyone ever asks. Pruning never happens on failure or rollback -- those backups ARE the
+# rollback -- so a host that keeps failing keeps every backup until something succeeds.
+MIGRATION_BACKUP_KEEP_SESSIONS = 3
+
+
+def prune_old_backup_sessions(backups_root: Path, keep: int = MIGRATION_BACKUP_KEEP_SESSIONS) -> list[str]:
+    """Delete the oldest session dirs under ``backups_root`` beyond the newest ``keep``.
+
+    Sessions are ordered by directory mtime, NEVER by name: the ``DD-Mon-YY--HH-MM-SS``
+    timestamp format sorts by day-of-month lexically, so a name sort would prune the wrong
+    sessions twelve months a year. Returns the removed directory names, oldest first, so
+    the caller can report what left the disk -- deletions are never silent.
+    """
+    if not backups_root.is_dir():
+        return []
+
+    sessions = [p for p in backups_root.iterdir() if p.is_dir()]
+    sessions.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
+    removed: list[str] = []
+    for stale in reversed(sessions[keep:]):  # oldest first
+        shutil.rmtree(stale, ignore_errors=True)
+        removed.append(stale.name)
+    return removed
+
 
 class BackupManager:
     _active_sessions: ClassVar[set[str]] = set()
@@ -65,7 +93,11 @@ class BackupManager:
         name: str,
         backup_group_name: str = "migrations",
         benches_dir: Path = CLI_BENCHES_DIRECTORY,
-        backup_dir: Path = CLI_MIGARATIONS_DIR,
+        # None -> CLI_MIGARATIONS_DIR resolved at CALL time (module global), never a
+        # def-time default: the test suite repoints the module attribute to keep managers
+        # and pruning away from the real ~/frappe/backups, and a def-time binding is deaf
+        # to that.
+        backup_dir: Path | None = None,
         skip_file_backups: bool = False,
     ):
         # The kind-scoped backup policy is enforced HERE, at the one chokepoint every
@@ -77,15 +109,19 @@ class BackupManager:
         self.name = name
         self.backup_group_name = backup_group_name
         self.migration_timestamp = self._generate_unique_session_timestamp()
-        self.root_backup_dir: Path = backup_dir / backup_group_name / self.migration_timestamp
+        self.root_backup_dir: Path = (backup_dir or CLI_MIGARATIONS_DIR) / backup_group_name / self.migration_timestamp
         self.benches_dir: Path = benches_dir
         self.backup_dir: Path = self.root_backup_dir / self.name
         self.bench_backup_dir: Path = Path("backups") / backup_group_name / self.migration_timestamp
         self.backups = []
         self.new_files = []  # Track newly created files for cleanup on rollback
         self.logger = get_logger(component="migration")
-
-        self.backup_dir.mkdir(parents=True, exist_ok=True)
+        # The session directory is created LAZILY, by the first actual backup (backup()
+        # mkdirs its dest parent; the 0.20.0 engine dump guards its own): constructing a
+        # manager is not a promise anything will be backed up, and the eager mkdir here
+        # littered real installs with thousands of empty timestamp dirs -- every
+        # MigrationBase.init() and worker regeneration builds one of these, including the
+        # ones the unit suite builds by the thousand against the REAL ~/frappe/backups.
 
     def _generate_unique_session_timestamp(self) -> str:
         timestamp = datetime.now().strftime("%d-%b-%y--%H-%M-%S")
