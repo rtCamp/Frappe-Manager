@@ -11,9 +11,9 @@ ordering of side effects. In particular:
   safety gates differ on purpose -- the TLS gate fires only while a surface is
   newly turned on (an idempotent re-run must not start refusing), the nginx
   `$fm_upstream_auth` gate fires whenever the result leaves web protected.
-* `migrate` decides its target set, whether FM infrastructure needs migrating,
-  and per-bench success by comparing *base* versions so `0.19.0.dev0` counts as
-  `0.19.0`.
+* `migrate` decides its target set and per-bench success by comparing *base* versions so
+  `0.19.0.dev0` counts as `0.19.0`. It is BENCH-tier only: a stale global-services tier is
+  refused with a pointer at `fm services migrate`, never migrated implicitly.
 * `shell` builds a compose argv and hands it to `os.execvp`. Tests pin the argv
   and the user/workdir decisions; `os.execvp` is always mocked, never run.
 * `maintenance` has a local sitename callback that sniffs `--status` out of
@@ -798,7 +798,7 @@ def test_all_is_accepted_in_the_benchname_slot_so_no_conflict_can_be_expressed(t
     _bench_dir(benches_dir, "a.localhost")
     _bench_dir(benches_dir, "b.localhost")
 
-    result, executor_cls = _migrate_cli(["all"], benches_dir, monkeypatch)
+    result, executor_cls = _migrate_cli(["all"], benches_dir, monkeypatch, system_version="0.19.0")
 
     assert result.exception is None, result.exception
     assert sorted(executor_cls.call_args.kwargs["target_benches"]) == ["a.localhost", "b.localhost"]
@@ -841,29 +841,38 @@ def test_exclude_bench_with_no_bench_named_at_all_is_refused(out, tmp_path):
     r.executor_cls.assert_not_called()
 
 
-def test_nothing_to_do_when_infrastructure_is_current_and_no_bench_was_named(out, tmp_path):
+def test_nothing_to_do_when_no_bench_was_named_points_at_services_migrate(out, tmp_path):
     r = _run_migrate(tmp_path, system_version="0.19.0", current_version="0.19.0")
     assert r.exit.exit_code == 0
-    assert "✓ FM infrastructure already up to date (no benches specified)" in texts(out.print)
+    assert (
+        "✓ No benches to migrate. fm's global services & configuration are handled by fm services migrate."
+        in texts(out.print)
+    )
     r.executor_cls.assert_not_called()
 
 
 @pytest.mark.usefixtures("out")
-def test_rerun_forces_an_infrastructure_migration_that_is_already_current(tmp_path):
-    r = _run_migrate(tmp_path, system_version="0.19.0", current_version="0.19.0", rerun=True)
+def test_rerun_reruns_benches_only_and_never_the_services_tier(tmp_path):
+    """--rerun used to force the services-tier migration too; the split makes fm migrate
+    bench-only, so a rerun re-applies bench steps and leaves the services tier to
+    fm services migrate."""
+    _bench_dir(tmp_path, "a.localhost")
+    r = _run_migrate(tmp_path, address="a.localhost", system_version="0.19.0", current_version="0.19.0", rerun=True)
     assert r.exit is None
-    assert _executor_kwargs(r)["migrate_fm_infrastructure"] is True
+    assert _executor_kwargs(r)["migrate_global_services"] is False
     assert _executor_kwargs(r)["rerun"] is True
-    r.fm_config_manager.set_system_migration_version.assert_called_once_with(Version("0.19.0"))
-    r.fm_config_manager.export_to_toml.assert_called_once_with()
+    r.fm_config_manager.set_system_migration_version.assert_not_called()
 
 
-def test_an_older_infrastructure_version_is_migrated_without_a_bench(out, tmp_path):
-    r = _run_migrate(tmp_path, system_version="0.18.0", current_version="0.19.0")
-    assert r.exit is None
-    assert _executor_kwargs(r)["migrate_fm_infrastructure"] is True
-    assert _executor_kwargs(r)["target_benches"] is None
-    assert "FM Infrastructure" in render(out.print_data.call_args.args[0])
+def test_a_stale_services_tier_is_refused_naming_the_command_that_fixes_it(out, tmp_path):
+    """The services tier is a prerequisite, never an implicit side effect: migrating a bench
+    over stale global services would migrate it into a world that does not exist yet (the
+    v0.21.0 cutover renames the addresses benches dial)."""
+    _bench_dir(tmp_path, "a.localhost")
+    r = _run_migrate(tmp_path, address="a.localhost", system_version="0.18.0", current_version="0.19.0")
+    assert r.exit.exit_code == 1
+    assert "Run 'fm services migrate' first" in joined(out.display_error)
+    r.executor_cls.assert_not_called()
 
 
 @pytest.mark.usefixtures("out")

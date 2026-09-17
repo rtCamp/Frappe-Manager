@@ -1,25 +1,27 @@
 # Migrations
 
-Updating the `fm` CLI does not update what it manages. `fm migrate` brings FM's own configuration, the global services, and (when you name them) your benches up to the version of the CLI you just installed.
+Updating the `fm` CLI does not update what it manages. Two commands bring the managed state up to the version of the CLI you just installed: `fm services migrate` for fm's global services & configuration, then `fm migrate` for your benches.
 
 ## Overview
 
-FM migrates two things, tracked separately:
+FM migrates two things, tracked separately and migrated by separate commands:
 
-1. **FM infrastructure**: the global services (`mariadb`, `nginx-proxy`) and `~/frappe/fm_config.toml`
-2. **Benches**: each bench's `bench_config.toml`, compose files, generated nginx and supervisor config
+1. **Global services & configuration**: the shared services (`mariadb`, `nginx-proxy`) and `~/frappe/fm_config.toml`, migrated by `fm services migrate`
+2. **Benches**: each bench's `bench_config.toml`, compose files, generated nginx and supervisor config, migrated by `fm migrate BENCH` or `fm migrate all`
 
 Both are **version-aware**: FM records the version each one is migrated to and only runs the migrations newer than that.
 
-!!! important "A bare `fm migrate` touches no bench"
-    `fm migrate` with no arguments migrates only the FM infrastructure. Benches are never migrated implicitly: name one, or name `all` for every bench FM manages.
+!!! important "The services tier is a prerequisite, never a side effect"
+    `fm migrate` never migrates the global services implicitly. While they are behind it refuses outright and names the fix, because the services tier performs host-wide cutovers (v0.21.0 renames the very addresses benches dial) that must be an explicit decision:
 
-    Naming a bench migrates the infrastructure too, if it is behind.
+    ```
+    ⛔ fm's global services & configuration are behind (v0.20.0 < v0.21.0). Run 'fm services migrate' first.
+    ```
 
 !!! tip "After updating the CLI"
     ```bash
     fm self upgrade           # upgrade the CLI
-    fm migrate                # FM infrastructure only
+    fm services migrate       # global services & configuration
     fm migrate all            # then the benches
     ```
 
@@ -29,10 +31,10 @@ Both are **version-aware**: FM records the version each one is migrated to and o
 
 A bench that is behind the CLI is refused, not silently used. Two gates enforce it:
 
-- **The top-level callback**, before any subcommand runs. If the FM infrastructure or the bench named on the command line is behind, it warns and asks: **Update now** (runs the migration inline, with `--auto-proceed` and `--on-failure=rollback`) or **Update later**. Choosing later exits with status 1, so the command never runs.
+- **The top-level callback**, before any subcommand runs. If the global services & configuration or the bench named on the command line are behind, it warns and asks: **Update now** (runs the migration inline, with `--auto-proceed` and `--on-failure=rollback`) or **Update later**. Choosing later exits with status 1, so the command never runs.
 - **The command's own check** (`check_bench_migration_required`), carried by every command that reads or mutates a live bench. It does not prompt: it prints `Run: fm migrate <bench>` and exits 1. This catches the cases where the callback could not resolve the bench name out of `sys.argv`.
 
-Commands that skip the callback gate entirely: `list`, `migrate`, `bake`, `deploy`, `switch`, `compose`, `self update-images`.
+Commands that skip the callback gate entirely: `list`, `migrate`, `services migrate`, `bake`, `deploy`, `switch`, `compose`, `self update-images`.
 
 The bench half of the callback gate is additionally skipped for `stop`, `delete`, and `maintenance`. Of those, only `stop` and `delete` carry no in-command check either, so those two are the ones you can always run against a bench you cannot migrate. `maintenance` still refuses, just without the offer to migrate inline.
 
@@ -43,7 +45,7 @@ The bench half of the callback gate is additionally skipped for `stop`, `delete`
 
 ## Version Tracking
 
-**FM infrastructure**, in `~/frappe/fm_config.toml`:
+**Global services & configuration**, in `~/frappe/fm_config.toml` (the on-disk key keeps its historical name):
 
 ```toml
 [migration_state]
@@ -103,7 +105,7 @@ Unless you skip them, backups are taken **per migration version** immediately be
 | `supervisor.conf`, `*.fm.supervisor.conf` | v0.19.0 only, because it regenerates them |
 | nginx `default.conf` | v0.19.0 and v0.20.0, both of which regenerate it |
 
-**FM infrastructure**, under `~/frappe/backups/migrations/<timestamp>/<version>/`:
+**Global services & configuration**, under `~/frappe/backups/migrations/<timestamp>/<version>/`:
 
 | What | Notes |
 |---|---|
@@ -120,13 +122,13 @@ Unless you skip them, backups are taken **per migration version** immediately be
 
 ## Migration Commands
 
-### Infrastructure only {#migrate-infrastructure}
+### Global services & configuration {#migrate-services}
 
 ```bash
-fm migrate
+fm services migrate
 ```
 
-Migrates the global services and FM's own config. Nothing bench-specific happens. If there is nothing to do it prints `FM infrastructure already up to date (no benches specified)` and exits 0.
+Migrates the shared services and FM's own config. No bench version is touched, though a host-wide cutover (like the v0.21.0 rename) may rewrite bench files and briefly take every bench down, because the shared services are every bench's database and only route in. If there is nothing to do it prints `Global services & configuration already at v<version>` and exits 0.
 
 ### One bench {#migrate-bench}
 
@@ -134,13 +136,13 @@ Migrates the global services and FM's own config. Nothing bench-specific happens
 fm migrate mybench.localhost
 ```
 
-Migrates that bench, plus the infrastructure if it is behind.
+Migrates that bench. Refused while the global services & configuration are behind: run `fm services migrate` first.
 
 !!! info "Running benches are recreated"
     The bench does not need to be stopped first. If it is running, FM warns that its containers will be restarted (recreated) during migration. Stop it with `fm stop mybench` beforehand only if you want to pick the downtime window yourself.
 
-!!! warning "`fm migrate` wants the exact directory name"
-    Most commands normalise a bare `mybench` to `mybench.localhost` for you. `fm migrate` does not: it looks up `~/frappe/sites/<what you typed>` and reports `Bench 'mybench' does not exist` if that is not a directory. Use the name `fm list` shows.
+!!! note "Bench names resolve like everywhere else"
+    `fm migrate` takes the same `BENCH|all` address every bench command takes: completion offers your benches, a bare `mybench` finds a legacy `mybench.localhost` directory, and a name that matches nothing is refused while the argument is parsed.
 
 ### Every bench {#migrate-all}
 
@@ -153,9 +155,9 @@ Targets every directory in `~/frappe/sites/` that has a `bench_config.toml`. Ben
 Before starting, FM lists what it will do and asks once:
 
 ```
-FM Infrastructure: v0.19.0 → v0.20.0
-  • CLI configuration
-  • Global services (MariaDB, Nginx-Proxy)
+Global services & configuration: v0.19.0 → v0.20.0
+  • fm configuration
+  • shared services (mariadb, nginx-proxy)
 
 Benches:
   • mybench.localhost: v0.19.0 → v0.20.0

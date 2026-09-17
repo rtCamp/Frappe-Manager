@@ -156,7 +156,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     # address, which names no directory. It used to have neither completion nor validation, because
     # acting on every bench lived in a `--all-benches` flag and the body did its own existence check.
     "fm migrate": BenchnameSpec(
-        help="Bench to act on, or 'all' for every bench fm manages. Omit to act on nothing but fm itself.",
+        help="Bench to act on, or 'all' for every bench fm manages. Omit to pick from the benches you have.",
         metavar="BENCH|all",
         default=None,
         required=False,

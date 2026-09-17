@@ -43,7 +43,7 @@ class TestMigrationFlowIntegration:
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
         ):
             config = FMConfigManager.import_from_toml(config_path)
-            executor = MigrationExecutor(config, migrate_fm_infrastructure=True)
+            executor = MigrationExecutor(config, migrate_global_services=True)
 
             result = executor.execute()
 
@@ -103,7 +103,7 @@ class TestMigrationRollback:
             mock_output = Mock()
             mock_output.prompt_ask.return_value = "no"  # User says no to migration
 
-            executor = MigrationExecutor(config, migrate_fm_infrastructure=True, output_handler=mock_output)
+            executor = MigrationExecutor(config, migrate_global_services=True, output_handler=mock_output)
 
             mock_migration = Mock()
             mock_migration.version = Version("0.19.0")

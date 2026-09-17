@@ -36,7 +36,7 @@ class MigrationExecutor:
         rerun: bool = False,
         on_failure: str = "prompt",
         target_benches: list[str] | None = None,
-        migrate_fm_infrastructure: bool = False,
+        migrate_global_services: bool = False,
         output_handler: OutputHandler | None = None,
     ):
         self.fm_config_manager: FMConfigManager = fm_config_manager
@@ -55,8 +55,8 @@ class MigrationExecutor:
         self.auto_proceed = auto_proceed
         self.on_failure = on_failure
         self.target_benches = target_benches
-        self.migrate_fm_infrastructure = migrate_fm_infrastructure
-        self.fm_infrastructure_needs_migration = False
+        self.migrate_global_services = migrate_global_services
+        self.global_services_need_migration = False
         self.output = output_handler or RichOutputHandler()
 
         # Initialize helper classes (composition)
@@ -95,12 +95,12 @@ class MigrationExecutor:
         executed statements.
         """
 
-        fm_infrastructure_version_outdated = self.rerun or (self.prev_version < self.current_version)
-        fm_infrastructure_needs_migration = self.migrate_fm_infrastructure and fm_infrastructure_version_outdated
-        self.fm_infrastructure_needs_migration = fm_infrastructure_needs_migration
+        global_services_version_outdated = self.rerun or (self.prev_version < self.current_version)
+        global_services_need_migration = self.migrate_global_services and global_services_version_outdated
+        self.global_services_need_migration = global_services_need_migration
         benches_need_migration = self.rerun or self._check_benches_need_migration()
 
-        if not fm_infrastructure_needs_migration and not benches_need_migration:
+        if not global_services_need_migration and not benches_need_migration:
             return True
 
         effective_prev_version = self.prev_version
@@ -134,13 +134,13 @@ class MigrationExecutor:
         self.migrations = self.discovery.discover_migrations(effective_prev_version, self.current_version, self)
 
         if self.migrations:
-            if fm_infrastructure_needs_migration:
+            if global_services_need_migration:
                 self.output.print(
-                    f"FM Infrastructure: [fm.warn]v{self.prev_version}[/fm.warn] → [fm.ok]v{self.current_version}[/fm.ok]",
+                    f"Global services & configuration: [fm.warn]v{self.prev_version}[/fm.warn] → [fm.ok]v{self.current_version}[/fm.ok]",
                     emoji_code="",
                 )
-                self.output.print("  • CLI configuration", emoji_code="")
-                self.output.print("  • Global services (MariaDB, Nginx-Proxy)", emoji_code="")
+                self.output.print("  • fm configuration", emoji_code="")
+                self.output.print("  • shared services (mariadb, nginx-proxy)", emoji_code="")
 
             if benches_need_migration and self.target_benches:
                 self.output.print("", emoji_code="")

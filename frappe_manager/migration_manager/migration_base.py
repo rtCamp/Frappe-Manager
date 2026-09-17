@@ -78,7 +78,7 @@ class MigrationBase(ABC):
 
         self.init()
 
-        if self.migration_executor and self.migration_executor.fm_infrastructure_needs_migration:
+        if self.migration_executor and self.migration_executor.global_services_need_migration:
             self.services_basic_backup()
             self.migrate_services()
 

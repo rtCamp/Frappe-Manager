@@ -15,6 +15,7 @@ $ fm services [OPTIONS] COMMAND [ARGS]...
 **Commands**:
 
 * `info`: Show the global services' card: live container state, the root database credentials and the proxy's real-ip trust.
+* `migrate`: Bring fm's global services & configuration up to the current version.
 * `start`: Start the global services shared by every bench.
 * `stop`: Stop the global services shared by every bench.
 * `restart`: Restart the global services shared by every bench.
@@ -32,6 +33,43 @@ The root database password is printed in cleartext. It belongs to the mariadb co
 
 ```console
 $ fm services info
+```
+
+
+### `fm services migrate`
+
+Bring fm's global services & configuration up to the current version.
+
+This is the host-wide half of a migration: the shared services every bench depends on (mariadb, nginx-proxy) and fm's own configuration. Benches are never migrated here; fm migrate refuses to run while this half is behind, so after a CLI update this command comes first.
+
+A migration here can briefly take every bench on the host down, because the shared services are every bench's database and only route in.
+
+**Usage**:
+
+```console
+$ fm services migrate [OPTIONS]
+```
+
+**Options**:
+
+* `--auto-proceed`: Migrate without asking for confirmation.
+* `--rerun`: Re-run the migration steps even when already up to date.
+
+
+## Examples
+
+### Migrate after a CLI update
+
+Updates the shared services (mariadb, nginx-proxy) and fm's own config. No bench version is touched; run fm migrate BENCH or fm migrate all afterwards.
+
+```bash
+fm services migrate
+```
+
+### Migrate unattended
+
+```bash
+fm services migrate --auto-proceed
 ```
 
 

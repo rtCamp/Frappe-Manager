@@ -28,11 +28,6 @@ class MigrationFailureAction(str, Enum):
 
 
 @example(
-    "Migrate FM itself after a CLI update",
-    "",
-    detail="Updates FM's own config and global services. No bench is touched.",
-)
-@example(
     "Migrate one bench",
     "{benchname}",
     benchname="mybench",
@@ -91,9 +86,7 @@ def migrate(
     ] = None,
 ):
     """
-    Bring Frappe Manager and its benches up to the current version.
-
-    Benches are never migrated implicitly: a bare fm migrate updates only FM's own config and global services. Name a bench, or say 'all', to migrate benches themselves.
+    Bring benches up to the current version. Benches only: fm's own global services & configuration are migrated by fm services migrate, never implicitly by this command, and this command refuses to run while they are behind.
 
     Most bench commands refuse to run against a bench that is behind, so migrate first: the exceptions are stop and delete, which must keep working on a bench you cannot migrate, and the image commands bake, switch and prune.
     """
@@ -122,16 +115,25 @@ def migrate(
     # shell offered. The bench named outright was already resolved and checked by the callback.
     target_benches = [b for b in resolve_bench_targets(address) if b not in exclude_bench_list] or None
 
-    fm_infrastructure_version = fm_config_manager.get_system_migration_version()
-    fm_infrastructure_needs_migration = rerun or (fm_infrastructure_version < current_version)
+    # The services tier is a PREREQUISITE, never an implicit side effect: a bench migrated
+    # over stale global services is migrated into a world that does not exist yet, and the
+    # cutovers that tier performs (v0.21.0 renames the addresses benches dial) are exactly
+    # the ones that must be an explicit operator decision.
+    global_services_version = fm_config_manager.get_system_migration_version()
+    if global_services_version < current_version:
+        output.display_error(
+            f"fm's global services & configuration are behind (v{global_services_version} < v{current_version}). "
+            "Run 'fm services migrate' first."
+        )
+        raise typer.Exit(1)
 
     benches_checked = []
     benches_migrated = []
     benches_skipped = []
     benches_failed = []
 
-    if not fm_infrastructure_needs_migration and not target_benches:
-        output.print("✓ FM infrastructure already up to date (no benches specified)")
+    if not target_benches:
+        output.print("✓ No benches to migrate. fm's global services & configuration are handled by fm services migrate.")
         raise typer.Exit(0)
 
     if target_benches:
@@ -152,7 +154,7 @@ def migrate(
         rerun=rerun,
         on_failure=failure_action,
         target_benches=target_benches,
-        migrate_fm_infrastructure=fm_infrastructure_needs_migration,
+        migrate_global_services=False,
         output_handler=output_handler,
     )
 
@@ -183,27 +185,7 @@ def migrate(
             else:
                 benches_skipped.append(bench_name)
 
-    if fm_infrastructure_needs_migration:
-        fm_config_manager.set_system_migration_version(current_version)
-        fm_config_manager.export_to_toml()
-
     table = Table(show_header=False, box=None, padding=(0, 2, 0, 0))
-
-    show_infrastructure_status = fm_infrastructure_needs_migration or target_benches is None
-
-    if show_infrastructure_status:
-        if fm_infrastructure_needs_migration:
-            table.add_row(
-                "✅",
-                "[fm.info]FM Infrastructure[/fm.info]",
-                f"[fm.warn]v{fm_infrastructure_version}[/fm.warn] → [fm.ok]v{current_version}[/fm.ok]",
-            )
-        else:
-            table.add_row(
-                "⏭️ ",
-                "[fm.info]FM Infrastructure[/fm.info]",
-                f"[fm.warn]v{fm_infrastructure_version}[/fm.warn] (already up to date)",
-            )
 
     if benches_migrated:
         for bench_name in benches_migrated:

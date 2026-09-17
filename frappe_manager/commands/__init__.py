@@ -175,7 +175,7 @@ def _prompt_and_run_migration(
     Every parameter exists because the call sites genuinely differ; do not re-inline this:
     the wording and emoji placement (infra puts its emoji in the message and indents the
     detail line, bench passes the emoji separately), the executor arguments
-    (``migrate_fm_infrastructure`` vs ``target_benches``), where the new version is recorded
+    (``migrate_global_services`` vs ``target_benches``), where the new version is recorded
     (``fm_config_manager.set_system_migration_version`` + ``export_to_toml`` vs
     ``set_bench_migration_version(bench_path, ...)`` -- hence the ``record_version`` callback),
     and the refusal text: the bench gate emits an extra "skipped"/"may not work" notice
@@ -466,9 +466,9 @@ def app_callback(
             bench_path = CLI_BENCHES_DIRECTORY / bench_arg if bench_arg else None
 
             # Check migration states
-            fm_infrastructure_version = fm_config_manager.get_system_migration_version()
+            global_services_version = fm_config_manager.get_system_migration_version()
             current_version = Version(get_current_fm_version())
-            infra_needs_migration = fm_infrastructure_version < current_version
+            infra_needs_migration = global_services_version < current_version
 
             bench_needs_migration_flag = False
             bench_version = None
@@ -497,28 +497,28 @@ def app_callback(
                     _prompt_and_run_migration(
                         output,
                         fm_config_manager,
-                        warning=f"FM infrastructure needs update: v{fm_infrastructure_version} -> v{current_version}",
-                        detail="This updates CLI config and global services",
+                        warning=f"fm's global services & configuration need migration: v{global_services_version} -> v{current_version}",
+                        detail="This updates the shared services (mariadb, nginx-proxy) and fm's own config",
                         detail_emoji="  ",
                         prompt="How would you like to proceed?",
                         choices=[
                             {"name": "Update now (recommended)", "value": "update"},
-                            {"name": "Update later (run 'fm migrate' when ready)", "value": "skip"},
+                            {"name": "Update later (run 'fm services migrate' when ready)", "value": "skip"},
                         ],
-                        required_flag="'fm migrate' (run migration explicitly)",
-                        start_notice="\n🔄 Updating FM infrastructure...\n",
+                        required_flag="'fm services migrate' (run migration explicitly)",
+                        start_notice="\n🔄 Updating fm's global services & configuration...\n",
                         start_emoji="",
                         executor_kwargs={
-                            "migrate_fm_infrastructure": True,
+                            "migrate_global_services": True,
                             "auto_proceed": True,
                             "on_failure": "rollback",
                         },
-                        failure_error="FM infrastructure update failed",
-                        failure_hint="Please run 'fm migrate' manually to fix.",
+                        failure_error="Global services & configuration update failed",
+                        failure_hint="Please run 'fm services migrate' manually to fix.",
                         record_version=record_infra_version,
-                        success_notice=f"FM infrastructure updated to v{current_version}\n",
-                        skip_error="Cannot proceed - FM infrastructure migration required",
-                        skip_hint="Run 'fm migrate' when ready",
+                        success_notice=f"Global services & configuration updated to v{current_version}\n",
+                        skip_error="Cannot proceed - fm's global services & configuration need migration",
+                        skip_hint="Run 'fm services migrate' when ready",
                     )
 
                 # Scenario 2: Bench needs migration -- nested after the infra update above, or
@@ -557,9 +557,14 @@ def app_callback(
                         skip_hint=f"Run 'fm migrate {bench_arg}' first",
                     )
 
+            # The FULL command path ("services migrate", not just the group name): the
+            # services manager gates its pre-rename escape hatch and its auto-start
+            # behavior on which command is running, and the group name alone cannot tell
+            # `fm services migrate` (must run against an old install) from
+            # `fm services start` (must not).
             services_manager: ServicesManager = ServicesManager(
                 verbose=ctx.obj["verbose"],
-                invoked_subcommand=ctx.invoked_subcommand,
+                invoked_subcommand=full_command,
             )
 
             services_manager.init()

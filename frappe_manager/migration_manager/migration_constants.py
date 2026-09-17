@@ -18,6 +18,7 @@ MIGRATION_CHECK_WHITELIST_COMMANDS: list[str] = [
     "compose",
     "self update-images",
     "migrate",
+    "services migrate",
     "bake",
     "switch",
 ]

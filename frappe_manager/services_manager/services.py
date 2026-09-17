@@ -92,15 +92,18 @@ class ServicesManager:
         # reach this init anyway, and against the old names it dies deep inside MariaDBManager
         # with a missing-password error that says nothing about the actual problem. Detect the
         # old shape and refuse with the fix. Not legacy support: nothing here can run on it.
-        # `migrate` and the `self` family stay usable because they ARE the way out (this check
-        # runs before the migrate command body gets to do the cutover); for them the database
-        # manager below stays unwired, since it cannot be built against the old names either.
+        # The migration commands and the `self` family stay usable because they ARE the way
+        # out (this check runs before their command bodies get to do the cutover); for them
+        # the database manager below stays unwired, since it cannot be built against the old
+        # names either. `invoked_subcommand` carries the FULL command path ("services
+        # migrate"), so the escape hatch does not open for `fm services start`.
+        command = self.invoked_subcommand or ""
         old_names = self.compose_file_manager.get_services_list()
         if "global-db" in old_names and "mariadb" not in old_names:
-            if self.invoked_subcommand not in ("migrate", "self"):
+            if command not in ("migrate", "services migrate") and command.split(" ")[0] != "self":
                 self.output.exit(
                     "The global services predate the v0.21.0 rename (global-db -> mariadb). "
-                    "Run 'fm migrate' to cut this install over."
+                    "Run 'fm services migrate' to cut this install over."
                 )
             return
 
@@ -111,7 +114,7 @@ class ServicesManager:
             # deliberately stopped stack instead of silently starting it first. `compose` is a
             # diagnostic passthrough to docker compose: `fm compose BENCH ps` against a stopped
             # stack must report it stopped, not boot it.
-            if self.invoked_subcommand not in ("services", "self", "compose"):
+            if command.split(" ")[0] not in ("services", "self", "compose"):
                 services = self.compose_file_manager.get_services_list(exclude_disabled=True)
                 containers = self.compose_file_manager.get_container_names().values()
                 all_statuses = self.docker_client.compose.get_all_services_status()

@@ -121,7 +121,7 @@ BenchAllArgument = Annotated[
     str | None,
     typer.Argument(
         metavar="BENCH|all",
-        help="Bench to act on, or 'all' for every bench fm manages. Omit to act on nothing but fm itself.",
+        help="Bench to act on, or 'all' for every bench fm manages. Omit to pick from the benches you have.",
         autocompletion=bench_all_autocompletion_callback,
         callback=bench_all_callback,
     ),

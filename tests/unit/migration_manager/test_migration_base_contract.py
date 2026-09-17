@@ -70,7 +70,7 @@ def _executor(
 ):
     """A migration executor stub with every flag the base class reads set explicitly."""
     executor = MagicMock()
-    executor.fm_infrastructure_needs_migration = infra
+    executor.global_services_need_migration = infra
     executor.target_benches = target_benches
     executor.exclude_benches = list(exclude)
     executor.rerun = rerun

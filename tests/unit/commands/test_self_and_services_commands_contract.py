@@ -17,6 +17,10 @@ whose failure mode is "every bench on this host", not "this command misbehaved":
 * `fm services info` is where the shared root-db credentials moved when they left the bench
   card, so it must actually carry them, and it must report a service whose container does not
   exist as stopped rather than omitting it.
+* `fm services migrate` is the services tier of a migration (shared services + fm config):
+  it stamps the system version only on success, never targets a bench, and is a no-op when
+  already current. `fm migrate` refuses while this tier is behind, so this command must
+  exist and work on its own.
 * `fm services start|stop <service>` confirms the work it did, not only the work it skipped, and
   `fm services shell all` is refused up front instead of failing as a bogus shell exit code.
 
@@ -676,3 +680,69 @@ def test_services_shell_propagates_the_containers_exit_code():
 
     assert result.exit_code == 130
     manager.docker_client.compose.exec.assert_called_once_with("mariadb", command="/bin/bash", capture_output=False)
+
+
+# =========================================================================== #
+# fm services migrate
+# =========================================================================== #
+
+
+def _run_services_migrate(*, system_version="0.20.0", current_version="0.21.0", execute_result=True, **kwargs):
+    from frappe_manager.commands.services.migrate import migrate_services
+    from frappe_manager.migration_manager.version import Version
+
+    fm_config_manager = MagicMock()
+    fm_config_manager.get_system_migration_version.return_value = Version(system_version)
+
+    ctx = MagicMock(spec=typer.Context)
+    ctx.obj = {"fm_config_manager": fm_config_manager}
+
+    with (
+        patch("frappe_manager.commands.services.migrate.get_current_fm_version", return_value=current_version),
+        patch("frappe_manager.commands.services.migrate.MigrationExecutor") as executor_cls,
+        patch("frappe_manager.commands.services.migrate.spinner"),
+    ):
+        executor_cls.return_value.execute.return_value = execute_result
+        try:
+            migrate_services(ctx, **{"auto_proceed": False, "rerun": False, **kwargs})
+            raised = None
+        except typer.Exit as exc:
+            raised = exc
+    return SimpleNamespace(executor_cls=executor_cls, fm_config_manager=fm_config_manager, exit=raised)
+
+
+def test_services_migrate_runs_the_services_tier_only_and_stamps_on_success(out):
+    from frappe_manager.migration_manager.version import Version
+
+    r = _run_services_migrate()
+
+    kwargs = r.executor_cls.call_args.kwargs
+    assert kwargs["migrate_global_services"] is True
+    assert kwargs["target_benches"] is None
+    assert r.exit is None
+    r.fm_config_manager.set_system_migration_version.assert_called_once_with(Version("0.21.0"))
+    r.fm_config_manager.export_to_toml.assert_called_once_with()
+
+
+def test_services_migrate_is_a_noop_when_already_current(out):
+    r = _run_services_migrate(system_version="0.21.0", current_version="0.21.0")
+
+    assert r.exit.exit_code == 0
+    r.executor_cls.assert_not_called()
+    r.fm_config_manager.set_system_migration_version.assert_not_called()
+
+
+def test_services_migrate_rerun_runs_even_when_current(out):
+    r = _run_services_migrate(system_version="0.21.0", current_version="0.21.0", rerun=True)
+
+    assert r.exit is None
+    assert r.executor_cls.call_args.kwargs["rerun"] is True
+
+
+def test_services_migrate_failure_exits_without_stamping_the_version(out):
+    """A failed tier migration must leave the version ledger behind, or the gate and
+    fm migrate would treat a half-cut install as current."""
+    r = _run_services_migrate(execute_result=False)
+
+    assert r.exit.exit_code == 1
+    r.fm_config_manager.set_system_migration_version.assert_not_called()

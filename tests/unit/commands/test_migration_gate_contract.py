@@ -10,7 +10,7 @@ These tests pin the CURRENT observable behaviour of the gate so the refactor is 
 
 - which prompt is shown (exact question / choices / default / ``required_flag``)
 - which ``MigrationExecutor`` is built (positional config, ``target_benches`` /
-  ``migrate_fm_infrastructure``, ``auto_proceed``, ``on_failure``, ``output_handler``)
+  ``migrate_global_services``, ``auto_proceed``, ``on_failure``, ``output_handler``)
 - that ``execute()`` runs *inside* ``temporary_stop(output)``
 - that a falsy ``execute()`` result means ``display_error`` + exit code 1 and that the new
   version is NOT recorded
@@ -224,10 +224,10 @@ def _infra_prompt_kwargs() -> dict:
         "prompt": "How would you like to proceed?",
         "choices": [
             {"name": "Update now (recommended)", "value": "update"},
-            {"name": "Update later (run 'fm migrate' when ready)", "value": "skip"},
+            {"name": "Update later (run 'fm services migrate' when ready)", "value": "skip"},
         ],
         "default": "update",
-        "required_flag": "'fm migrate' (run migration explicitly)",
+        "required_flag": "'fm services migrate' (run migration explicitly)",
     }
 
 
@@ -348,7 +348,7 @@ class TestInfraMigrationPrompt:
 
         gate.run("start")
 
-        assert gate.warnings == [f"FM infrastructure needs update: v{OLD_VERSION} -> v{CURRENT_FM_VERSION}"]
+        assert gate.warnings == [f"fm's global services & configuration need migration: v{OLD_VERSION} -> v{CURRENT_FM_VERSION}"]
         assert gate.prompts == [_infra_prompt_kwargs()]
 
     def test_update_builds_infra_executor_and_runs_it_inside_temporary_stop(self, gate):
@@ -361,7 +361,7 @@ class TestInfraMigrationPrompt:
         executor = gate.executors[0]
         assert executor.init_args == (gate.config,)
         assert executor.init_kwargs == {
-            "migrate_fm_infrastructure": True,
+            "migrate_global_services": True,
             "auto_proceed": True,
             "on_failure": "rollback",
             "output_handler": gate.output,
@@ -389,7 +389,7 @@ class TestInfraMigrationPrompt:
             gate.run("start")
 
         assert exc.value.exit_code == 1
-        assert gate.errors == ["FM infrastructure update failed"]
+        assert gate.errors == ["Global services & configuration update failed"]
         gate.config.set_system_migration_version.assert_not_called()
         gate.config.export_to_toml.assert_not_called()
         gate.services_manager_cls.assert_not_called()
@@ -402,7 +402,7 @@ class TestInfraMigrationPrompt:
             gate.run("start")
 
         assert exc.value.exit_code == 1
-        assert gate.errors == ["Cannot proceed - FM infrastructure migration required"]
+        assert gate.errors == ["Cannot proceed - fm's global services & configuration need migration"]
         assert gate.executors == []
         gate.config.set_system_migration_version.assert_not_called()
         gate.services_manager_cls.assert_not_called()
@@ -416,7 +416,7 @@ class TestInfraMigrationPrompt:
             gate.run("start")
 
         assert exc.value.exit_code == 1
-        assert gate.errors == ["Cannot proceed - FM infrastructure migration required"]
+        assert gate.errors == ["Cannot proceed - fm's global services & configuration need migration"]
 
 
 class TestBenchMigrationPromptWithCurrentInfra:
@@ -555,7 +555,7 @@ class TestInfraThenBenchMigration:
         gate.run("start", bench_arg="mysite.localhost")
 
         assert len(gate.executors) == 2
-        assert gate.executors[0].init_kwargs["migrate_fm_infrastructure"] is True
+        assert gate.executors[0].init_kwargs["migrate_global_services"] is True
         assert gate.executors[1].init_kwargs == {
             "target_benches": ["mysite.localhost"],
             "auto_proceed": True,
@@ -599,7 +599,7 @@ class TestInfraThenBenchMigration:
             gate.run("start", bench_arg="mysite.localhost")
 
         assert len(gate.prompts) == 1
-        assert gate.errors == ["Cannot proceed - FM infrastructure migration required"]
+        assert gate.errors == ["Cannot proceed - fm's global services & configuration need migration"]
 
     def test_failed_nested_bench_migration_exits_after_recording_infra_version(self, gate):
         gate.set_infra_version(OLD_VERSION)
@@ -700,7 +700,7 @@ class TestNonInteractiveRoute:
         gate.set_infra_version(OLD_VERSION)
         gate.output.prompt_ask.side_effect = NonInteractiveError(
             "Cannot prompt in non-interactive mode: How would you like to proceed?",
-            suggestions=["Use: 'fm migrate' (run migration explicitly)"],
+            suggestions=["Use: 'fm services migrate' (run migration explicitly)"],
         )
 
         with pytest.raises(NonInteractiveError):
@@ -722,7 +722,7 @@ class TestNonInteractiveRoute:
             handler.prompt_ask(**_infra_prompt_kwargs())
 
         assert "Cannot prompt in non-interactive mode: How would you like to proceed?" in str(exc.value)
-        assert "Use: 'fm migrate' (run migration explicitly)" in str(exc.value)
+        assert "Use: 'fm services migrate' (run migration explicitly)" in str(exc.value)
 
         with pytest.raises(NonInteractiveError) as bench_exc:
             handler.prompt_ask(**_bench_prompt_kwargs("mysite.localhost"))

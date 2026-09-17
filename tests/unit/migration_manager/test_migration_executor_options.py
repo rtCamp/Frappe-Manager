@@ -119,7 +119,7 @@ class TestMigrationExecutorAutoProceedFlag:
                 mock_fm_config,
                 auto_proceed=True,
                 on_failure="rollback",
-                migrate_fm_infrastructure=True,
+                migrate_global_services=True,
                 output_handler=mock_output,
             )
 

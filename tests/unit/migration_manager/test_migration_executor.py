@@ -55,7 +55,7 @@ class TestMigrationExecutorVersionEnforcement:
                 rerun=True,
                 auto_proceed=True,
                 on_failure="rollback",
-                migrate_fm_infrastructure=True,
+                migrate_global_services=True,
                 output_handler=mock_output,
             )
 
@@ -71,14 +71,14 @@ class TestMigrationExecutorVersionEnforcement:
             mock_execute.assert_called_once()
 
     def test_no_migration_without_rerun_when_versions_equal(self, mock_fm_config):
-        """Without --rerun, no migration runs when versions are equal (regardless of migrate_fm_infrastructure)."""
+        """Without --rerun, no migration runs when versions are equal (regardless of migrate_global_services)."""
         mock_fm_config.version = Version("0.19.0")
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
             patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
-            executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True)
+            executor = MigrationExecutor(mock_fm_config, migrate_global_services=True)
             result = executor.execute()
 
             assert result is True
@@ -101,7 +101,7 @@ class TestMigrationExecutorVersionEnforcement:
             patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
             mock_output = Mock()
-            executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)
+            executor = MigrationExecutor(mock_fm_config, migrate_global_services=True, output_handler=mock_output)
             result = executor.execute()
 
             assert result is False
@@ -253,7 +253,7 @@ class TestMigrationExecutorUserPrompt:
             services.compose_file_manager.get_services_list.return_value = ["global-db"]
             services.is_service_running.return_value = True
 
-            executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)
+            executor = MigrationExecutor(mock_fm_config, migrate_global_services=True, output_handler=mock_output)
 
             with (
                 patch.object(executor.discovery, "discover_migrations", return_value=[mock_migration]),
@@ -328,7 +328,7 @@ class TestMigrationExecutorUserPrompt:
             services.path.exists.return_value = True
             services.is_service_running.return_value = True
 
-            executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)
+            executor = MigrationExecutor(mock_fm_config, migrate_global_services=True, output_handler=mock_output)
 
             with (
                 patch.object(executor.discovery, "discover_migrations", return_value=[failing]),
@@ -350,7 +350,7 @@ class TestMigrationExecutorUserPrompt:
             patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
             mock_output = Mock()
-            executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)
+            executor = MigrationExecutor(mock_fm_config, migrate_global_services=True, output_handler=mock_output)
 
             mock_output.prompt_ask.return_value = "no"
 

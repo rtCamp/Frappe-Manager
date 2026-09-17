@@ -1,8 +1,6 @@
 ## `fm migrate`
 
-Bring Frappe Manager and its benches up to the current version.
-
-Benches are never migrated implicitly: a bare fm migrate updates only FM's own config and global services. Name a bench, or say 'all', to migrate benches themselves.
+Bring benches up to the current version. Benches only: fm's own global services & configuration are migrated by fm services migrate, never implicitly by this command, and this command refuses to run while they are behind.
 
 Most bench commands refuse to run against a bench that is behind, so migrate first: the exceptions are stop and delete, which must keep working on a bench you cannot migrate, and the image commands bake, switch and prune.
 
@@ -14,7 +12,7 @@ $ fm migrate BENCH|all [OPTIONS]
 
 **Arguments**:
 
-* `BENCH|all`: Bench to act on, or 'all' for every bench fm manages. Omit to act on nothing but fm itself.
+* `BENCH|all`: Bench to act on, or 'all' for every bench fm manages. Omit to pick from the benches you have.
 
 **Options**:
 
@@ -27,14 +25,6 @@ $ fm migrate BENCH|all [OPTIONS]
 
 
 ## Examples
-
-### Migrate FM itself after a CLI update
-
-Updates FM's own config and global services. No bench is touched.
-
-```bash
-fm migrate
-```
 
 ### Migrate one bench
 
