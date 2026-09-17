@@ -66,7 +66,14 @@ class BackupManager:
         backup_group_name: str = "migrations",
         benches_dir: Path = CLI_BENCHES_DIRECTORY,
         backup_dir: Path = CLI_MIGARATIONS_DIR,
+        skip_file_backups: bool = False,
     ):
+        # The kind-scoped backup policy is enforced HERE, at the one chokepoint every
+        # file backup of every migration flows through, so no migration - past or
+        # future - has to know the policy exists. Database dumps do not pass through
+        # this class (they are taken by the DB managers); their chokepoint is
+        # MigrationBase.bench_db_backup.
+        self.skip_file_backups = skip_file_backups
         self.name = name
         self.backup_group_name = backup_group_name
         self.migration_timestamp = self._generate_unique_session_timestamp()
@@ -97,6 +104,9 @@ class BackupManager:
         bench_name: str | None = None,
         allow_restore: bool = True,
     ):
+        if self.skip_file_backups:
+            self.logger.debug(f"Backup skipped by policy (--skip-backup/--skip-config-backup): {src}")
+            return None
         if not src.exists():
             return None
 

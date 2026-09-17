@@ -30,7 +30,8 @@ class MigrationExecutor:
         self,
         fm_config_manager: FMConfigManager,
         skip_backup: bool = False,
-        skip_backup_for: list[str] | None = None,
+        skip_config_backup: bool = False,
+        skip_db_backup: bool = False,
         exclude_benches: list[str] | None = None,
         auto_proceed: bool = False,
         rerun: bool = False,
@@ -50,7 +51,12 @@ class MigrationExecutor:
         self.undo_stack = []
         self.migrate_benches = {}
         self.skip_backup = skip_backup
-        self.skip_backup_for = skip_backup_for or []
+        self.skip_config_backup = skip_config_backup
+        self.skip_db_backup = skip_db_backup
+        # No CLI flag feeds this anymore (backup skipping is by KIND now, not by bench), but
+        # the frozen v0.19.0 migration reads it off the executor; it stays as an inert empty
+        # list so upgrade chains keep working.
+        self.skip_backup_for: list[str] = []
         self.exclude_benches = exclude_benches or []
         self.auto_proceed = auto_proceed
         self.on_failure = on_failure

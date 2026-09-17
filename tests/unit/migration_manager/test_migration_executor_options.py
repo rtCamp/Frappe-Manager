@@ -22,17 +22,18 @@ class TestMigrationExecutorWithOptions:
             assert executor.auto_proceed is False
             assert executor.on_failure == "prompt"
 
-    def test_executor_accepts_skip_backup_for_list(self, mock_fm_config):
+    def test_executor_accepts_the_kind_scoped_backup_flags(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
             patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
-            executor = MigrationExecutor(mock_fm_config, skip_backup_for=["bench1", "bench2"])
+            executor = MigrationExecutor(mock_fm_config, skip_config_backup=True, skip_db_backup=True)
 
             assert executor.skip_backup is False
-            assert executor.skip_backup_for == ["bench1", "bench2"]
+            assert executor.skip_config_backup is True
+            assert executor.skip_db_backup is True
 
     def test_executor_accepts_exclude_benches_list(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
@@ -66,14 +67,14 @@ class TestMigrationExecutorWithOptions:
             executor = MigrationExecutor(
                 mock_fm_config,
                 skip_backup=False,
-                skip_backup_for=["bench1"],
+                skip_db_backup=True,
                 exclude_benches=["old-bench"],
                 auto_proceed=True,
                 on_failure="rollback",
             )
 
             assert executor.skip_backup is False
-            assert executor.skip_backup_for == ["bench1"]
+            assert executor.skip_db_backup is True
             assert executor.exclude_benches == ["old-bench"]
             assert executor.auto_proceed is True
             assert executor.on_failure == "rollback"
@@ -168,19 +169,18 @@ class TestMigrationExecutorBackupOptions:
 
             assert executor.skip_backup is True
 
-    def test_skip_backup_for_list_available_to_migration(self, mock_fm_config):
+    def test_skip_backup_for_stays_as_an_inert_empty_list_for_frozen_migrations(self, mock_fm_config):
+        """No flag feeds this anymore (skips are by KIND), but the frozen v0.19.0 migration
+        reads it off the executor; removing the attribute would break every upgrade chain."""
         mock_fm_config.version = Version("0.18.0")
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
             patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
-            skip_list = ["bench1", "bench2", "bench3"]
-            executor = MigrationExecutor(mock_fm_config, skip_backup_for=skip_list)
+            executor = MigrationExecutor(mock_fm_config)
 
-            assert executor.skip_backup_for == skip_list
-            assert "bench1" in executor.skip_backup_for
-            assert "bench2" in executor.skip_backup_for
+            assert executor.skip_backup_for == []
 
 
 class TestMigrationExecutorExcludeBenches:

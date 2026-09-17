@@ -43,7 +43,7 @@ def migration():
     """v0.19.0 with a stub backup manager; the parent's backup is stubbed separately."""
     migration = MigrationV0190(output_handler=Mock())
     migration.backup_manager = Mock()
-    migration.migration_executor = Mock(skip_backup=False, skip_backup_for=[])
+    migration.migration_executor = Mock(skip_backup=False, skip_config_backup=False, skip_db_backup=False, skip_backup_for=[])
     return migration
 
 

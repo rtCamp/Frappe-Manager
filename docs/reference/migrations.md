@@ -227,25 +227,31 @@ Each failed bench is rolled back to its last successfully completed migration ve
 
 ## Skipping Backups
 
-### `--skip-all-backup` {#skip-backups}
+Skips are by KIND, because the two kinds cost differently and guard against different damage: the config-file backups are near-free and restore a broken migration's file state, the per-site database dumps are the slow, large half and are the route back when a migration damaged data.
+
+### `--skip-backup` {#skip-backups}
 
 ```bash
-fm migrate all --skip-all-backup
+fm migrate all --skip-backup
 ```
+
+Skips every backup, both kinds.
 
 !!! danger "No backups means no rollback"
     Rollback restores files from the backup directory. Without it, a failed migration leaves the bench where it stopped. Use this only when you have external backups, when backup creation itself is what is failing (disk space, permissions), or on disposable benches.
 
-### `--skip-backup-for` {#skip-backup-for}
+### `--skip-config-backup` / `--skip-db-backup` {#skip-backup-kinds}
 
 ```bash
-fm migrate all --skip-backup-for testbench.localhost,devbench.localhost
+fm migrate all --skip-db-backup
 ```
 
-Comma-separated. Those benches are migrated without a backup; the rest are backed up normally.
+One kind at a time: `--skip-db-backup` keeps the cheap config-file backups and skips the dumps (the usual reason: dump size or time), `--skip-config-backup` the reverse.
+
+`fm services migrate` takes `--skip-backup` too, and there it also covers whole-engine dumps like v0.20.0's pre-upgrade dump, where the dump is the only route back from a one-way engine upgrade: reach for it only when taking the dump is genuinely impossible.
 
 !!! note "Undeterminable database name"
-    If FM cannot work out a bench's database name from `site_config.json`, `bench_config.toml`, or the global service info, it asks whether to continue without a database backup. `--skip-all-backup` or `--skip-backup-for <bench>` answers that in advance.
+    If FM cannot work out a bench's database name from `site_config.json`, `bench_config.toml`, or the global service info, it asks whether to continue without a database backup. `--skip-backup` or `--skip-db-backup` answers that in advance.
 
 ---
 
@@ -283,7 +289,7 @@ df -h ~/frappe
 rm -rf ~/frappe/sites/mybench.localhost/backups/migrations/<old-timestamp>/
 ```
 
-If space is genuinely unavailable and you have backups elsewhere, `--skip-all-backup` gets the migration through.
+If space is genuinely unavailable and you have backups elsewhere, `--skip-backup` (or `--skip-db-backup`, keeping the near-free config backups) gets the migration through.
 
 ### A bench is stuck half-migrated
 

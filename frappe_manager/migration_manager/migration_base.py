@@ -56,7 +56,15 @@ class MigrationBase(ABC):
         return tag
 
     def init(self):
-        self.backup_manager = BackupManager(name=str(self.version), benches_dir=self.benches_dir)
+        # The kind-scoped backup policy is wired into the two chokepoints ONCE, here:
+        # every file backup flows through BackupManager.backup (gated at construction),
+        # every per-site dump through bench_db_backup (gated at its top). Individual
+        # migrations never consult the flags.
+        executor = self.migration_executor
+        skip_files = bool(executor) and (executor.skip_backup or executor.skip_config_backup)
+        self.backup_manager = BackupManager(
+            name=str(self.version), benches_dir=self.benches_dir, skip_file_backups=skip_files
+        )
         self.benches_manager = MigrationBenches(self.benches_dir)
         self.services_manager: MigrationServicesManager = MigrationServicesManager(services_path=CLI_DIR / "services")
 
@@ -196,13 +204,17 @@ class MigrationBase(ABC):
     def bench_basic_backup(self, bench: MigrationBench):
         self.output.print(f"Migrating bench [bold][fm.info]{bench.name}[/fm.info][/bold]")
 
-        if self.migration_executor.skip_backup:
-            self.output.warning(f"Skipping backup for {bench.name}")
-            return
+        # Skips are by KIND: config files are near-free to keep, the per-site database
+        # dumps are the slow, large half -- and each is the rollback path for its own
+        # kind of damage. The gates live in BackupManager.backup and bench_db_backup;
+        # this method only says loudly what will be missing.
+        skip_config = self.migration_executor.skip_backup or self.migration_executor.skip_config_backup
+        skip_db = self.migration_executor.skip_backup or self.migration_executor.skip_db_backup
 
-        if bench.name in self.migration_executor.skip_backup_for:
-            self.output.warning(f"Skipping backup for {bench.name}")
-            return
+        if skip_config:
+            self.output.warning(f"Skipping the config-file backups for {bench.name}")
+        if skip_db:
+            self.output.warning(f"Skipping the database dumps for {bench.name}")
 
         bench_config_path = bench.path / CLI_BENCH_CONFIG_FILE_NAME
         if bench_config_path.exists():
@@ -320,6 +332,14 @@ class MigrationBase(ABC):
         """Dump one SITE's schema. `site` defaults to the bench's name, which is what it is on every
         pre-decoupling bench and what every caller meant before a bench could hold several."""
         site = site or bench.name
+
+        # The db-kind chokepoint: every per-site dump of every migration reaches this
+        # method, so honoring the policy here covers them all without any migration
+        # knowing the flags exist. (The one historical outlier is v0.20.0's whole-engine
+        # dump, which bypasses this path and carries its own guard.)
+        if self.migration_executor.skip_backup or self.migration_executor.skip_db_backup:
+            self.output.warning(f"Skipping the database dump for {site} (--skip-backup/--skip-db-backup)")
+            return
         self.output.change_head(f"Taking {site} db backup")
 
         db_name = self._resolve_database_name(bench, db_info, site)
@@ -339,7 +359,7 @@ class MigrationBase(ABC):
                 prompt="\n".join(skip_backup_prompt),
                 choices=["yes", "no"],
                 default="no",
-                required_flag="--skip-all-backup or --skip-backup-for <bench>",
+                required_flag="--skip-backup or --skip-db-backup",
             )
 
             if user_choice == "no":

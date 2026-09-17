@@ -66,6 +66,8 @@ def _executor(
     migrate_benches=None,
     infra=False,
     skip_backup=False,
+    skip_config_backup=False,
+    skip_db_backup=False,
     skip_backup_for=(),
 ):
     """A migration executor stub with every flag the base class reads set explicitly."""
@@ -76,6 +78,8 @@ def _executor(
     executor.rerun = rerun
     executor.migrate_benches = {} if migrate_benches is None else migrate_benches
     executor.skip_backup = skip_backup
+    executor.skip_config_backup = skip_config_backup
+    executor.skip_db_backup = skip_db_backup
     executor.skip_backup_for = list(skip_backup_for)
     return executor
 
@@ -260,11 +264,28 @@ def test_init_builds_the_collaborators_from_the_migration_version_and_benches_di
     ):
         migration.init()
 
-    backup_manager.assert_called_once_with(name="0.9.0", benches_dir=tmp_path / "sites")
+    backup_manager.assert_called_once_with(name="0.9.0", benches_dir=tmp_path / "sites", skip_file_backups=False)
     benches.assert_called_once_with(tmp_path / "sites")
     assert services.call_count == 1
     assert migration.backup_manager is backup_manager.return_value
     assert migration.benches_manager is benches.return_value
+
+
+def test_init_wires_the_file_backup_policy_into_the_backup_manager(output, tmp_path):
+    """The config-kind skip is enforced at the BackupManager chokepoint, wired ONCE here,
+    so no migration ever has to consult the flags."""
+    migration = _PlainMigration(output_handler=output)
+    migration.benches_dir = tmp_path / "sites"
+    migration.migration_executor = _executor(skip_config_backup=True)
+
+    with (
+        patch(f"{BASE}.BackupManager") as backup_manager,
+        patch(f"{BASE}.MigrationBenches"),
+        patch(f"{BASE}.MigrationServicesManager"),
+    ):
+        migration.init()
+
+    assert backup_manager.call_args.kwargs["skip_file_backups"] is True
 
 
 # --------------------------------------------------------------------------------------
@@ -621,21 +642,28 @@ def backup_migration(output, tmp_path):
     return migration
 
 
-def test_skip_all_backup_saves_nothing_for_the_bench(backup_migration, backed_up_bench, output):
+def test_skip_backup_saves_nothing_for_the_bench(backup_migration, backed_up_bench, output):
+    """The policy the flags promise, end to end: with everything skipped, the backups list
+    stays empty. The file half is enforced by the BackupManager built in init() (mirrored
+    here on the directly-constructed one), the dump half by bench_db_backup itself."""
     backup_migration.migration_executor.skip_backup = True
+    backup_migration.backup_manager.skip_file_backups = True
 
     backup_migration.bench_basic_backup(backed_up_bench)
 
     assert backup_migration.backup_manager.backups == []
-    output.warning.assert_called_once()
+    assert output.warning.call_count >= 2
 
 
-def test_a_per_bench_backup_skip_saves_nothing_for_that_bench(backup_migration, backed_up_bench):
-    backup_migration.migration_executor.skip_backup_for = ["alpha"]
+def test_skip_db_backup_keeps_the_config_files_and_skips_the_dump(backup_migration, backed_up_bench, output):
+    backup_migration.migration_executor.skip_db_backup = True
 
     backup_migration.bench_basic_backup(backed_up_bench)
 
-    assert backup_migration.backup_manager.backups == []
+    saved = [b.src.name for b in backup_migration.backup_manager.backups]
+    assert saved == ["bench_config.toml", "docker-compose.yml", "common_site_config.json", "site_config.json"]
+    # the dump path was never entered: nothing touched the bench's docker
+    assert backed_up_bench.docker.mock_calls == []
 
 
 def test_backup_covers_the_bench_config_compose_and_both_site_configs(backup_migration, backed_up_bench):
@@ -833,7 +861,7 @@ def test_an_unknown_database_name_asks_before_skipping_the_dump(backup_migration
     # A bare Enter must decline the risky path (continuing without a backup), not take it --
     # `prompt_ask(default=None)` is the shape that let InquirerPy highlight 'yes' by accident.
     assert output.prompt_ask.call_args.kwargs["default"] == "no"
-    assert "--skip-all-backup" in output.prompt_ask.call_args.kwargs["required_flag"]
+    assert "--skip-backup" in output.prompt_ask.call_args.kwargs["required_flag"]
 
 
 def test_declining_the_skip_aborts_the_migration_for_that_bench(backup_migration, backed_up_bench, output):

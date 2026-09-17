@@ -27,6 +27,8 @@ class TestMigrationV0190RuntimeBackup:
         # Mock migration_executor required after refactoring
         mock_executor = Mock()
         mock_executor.skip_backup = False
+        mock_executor.skip_config_backup = False
+        mock_executor.skip_db_backup = False
         mock_executor.skip_backup_for = []
         migration.migration_executor = mock_executor
 

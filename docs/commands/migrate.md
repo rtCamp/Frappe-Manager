@@ -16,9 +16,10 @@ $ fm migrate BENCH|all [OPTIONS]
 
 **Options**:
 
-* `--skip-all-backup`: Migrate without taking a pre-migration backup (DANGEROUS; use only when the backups themselves fail).
-* `--skip-backup-for`: Skip the pre-migration backup for these benches only (comma-separated).
-* `--exclude-bench`: Benches to leave alone (comma-separated). Only with the 'all' address.
+* `--skip-backup`: Skip every pre-migration backup (DANGEROUS; use only when the backups themselves fail).
+* `--skip-config-backup`: Skip the config-file backups (bench config, compose files, site configs).
+* `--skip-db-backup`: Skip the per-site database dumps (DANGEROUS; the dumps are the rollback path for a failed migration).
+* `--exclude-bench`: Bench to leave alone (repeatable; commas also accepted). Only with the 'all' address.
 * `--auto-proceed`: Migrate without asking for confirmation.
 * `--rerun`: Re-run the migration steps on a bench that is already up to date.
 * `--on-failure`: What to do when a bench fails: prompt (ask, the default), archive (set failed benches aside and keep the rest migrated), rollback (revert every bench). A single-bench run always rolls back.

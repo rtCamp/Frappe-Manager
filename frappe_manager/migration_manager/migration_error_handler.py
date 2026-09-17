@@ -60,20 +60,58 @@ class MigrationErrorHandler:
         return False
 
     def handle_system_migration_failure(self, exception: Exception) -> bool:
-        """
-        Handle system-level migration failure.
+        """A services-tier (or otherwise unclassified) migration failure.
 
-        Reports error and triggers rollback.
+        `--on-failure` decides what happens to the half-migrated state:
 
-        Args:
-            exception: The exception that caused system migration failure
-
-        Returns:
-            bool: Always False (migration failed)
+        - ``rollback`` (the services-tier default): restore and rewind, as always.
+        - ``halt``: leave everything EXACTLY as it stopped and report where the backups
+          are. An operator mid-cutover often wants to inspect the wreckage, not have the
+          whole stack churned down and up again underneath them.
+        - ``prompt`` (the bench-tier default, reachable when a bench run dies on an
+          unclassified exception): ask, defaulting to rollback; non-interactive runs
+          roll back.
         """
         self.executor.output.display_error(f"[fm.error]Migration failed[/fm.error] : {exception}", emoji_code="")
+
+        action = self.executor.on_failure
+        if action == "prompt":
+            try:
+                action = self.executor.output.prompt_ask(
+                    prompt="Roll the failed migration back, or halt for inspection?",
+                    choices=["rollback", "halt"],
+                    default="rollback",
+                    required_flag="--on-failure",
+                )
+            except Exception:
+                action = "rollback"
+
+        if action == "halt":
+            self._halt()
+            return False
+
         self._rollback_all()
         return False
+
+    def _halt(self):
+        """Report the stopped state instead of touching it."""
+        backup_dirs = set()
+        for migration in self.executor.undo_stack:
+            backup_manager = getattr(migration, "backup_manager", None)
+            if backup_manager is not None:
+                backup_dirs.add(str(backup_manager.backup_dir))
+        self.executor.output.warning(
+            "Halted as requested (--on-failure halt): nothing was rolled back, the state is "
+            "exactly as the failure left it."
+        )
+        if backup_dirs:
+            self.executor.output.print(
+                "Backups taken before the failure: " + ", ".join(sorted(backup_dirs)), emoji_code=""
+            )
+        self.executor.output.print(
+            "After inspecting, either fix and re-run the migration, or restore the backups by hand.",
+            emoji_code="",
+        )
 
     def _report_bench_results(self):
         """Report which benches passed and which failed migration."""

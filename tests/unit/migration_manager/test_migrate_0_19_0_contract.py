@@ -96,6 +96,8 @@ def migration():
     m.services_manager = MagicMock()
     executor = Mock()
     executor.skip_backup = False
+    executor.skip_config_backup = False
+    executor.skip_db_backup = False
     executor.skip_backup_for = []
     m.migration_executor = executor
     # Pin the stable-release branch of _get_image_tag_for_migration so image

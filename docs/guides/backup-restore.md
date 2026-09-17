@@ -92,8 +92,8 @@ When a bench fails to migrate, fm restores **the copied configuration files only
 Skipping the backup is possible and rarely wise:
 
 ```bash
-fm migrate --skip-backup-for mybench            # this bench only, comma-separated for several
-fm migrate all --skip-all-backup                # every bench
+fm migrate all --skip-db-backup                 # keep the cheap config backups, skip the dumps
+fm migrate all --skip-backup                    # skip both kinds
 ```
 
 !!! danger

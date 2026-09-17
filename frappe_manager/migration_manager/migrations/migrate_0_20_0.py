@@ -896,7 +896,28 @@ class MigrationV0200(MigrationBase):
             output_handler=self.output,
         )
 
-        dump_path = self._dump_whole_engine(database_manager)
+        # Additive v0.21+ amendment, default behavior unchanged: --skip-backup /
+        # --skip-db-backup on `fm services migrate` skips this dump. It exists because a
+        # host whose data is too large to dump was otherwise unable to upgrade at all --
+        # but the dump is the ONLY route back from the one-way datadir upgrade, so the
+        # skip is loud about what it costs. This dump is also the one engine-scale backup
+        # that bypasses the shared chokepoints (BackupManager.backup, bench_db_backup),
+        # hence the local guard. CONVENTION for future engine-scale migrations: fm owns
+        # the datadir and stops the engine anyway, so take a PHYSICAL datadir snapshot
+        # through a shared MigrationBase helper (build it with its first caller) instead
+        # of a logical dump - bit-perfect rollback, an order of magnitude faster, and the
+        # kind policy reaches it centrally.
+        skip_dump = bool(self.migration_executor) and (
+            self.migration_executor.skip_backup or self.migration_executor.skip_db_backup
+        )
+        if skip_dump:
+            dump_path = None
+            self.output.warning(
+                "Skipping the whole-engine dump: the datadir upgrade is one-way and this dump "
+                "is the only route back. Proceeding WITHOUT a rollback path."
+            )
+        else:
+            dump_path = self._dump_whole_engine(database_manager)
 
         # A version change is only safe from a clean shutdown; crash recovery across
         # engine versions is not supported. compose stop sends SIGTERM, which is what
@@ -918,7 +939,8 @@ class MigrationV0200(MigrationBase):
             database_manager.wait_till_db_start()
 
         self.output.print(f"Global database engine is now {GLOBAL_DB_IMAGE}")
-        self.output.print(f"Pre-upgrade dump of every database kept at {dump_path}")
+        if dump_path is not None:
+            self.output.print(f"Pre-upgrade dump of every database kept at {dump_path}")
         self.output.warning(
             f"{GLOBAL_DB_IMAGE} is the engine frappe v16 tests against. Benches still on frappe v15 will print a "
             "MariaDB version warning when creating or restoring a site, because v15 is tested on 10.6 and warns from "

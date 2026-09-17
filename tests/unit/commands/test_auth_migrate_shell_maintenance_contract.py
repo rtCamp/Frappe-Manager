@@ -713,8 +713,9 @@ def _run_migrate(
     params = {
         "address": None,
         "skip_backup": False,
-        "skip_backup_for": None,
-        "exclude_bench": None,
+        "skip_config_backup": False,
+        "skip_db_backup": False,
+        "exclude_bench": [],
         "auto_proceed": False,
         "rerun": False,
         "on_failure": None,
@@ -888,20 +889,24 @@ def test_all_collects_only_directories_holding_a_bench_config(tmp_path):
 
 
 @pytest.mark.usefixtures("out")
-def test_exclude_bench_is_split_on_commas_and_removes_targets(tmp_path):
+def test_exclude_bench_is_repeatable_splits_commas_and_removes_targets(tmp_path):
     _bench_dir(tmp_path, "a.localhost")
     _bench_dir(tmp_path, "b.localhost")
     _bench_dir(tmp_path, "c.localhost")
-    r = _run_migrate(tmp_path, address="all", exclude_bench="a.localhost, c.localhost")
+    # one repeated flag, one comma-carrying value: both spellings land in the same list
+    r = _run_migrate(tmp_path, address="all", exclude_bench=["a.localhost, c.localhost"])
     assert _executor_kwargs(r)["target_benches"] == ["b.localhost"]
     assert _executor_kwargs(r)["exclude_benches"] == ["a.localhost", "c.localhost"]
 
 
 @pytest.mark.usefixtures("out")
-def test_skip_backup_for_is_split_and_trimmed(tmp_path):
+def test_kind_scoped_backup_flags_reach_the_executor(tmp_path):
+    """Skips are by KIND now (--skip-config-backup / --skip-db-backup), not by bench; the
+    command's only job is to hand each one through unchanged."""
     _bench_dir(tmp_path, "a.localhost")
-    r = _run_migrate(tmp_path, address="a.localhost", skip_backup_for=" a.localhost , b.localhost ")
-    assert _executor_kwargs(r)["skip_backup_for"] == ["a.localhost", "b.localhost"]
+    r = _run_migrate(tmp_path, address="a.localhost", skip_config_backup=True, skip_db_backup=True)
+    assert _executor_kwargs(r)["skip_config_backup"] is True
+    assert _executor_kwargs(r)["skip_db_backup"] is True
     assert _executor_kwargs(r)["skip_backup"] is False
 
 

@@ -53,6 +53,8 @@ $ fm services migrate [OPTIONS]
 **Options**:
 
 * `--auto-proceed`: Migrate without asking for confirmation.
+* `--skip-backup`: Skip the pre-migration backups, including whole-engine database dumps (DANGEROUS; a skipped dump can be the only route back, use when taking it is impossible).
+* `--on-failure`: What to do when the migration fails: rollback (revert, the default), halt (leave everything as it stopped and report), prompt (ask).
 * `--rerun`: Re-run the migration steps even when already up to date.
 
 
@@ -70,6 +72,14 @@ fm services migrate
 
 ```bash
 fm services migrate --auto-proceed
+```
+
+### Halt on failure for inspection
+
+A failed cutover is left exactly as it stopped, with the backup location printed, instead of being rolled back underneath you.
+
+```bash
+fm services migrate --on-failure halt
 ```
 
 

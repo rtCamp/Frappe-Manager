@@ -52,20 +52,32 @@ def migrate(
     skip_backup: Annotated[
         bool,
         typer.Option(
-            "--skip-all-backup",
-            help="Migrate without taking a pre-migration backup (DANGEROUS; use only when the backups themselves fail).",
+            "--skip-backup",
+            help="Skip every pre-migration backup (DANGEROUS; use only when the backups themselves fail).",
         ),
     ] = False,
-    skip_backup_for: Annotated[
-        str | None,
+    skip_config_backup: Annotated[
+        bool,
         typer.Option(
-            "--skip-backup-for", help="Skip the pre-migration backup for these benches only (comma-separated)."
+            "--skip-config-backup",
+            help="Skip the config-file backups (bench config, compose files, site configs).",
         ),
-    ] = None,
+    ] = False,
+    skip_db_backup: Annotated[
+        bool,
+        typer.Option(
+            "--skip-db-backup",
+            help="Skip the per-site database dumps (DANGEROUS; the dumps are the rollback path for a failed migration).",
+        ),
+    ] = False,
     exclude_bench: Annotated[
-        str | None,
-        typer.Option("--exclude-bench", help="Benches to leave alone (comma-separated). Only with the 'all' address."),
-    ] = None,
+        list[str],
+        typer.Option(
+            "--exclude-bench",
+            help="Bench to leave alone (repeatable; commas also accepted). Only with the 'all' address.",
+            show_default=False,
+        ),
+    ] = [],
     auto_proceed: Annotated[
         bool,
         typer.Option("--auto-proceed", help="Migrate without asking for confirmation."),
@@ -103,13 +115,7 @@ def migrate(
 
     current_version = Version(get_current_fm_version())
 
-    skip_backup_list = []
-    if skip_backup_for:
-        skip_backup_list = [b.strip() for b in skip_backup_for.split(",")]
-
-    exclude_bench_list = []
-    if exclude_bench:
-        exclude_bench_list = [b.strip() for b in exclude_bench.split(",")]
+    exclude_bench_list = [name.strip() for value in exclude_bench for name in value.split(",") if name.strip()]
 
     # The same registry completion and the picker use, so the set `all` migrates is the set the
     # shell offered. The bench named outright was already resolved and checked by the callback.
@@ -148,7 +154,8 @@ def migrate(
     migrations = MigrationExecutor(
         fm_config_manager,
         skip_backup=skip_backup,
-        skip_backup_for=skip_backup_list,
+        skip_config_backup=skip_config_backup,
+        skip_db_backup=skip_db_backup,
         exclude_benches=exclude_bench_list,
         auto_proceed=auto_proceed,
         rerun=rerun,
