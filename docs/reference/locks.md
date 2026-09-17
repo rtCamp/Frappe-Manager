@@ -16,8 +16,8 @@ One file for the whole host, held two ways:
 Shared holds never contend with each other, so any number of ordinary commands run together exactly as before. The refusals appear only around migrations:
 
 ```
-⛔ bake (pid 4242) is running on this host. Let it finish, then re-run.      # migration during a bake
-⛔ migration (pid 4242) is in progress on this host; wait for it to finish.  # any command during a migration
+⛔ fm is busy: bake (pid 4242) is running on this host. Let it finish, then re-run.        # migration during a bake
+⛔ migration (pid 4242) is in progress on this host; wait for it to finish and retry.      # any command during a migration
 ```
 
 A migration can take every bench down and rebuild shared networks, which is why *starting one mid-anything* and *starting anything mid-migration* are both refused rather than interleaved.

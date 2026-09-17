@@ -10,6 +10,11 @@ This directory contains helper scripts for installing and maintaining Frappe Man
 | [`expand-config.py`](#config-expansion-expand-configpy) | Substitute `FM_ACTION_*` environment variables into a config file, for CI |
 | `docslint.py` | Docs checks mkdocs does not do: dash style, link hygiene, flags that no longer exist. Run via `just docs-lint` |
 | `mutation_test.py` | Mutation testing: does a bug in covered code get CAUGHT. Run via `just mutate` |
+| `deadcode.py` | Dead-code radar: vulture over the Python packages plus a never-called-function scan over the container shell scripts. Run via `just deadcode` |
+| `gen_config_example.py` | Generate the annotated example config files from the pydantic models. Run via `just config-example` |
+| `migrate-test.sh` | SSH-driven end-to-end migration harness against a real remote bench (init/setup/test/full/status/diff/perms/logs/versions/switch/cleanup). Run via `just migrate-init`, `just migrate-test`, `just migrate-full`, etc. |
+| `justfile.depends` + `depends-common.sh` | Dependabot PR triage: list open PRs with CI/mergeable/review status, approve-and-merge, or ask `@dependabot recreate`. Run via `just depends`, `just depends-merge`, `just depends-recreate` |
+| [`e2e/`](#e2e-harness-scriptse2e) | CI-only end-to-end harness: site lifecycle smoke test plus migration and rollback-drill scenarios |
 
 ---
 
@@ -291,3 +296,16 @@ the action expands an inline overlay without ever putting it in a command line.
 This deliberately does not live in fm. Expanding at config-load time would write the
 plaintext back out on the next save, since `export_to_toml` builds from the model and
 normal operation rewrites `bench_config.toml` from dozens of call sites.
+
+---
+
+## E2E harness (`scripts/e2e/`)
+
+Not run via `just`: CI invokes these scripts directly, with `working-directory: scripts/e2e`.
+
+| File | Role |
+|------|------|
+| `helpers.sh` | Colored logging (`info_red`/`info_green`/...) and OS/prerequisite checks; sourced by both entry scripts |
+| `fm.sh` | Site lifecycle actions (`CreateSite`, `StopSite`, `StartSite`, `TestSiteReachability`, `GetInfoSite`, `DeleteSite`, `ListSites`, `RemoveDanglingDockerStuff`, ...) built on the real `fm` CLI |
+| `e2e_test.sh` | Full site lifecycle smoke test (create/list/stop/start/reach/info/delete for a prod and a dev site). Run by `.github/workflows/e2e-site.yaml` via `./e2e_test.sh` |
+| `migration_test.sh` | Three migration scenarios (`oldToNew`, `semiNewToNew`, `rollbackDrill`), run by `.github/workflows/e2e-migration.yml` via `./migration_test.sh <scenario>`. `rollbackDrill` installs the previous release, injects a migration that fails at the end of the chain, then asserts the ledger version rewound, the site kept serving, and the same migration succeeds once the injected failure is removed |

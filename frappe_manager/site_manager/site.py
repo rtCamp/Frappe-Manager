@@ -136,7 +136,7 @@ def orphaned_database_error(bench: "Bench", outstanding: "list[tuple[SiteSchema,
     lines += [
         "",
         "Drop them on mariadb, then delete the bench again:",
-        f"  fm delete {bench.name} --yes --no-delete-db-from-mariadb",
+        f"  fm delete {bench.name} --yes --no-delete-db-from-fm-mariadb",
     ]
 
     return BenchException(bench.name, message="\n".join(lines))
@@ -1645,7 +1645,7 @@ class Bench:
                     prompt=f"🗄️  Do you want to remove the database for site '[bold]{entry.site}[/bold]' from mariadb?",
                     choices=["yes", "no"],
                     default="no",
-                    required_flag="--delete-db-from-mariadb or --no-delete-db-from-mariadb",
+                    required_flag="--delete-db-from-fm-mariadb or --no-delete-db-from-fm-mariadb",
                 )
                 == "yes"
             )

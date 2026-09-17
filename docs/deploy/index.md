@@ -69,7 +69,7 @@ flowchart LR
 - `fm bake <bench> [--image REF] [--base-image REF]`: build the image pair only, deploying nothing (prints both images). `--image` is the app image produced; `--base-image` is what it is built from, the command-line form of [`[build].base_image`](../reference/configuration.md#deploy-tables).
 - `fm switch <bench> <image>`: deploy an already-built image (no bake).
 - `fm switch <bench> --previous`: roll back (same pipeline pointed backwards, migrate disabled).
-- `fm prune <bench> --only releases`: remove old releases (the bare command also trims backup sessions and rotates logs); release pruning is also available inline as `--keep N` on `fm switch`.
+- `fm prune <bench> --only releases`: plan then remove old releases (the bare command also trims backup sessions and rotates logs; prints the full plan first, then one confirmation covers it -- default No, `--yes` skips it, `--dry-run` stops after the plan); release pruning is also available inline as prompt-free `--keep N` on `fm switch` (the flag itself is the consent, since you just chose to run the switch).
 
 Every deploy is recorded in the bench's `bench_config.toml` under `[deploy_state]`: the current image, the previous image (the rollback target), the timestamp of the last successful deploy, and one history row per release carrying its image, timestamp, migrate status (`migrated`, `skipped`, `failed` or `rollback`) and the path of the DB dump taken. `fm info <bench>` shows the whole history in its **deploys** section.
 
@@ -194,15 +194,16 @@ esac
 
 ```bash
 fm info mybench          # deploys section: every release, newest first, with migrate status
-fm prune mybench --dry-run
-fm prune mybench --keep 3
-fm switch mybench local/mybench:<tag> --keep 7   # prune inline after a successful switch (opt-in)
+fm prune mybench --dry-run        # plan only, never prompts
+fm prune mybench --keep 3         # prints the plan, then asks (default: no) before deleting; --yes skips the question
+fm switch mybench local/mybench:<tag> --keep 7   # prune inline after a successful switch, prompt-free: the flag is the consent
 ```
 
 Pruning splits two concerns:
 
 - **History rows** are audit lines: the newest N are kept (`--keep`, or [`[switch].keep_releases`](../reference/configuration.md#deploy-tables)).
 - **Artifacts are refcounted**: a DB dump dir is deleted only when no kept row references it; an image (and its paired `-nginx` assets image) is removed only when neither a kept row nor the protected set (current, previous, seed, base) references it.
+- **`fm prune` is plan-first**: it prints every path it would touch, then one confirmation covers all of it (default No, a bare Enter aborts; `--yes` skips the question, `--dry-run` stops after the plan and never prompts). The inline `--keep N` on `fm switch` skips that prompt entirely -- passing the flag on a switch you just chose to run is the consent.
 
 Nothing a running or rollback-reachable release needs can be pruned.
 

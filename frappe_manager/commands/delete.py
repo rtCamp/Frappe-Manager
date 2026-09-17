@@ -102,7 +102,7 @@ def _site_schemas(bench_service: BenchService, benchname: str) -> list:
 
 @example(
     "Delete a bench and its database",
-    "{benchname} --delete-db-from-mariadb",
+    "{benchname} --delete-db-from-fm-mariadb",
     benchname="mybench",
 )
 @example(
@@ -119,18 +119,18 @@ def _site_schemas(bench_service: BenchService, benchname: str) -> list:
 )
 @example(
     "Delete the bench but keep the database",
-    "{benchname} --no-delete-db-from-mariadb",
+    "{benchname} --no-delete-db-from-fm-mariadb",
     detail="The bench is gone; the schema stays in mariadb.",
     benchname="mybench",
 )
 @example(
     "Delete unattended",
-    "{benchname} --yes --delete-db-from-mariadb",
+    "{benchname} --yes --delete-db-from-fm-mariadb",
     benchname="mybench",
 )
 @example(
     "Delete a multi-site bench unattended",
-    "{benchname} --all-sites --yes --delete-db-from-mariadb",
+    "{benchname} --all-sites --yes --delete-db-from-fm-mariadb",
     detail="--yes skips the confirmation; --all-sites is still required, so no script deletes more than it named.",
     benchname="mybench",
 )
@@ -156,8 +156,8 @@ def delete(
     delete_db_from_mariadb: Annotated[
         bool | None,
         typer.Option(
-            "--delete-db-from-mariadb/--no-delete-db-from-mariadb",
-            help="Drop the schema and user from the mariadb container, or keep them. Applies to every site being deleted that is on the mariadb container, and never touches a database on an external server. fm asks when neither is passed.",
+            "--delete-db-from-fm-mariadb/--no-delete-db-from-fm-mariadb",
+            help="Drop the schema and user from fm's own mariadb container, or keep them. Applies to every site being deleted that is on that container, and never touches a database on an external server. fm asks when neither is passed.",
         ),
     ] = None,
     delete_backups: Annotated[
@@ -179,7 +179,7 @@ def delete(
 
     BENCH/SITE deletes just that site: its schema, its certificate, its proxy entries and its files. The bench and its other sites keep running.
 
-    The database is decided separately. fm can drop a site's schema and user from the mariadb container it owns, but a schema on a server fm does not own is always left in place, --delete-db-from-mariadb or not. A schema fm cannot account for, one whose name is unreadable or whose drop failed, stops the deletion with the bench directory intact, because that directory holds the only record of the schema.
+    The database is decided separately. fm can drop a site's schema and user from the mariadb container it owns, but a schema on a server fm does not own is always left in place, --delete-db-from-fm-mariadb or not. A schema fm cannot account for, one whose name is unreadable or whose drop failed, stops the deletion with the bench directory intact, because that directory holds the only record of the schema.
     """
 
     if not address:

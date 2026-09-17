@@ -89,7 +89,7 @@ with `bench_config.toml`, `docker-compose.yml`, `common_site_config.json`, `site
 
 When a bench fails to migrate, fm restores **the copied configuration files only**. The SQL dump is never imported automatically; it is there for you to restore by hand with `bench restore` if a migration damaged data. `--on-failure` picks the policy: `prompt` (default) asks, `archive` sets the failed benches aside and keeps the rest migrated, `rollback` reverts every bench. A single-bench run always rolls back.
 
-**Retention is yours to trigger.** fm never deletes a backup as a side effect of anything: after a *successful* migration it prints how many old sessions the touched locations carry beyond the configured keep (`[prune].keep_backup_sessions`, 3 by default) and stops there. Trimming is a command: [`fm prune BENCH`](../reference/configuration.md#bench-prune) for a bench's sessions, `fm services prune` for the host tier -- both `--dry-run` capable, both reporting exactly what left the disk. Failed or rolled-back runs never even hint, because those backups are the rollback.
+**Retention is yours to trigger.** fm never deletes a backup as a side effect of anything: after a *successful* migration it prints how many old sessions the touched locations carry beyond the configured keep (`[prune].keep_backup_sessions`, 3 by default) and stops there. Trimming is a command: [`fm prune BENCH`](../reference/configuration.md#bench-prune) for a bench's sessions, `fm services prune` for the host tier -- both plan-first: the full plan prints, then one confirmation covers it (default: no, `--yes` skips it), and `--dry-run` stops after the plan without ever prompting. Both report exactly what left the disk. Failed or rolled-back migration runs never even hint, because those backups are the rollback.
 
 Skipping the backup is possible and rarely wise:
 
@@ -164,7 +164,7 @@ That dump is what `fm switch <benchname> --previous --restore-db` imports when a
 fm reset mybench    # drop the site database and reinstall every app
 ```
 
-`fm reset` runs `bench reinstall`, so all site data is gone and only the app code survives. It works only for a site on the `mariadb` container fm owns: a bench with a `[database]` entry is refused, because that schema is not fm's to drop. `fm delete` draws the same line, and never drops an external schema whatever `--delete-db-from-mariadb` says.
+`fm reset` runs `bench reinstall`, so all site data is gone and only the app code survives. It works only for a site on the `mariadb` container fm owns: a bench with a `[database]` entry is refused, because that schema is not fm's to drop. `fm delete` draws the same line, and never drops an external schema whatever `--delete-db-from-fm-mariadb` says.
 
 ---
 

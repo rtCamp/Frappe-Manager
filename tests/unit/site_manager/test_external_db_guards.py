@@ -109,7 +109,7 @@ def _printed(output: MagicMock) -> str:
 
 @pytest.mark.parametrize("preference", [None, True, False])
 def test_delete_never_drops_an_external_schema(tmp_path, preference):
-    """Not even when the operator passed --delete-db-from-mariadb: it is not fm's schema."""
+    """Not even when the operator passed --delete-db-from-fm-mariadb: it is not fm's schema."""
     bench = _bench(
         tmp_path,
         _config(tmp_path, name=EXTERNAL_BENCH, external_site=EXTERNAL_SITE),
@@ -216,7 +216,7 @@ def test_bench_service_delete_still_drops_a_mariadb_schema(tmp_path):
 
 def test_the_yes_flag_skips_only_the_removal_confirmation(tmp_path):
     """`--yes` means "do not ask whether to remove the bench". It does NOT mean "drop the schema":
-    that question is separate and `--delete-db-from-mariadb` answers it, so one prompt remains."""
+    that question is separate and `--delete-db-from-fm-mariadb` answers it, so one prompt remains."""
     bench = _bench(tmp_path, _config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE, {GLOBAL_DB_SITE: GLOBAL_SCHEMA})
     bench.output.prompt_ask.return_value = "no"
 

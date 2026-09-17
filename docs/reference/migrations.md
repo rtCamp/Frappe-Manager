@@ -34,14 +34,14 @@ A bench that is behind the CLI is refused, not silently used. Two gates enforce 
 - **The top-level callback**, before any subcommand runs. If the global services & configuration or the bench named on the command line are behind, it warns and asks: **Update now** (runs the migration inline, unattended, with `--on-failure=rollback`) or **Update later**. Choosing later exits with status 1, so the command never runs.
 - **The command's own check** (`check_bench_migration_required`), carried by every command that reads or mutates a live bench. It does not prompt: it prints `Run: fm migrate <bench>` and exits 1. This catches the cases where the callback could not resolve the bench name out of `sys.argv`.
 
-Commands that skip the callback gate entirely: `list`, `migrate`, `services migrate`, `bake`, `deploy`, `switch`, `compose`, `self update-images`.
+Commands that skip the callback gate entirely: `list`, `compose`, `self update-images`, `migrate`, `services migrate`, `bake`, `switch`, `prune`, and `services prune`. The two prune commands are on that list deliberately: a full disk is exactly the situation where a migration cannot run, and pruning only reads the tree and deletes files the migrations do not manage.
 
 The bench half of the callback gate is additionally skipped for `stop`, `delete`, and `maintenance`. Of those, only `stop` and `delete` carry no in-command check either, so those two are the ones you can always run against a bench you cannot migrate. `maintenance` still refuses, just without the offer to migrate inline.
 
 While a migration runs, every other fm command on the host is refused (and a migration refuses to start while anything else runs); observation commands like `fm list` stay usable throughout. See [Process Locks](locks.md).
 
 !!! note "Non-interactive runs"
-    Under `--non-interactive` the callback's prompt cannot be answered, so a pending migration fails the command with a message naming `fm migrate`. Migrate explicitly before the rest of a CI job.
+    Under `--non-interactive` the callback's prompt cannot be answered, so a pending migration fails the command with a message naming `fm migrate`. Migrate explicitly before the rest of a CI job. Running `fm migrate` or `fm services migrate` itself under `--non-interactive` without `--yes` is refused the same way, naming `--yes` instead -- `--dry-run` is the one form of either command that never prompts and always exits 0, so it works non-interactively with no flag needed.
 
 ---
 
@@ -92,6 +92,8 @@ fm services migrate
 
 Migrates the shared services and FM's own config. No bench version is touched, though a host-wide cutover (like the v0.21.0 rename) may rewrite bench files and briefly take every bench down, because the shared services are every bench's database and only route in. When already current it says so and exits 0.
 
+`--dry-run` prints that same plan (or the "already at vX" line above when there is nothing to do) and exits 0 without migrating or prompting -- including under `--non-interactive`, which the real run refuses without `--yes`. That makes it the scriptable way to ask "is a migration pending?" before deciding whether to run for real: check the printed line rather than the exit code, since a pending and an up-to-date host both exit 0. `fm migrate BENCH --dry-run` / `fm migrate all --dry-run` is the equivalent probe for the bench tier, below.
+
 ### Benches {#migrate-bench}
 
 ```bash
@@ -115,6 +117,9 @@ Do you want to proceed?
 ```
 
 Answering `no` prints the `uv tool install frappe-manager==<previous>` command to get back to the CLI you came from. `--yes` answers yes for you; `--exclude-bench` (with `all`) leaves named benches alone; `--rerun` re-applies the current release's steps to an already-current target. Every flag: [`fm migrate`](../commands/migrate.md), [`fm services migrate`](../commands/services.md#fm-services-migrate).
+
+!!! tip "Check for a pending migration without running one"
+    `fm migrate BENCH --dry-run` (or `fm migrate all --dry-run`) prints the same plan shown above and exits 0 without prompting or migrating anything, non-interactively included. When nothing is pending it prints nothing and still exits 0, so a script should treat empty output as "not migrated" rather than trust the exit code alone. `fm services migrate --dry-run` is the same probe for the services tier, except it always prints one line either way (`already at vX`, or the plan).
 
 !!! info "Running benches are recreated"
     The bench does not need to be stopped first. If it is running, FM warns that its containers will be restarted (recreated) during migration. Stop it with `fm stop mybench` beforehand only if you want to pick the downtime window yourself.

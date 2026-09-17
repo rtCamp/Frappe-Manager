@@ -88,7 +88,7 @@ fmx start short-worker -p short-worker_1
 ### `fmx stop`: stop services
 
 ```bash
-# Stop everything immediately (running jobs are interrupted)
+# Stop everything (worker processes get a brief grace window; see below)
 fmx stop
 
 # Stop only the workers, leave web running
@@ -98,9 +98,16 @@ fmx stop short-worker long-worker
 fmx stop long-worker -p long-worker_1
 ```
 
+Non-worker services (`frappe`, `schedule`, `socketio`) stop immediately. Worker services get a shorter version of the courtesy `fmx restart` gives them by default: each worker is sent SIGUSR1 (RQ's warm shutdown) and is only force-killed through supervisor if it is still running `--worker-kill-timeout` seconds later (default 15, polled every `--worker-kill-poll` seconds, default 3). A job that outlasts that window is interrupted; this grace window is not the same guarantee as `--drain-workers` below.
+
+```bash
+# Give a worker longer to finish before the hard kill
+fmx stop long-worker --worker-kill-timeout 30 --worker-kill-poll 2
+```
+
 #### Draining is opt-in for `stop`
 
-`fmx stop` halts services immediately; running jobs are interrupted. If workers may be processing jobs you cannot afford to lose (email sends, report generation, file imports), drain them first:
+`fmx stop` does not wait for in-flight jobs to finish; a worker's grace window (above) is bounded, not unbounded. If workers may be processing jobs you cannot afford to lose (email sends, report generation, file imports), drain them first:
 
 ```bash
 fmx stop --drain-workers

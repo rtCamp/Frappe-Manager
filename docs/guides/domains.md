@@ -26,9 +26,11 @@ fm create mybench --alias-domains www.example.com,api.example.com
 # on an existing bench
 fm domain add mybench shop.example.com
 fm domain remove mybench/shop.example.com
+fm domain list mybench
 ```
 
 - Aliases are registered with the proxy and land on the same site.
+- `fm domain list mybench` prints every site's primary domain and its aliases, one per line.
 - fm validates that no other bench on the machine claims the same domain (`--allow-domain-conflicts` skips the check; not recommended).
 - HTTPS for aliases: certificates are per-domain; see the [SSL guide](ssl.md).
 - Aliases are stored as [`alias_domains`](../reference/configuration.md#alias-domains) in `bench_config.toml`.

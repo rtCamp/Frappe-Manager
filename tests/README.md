@@ -25,19 +25,25 @@ pytest tests/unit/cli/test_log_level_flags.py::TestLogLevelFlagParsing::test_no_
 
 ```
 tests/
-├── unit/                           # Unit tests for all modules
-│   ├── conftest.py                # Global fixtures (auto-initialized)
-│   ├── cli/                       # CLI command tests
-│   ├── output_manager/            # Output handler tests
-│   │   └── conftest.py           # Output manager fixtures
-│   ├── logger/                    # Logger tests
-│   ├── migration_manager/         # Migration tests
-│   │   └── conftest.py           # Migration fixtures
-│   ├── docker/                    # Docker integration tests
-│   ├── site_manager/              # Bench/site tests
-│   └── ssl_manager/               # SSL certificate tests
-│       └── conftest.py           # SSL manager fixtures
-└── integration/                   # Integration tests (future)
+├── conftest.py                     # Fixtures shared by the whole suite (unit and integration)
+├── unit/                           # Unit tests, one directory per subsystem
+│   ├── conftest.py                # Autouse fixtures: global output handler, ambient log context
+│   ├── cli/                        # CLI flag/argument parsing tests
+│   ├── commands/                   # Command wiring / contract tests
+│   ├── docker/                     # Docker Compose + client tests
+│   ├── logger/                     # Logger tests
+│   ├── migration_manager/          # Migration tests
+│   │   └── conftest.py            # Migration fixtures
+│   ├── output_manager/             # Output handler tests
+│   │   └── conftest.py            # Output manager fixtures
+│   ├── scripts/                    # Tests for scripts/ (docslint, shell-lint, config example, expand-config)
+│   ├── services_manager/           # Services manager tests
+│   ├── site_manager/               # Bench/site tests
+│   ├── ssl_manager/                # SSL certificate tests
+│   │   └── conftest.py            # SSL manager fixtures
+│   └── utils/                      # Utility module tests
+└── integration/                    # Real cross-module integration tests (migration flow, ambient
+                                     # logging, logger integration, adminer login plugin), own conftest.py
 ```
 
 ## Global Output Handler (IMPORTANT)
@@ -278,32 +284,51 @@ def test_exception_handling():
 
 ## Pytest Configuration
 
-Project pytest settings in `pyproject.toml`:
+Project pytest settings live in `pyproject.toml` under `[tool.pytest.ini_options]`:
 
 ```toml
-[tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = [
-    "--strict-markers",
-    "--tb=short",
+    "-v",
+    "--cov=frappe_manager",
+    "--cov-report=html",
     "--cov-report=term-missing",
+    "--strict-markers",
+]
+timeout = 60
+timeout_method = "signal"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+]
+env = [
+    "FM_LETSENCRYPT_STAGING=0",
 ]
 ```
 
+- `testpaths = ["tests"]` means bare `pytest` already runs the whole suite; `just test` (justfile:13-14) relies on this, and a partial path such as `pytest tests/unit` reports a smaller, easy-to-misread count.
+- `--strict-markers` turns an unregistered `@pytest.mark.foo` into a collection error, so only the three markers below are usable.
+- `timeout = 60` / `timeout_method = "signal"` is a per-test ceiling, not a suite budget: it only fires on a real hang and prints the offending test's traceback.
+- `env = ["FM_LETSENCRYPT_STAGING=0"]` (via `pytest-env`) keeps `acmesh_certificate_service` off Let's Encrypt's staging endpoint unless a test explicitly overrides it.
+- There is no `--cov-fail-under` here. A floor in the shared config would fail every partial run (e.g. `pytest tests/unit/ssl_manager` measures a slice of the package and would exit 1 despite every test passing). The floor lives in CI only, in `.github/workflows/pytest.yml`, currently `--cov-fail-under=44`, and only ever ratchets up (see the comment on `[tool.coverage.report]` in `pyproject.toml`).
+
+### Markers
+
+- `unit`: Unit tests
+- `integration`: Integration tests (used today by `tests/integration/test_migration_flow.py`, `tests/integration/test_adminer_login_plugin.py`, and some `tests/unit/site_manager` tests)
+- `slow`: Slow running tests (declared; nothing currently filters on it)
+
+### The fmx suite is separate, and not run here
+
+`Docker/frappe/fmx/` is its own package with its own supported Python range (`>=3.10`, vs fm's `3.13`-only) and its own dependencies (supervisor, redis, rq) that aren't in fm's venv, so fmx can't even be imported from it. Its tests run via `just test-fmx` (justfile:54-56), which builds an ephemeral `uv` env and drops fm's `addopts` (`--override-ini="addopts="`) since `--cov=frappe_manager` isn't a valid option for a run that isn't measuring fm. `test-fmx` is deliberately not part of `just test` and not run in CI.
+
 ## Environment Variables
 
-Some tests respect environment variables:
-
-```bash
-# Run in CI mode (non-interactive)
-CI=true pytest tests/
-
-# Set log level for debugging test failures
-PYTEST_LOG_LEVEL=DEBUG pytest tests/
-```
+`FM_LETSENCRYPT_STAGING` is the one environment variable the suite itself sets, via `pytest-env` in `pyproject.toml` (`env = ["FM_LETSENCRYPT_STAGING=0"]`). It keeps `acmesh_certificate_service` off Let's Encrypt's staging endpoint by default. Override it per test with `monkeypatch.setenv(...)` rather than exporting it for a whole run.
 
 ## Troubleshooting
 
@@ -357,21 +382,14 @@ def teardown_function():
 
 ## Coverage
 
-Generate coverage report:
+Generate a local report:
 
 ```bash
-# Run tests with coverage
 pytest tests/ --cov=frappe_manager --cov-report=html --cov-report=term
-
-# Open HTML report
 open htmlcov/index.html
 ```
 
-Current coverage targets:
-- **output_manager**: 100% (147/147 tests)
-- **logger**: 100% (86/86 tests)
-- **CLI**: 100% (16/16 tests)
-- **Overall**: 98.3% (412/419 tests pass)
+There is no fixed per-module or per-suite target committed anywhere in the repo. The only enforced number is the CI floor in `.github/workflows/pytest.yml` (`--cov-fail-under=44`), applied over the whole package, since scoping coverage to one subsystem reports a flattering number that hides every untested module. That floor is a ratchet: raise it as coverage climbs, never lower it to make a red build green (see the `[tool.coverage.report]` comment in `pyproject.toml` for why the floor isn't in the shared pytest config).
 
 ## Continuous Integration
 
@@ -381,9 +399,9 @@ Tests run automatically on:
 - Manual workflow triggers
 
 GitHub Actions workflows:
-- `.github/workflows/e2e-site.yaml` - E2E site tests
-- `.github/workflows/e2e-migration.yml` - Migration tests
-- Unit tests run as part of main CI pipeline
+- `.github/workflows/pytest.yml`: unit test suite, the coverage gate (`--cov-fail-under=44`), and `scripts/docslint.py`
+- `.github/workflows/e2e-site.yaml`: E2E site lifecycle smoke test (`scripts/e2e/e2e_test.sh`)
+- `.github/workflows/e2e-migration.yml`: three migration jobs against `scripts/e2e/migration_test.sh` (`oldToNew`, `semiNewToNew`, and `rollbackDrill`); the `e2e-rollback-drill` job forces the migration chain to fail at its end via an injected failing migration, then proves rollback rewound the ledger, kept the site serving, and left a state clean enough that the same migration succeeds on retry
 
 ## Additional Resources
 

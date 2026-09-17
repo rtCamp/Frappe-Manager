@@ -130,14 +130,15 @@ Frappe Manager keeps everything under `~/frappe/`. Set `FRAPPE_MANAGER_HOME` to 
 
 ## Upgrading fm
 
-Run these two commands, in this order. The first updates the CLI; the second brings fm's own config, the global services, and your benches up to match it.
+Run these three commands, in this order. The first updates the CLI; the second brings fm's own config and the global services up to match it; the third brings your benches up to match those.
 
 ```bash
 fm self upgrade
+fm services migrate
 fm migrate all
 ```
 
-Do not skip the second one: every bench command refuses to run against a bench that is behind the installed fm. See [Migrations](../reference/migrations.md) for what `fm migrate` does and how its backups and rollback work.
+Do not skip a step: `fm migrate` refuses to run while the global services & configuration are behind, and every other bench command refuses to run against a bench that is behind the installed fm. See [Migrations](../reference/migrations.md) for what each command does and how its backups and rollback work.
 
 ## Next steps
 

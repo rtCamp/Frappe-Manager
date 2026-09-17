@@ -11,13 +11,13 @@ fm code mybench
 Start the bench first if it is down:
 
 ```bash
-fm code mybench --force-start
+fm code mybench --force-start   # or -f
 ```
 
 Enable debugger support:
 
 ```bash
-fm code mybench --debugger
+fm code mybench --debugger   # or -d
 ```
 
 ## Extensions
@@ -35,7 +35,7 @@ The list and the connecting user are stored as a `devcontainer.metadata` label o
 | Option | What it does |
 | --- | --- |
 | `--user` | User VS Code connects as inside the container. Defaults to `frappe`. |
-| `--work-dir` | Directory VS Code opens. Defaults to `/workspace/frappe-bench`. |
+| `--work-dir` / `-w` | Directory VS Code opens. Defaults to `/workspace/frappe-bench`. |
 
 !!! warning "Image-mode benches"
     An `image` bench has no live-mounted workspace, so edits made through `fm code` live only in that container and are lost on the next `fm switch`. `fm code` warns when you do it. Use it to reproduce and observe; ship real changes through the [deployment pipeline](../deploy/index.md).

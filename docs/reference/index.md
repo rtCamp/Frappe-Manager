@@ -34,4 +34,10 @@ Lookup, not learning. Every page here is meant to be searched and deep-linked ra
 
     How fm processes on one host keep out of each other's way: the host-wide migration lock, the per-bench lock behind `switch`/`bake` refusals, and why observation commands are never fenced.
 
+-   :material-sitemap:{ .lg .middle } **[Architecture](architecture.md)**
+
+    ---
+
+    The runtime topology: which containers exist in each tier, the shared networks and volumes, the on-disk layout of a bench, and which process serves what inside the bench container.
+
 </div>

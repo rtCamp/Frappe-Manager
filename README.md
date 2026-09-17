@@ -2,7 +2,7 @@
 
 # 🚀 Frappe Manager
 
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
 [![GHCR](https://img.shields.io/badge/ghcr-%232496ED.svg?logo=docker&logoColor=white)](https://github.com/orgs/rtCamp/packages?repo_name=Frappe-Manager)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PyPI version](https://badge.fury.io/py/frappe-manager.svg)](https://badge.fury.io/py/frappe-manager)
@@ -58,7 +58,7 @@
 
 ## 🛠️ Requirements
 
-- Python 3.13.+
+- Python 3.13
 - Docker
 - VSCode (optional, for development features)
 
@@ -75,7 +75,7 @@ Using uv (recommended):
 uv tool install --python 3.13 frappe-manager
 
 # Try without installing
-uvx --from frappe-manager fm --help
+uvx --python 3.13 --from frappe-manager fm --help
 
 # Upgrade to latest version
 uv tool upgrade frappe-manager
@@ -85,7 +85,7 @@ Using pipx:
 
 ```bash
 # Install stable version
-pipx install frappe-manager 
+pipx install --python 3.13 frappe-manager
 
 # Upgrade to latest version
 pipx upgrade frappe-manager
@@ -101,17 +101,17 @@ Using uv:
 
 ```bash
 # Install latest development version
-uv tool install git+https://github.com/rtcamp/frappe-manager@develop
+uv tool install --python 3.13 git+https://github.com/rtcamp/frappe-manager@develop
 
 # Run without installing
-uvx --from git+https://github.com/rtcamp/frappe-manager@develop fm --help
+uvx --python 3.13 --from git+https://github.com/rtcamp/frappe-manager@develop fm --help
 ```
 
 Using pipx:
 
 ```bash
 # Install latest development version
-pipx install git+https://github.com/rtcamp/frappe-manager@develop
+pipx install --python 3.13 git+https://github.com/rtcamp/frappe-manager@develop
 ```
 
 ## ⚡ Quick Start
@@ -138,14 +138,21 @@ That's it! Your bench is ready. Access it at `http://mybench.localhost`
 
 | Command | Description | Documentation |
 |---------|-------------|---------------|
+| `fm apps` | Fetch app code onto a bench and install it into its sites | [Docs: Apps](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/apps/) |
+| `fm auth` | Put HTTP basic auth in front of a bench's site or admin tools | [Docs: Auth](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/auth/) |
+| `fm bake` | Bake an immutable app image | [Docs: Bake](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/bake/) |
 | `fm code` | Open bench in vscode. | [Docs: Code](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/code/) |
+| `fm compose` | Run docker compose against a bench's own stack | [Docs: Compose](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/compose/) |
 | `fm create` | Create a new bench with apps | [Docs: Create](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/create/) |
 | `fm delete` | Delete a bench and optionally its database from mariadb service. | [Docs: Delete](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/delete/) |
+| `fm domain` | Add, remove, or list a bench's alias domains | [Docs: Domain](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/domain/) |
 | `fm info` | Show bench information and configuration | [Docs: Info](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/info/) |
 | `fm list` | List all benches. | [Docs: List](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/list/) |
 | `fm logs` | Show bench logs (server or container) | [Docs: Logs](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/logs/) |
-| `fm migrate` | Migrate Frappe Manager to current version. | [Docs: Migrate](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/migrate/) |
+| `fm maintenance` | Serve a maintenance page for a bench's domains | [Docs: Maintenance](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/maintenance/) |
+| `fm migrate` | Bring benches up to the current version; refuses while fm's own services are behind (run fm services migrate first) | [Docs: Migrate](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/migrate/) |
 | `fm ngrok` | Create ngrok tunnel for bench | [Docs: Ngrok](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/ngrok/) |
+| `fm prune` | Reclaim a bench's disk: old releases, backups, and oversized logs | [Docs: Prune](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/prune/) |
 | `fm reset` | Drop database and reinstall all apps | [Docs: Reset](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/reset/) |
 | `fm restart` | Restart bench services (web, workers, redis, nginx) | [Docs: Restart](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/restart/) |
 | `fm self` | Manage self | [Docs: Self](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/self/) |
@@ -154,6 +161,8 @@ That's it! Your bench is ready. Access it at `http://mybench.localhost`
 | `fm ssl` | Manage ssl | [Docs: Ssl](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/ssl/) |
 | `fm start` | Start a bench. | [Docs: Start](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/start/) |
 | `fm stop` | Stop a bench. | [Docs: Stop](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/stop/) |
+| `fm switch` | Switch a bench to an already-built image, or roll back | [Docs: Switch](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/switch/) |
+| `fm tools` | Enable, disable, or inspect Adminer and Mailpit | [Docs: Tools](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/tools/) |
 | `fm update` | Update bench configuration and settings | [Docs: Update](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/update/) |
 
 > 💡 **Tip**: Use `fm <command> --help` to see detailed options and examples for any command.

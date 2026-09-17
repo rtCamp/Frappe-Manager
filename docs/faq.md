@@ -111,7 +111,7 @@ Work through these in order:
 
 - Docker is running: `docker ps`
 - The bench is listed and running: `fm list`
-- The global nginx proxy came up. It needs ports 80 and 443 on the host, so anything else already bound there will have stopped it: `fm services start`
+- The global nginx proxy came up. It needs ports 80 and 443 on the host, so anything else already bound there will have stopped it: `fm services start all`
 - On Windows 10, `*.localhost` may not resolve; add a `hosts` entry as described in the [WSL guide](guides/wsl.md)
 - Still stuck? Read the log: `fm logs mybench -f`, then [Reading logs](reference/logs.md)
 

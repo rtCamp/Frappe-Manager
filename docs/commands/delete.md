@@ -6,7 +6,7 @@ BENCH deletes the bench: every site in it, its containers and volumes, its whole
 
 BENCH/SITE deletes just that site: its schema, its certificate, its proxy entries and its files. The bench and its other sites keep running.
 
-The database is decided separately. fm can drop a site's schema and user from the mariadb container it owns, but a schema on a server fm does not own is always left in place, --delete-db-from-mariadb or not. A schema fm cannot account for, one whose name is unreadable or whose drop failed, stops the deletion with the bench directory intact, because that directory holds the only record of the schema.
+The database is decided separately. fm can drop a site's schema and user from the mariadb container it owns, but a schema on a server fm does not own is always left in place, --delete-db-from-fm-mariadb or not. A schema fm cannot account for, one whose name is unreadable or whose drop failed, stops the deletion with the bench directory intact, because that directory holds the only record of the schema.
 
 **Usage**:
 
@@ -22,7 +22,7 @@ $ fm delete BENCH(/SITE) [OPTIONS]
 
 * `--all-sites`: Required to delete a bench that serves more than one site, and it means every one of them. A single-site bench does not need it, and a bench/site address refuses it because that address already names exactly one site.
 * `-y, --yes`: Delete without the removal confirmation, including the typed-name confirmation a multi-site bench asks for. The database question is asked anyway, and --all-sites is still required.
-* `--delete-db-from-mariadb/--no-delete-db-from-mariadb`: Drop the schema and user from the mariadb container, or keep them. Applies to every site being deleted that is on the mariadb container, and never touches a database on an external server. fm asks when neither is passed.
+* `--delete-db-from-fm-mariadb/--no-delete-db-from-fm-mariadb`: Drop the schema and user from fm's own mariadb container, or keep them. Applies to every site being deleted that is on that container, and never touches a database on an external server. fm asks when neither is passed.
 * `--delete-backups`: Also delete the removed site's recorded database dumps. Off by default: a dump is the last copy of something, and once its history row is gone fm can no longer offer to prune it, so the paths are printed instead.
 * `--dry-run`: Print the deletion plan and exit without deleting anything; never prompts.
 
@@ -32,7 +32,7 @@ $ fm delete BENCH(/SITE) [OPTIONS]
 ### Delete a bench and its database
 
 ```bash
-fm delete mybench --delete-db-from-mariadb
+fm delete mybench --delete-db-from-fm-mariadb
 ```
 
 ### Delete one site out of a bench
@@ -56,13 +56,13 @@ fm delete mybench --all-sites
 The bench is gone; the schema stays in mariadb.
 
 ```bash
-fm delete mybench --no-delete-db-from-mariadb
+fm delete mybench --no-delete-db-from-fm-mariadb
 ```
 
 ### Delete unattended
 
 ```bash
-fm delete mybench --yes --delete-db-from-mariadb
+fm delete mybench --yes --delete-db-from-fm-mariadb
 ```
 
 ### Delete a multi-site bench unattended
@@ -70,6 +70,6 @@ fm delete mybench --yes --delete-db-from-mariadb
 --yes skips the confirmation; --all-sites is still required, so no script deletes more than it named.
 
 ```bash
-fm delete mybench --all-sites --yes --delete-db-from-mariadb
+fm delete mybench --all-sites --yes --delete-db-from-fm-mariadb
 ```
 

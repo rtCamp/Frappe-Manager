@@ -33,7 +33,7 @@ A worker idle for longer than `--skip-stale-timeout` seconds (default 15) is tre
 
 `--no-drain-workers` sends each worker SIGUSR1 (RQ's warm shutdown) and stops any worker still alive `--worker-kill-timeout` seconds later (default 15, polled every `--worker-kill-poll` seconds, default 3) through supervisor. In-flight jobs may be interrupted and land in the failed-job registry.
 
-This is the development path, and the recovery path when a wedged bench matters more than a job. Those two flags only apply here: a drained restart stops workers through supervisor and never signals them.
+This is the development path, and the recovery path when a wedged bench matters more than a job. Those two flags are not exclusive to this path, though: plain `fmx stop` also walks workers through the same SIGUSR1 ladder by default, since its drain is opt-in (see above), and accepts both `--worker-kill-timeout` and `--worker-kill-poll` too. What actually skips the ladder is draining: a drained restart, or `fmx stop --drain-workers`, stops workers through supervisor and never signals them.
 
 ## Migrations
 
