@@ -300,6 +300,45 @@ class TestMigrationExecutorUserPrompt:
         no_migration.up.assert_not_called()
         assert any("Migration aborted" in str(call) for call in no_output.print.call_args_list)
 
+    @pytest.mark.timeout(15)
+    def test_a_failing_migration_is_actually_rolled_back(self, mock_fm_config):
+        """The undo stack must reach the error handler: the executor's copy used to be
+        synced only on the SUCCESS path, so a failed migration's down() never ran and
+        "Rollback complete." was printed with every backup unrestored and the
+        half-migrated state left in place (found live by the v0.21.0 rename cutover,
+        whose unrolled-back failure leaves every bench on the host dark)."""
+        mock_fm_config.version = Version("0.18.0")
+
+        failing = Mock()
+        failing.version = Version("0.19.0")
+        failing.up = Mock(side_effect=RuntimeError("boom"))
+        failing.get_rollback_version = Mock(return_value=Version("0.19.0"))
+
+        mock_output = Mock()
+        mock_output.prompt_ask = Mock(return_value="yes")
+
+        with (
+            patch(
+                "frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"
+            ),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
+            patch("frappe_manager.services_manager.services.ServicesManager") as mock_services_cls,
+        ):
+            services = mock_services_cls.return_value
+            services.path.exists.return_value = True
+            services.is_service_running.return_value = True
+
+            executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)
+
+            with (
+                patch.object(executor.discovery, "discover_migrations", return_value=[failing]),
+                patch.object(executor, "_check_benches_need_migration", return_value=False),
+            ):
+                result = executor.execute()
+
+        assert result is False
+        failing.down.assert_called_once_with()
+
     def test_aborts_and_reverts_when_user_says_no(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
 

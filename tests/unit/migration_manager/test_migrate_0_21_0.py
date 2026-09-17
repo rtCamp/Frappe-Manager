@@ -146,6 +146,67 @@ class TestBenchComposeRewrite:
         assert nets["site-network"]["name"] == "fm__shop__site-network"
 
 
+LEGACY_EXTERNAL_SERVICES_COMPOSE = """\
+services:
+  global-nginx-proxy:
+    container_name: fm_global-nginx-proxy
+    networks:
+      global-frontend-network:
+        ipv4_address: 10.0.1.2
+
+networks:
+  global-frontend-network:
+    name: fm-global-frontend-network
+    external: true
+    ipam:
+      config:
+      - subnet: '10.1.0.0/16'
+  global-backend-network:
+    name: fm-global-backend-network
+    external: true
+"""
+
+
+class TestServicesNetworkOwnershipNormalization:
+    """Legacy installs marked the shared networks `external` in the SERVICES compose too,
+    leaving them with no owner: nothing recreated them after the rename deleted them, and
+    compose ignores ipam on an external network, so that block was free to rot (this very
+    fixture: a proxy pinned at 10.0.1.2 beside a claimed 10.1.0.0/16)."""
+
+    def _migration(self):
+        m = MigrationV0210(output_handler=MagicMock())
+        # daemon truth captured before deletion; deliberately different from the rotten
+        # compose ipam, because the daemon is the side that must win
+        m._old_subnets = {"frontend-network": "10.0.0.0/16", "backend-network": None}
+        return m
+
+    def test_external_is_dropped_and_the_daemon_subnet_wins(self):
+        data = _load(LEGACY_EXTERNAL_SERVICES_COMPOSE)
+        m = self._migration()
+
+        rewrite_compose_for_rename(data)
+        m._normalize_services_networks(data)
+
+        front = data["networks"]["frontend-network"]
+        assert "external" not in front
+        assert front["name"] == "fm-frontend-network"
+        assert front["ipam"]["config"][0]["subnet"] == "10.0.0.0/16"
+        # the proxy's pinned address is untouched; it lives inside the daemon subnet
+        assert data["services"]["nginx-proxy"]["networks"]["frontend-network"]["ipv4_address"] == "10.0.1.2"
+
+    def test_no_daemon_capture_keeps_the_compose_ipam_but_still_takes_ownership(self):
+        data = _load(LEGACY_EXTERNAL_SERVICES_COMPOSE)
+        m = self._migration()
+
+        rewrite_compose_for_rename(data)
+        m._normalize_services_networks(data)
+
+        back = data["networks"]["backend-network"]
+        assert "external" not in back
+        assert back["name"] == "fm-backend-network"
+        assert "ipam" not in back
+
+
 def _migration(tmp_path):
     m = MigrationV0210(output_handler=MagicMock())
     m.backup_manager = MagicMock()

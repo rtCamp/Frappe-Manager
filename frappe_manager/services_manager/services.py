@@ -145,8 +145,18 @@ class ServicesManager:
         self.compose_file_manager = ComposeFile(self.compose_path, template_name=template_name)
         self.docker_client = DockerClient(compose_file_path=self.compose_path, output=self.output)
 
-        self.proxy_storage = ProxyStoragePaths("nginx-proxy", self.compose_file_manager)
-        self.nginx_controller = NginxController("nginx-proxy", self.compose_file_manager, self.docker_client)
+        # Transition wiring, not legacy support: on a pre-v0.21.0 compose the proxy service is
+        # still `global-nginx-proxy`, and ProxyStoragePaths resolves its volumes eagerly -- so
+        # `fm migrate` (the only command allowed to run against that compose, see
+        # entrypoint_checks) could never construct this manager to perform the cutover. The
+        # storage DIRECTORIES are identical under either name.
+        proxy_service = "nginx-proxy"
+        if self.compose_path.exists():
+            services_list = self.compose_file_manager.get_services_list()
+            if "nginx-proxy" not in services_list and "global-nginx-proxy" in services_list:
+                proxy_service = "global-nginx-proxy"
+        self.proxy_storage = ProxyStoragePaths(proxy_service, self.compose_file_manager)
+        self.nginx_controller = NginxController(proxy_service, self.compose_file_manager, self.docker_client)
 
         # For backward compatibility
         # TODO: Remove this when all code is updated

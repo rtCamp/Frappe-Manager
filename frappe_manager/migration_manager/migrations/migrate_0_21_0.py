@@ -33,6 +33,8 @@ migration runs, and the executor's version stamping keeps its usual meaning.
 import contextlib
 import platform
 
+from ruamel.yaml import YAML
+
 from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.migration_manager.migration_base import MigrationBase
@@ -60,6 +62,11 @@ NEW_VOLUME_NAME = "fm-mariadb-data"
 # compose prefixes an unnamed volume with the project (the services directory name), so
 # the on-daemon name of the old volume carries `services_`; both spellings are checked.
 OLD_VOLUME_CANDIDATES = ("services_fm-global-db-data", "fm-global-db-data")
+# NEW compose network key -> OLD daemon network name, for the pre-deletion subnet capture.
+NEW_KEY_TO_OLD_NETWORK = {
+    "frontend-network": "fm-global-frontend-network",
+    "backend-network": "fm-global-backend-network",
+}
 
 
 def _rename_keys(mapping, renames: dict) -> None:
@@ -148,6 +155,9 @@ class MigrationV0210(MigrationBase):
         super().init()
         # Benches that were up before the cutover; only these are brought back.
         self._was_running: set[str] = set()
+        # Daemon-truth subnets of the OLD networks, captured before anything is deleted;
+        # keyed by the NEW compose network key. The rollback needs them too.
+        self._old_subnets: dict[str, str | None] = {}
 
     # ------------------------------------------------------------- services
 
@@ -166,6 +176,14 @@ class MigrationV0210(MigrationBase):
             return
 
         self.output.print("Renaming the global services to their engine names (mariadb, nginx-proxy)")
+
+        # Daemon truth for the subnets, captured while the old networks still exist. The
+        # compose file cannot be trusted for this on a legacy install: it marks the
+        # networks `external`, and compose IGNORES ipam on an external network, so that
+        # block was free to rot while the daemon's allocation moved on.
+        self._old_subnets = {
+            new_key: self._daemon_subnet(old_name) for new_key, old_name in NEW_KEY_TO_OLD_NETWORK.items()
+        }
 
         # 1. Every bench's containers must be REMOVED: removed containers are what free
         #    the old networks, and the bench composes are about to reference new ones.
@@ -207,9 +225,13 @@ class MigrationV0210(MigrationBase):
         if platform.system() == "Darwin":
             self._copy_data_volume()
 
-        # 4. Rewrite the services compose in place: subnets, secrets and any user edits
-        #    travel untouched; only the names change.
+        # 4. Rewrite the services compose in place (secrets, envs and user edits travel
+        #    untouched), then NORMALIZE network ownership: the services compose owns the
+        #    shared networks (the template shape), benches only consume them as external.
+        #    Legacy installs marked them external HERE too, which left the networks with
+        #    no owner at all -- nothing would recreate them after the deletion above.
         rewrite_compose_for_rename(compose_file_manager.yml)
+        self._normalize_services_networks(compose_file_manager.yml)
         compose_file_manager.yml["x-version"] = str(self.version)
         compose_file_manager.write_to_file()
 
@@ -245,8 +267,9 @@ class MigrationV0210(MigrationBase):
                 image="alpine:3",
                 volume=[f"{old_volume}:/from:ro", f"{NEW_VOLUME_NAME}:/to"],
                 rm=True,
+                # shlex-split into ["sh", "-c", "cp -a /from/. /to/"]; a single unsplit
+                # string would be handed to docker as the binary name itself.
                 command="sh -c 'cp -a /from/. /to/'",
-                use_shlex_split=False,
                 stream=False,
             )
         self.output.print(
@@ -261,6 +284,37 @@ class MigrationV0210(MigrationBase):
         except Exception:
             return False
         return True
+
+    def _normalize_services_networks(self, compose_data: dict) -> None:
+        """Make the services compose the OWNER of the (renamed) shared networks.
+
+        Drops `external: true` where a legacy install carried it, and writes the ipam
+        subnet from the daemon capture -- the only source that could not lie, since
+        compose ignores ipam on an external network and that block was free to rot.
+        A pinned `ipv4_address` on the proxy stays valid: the subnet is the same one
+        the daemon allocated it from.
+        """
+        networks = compose_data.get("networks") or {}
+        for key in NETWORK_KEY_RENAMES.values():
+            network = networks.get(key)
+            if not isinstance(network, dict):
+                continue
+            network.pop("external", None)
+            subnet = self._old_subnets.get(key)
+            if subnet:
+                network["ipam"] = {"config": [{"subnet": subnet}]}
+
+    @staticmethod
+    def _daemon_subnet(network_name: str) -> str | None:
+        try:
+            out = run_command_with_exit_code(
+                ["docker", "network", "inspect", "--format", "{{(index .IPAM.Config 0).Subnet}}", network_name],
+                stream=False,
+            )
+            subnet = "".join(out.stdout).strip()  # type: ignore[union-attr]
+        except Exception:
+            return None
+        return subnet or None
 
     # ------------------------------------------------------------- benches
 
@@ -286,8 +340,6 @@ class MigrationV0210(MigrationBase):
             # docker-compose.yml is backed up by bench_basic_backup for targeted benches;
             # the sweep over ALL benches backs up everything it is about to touch itself.
             self.backup_manager.backup(compose_path, bench_name=bench.name)
-            from ruamel.yaml import YAML
-
             yaml = YAML()
             yaml.preserve_quotes = True
             compose_data = yaml.load(compose_path.read_text())
@@ -355,10 +407,15 @@ class MigrationV0210(MigrationBase):
     # ------------------------------------------------------------- rollback
 
     def undo_services_migrate(self):
-        """The framework has already restored every backed-up file (services compose,
-        bench composes, site configs). What is left is putting the RUNNING state back:
-        down the renamed stack so its networks disappear, then up the restored old one.
-        The macOS volume needs nothing -- the old volume was never touched."""
+        """Put the RUNNING state back after the framework restored the backed-up files.
+
+        The services compose is additionally restored EXPLICITLY (same defense v0.20.0
+        carries): the framework's restore loop is not something this rollback can afford
+        to assume ran first. The macOS data needs nothing -- the old volume was never
+        touched. On a legacy install the restored compose declares the networks
+        `external`, so nothing would recreate them on up: they are recreated here from
+        the subnets captured before deletion.
+        """
         try:
             self.services_manager.compose.down(
                 remove_orphans=True, volumes=False, timeout=DOCKER_COMPOSE_DOWN_TIMEOUT_SECONDS, stream=False
@@ -368,6 +425,16 @@ class MigrationV0210(MigrationBase):
         for network in NETWORK_NAME_RENAMES.values():
             with contextlib.suppress(Exception):
                 run_command_with_exit_code(["docker", "network", "rm", network], stream=False)
+
+        compose_path = self.services_manager.compose_file_manager.compose_path
+        for backup in self.backup_manager.backups:
+            if backup.src == compose_path:
+                self.backup_manager.restore(backup, force=True)
+                self.output.print("Restored the services compose file")
+                break
+
+        self._recreate_external_networks(compose_path)
+
         try:
             self.services_manager.compose.up(services=[], detach=True, pull="missing", stream=False)
         except DockerException:
@@ -378,3 +445,20 @@ class MigrationV0210(MigrationBase):
             bench_path = CLI_BENCHES_DIRECTORY / bench_name
             if (bench_path / "docker-compose.yml").exists():
                 self._start_bench(MigrationBench(bench_name, bench_path, output=self.output))
+
+    def _recreate_external_networks(self, compose_path) -> None:
+        """Recreate networks a restored legacy compose expects to pre-exist."""
+        try:
+            yaml = YAML()
+            networks = (yaml.load(compose_path.read_text()) or {}).get("networks") or {}
+        except Exception:
+            return
+        for key, network in networks.items():
+            if not (isinstance(network, dict) and network.get("external") and network.get("name")):
+                continue
+            cmd = ["docker", "network", "create"]
+            subnet = self._old_subnets.get(NETWORK_KEY_RENAMES.get(key, key))
+            if subnet:
+                cmd += ["--subnet", subnet]
+            with contextlib.suppress(Exception):
+                run_command_with_exit_code([*cmd, network["name"]], stream=False)

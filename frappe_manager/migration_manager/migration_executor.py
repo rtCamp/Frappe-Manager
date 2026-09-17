@@ -219,18 +219,26 @@ class MigrationExecutor:
                 self.output.print("", emoji_code="")
                 return False
 
-        # Orchestration: Execute migrations with error handling
+        # Orchestration: Execute migrations with error handling.
+        #
+        # The undo stack is synced BEFORE each error handler runs, not only on success: a
+        # migration that FAILED is exactly the one whose `down()` must run, and it is on the
+        # orchestrator's stack (appended before `up()`). Syncing only on the success path left
+        # the executor's copy empty on failure, so `_rollback_all` iterated nothing and
+        # "Rollback complete." was printed with every backup unrestored and the half-migrated
+        # state left in place.
         try:
             self.orchestrator.execute_migrations()
-            self.undo_stack = self.orchestrator.undo_stack
-            self.error_handler.finalize_success()
-            return True
-
         except MigrationExceptionInBench as e:
+            self.undo_stack = self.orchestrator.undo_stack
             return self.error_handler.handle_bench_migration_failure(e)
-
         except Exception as e:
+            self.undo_stack = self.orchestrator.undo_stack
             return self.error_handler.handle_system_migration_failure(e)
+
+        self.undo_stack = self.orchestrator.undo_stack
+        self.error_handler.finalize_success()
+        return True
 
     def set_bench_data(
         self,
