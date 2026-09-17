@@ -141,6 +141,61 @@ def test_bench_only_points_at_the_command_that_takes_those_flags(cli, benches):
     assert "fm create BENCH/SITE" in _said(result)
 
 
+# ------------------------------------------- add-site path checks domain uniqueness
+
+
+def _invoke_site_add(cli, args, conflict: bool):
+    """Reach the `added_site` branch with the uniqueness validator stubbed at create's seam."""
+    from frappe_manager.site_manager.domain_conflict import DomainConflict, DomainConflictError
+
+    validator = MagicMock()
+    if conflict:
+        validator.side_effect = DomainConflictError(
+            [DomainConflict("new.example.com", owner_bench="other", owner_site="new.example.com")]
+        )
+    with (
+        patch("frappe_manager.commands.create.validate_domains_unique", validator),
+        patch("frappe_manager.commands.create._add_site_to_bench") as add_site,
+    ):
+        result = runner.invoke(
+            cli,
+            args,
+            obj={"services": MagicMock(), "verbose": False, "fm_config_manager": MagicMock()},
+        )
+    return result, validator, add_site
+
+
+def test_an_added_site_colliding_with_another_bench_is_refused(cli, benches):
+    """The bench-creation path always checked; the add-site branch returned before the check, so a
+    collision succeeded silently and --allow-domain-conflicts was inert here."""
+    result, _, add_site = _invoke_site_add(cli, ["existing.localhost/new.example.com"], conflict=True)
+
+    assert result.exit_code == 1
+    assert "bench 'other'" in _said(result)
+    assert "--allow-domain-conflicts" in _said(result)
+    add_site.assert_not_called()
+
+
+def test_allow_domain_conflicts_skips_the_add_site_check(cli, benches):
+    result, validator, add_site = _invoke_site_add(
+        cli, ["existing.localhost/new.example.com", "--allow-domain-conflicts"], conflict=False
+    )
+
+    assert validator.call_args.kwargs["skip_check"] is True
+    add_site.assert_called_once()
+
+
+def test_the_added_sites_aliases_are_part_of_the_uniqueness_check(cli, benches):
+    result, validator, _ = _invoke_site_add(
+        cli, ["existing.localhost/new.example.com", "--alias-domains", "www.example.com"], conflict=False
+    )
+
+    checked = validator.call_args.args[0]
+    assert "new.example.com" in checked
+    assert "www.example.com" in checked
+    assert validator.call_args.kwargs["exclude_bench"] == "existing.localhost"
+
+
 def test_bench_only_alone_is_still_the_supported_way_to_make_an_empty_bench(cli, benches):
     """The control. A guard that refuses `--bench-only` outright would break the documented flow."""
     result, bench_service_cls = _invoke(cli, ["fresh", "--bench-only"])

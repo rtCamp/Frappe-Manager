@@ -1089,6 +1089,22 @@ def create(
     # mkdirs and re-renders compose, which on a running bench would disturb the sites already
     # serving before the new one is known to work.
     if added_site:
+        # The bench-creation path checks domain uniqueness (below, over bench_config.domains), but
+        # this branch returns long before it -- so an added site colliding with ANOTHER bench's
+        # domain used to succeed silently, and --allow-domain-conflicts was inert here.
+        output_early = get_global_output_handler()
+        skip_check = allow_domain_conflicts or not fm_config.validation.enforce_domain_uniqueness
+        try:
+            validate_domains_unique(
+                [added_site, *(alias_domains or [])],
+                benches_root=CLI_BENCHES_DIRECTORY,
+                exclude_bench=address,
+                skip_check=skip_check,
+            )
+        except DomainConflictError as e:
+            output_early.display_error(str(e))
+            output_early.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
+            raise typer.Exit(1) from e
         _add_site_to_bench(
             # `benchname`, not `address`: this helper takes a bench DIRECTORY name, and the site it
             # adds arrives separately. The keyword broke when the command's own parameter was renamed

@@ -144,6 +144,13 @@ def restart(
             exception=typer.Exit(code=1),
         )
 
+    if drain_explicit and drain and not workers:
+        output.error(
+            "--drain cannot be combined with --no-workers (drain suspends the worker tier "
+            "before restarting it; with workers excluded there is nothing to drain)",
+            exception=typer.Exit(code=1),
+        )
+
     if service:
         if rolling:
             output.error("--service cannot be combined with --rolling", exception=typer.Exit(code=1))

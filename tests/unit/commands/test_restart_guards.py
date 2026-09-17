@@ -69,3 +69,17 @@ def test_no_drain_with_force_is_allowed_past_guards(cli):
     # not a contradiction and must not hit the conflict guard.
     result = runner.invoke(cli, ["x.localhost", "--force", "--no-drain"])
     assert "cannot be combined" not in result.output
+
+
+def test_no_workers_with_explicit_drain_conflicts(cli):
+    # Drain runs only over the worker tier; excluding workers while explicitly
+    # asking for a drain used to pass silently with no drain at all.
+    result = runner.invoke(cli, ["x.localhost", "--no-workers", "--drain"])
+    assert result.exit_code == 1
+    assert "cannot be combined" in result.output
+
+
+def test_no_workers_with_no_drain_is_allowed_past_guards(cli):
+    # Both negative: the outcome (no drain) matches what was asked for.
+    result = runner.invoke(cli, ["x.localhost", "--no-workers", "--no-drain"])
+    assert "cannot be combined" not in result.output

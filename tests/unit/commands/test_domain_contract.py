@@ -229,3 +229,17 @@ class TestDomainList:
             f"{BENCH}  primary",
             f"{BENCH}  www.example.com",
         ]
+
+
+class TestRequiredDomainsArgument:
+    def test_the_variadic_domains_argument_is_required_at_the_parser(self):
+        """`fm domain add BENCH` with no DOMAIN must be a usage error, not the former
+        'Alias domains updated successfully' over an empty list."""
+        import typer.main as typer_main
+
+        from frappe_manager.commands.domain import domain_app
+
+        click_group = typer_main.get_command(domain_app)
+        add_cmd = click_group.commands["add"]
+        domains_param = next(p for p in add_cmd.params if p.name == "domains")
+        assert domains_param.required is True

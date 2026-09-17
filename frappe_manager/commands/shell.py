@@ -166,6 +166,21 @@ def shell(
             exception=typer.Exit(code=1),
         )
 
+    if command and ctx.args:
+        output_early = get_global_output_handler()
+        output_early.error(
+            "-c cannot be combined with arguments after --: give the command one way",
+            exception=typer.Exit(code=1),
+        )
+
+    if shell_path is not None and bench_console:
+        output_early = get_global_output_handler()
+        output_early.error(
+            "--shell-path has no effect with --bench-console (the console is bench console "
+            "or Python, not a shell): drop one of them",
+            exception=typer.Exit(code=1),
+        )
+
     check_bench_migration_required(address)
 
     assert address is not None

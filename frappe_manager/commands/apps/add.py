@@ -53,7 +53,7 @@ def add_apps(
             callback=apps_list_validation_callback,
             show_default=False,
         ),
-    ] = [],
+    ] = ...,
     drain: Annotated[
         bool,
         typer.Option(

@@ -288,3 +288,18 @@ class TestListApps:
         out = capsys.readouterr().out
         assert "(none)" in out
         assert "no workspace on disk (image runtime)" in out
+
+
+class TestRequiredAppsArgument:
+    def test_the_variadic_apps_argument_is_required_at_the_parser(self):
+        """`fm apps add BENCH` with no APP:REF must be a usage error, not a silent success:
+        before this pin, an empty invocation drained the workers, grafted nothing, and
+        restarted services to install zero apps."""
+        import typer.main as typer_main
+
+        from frappe_manager.commands.apps import apps_app
+
+        click_group = typer_main.get_command(apps_app)
+        add_cmd = click_group.commands["add"]
+        apps_param = next(p for p in add_cmd.params if p.name == "apps")
+        assert apps_param.required is True

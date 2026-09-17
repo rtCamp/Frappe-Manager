@@ -80,7 +80,7 @@ def add_domain(
             help="Alias domains to add to the site, e.g. www.example.com api.example.com.",
             callback=_validate_domain_arguments,
         ),
-    ] = None,
+    ] = ...,
     allow_domain_conflicts: Annotated[
         bool,
         typer.Option(

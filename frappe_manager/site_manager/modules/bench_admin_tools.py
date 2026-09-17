@@ -175,44 +175,70 @@ class BenchAdminTools:
     def _save_common_site_config(self, config: dict):
         self._get_common_site_config_path().write_text(json.dumps(config))
 
-    def configure_mailpit_as_default_server(self):
-        self.output.change_head("Configuring Mailpit as default mail server")
-        current_common_site_config = self._get_common_site_config()
+    def _mailpit_conf(self) -> dict:
+        """The three keys that make Frappe fall back to Mailpit for outgoing mail.
 
-        new_conf = {
+        Frappe reads them through `frappe.conf`, the merge of common_site_config.json and the
+        site's own site_config.json (site wins), so the same keys work at either scope. They are
+        a FALLBACK: a site with a default outgoing Email Account in its DB ignores them.
+        """
+        return {
             "mail_port": 1025,
             "mail_server": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailpit",
             "disable_mail_smtp_authentication": 1,
         }
 
-        for key, value in new_conf.items():
-            if key not in current_common_site_config or not current_common_site_config[key] == value:
-                current_common_site_config[key] = value
+    def _site_config_path(self, site: str) -> Path:
+        return host_bench_dir(self.compose_path.parent) / f"sites/{site}/site_config.json"
 
-        self._save_common_site_config(current_common_site_config)
+    def _apply_mailpit_conf(self, config: dict) -> dict:
+        for key, value in self._mailpit_conf().items():
+            if key not in config or not config[key] == value:
+                config[key] = value
+        return config
+
+    def _strip_mailpit_conf(self, config: dict) -> dict:
+        """Delete only keys still carrying fm's own Mailpit values: a hand-configured mail
+        server in the same keys is somebody's real SMTP setup and must survive."""
+        for key, value in self._mailpit_conf().items():
+            if key in config and config[key] == value:
+                del config[key]
+        return config
+
+    def configure_mailpit_as_default_server(self):
+        self.output.change_head("Configuring Mailpit as default mail server")
+        config = self._apply_mailpit_conf(self._get_common_site_config())
+        self._save_common_site_config(config)
         self.output.print("Configured Mailpit as default mail server")
 
     def remove_mailpit_as_default_server(self):
+        """Strip the Mailpit fallback everywhere it may live: the common config AND every site's
+        own site_config.json. Called when the containers stop -- per-site keys left behind would
+        point that site's outgoing mail at a stopped container, silently swallowing it."""
         self.output.change_head("Removing Mailpit as default mail server")
-        current_common_site_config = self._get_common_site_config()
-
-        new_conf = {
-            "mail_port": 1025,
-            "mail_server": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailpit",
-            "disable_mail_smtp_authentication": 1,
-        }
-
-        for key, value in new_conf.items():
-            if key not in current_common_site_config:
-                continue
-
-            if not current_common_site_config[key] == value:
-                continue
-
-            del current_common_site_config[key]
-
-        self._save_common_site_config(current_common_site_config)
+        config = self._strip_mailpit_conf(self._get_common_site_config())
+        self._save_common_site_config(config)
+        for site in self.bench.bench_config.site_names:
+            self.remove_mailpit_for_site(site)
         self.output.print("Removed Mailpit as default mail server")
+
+    def configure_mailpit_for_site(self, site: str):
+        """Write the Mailpit fallback into ONE site's site_config.json; the bench's other sites
+        and any site created later are untouched (that is what the common-config form is for)."""
+        self.output.change_head(f"Configuring Mailpit as {site}'s default mail server")
+        config_path = self._site_config_path(site)
+        if not config_path.exists():
+            raise BenchException(self.bench_name, message=f"sites/{site}/site_config.json not found.")
+        config = self._apply_mailpit_conf(json.loads(config_path.read_bytes()))
+        config_path.write_text(json.dumps(config))
+        self.output.print(f"Configured Mailpit as the default mail server for {site}")
+
+    def remove_mailpit_for_site(self, site: str):
+        config_path = self._site_config_path(site)
+        if not config_path.exists():
+            return
+        config = self._strip_mailpit_conf(json.loads(config_path.read_bytes()))
+        config_path.write_text(json.dumps(config))
 
     def wait_till_services_started(self, interval=2, timeout=30):
         """

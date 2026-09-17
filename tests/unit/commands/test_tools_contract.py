@@ -159,6 +159,28 @@ class TestEnableBench:
         world.bench.sync_admin_tools_compose.assert_not_called()
         world.bench.ensure_fm_nginx_confs.assert_called_once_with()
 
+    def test_site_scope_with_mailpit_writes_that_sites_config(self, world):
+        """The flag used to be silently dropped on a site address; now it lands in the site's own
+        site_config.json, after the route exists."""
+        world.run_enable(site=BENCH, mailpit_as_default_mail_server=True)
+
+        world.bench.admin_tools.configure_mailpit_for_site.assert_called_once_with(BENCH)
+        world.bench.admin_tools.configure_mailpit_as_default_server.assert_not_called()
+
+    def test_site_scope_without_the_flag_leaves_mail_alone(self, world):
+        world.run_enable(site=BENCH, mailpit_as_default_mail_server=False)
+
+        world.bench.admin_tools.configure_mailpit_for_site.assert_not_called()
+
+    def test_all_scope_with_mailpit_is_refused_before_any_work(self, world):
+        with pytest.raises(typer.Exit) as exc:
+            world.run_enable(site=RESERVED_BENCH_NAME, mailpit_as_default_mail_server=True)
+
+        assert exc.value.exit_code == 1
+        assert "bench-wide setting covers every site" in world.errors[0]
+        world.bench_cls.get_object.assert_not_called()
+        world.bench.admin_tools.configure_mailpit_for_site.assert_not_called()
+
 
 class TestDisableBench:
     def test_stops_the_pair_and_persists(self, world):

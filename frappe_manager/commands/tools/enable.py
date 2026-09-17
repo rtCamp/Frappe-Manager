@@ -9,6 +9,7 @@ from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.commands.arguments import BenchSiteAllArgument
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.site import Bench
+from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME
 
 from ._helpers import route_sites
 
@@ -31,6 +32,12 @@ from ._helpers import route_sites
     benchname="mybench",
 )
 @example(
+    "Route one site's mail to Mailpit, leaving the rest on their real mail server",
+    "{benchname}/site1.localhost --mailpit-as-default-mail-server",
+    detail="Writes the mail keys into that site's own site_config.json, which wins over the bench-wide config.",
+    benchname="mybench",
+)
+@example(
     "Restore every opted-out site's route at once",
     "{benchname}/all",
     detail="Fans the route out over every site the bench serves; the containers were already running.",
@@ -43,7 +50,7 @@ def enable(
         bool,
         typer.Option(
             "--mailpit-as-default-mail-server",
-            help="Route outgoing mail to Mailpit for every site the bench holds.",
+            help="Route outgoing mail to Mailpit: on BENCH for every site the bench holds (via common_site_config), on BENCH/SITE for that one site only (via its site_config.json). Applies when the site has no default outgoing Email Account configured in Frappe.",
             show_default=False,
         ),
     ] = False,
@@ -61,10 +68,20 @@ def enable(
     # The site half of the address, put there by `bench_site_all_callback`.
     site = ctx.obj.get("site") if ctx.obj else None
 
+    if site == RESERVED_BENCH_NAME and mailpit_as_default_mail_server:
+        # Per-site files would strand sites created later; the bench-wide form covers those too.
+        output.display_error(
+            "--mailpit-as-default-mail-server cannot take 'all': use the bare BENCH address -- "
+            "the bench-wide setting covers every site, including ones created later."
+        )
+        raise typer.Exit(1)
+
     bench = Bench.get_object(address, services_manager, output_handler=output)
 
     if site:
         route_sites(bench, site, output, wanted=True)
+        if mailpit_as_default_mail_server:
+            bench.admin_tools.configure_mailpit_for_site(site)
         return
 
     with spinner(output, "Enabling admin tools"):

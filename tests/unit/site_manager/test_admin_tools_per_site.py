@@ -198,3 +198,77 @@ class TestOlderNginxConf:
 
         assert obj.nginx_config_location_path.is_file()
         assert "/adminer/" in obj.nginx_config_location_path.read_text()
+
+
+class TestMailpitConfigWrites:
+    """The Mailpit fallback keys live at two scopes: common_site_config.json for the bench,
+    sites/<site>/site_config.json for one site (Frappe's merge lets the site file win). The
+    removers strip only fm's OWN values, so a hand-configured mail server survives."""
+
+    SITE_B = "b.example.com"
+
+    @pytest.fixture
+    def mail(self, tmp_path):
+        import json
+
+        bench_path = tmp_path / SITE
+        sites_dir = bench_path / "workspace" / "frappe-bench" / "sites"
+        (sites_dir / SITE).mkdir(parents=True)
+        (sites_dir / self.SITE_B).mkdir(parents=True)
+        (sites_dir / "common_site_config.json").write_text("{}")
+        (sites_dir / SITE / "site_config.json").write_text("{}")
+        (sites_dir / self.SITE_B / "site_config.json").write_text("{}")
+
+        obj = BenchAdminTools.__new__(BenchAdminTools)
+        obj.bench = MagicMock()
+        obj.bench.bench_config.site_names = [SITE, self.SITE_B]
+        obj.bench_name = SITE
+        obj.compose_path = bench_path / "docker-compose.admin-tools.yml"
+        obj.output = MagicMock()
+
+        def read(path):
+            return json.loads(path.read_text())
+
+        return obj, sites_dir, read
+
+    def test_per_site_write_touches_only_that_sites_file(self, mail):
+        obj, sites_dir, read = mail
+
+        obj.configure_mailpit_for_site(self.SITE_B)
+
+        assert read(sites_dir / self.SITE_B / "site_config.json")["mail_port"] == 1025
+        assert "mail_server" in read(sites_dir / self.SITE_B / "site_config.json")
+        assert read(sites_dir / "common_site_config.json") == {}
+        assert read(sites_dir / SITE / "site_config.json") == {}
+
+    def test_bench_remove_sweeps_common_and_every_site_file(self, mail):
+        obj, sites_dir, read = mail
+        obj.configure_mailpit_as_default_server()
+        obj.configure_mailpit_for_site(self.SITE_B)
+
+        obj.remove_mailpit_as_default_server()
+
+        assert read(sites_dir / "common_site_config.json") == {}
+        assert read(sites_dir / self.SITE_B / "site_config.json") == {}
+
+    def test_a_hand_configured_mail_server_survives_the_removers(self, mail):
+        import json
+
+        obj, sites_dir, read = mail
+        hand = {"mail_server": "smtp.example.com", "mail_port": 587}
+        (sites_dir / self.SITE_B / "site_config.json").write_text(json.dumps(hand))
+        (sites_dir / "common_site_config.json").write_text(json.dumps(hand))
+
+        obj.remove_mailpit_as_default_server()
+
+        assert read(sites_dir / self.SITE_B / "site_config.json") == hand
+        assert read(sites_dir / "common_site_config.json") == hand
+
+    def test_per_site_write_refuses_a_site_with_no_config_file(self, mail):
+        from frappe_manager.site_manager.exceptions import BenchException
+
+        obj, sites_dir, _ = mail
+        (sites_dir / self.SITE_B / "site_config.json").unlink()
+
+        with pytest.raises(BenchException):
+            obj.configure_mailpit_for_site(self.SITE_B)

@@ -1510,6 +1510,26 @@ def test_bench_console_is_reached_before_any_plain_shell_branch(tmp_path):
     bench.shell.assert_not_called()
 
 
+def test_a_command_with_passthrough_args_is_refused(out, tmp_path):
+    # Before this guard the passthrough branch silently discarded -c.
+    bench = _shell_bench(tmp_path)
+    r = _run_shell(bench, command="ls", args=["bench", "migrate"])
+    assert r.exit.exit_code == 1
+    assert "-c cannot be combined with arguments after --" in joined(out.display_error)
+    bench.execute_command.assert_not_called()
+    r.execvp.assert_not_called()
+
+
+def test_shell_path_with_bench_console_is_refused(out, tmp_path):
+    # --shell-path was silently inert: the console branch returns before it is resolved.
+    bench = _shell_bench(tmp_path)
+    with patch.object(shell_mod, "_handle_bench_console") as handler:
+        r = _run_shell(bench, bench_console=True, shell_path="/bin/zsh")
+    assert r.exit.exit_code == 1
+    assert "--shell-path has no effect with --bench-console" in joined(out.display_error)
+    handler.assert_not_called()
+
+
 # =========================================================================== #
 # maintenance.py
 # =========================================================================== #

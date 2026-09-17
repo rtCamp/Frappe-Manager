@@ -51,6 +51,14 @@ def list(
     output = get_global_output_handler()
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
 
+    if paths and (json_output or (ctx.obj.get("json") if ctx.obj else False)):
+        # The json branch below returns without ever reading --paths; refusing beats
+        # silently preferring one form (the JSON rows already carry name and path).
+        output.error(
+            "--paths cannot be combined with --json (the JSON rows already carry name and path)",
+            exception=typer.Exit(code=1),
+        )
+
     if json_output or ctx.obj.get("json"):
         data = bench_service.list_benches_data()
         if ctx.obj.get("json"):
