@@ -35,7 +35,7 @@ fm create clientone.example.com -e prod
 ## 4. Add HTTPS
 
 ```bash
-fm ssl add clientone.example.com/clientone.example.com --dry-run   # validate first
+fm ssl add clientone.example.com/clientone.example.com --test-ca   # validate first
 fm ssl add clientone.example.com/clientone.example.com             # then issue
 ```
 

@@ -53,7 +53,8 @@ $ fm services migrate [OPTIONS]
 
 **Options**:
 
-* `--auto-proceed`: Migrate without asking for confirmation.
+* `-y, --yes`: Migrate without asking for confirmation.
+* `--dry-run`: Print the migration plan and exit without migrating; never prompts.
 * `--skip-backup`: Skip every pre-migration backup, both kinds (DANGEROUS; prefer --skip-db-backup, which keeps the near-free config backups the rollback restores).
 * `--skip-config-backup`: Skip the config-file backups (the services compose, fm's own config).
 * `--skip-db-backup`: Skip whole-engine database dumps (DANGEROUS; such a dump can be the only route back from a one-way engine upgrade, so use this only when taking it is impossible).
@@ -74,7 +75,13 @@ fm services migrate
 ### Migrate unattended
 
 ```bash
-fm services migrate --auto-proceed
+fm services migrate --yes
+```
+
+### See the plan without migrating
+
+```bash
+fm services migrate --dry-run
 ```
 
 ### Halt on failure for inspection
@@ -266,7 +273,7 @@ fm services real-ip --status
 
 Reclaim the host tier's disk: fm's own backup sessions and the shared services' logs.
 
-Covers ~/frappe/backups (migration sessions and services_<date> wholesale backups) and the shared services' log files. Retention comes from the \[prune] table in fm_config.toml; flags override for one run. fm.log is not touched: it rotates itself. The bench tier has its own command, fm prune BENCH.
+Plan-first: the full plan (every path that would be touched) is printed, then one confirmation covers it; a bare Enter aborts, --yes skips the question, --dry-run stops after the plan. Covers ~/frappe/backups (migration sessions and services_<date> wholesale backups) and the shared services' log files. Retention comes from the \[prune] table in fm_config.toml; flags override for one run. fm.log is not touched: it rotates itself. The bench tier has its own command, fm prune BENCH.
 
 **Usage**:
 
@@ -280,7 +287,8 @@ $ fm services prune [OPTIONS]
 * `--keep-backups`: Backup sessions to keep per location instead of \[prune].keep_backup_sessions.
 * `--keep-logs`: Rotated archives to keep per log file instead of \[prune].keep_log_archives.
 * `--rotate-over`: Rotate log files larger than this (e.g. '500K', '10M') instead of \[prune].rotate_logs_over.
-* `--dry-run`: Report what would be pruned without deleting anything.
+* `-y, --yes`: Prune without asking for confirmation.
+* `--dry-run`: Print the plan and exit without deleting anything; never prompts.
 
 
 ## Examples
@@ -292,6 +300,8 @@ fm services prune --dry-run
 ```
 
 ### Reclaim host-tier disk: old backup sessions, oversized service logs
+
+Shows the full plan (every path) first, then asks. A bare Enter aborts; type y to proceed, or pass --yes.
 
 ```bash
 fm services prune

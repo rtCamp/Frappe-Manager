@@ -53,26 +53,37 @@ def _blast_radius(schemas) -> list[str]:
     return lines
 
 
-def _confirm_bench_name(output, benchname: str, schemas) -> None:
-    """Show what dies, then require the bench name typed back. Anything else removes nothing.
+def _print_deletion_plan(output, benchname: str, schemas) -> None:
+    """The plan shown before any whole-bench deletion (and by --dry-run): what dies, where
+    it lives and how big it is. Specificity belongs in the prompt, not the flag: this
+    listing is what the typed-name ceremony below asks the operator to acknowledge."""
+    from frappe_manager.utils.prune import dir_size, format_size
 
-    The guard for a bench serving several sites, and only for that: one typed word would otherwise
-    destroy several separately named things, so the address stops being the acknowledgement. A
-    single-site bench and a `BENCH/SITE` address both destroy exactly what was typed, and keep the
-    yes/no question they have always asked.
-    """
     output.warning(f"This will permanently delete bench '{benchname}':")
-
+    bench_dir = CLI_BENCHES_DIRECTORY / benchname
+    if bench_dir.exists():
+        output.print(f"  dir    {bench_dir}  ({format_size(dir_size(bench_dir))})", emoji_code="")
     for line in _blast_radius(schemas):
         output.print(line, emoji_code="")
 
-    typed = output.prompt_ask(prompt="Type the bench name to confirm", required_flag="--yes or -y")
+
+def _confirm_bench_name(output, benchname: str) -> None:
+    """Require the bench name typed back; anything else (including a bare Enter) removes
+    nothing. The ceremony for EVERY whole-bench deletion: delete is the one command that
+    destroys user data with no undo, and the typed name catches the wrong-bench /
+    wrong-terminal accident a y/N cannot. The plan was printed just above by
+    `_print_deletion_plan`."""
+    typed = output.prompt_ask(
+        prompt="Type the bench name to confirm deletion (anything else aborts)", required_flag="--yes or -y"
+    )
 
     if typed.strip() != benchname:
         # The typed value is deliberately not echoed: it goes through rich markup, where a stray
         # bracket in a typo would render as nothing and make the refusal look like it lost the input.
         output.print("Cancelled: that is not the bench name. Nothing was removed.", emoji_code=":x:")
         raise typer.Exit(1)
+
+
 
 
 def _site_schemas(bench_service: BenchService, benchname: str) -> list:
@@ -156,6 +167,10 @@ def delete(
             help="Also delete the removed site's recorded database dumps. Off by default: a dump is the last copy of something, and once its history row is gone fm can no longer offer to prune it, so the paths are printed instead.",
         ),
     ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print the deletion plan and exit without deleting anything; never prompts."),
+    ] = False,
 ):
     """
     Delete a whole bench, or one site out of one.
@@ -190,14 +205,17 @@ def delete(
     if site:
         bench = bench_service.get_bench(address, workers_check=False, admin_tools_check=False)
 
+        # The bench is loaded first, so a name that resolves to nothing fails as "not found"
+        # rather than offering to destroy whatever it did find.
+        output.warning(
+            f"Removing the site '{site}' from bench '{address}' drops its schema when the schema is fm's to drop, removes its certificate and deletes its files. The bench and its other sites keep running."
+        )
+        if dry_run:
+            output.print("Dry run: nothing deleted.", emoji_code="")
+            return
         if not yes:
-            # The bench is loaded first, so a name that resolves to nothing fails as "not found"
-            # rather than offering to destroy whatever it did find.
-            output.warning(
-                f"Removing the site '{site}' from bench '{address}' drops its schema when the schema is fm's to drop, removes its certificate and deletes its files. The bench and its other sites keep running."
-            )
             choice = output.prompt_ask(
-                prompt=f"🤔 Do you want to remove the site [bold][fm.ok]'{site}'[/bold][/fm.ok] from '{address}'",
+                prompt=f"🤔 Do you want to remove the site [bold][fm.ok]'{site}'[/bold][/fm.ok] from '{address}' (default: no)",
                 choices=["yes", "no"],
                 default="no",
                 required_flag="--yes or -y",
@@ -212,20 +230,27 @@ def delete(
         return
 
     schemas = _site_schemas(bench_service, address)
+
+    # Plan first, always -- the ceremony below asks the operator to acknowledge THIS.
+    _print_deletion_plan(output, address, schemas)
+    if dry_run:
+        output.print("Dry run: nothing deleted.", emoji_code="")
+        return
+
+    if len(schemas) > 1 and not all_sites:
+        names = ", ".join(s.site for s in schemas)
+        output.display_error(
+            f"Bench '{address}' serves {_plural(len(schemas), 'site')}: {names}. Deleting the bench destroys every one of them. Pass --all-sites to say that is what you mean, or delete one site at a time with 'fm delete {address}/{schemas[0].site}'."
+        )
+        raise typer.Exit(1)
+
     confirmed = False
-
-    if len(schemas) > 1:
-        if not all_sites:
-            names = ", ".join(s.site for s in schemas)
-            output.display_error(
-                f"Bench '{address}' serves {_plural(len(schemas), 'site')}: {names}. Deleting the bench destroys every one of them. Pass --all-sites to say that is what you mean, or delete one site at a time with 'fm delete {address}/{schemas[0].site}'."
-            )
-            raise typer.Exit(1)
-
-        if not yes:
-            _confirm_bench_name(output, address, schemas)
-            # The name has just been typed. `remove_bench`'s own yes/no would be a second question
-            # about the same decision, so it is skipped exactly as --yes skips it.
-            confirmed = True
+    if not yes:
+        # Every whole-bench deletion gets the typed-name ceremony, single-site included:
+        # a y/N cannot catch the wrong-bench / wrong-terminal accident.
+        _confirm_bench_name(output, address)
+        # The name has just been typed. `remove_bench`'s own yes/no would be a second question
+        # about the same decision, so it is skipped exactly as --yes skips it.
+        confirmed = True
 
     bench_service.delete_bench(address, yes=yes or confirmed, delete_db_from_mariadb=delete_db_from_mariadb)

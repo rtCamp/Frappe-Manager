@@ -26,7 +26,11 @@ class ServicesFailureAction(str, Enum):
 )
 @example(
     "Migrate unattended",
-    "--auto-proceed",
+    "--yes",
+)
+@example(
+    "See the plan without migrating",
+    "--dry-run",
 )
 @example(
     "Halt on failure for inspection",
@@ -35,9 +39,13 @@ class ServicesFailureAction(str, Enum):
 )
 def migrate_services(
     ctx: typer.Context,
-    auto_proceed: Annotated[
+    yes: Annotated[
         bool,
-        typer.Option("--auto-proceed", help="Migrate without asking for confirmation."),
+        typer.Option("--yes", "-y", help="Migrate without asking for confirmation."),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print the migration plan and exit without migrating; never prompts."),
     ] = False,
     skip_backup: Annotated[
         bool,
@@ -94,7 +102,8 @@ def migrate_services(
         skip_backup=skip_backup,
         skip_config_backup=skip_config_backup,
         skip_db_backup=skip_db_backup,
-        auto_proceed=auto_proceed,
+        auto_proceed=yes,
+        dry_run=dry_run,
         rerun=rerun,
         on_failure=(on_failure.value if on_failure else "rollback"),
         # Benches deliberately untargeted: this command is the services tier. A migration
@@ -110,6 +119,9 @@ def migrate_services(
 
     if not migration_status:
         raise typer.Exit(1)
+
+    if dry_run:
+        return
 
     # No ledger stamp here: the executor's finalize_success is the ONLY stamper of
     # [migration_state].migrated_to (and its rollback path the only rewinder), so a crash

@@ -169,7 +169,7 @@ def _add(h: Harness, **kw):
     kwargs = {
         "challenge": LETSENCRYPT_PREFERRED_CHALLENGE.http01,
         "cname": None,
-        "dry_run": False,
+        "test_ca": False,
         "skip_dns_check": True,
     }
     kwargs.update(kw)
@@ -190,12 +190,12 @@ def _add(h: Harness, **kw):
             id="remove",
         ),
         pytest.param(
-            lambda h: external_helpers._renew_external_certificate(h.ctx, DOMAIN, dry_run=False),
+            lambda h: external_helpers._renew_external_certificate(h.ctx, DOMAIN, test_ca=False),
             id="renew",
         ),
         pytest.param(lambda h: external_helpers._list_external_certificates(h.ctx), id="list"),
         pytest.param(
-            lambda h: external_helpers._renew_all_external_certificates(h.ctx, dry_run=False),
+            lambda h: external_helpers._renew_all_external_certificates(h.ctx, test_ca=False),
             id="renew_all",
         ),
     ],
@@ -482,9 +482,9 @@ def test_add_orders_http_config_reload_issue_https_config_reload(h):
     h.standalone_nginx.create_http_config.side_effect = lambda d: order.append(("http", d))
     h.standalone_nginx.create_https_config.side_effect = lambda d: order.append(("https", d))
     h.nginx_controller.reload.side_effect = lambda: order.append(("reload", None))
-    h.cert_manager.add_certificate.side_effect = lambda _cert, dry_run: order.append(("issue", dry_run))
+    h.cert_manager.add_certificate.side_effect = lambda _cert, test_ca: order.append(("issue", test_ca))
 
-    _add(h, dry_run=False)
+    _add(h, test_ca=False)
 
     assert order == [
         ("http", DOMAIN),
@@ -525,19 +525,19 @@ def test_add_stores_lowercased_challenge_and_null_cname_for_http01(h):
     assert saved.delegation_cname is None
 
 
-def test_add_dry_run_never_writes_an_https_vhost_and_saves_nothing(h):
+def test_add_test_ca_never_writes_an_https_vhost_and_saves_nothing(h):
     """Regression (was: ...still_runs_the_full_nginx_and_issue_dance...).
 
-    The previous version of this test pinned `create_https_config` being called on a dry run.
-    That was the bug itself, not a contract: `add_certificate(dry_run=True)` deliberately skips
+    The previous version of this test pinned `create_https_config` being called on a test-CA rehearsal.
+    That was the bug itself, not a contract: `add_certificate(test_ca=True)` deliberately skips
     the symlinks, so the HTTPS vhost references cert files that do not exist -- a fatal error
     for the SHARED nginx-proxy conf.d, and unreachable through `fm ssl remove/list` because
     the domain was never written to external_domains.toml.
     """
-    _add(h, dry_run=True)
+    _add(h, test_ca=True)
 
     h.cert_manager.add_certificate.assert_called_once()
-    assert h.cert_manager.add_certificate.call_args.kwargs == {"dry_run": True}
+    assert h.cert_manager.add_certificate.call_args.kwargs == {"test_ca": True}
     h.standalone_nginx.create_https_config.assert_not_called()
     # the step-1 ACME-challenge vhost is withdrawn again, and nginx reloaded to forget it
     h.standalone_nginx.remove_config.assert_called_once_with(DOMAIN)
@@ -546,7 +546,7 @@ def test_add_dry_run_never_writes_an_https_vhost_and_saves_nothing(h):
     assert f"SSL certificate added for {DOMAIN}" not in h.prints()
 
 
-def test_add_dry_run_leaves_the_shared_confd_directory_exactly_as_it_found_it(h):
+def test_add_test_ca_leaves_the_shared_confd_directory_exactly_as_it_found_it(h):
     """The blast-radius test, with the REAL config writer instead of a mock.
 
     A leftover `<domain>.conf` naming absent certificate files breaks `nginx -s reload` for
@@ -554,17 +554,17 @@ def test_add_dry_run_leaves_the_shared_confd_directory_exactly_as_it_found_it(h)
     """
     confd = h.dirs.confd.host
     with patch(f"{MODULE}.StandaloneNginxConfigManager", StandaloneNginxConfigManager):
-        _add(h, dry_run=True)
+        _add(h, test_ca=True)
 
     assert not (confd / f"{DOMAIN}.conf").exists()
     assert sorted(p.name for p in confd.iterdir()) == []
 
 
-def test_add_without_dry_run_does_write_the_real_https_vhost(h):
-    """Counterpart of the dry-run test: the guard must not disarm the real path."""
+def test_add_without_test_ca_does_write_the_real_https_vhost(h):
+    """Counterpart of the rehearsal test: the guard must not disarm the real path."""
     confd = h.dirs.confd.host
     with patch(f"{MODULE}.StandaloneNginxConfigManager", StandaloneNginxConfigManager):
-        _add(h, dry_run=False)
+        _add(h, test_ca=False)
 
     written = (confd / f"{DOMAIN}.conf").read_text()
     assert f"ssl_certificate /ctr/certs/{DOMAIN}.crt;" in written
@@ -837,7 +837,7 @@ def test_renew_rejects_unknown_domain_with_a_list_hint(h):
     h.external_manager.domain_exists.return_value = False
 
     with pytest.raises(typer.Exit) as exc:
-        external_helpers._renew_external_certificate(h.ctx, DOMAIN, dry_run=False)
+        external_helpers._renew_external_certificate(h.ctx, DOMAIN, test_ca=False)
 
     assert exc.value.exit_code == 1
     h.output.display_error.assert_called_once_with(f"No external certificate found for domain '{DOMAIN}'")
@@ -848,7 +848,7 @@ def test_renew_builds_storage_config_and_link_manager_but_no_standalone_nginx(h)
     """Copy #4's distinguishing detail: renew never touches the standalone nginx config."""
     h.external_manager.domain_exists.return_value = True
 
-    external_helpers._renew_external_certificate(h.ctx, DOMAIN, dry_run=False)
+    external_helpers._renew_external_certificate(h.ctx, DOMAIN, test_ca=False)
 
     assert h.storage_kwargs == _expected_storage_kwargs(h.dirs)
     h.CertificateLinkManager.assert_called_once_with(h.storage_config)
@@ -862,7 +862,7 @@ def test_renew_seeds_cert_manager_with_the_reconstructed_certificate(h):
     cert = _cert()
     h.external_manager.to_ssl_certificate.return_value = cert
 
-    external_helpers._renew_external_certificate(h.ctx, DOMAIN, dry_run=False)
+    external_helpers._renew_external_certificate(h.ctx, DOMAIN, test_ca=False)
 
     kwargs = h.cert_manager_kwargs
     assert kwargs["certificates"] == [cert]
@@ -876,7 +876,7 @@ def test_renew_seeds_cert_manager_with_the_reconstructed_certificate(h):
 def test_renew_service_factory_delegates_to_create_certificate_service(h):
     h.external_manager.domain_exists.return_value = True
 
-    external_helpers._renew_external_certificate(h.ctx, DOMAIN, dry_run=False)
+    external_helpers._renew_external_certificate(h.ctx, DOMAIN, test_ca=False)
 
     factory = h.cert_manager_kwargs["service_factory"]
     cert, cfg, handler = object(), object(), object()
@@ -884,14 +884,14 @@ def test_renew_service_factory_delegates_to_create_certificate_service(h):
     h.create_certificate_service.assert_called_once_with(cert, cfg, handler)
 
 
-@pytest.mark.parametrize("dry_run", [True, False])
+@pytest.mark.parametrize("test_ca", [True, False])
 @pytest.mark.parametrize("force", [True, False])
-def test_renew_forwards_dry_run_and_force_as_keywords(h, dry_run, force):
+def test_renew_forwards_test_ca_and_force_as_keywords(h, test_ca, force):
     h.external_manager.domain_exists.return_value = True
 
-    external_helpers._renew_external_certificate(h.ctx, DOMAIN, dry_run=dry_run, force=force)
+    external_helpers._renew_external_certificate(h.ctx, DOMAIN, test_ca=test_ca, force=force)
 
-    h.cert_manager.renew_certificate.assert_called_once_with(domain=DOMAIN, dry_run=dry_run, force=force)
+    h.cert_manager.renew_certificate.assert_called_once_with(domain=DOMAIN, test_ca=test_ca, force=force)
     assert h.spinner_texts() == [f"Renewing certificate for {DOMAIN}"]
     assert f"Certificate renewal for {DOMAIN} completed" in h.prints()
 
@@ -899,7 +899,7 @@ def test_renew_forwards_dry_run_and_force_as_keywords(h, dry_run, force):
 def test_renew_defaults_force_to_false(h):
     h.external_manager.domain_exists.return_value = True
 
-    external_helpers._renew_external_certificate(h.ctx, DOMAIN, dry_run=False)
+    external_helpers._renew_external_certificate(h.ctx, DOMAIN, test_ca=False)
 
     assert h.cert_manager.renew_certificate.call_args.kwargs["force"] is False
 
@@ -909,7 +909,7 @@ def test_renew_aborts_when_certificate_object_cannot_be_rebuilt(h):
     h.external_manager.to_ssl_certificate.return_value = None
 
     with pytest.raises(typer.Exit) as exc:
-        external_helpers._renew_external_certificate(h.ctx, DOMAIN, dry_run=False)
+        external_helpers._renew_external_certificate(h.ctx, DOMAIN, test_ca=False)
 
     assert exc.value.exit_code == 1
     h.output.display_error.assert_called_once_with(
@@ -923,7 +923,7 @@ def test_renew_failure_message_differs_from_remove_and_add(h):
     h.cert_manager.renew_certificate.side_effect = RuntimeError("renew boom")
 
     with pytest.raises(typer.Exit) as exc:
-        external_helpers._renew_external_certificate(h.ctx, DOMAIN, dry_run=False)
+        external_helpers._renew_external_certificate(h.ctx, DOMAIN, test_ca=False)
 
     assert exc.value.exit_code == 1
     h.output.display_error.assert_called_once_with("Failed to renew certificate: renew boom")
@@ -940,7 +940,7 @@ def test_renew_treats_a_not_due_certificate_as_a_warning_not_a_failure(h):
     not_due = SSLCertificateNotDueForRenewalError(DOMAIN, datetime.now(UTC) + timedelta(days=60))
     h.cert_manager.renew_certificate.side_effect = not_due
 
-    assert external_helpers._renew_external_certificate(h.ctx, DOMAIN, dry_run=False) is None
+    assert external_helpers._renew_external_certificate(h.ctx, DOMAIN, test_ca=False) is None
 
     h.output.warning.assert_called_once_with(not_due.message)
     h.output.display_error.assert_not_called()
@@ -956,7 +956,7 @@ def test_renew_all_does_not_report_healthy_domains_as_failures(h):
         DOMAIN, datetime.now(UTC) + timedelta(days=60)
     )
 
-    external_helpers._renew_all_external_certificates(h.ctx, dry_run=False)
+    external_helpers._renew_all_external_certificates(h.ctx, test_ca=False)
 
     warnings = [c.args[0] for c in h.output.warning.call_args_list]
     assert not [w for w in warnings if w.startswith("Failed to renew")]
@@ -971,7 +971,7 @@ def test_renew_all_with_no_domains_returns_without_renewing(h):
     h.external_manager.list_domains.return_value = []
 
     with patch(f"{MODULE}._renew_external_certificate") as one:
-        external_helpers._renew_all_external_certificates(h.ctx, dry_run=False)
+        external_helpers._renew_all_external_certificates(h.ctx, test_ca=False)
 
     one.assert_not_called()
     assert h.prints() == ["No external SSL certificates to renew"]
@@ -985,7 +985,7 @@ def test_renew_all_forwards_positional_args_for_every_domain(h):
     ]
 
     with patch(f"{MODULE}._renew_external_certificate") as one:
-        external_helpers._renew_all_external_certificates(h.ctx, dry_run=True, force=True)
+        external_helpers._renew_all_external_certificates(h.ctx, test_ca=True, force=True)
 
     assert [c.args for c in one.call_args_list] == [
         (h.ctx, "a.example.com", True, True),
@@ -1009,7 +1009,7 @@ def test_renew_all_warns_and_continues_when_one_domain_fails(h):
     with patch(f"{MODULE}._renew_external_certificate") as one:
         one.side_effect = [RuntimeError("first failed"), None]
         with pytest.raises(typer.Exit) as exc:
-            external_helpers._renew_all_external_certificates(h.ctx, dry_run=False)
+            external_helpers._renew_all_external_certificates(h.ctx, test_ca=False)
 
     assert exc.value.exit_code == 1
     h.output.warning.assert_called_once_with("Failed to renew a.example.com: first failed")
@@ -1026,7 +1026,7 @@ def test_renew_all_propagates_a_typer_exit_from_a_single_domain(h):
     with patch(f"{MODULE}._renew_external_certificate") as one:
         one.side_effect = typer.Exit(1)
         with pytest.raises(typer.Exit) as exc:
-            external_helpers._renew_all_external_certificates(h.ctx, dry_run=False)
+            external_helpers._renew_all_external_certificates(h.ctx, test_ca=False)
 
     assert exc.value.exit_code == 1
     reason = h.output.warning.call_args.args[0].split(":", 1)[1].strip()
@@ -1042,7 +1042,7 @@ def test_renew_all_real_error_message_survives_the_new_typer_exit_arm(h):
     with patch(f"{MODULE}._renew_external_certificate") as one:
         one.side_effect = OSError("acme.sh not found")
         with pytest.raises(typer.Exit) as exc:
-            external_helpers._renew_all_external_certificates(h.ctx, dry_run=False)
+            external_helpers._renew_all_external_certificates(h.ctx, test_ca=False)
 
     assert exc.value.exit_code == 1
     h.output.warning.assert_called_once_with("Failed to renew a.example.com: acme.sh not found")
@@ -1055,7 +1055,7 @@ def test_renew_all_exits_zero_when_every_domain_succeeds(h):
     ]
 
     with patch(f"{MODULE}._renew_external_certificate"):
-        assert external_helpers._renew_all_external_certificates(h.ctx, dry_run=False) is None
+        assert external_helpers._renew_all_external_certificates(h.ctx, test_ca=False) is None
 
     h.output.display_error.assert_not_called()
 
@@ -1066,7 +1066,7 @@ def test_renew_all_treats_a_domain_that_exited_zero_as_a_success(h):
 
     with patch(f"{MODULE}._renew_external_certificate") as one:
         one.side_effect = typer.Exit(0)
-        assert external_helpers._renew_all_external_certificates(h.ctx, dry_run=False) is None
+        assert external_helpers._renew_all_external_certificates(h.ctx, test_ca=False) is None
 
     h.output.display_error.assert_not_called()
 

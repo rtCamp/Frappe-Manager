@@ -709,7 +709,7 @@ def _run_services_migrate(*, system_version="0.20.0", current_version="0.21.0", 
     ):
         executor_cls.return_value.execute.return_value = execute_result
         try:
-            migrate_services(ctx, **{"auto_proceed": False, "rerun": False, **kwargs})
+            migrate_services(ctx, **{"yes": False, "dry_run": False, "rerun": False, **kwargs})
             raised = None
         except typer.Exit as exc:
             raised = exc
@@ -814,7 +814,7 @@ def _run_services_prune(tmp_path, out, **kwargs):
 
 
 def test_services_prune_trims_sessions_and_legacy_dirs_and_rotates_logs(tmp_path, out):
-    r = _run_services_prune(tmp_path, out, rotate_over="1K")
+    r = _run_services_prune(tmp_path, out, rotate_over="1K", yes=True)
 
     assert r.exit is None
     assert sorted(p.name for p in r.sessions.iterdir()) == ["s2", "s3", "s4"]  # newest 3 kept
@@ -824,7 +824,7 @@ def test_services_prune_trims_sessions_and_legacy_dirs_and_rotates_logs(tmp_path
     assert error_log.stat().st_size == 0  # truncated in place
     assert len(list(r.logs.glob("error.log.*.gz"))) == 1
     prints = " ".join(c.args[0] for c in out.print.call_args_list if c.args)
-    assert "removed" in prints and "rotated" in prints and "Total" in prints
+    assert "would remove" in prints and "would rotate" in prints and "Done" in prints and "reclaimed" in prints
     # Every touched path is named, one row each.
     assert str(r.sessions / "s0") in prints
     assert str(r.sessions / "s1") in prints
@@ -847,7 +847,7 @@ def test_services_prune_dry_run_reports_and_touches_nothing(tmp_path, out):
 
 
 def test_services_prune_only_logs_leaves_backups_alone(tmp_path, out):
-    r = _run_services_prune(tmp_path, out, rotate_over="1K", only="logs")
+    r = _run_services_prune(tmp_path, out, rotate_over="1K", only="logs", yes=True)
 
     assert len(list(r.sessions.iterdir())) == 5
     assert (r.logs / "error.log").stat().st_size == 0

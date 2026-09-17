@@ -115,13 +115,13 @@ class BenchSSL:
 
         return True
 
-    def renew_certificate(self, domain: str | None = None, dry_run: bool = False, force: bool = False) -> None:
+    def renew_certificate(self, domain: str | None = None, test_ca: bool = False, force: bool = False) -> None:
         """
         Renew existing SSL certificate.
 
         Args:
             domain: Domain to renew certificate for. If None, renews primary certificate.
-            dry_run: If True, uses Let's Encrypt staging server and skips system modifications
+            test_ca: If True, uses Let's Encrypt staging server and skips system modifications
             force: If True, forces renewal even if certificate is not due for renewal
 
         Raises:
@@ -134,9 +134,9 @@ class BenchSSL:
         if not self._is_service_running("nginx"):
             raise BenchServiceNotRunning(self.bench_name, "nginx")
 
-        self.certificate_manager.renew_certificate(domain, dry_run=dry_run, force=force)
+        self.certificate_manager.renew_certificate(domain, test_ca=test_ca, force=force)
 
-    def renew_all_certificates(self, dry_run: bool = False, force: bool = False) -> None:
+    def renew_all_certificates(self, test_ca: bool = False, force: bool = False) -> None:
         """
         Renew all SSL certificates for the bench.
 
@@ -144,7 +144,7 @@ class BenchSSL:
         Certificates not due for renewal are skipped.
 
         Args:
-            dry_run: If True, uses Let's Encrypt staging server and skips system modifications
+            test_ca: If True, uses Let's Encrypt staging server and skips system modifications
             force: If True, forces renewal for all certificates regardless of expiry
 
         Raises:
@@ -157,4 +157,4 @@ class BenchSSL:
         if not self._is_service_running("nginx"):
             raise BenchServiceNotRunning(self.bench_name, "nginx")
 
-        self.certificate_manager.renew_all_certificates(dry_run=dry_run, force=force)
+        self.certificate_manager.renew_all_certificates(test_ca=test_ca, force=force)

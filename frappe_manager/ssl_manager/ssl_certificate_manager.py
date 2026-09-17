@@ -141,8 +141,8 @@ class SSLCertificateManager:
         """
         return self.certificates[0] if self.certificates else None
 
-    def add_certificate(self, certificate: SSLCertificate, dry_run: bool = False):
-        self.logger.info("Adding certificate", extra_fields={"domain": certificate.domain, "dry_run": dry_run})
+    def add_certificate(self, certificate: SSLCertificate, test_ca: bool = False):
+        self.logger.info("Adding certificate", extra_fields={"domain": certificate.domain, "test_ca": test_ca})
 
         if any(cert.domain == certificate.domain for cert in self.certificates):
             self.logger.warning("Certificate already exists", extra_fields={"domain": certificate.domain})
@@ -158,7 +158,7 @@ class SSLCertificateManager:
                 "Cannot add certificate: service_factory, storage_config, and output_handler are required",
             )
 
-        if dry_run:
+        if test_ca:
             self.output_handler.print(
                 "[fm.warn]DRY RUN MODE: Using Let's Encrypt staging server[/fm.warn]",
                 emoji_code="🧪",
@@ -166,11 +166,11 @@ class SSLCertificateManager:
             self.output_handler.print(
                 "[fm.muted]No system modifications will be made (no symlinks, nginx restart, or config save)[/fm.muted]",
             )
-            self.logger.debug("Enabled staging mode for dry run")
+            self.logger.debug("Enabled staging mode for test-CA rehearsal")
 
-        with _letsencrypt_staging(dry_run):
+        with _letsencrypt_staging(test_ca):
             self.logger.info("Generating certificate", extra_fields={"domain": certificate.domain})
-            privkey_path, fullchain_path = service.generate_certificate(certificate, dry_run=dry_run)
+            privkey_path, fullchain_path = service.generate_certificate(certificate, test_ca=test_ca)
             self.logger.info(
                 "Certificate generated",
                 extra_fields={
@@ -188,16 +188,16 @@ class SSLCertificateManager:
             except (ValueError, IndexError):
                 actual_cert_type = declared_field(certificate, "acme_client", "letsencrypt")
 
-            if dry_run:
+            if test_ca:
                 self.output_handler.print(f"[fm.ok]Certificate validated successfully for {certificate.domain}[/fm.ok]")
-                self.output_handler.print("[fm.warn]Skipped: Creating symlinks (dry run)[/fm.warn]", emoji_code="⏭️ ")
+                self.output_handler.print("[fm.warn]Skipped: Creating symlinks (test-CA rehearsal)[/fm.warn]", emoji_code="⏭️ ")
                 self.output_handler.print(
-                    "[fm.warn]Skipped: Creating vhost.d redirect config (dry run)[/fm.warn]",
+                    "[fm.warn]Skipped: Creating vhost.d redirect config (test-CA rehearsal)[/fm.warn]",
                     emoji_code="⏭️ ",
                 )
-                self.output_handler.print("[fm.warn]Skipped: Restarting nginx (dry run)[/fm.warn]", emoji_code="⏭️ ")
-                self.output_handler.print("[fm.warn]Skipped: Saving configuration (dry run)[/fm.warn]", emoji_code="⏭️ ")
-                self.logger.info("Dry run completed successfully", extra_fields={"domain": certificate.domain})
+                self.output_handler.print("[fm.warn]Skipped: Restarting nginx (test-CA rehearsal)[/fm.warn]", emoji_code="⏭️ ")
+                self.output_handler.print("[fm.warn]Skipped: Saving configuration (test-CA rehearsal)[/fm.warn]", emoji_code="⏭️ ")
+                self.logger.info("Test-CA rehearsal completed successfully", extra_fields={"domain": certificate.domain})
             else:
                 self.logger.info(
                     "Creating certificate symlinks",
@@ -460,7 +460,7 @@ class SSLCertificateManager:
     def _renew_single_certificate(
         self,
         certificate: SSLCertificate,
-        dry_run: bool,
+        test_ca: bool,
         force: bool,
         skip_nginx_restart: bool = False,
     ):
@@ -472,7 +472,7 @@ class SSLCertificateManager:
 
         Args:
             certificate: The certificate to renew
-            dry_run: If True, uses Let's Encrypt staging server and skips system modifications
+            test_ca: If True, uses Let's Encrypt staging server and skips system modifications
             force: If True, forces renewal even if certificate is not due for renewal
             skip_nginx_restart: If True, skips nginx restart (for batch renewals)
 
@@ -493,7 +493,7 @@ class SSLCertificateManager:
 
         # Renew the certificate
         self.output_handler.print(f"Renewing certificate for {certificate.domain}", emoji_code="🔄")
-        renewal_success = service.renew_certificate(certificate, dry_run=dry_run)
+        renewal_success = service.renew_certificate(certificate, test_ca=test_ca)
 
         reissued_paths = None
         if not renewal_success:
@@ -501,19 +501,19 @@ class SSLCertificateManager:
                 "[fm.warn]Certificate not found in acme.sh, re-issuing...[/fm.warn]",
                 emoji_code="⚠️",
             )
-            key_path, fullchain_path = service.generate_certificate(certificate, dry_run=dry_run)
+            key_path, fullchain_path = service.generate_certificate(certificate, test_ca=test_ca)
             reissued_paths = (key_path, fullchain_path)
 
-            if not dry_run:
+            if not test_ca:
                 self.output_handler.print(f"[fm.ok]Certificate re-issued successfully for {certificate.domain}[/fm.ok]")
 
-        if dry_run:
+        if test_ca:
             self.output_handler.print(
                 f"[fm.ok]Certificate renewal validated successfully for {certificate.domain}[/fm.ok]",
             )
-            self.output_handler.print("[fm.warn]️Skipped: Updating symlinks (dry run)[/fm.warn]", emoji_code="⏭ ")
+            self.output_handler.print("[fm.warn]️Skipped: Updating symlinks (test-CA rehearsal)[/fm.warn]", emoji_code="⏭ ")
             if not skip_nginx_restart:
-                self.output_handler.print("[fm.warn]Skipped: Restarting nginx (dry run)[/fm.warn]", emoji_code="⏭️ ")
+                self.output_handler.print("[fm.warn]Skipped: Restarting nginx (test-CA rehearsal)[/fm.warn]", emoji_code="⏭️ ")
         else:
             try:
                 if reissued_paths:
@@ -543,10 +543,10 @@ class SSLCertificateManager:
 
             self.output_handler.print(f"Successfully renewed {certificate.domain}")
 
-    def renew_certificate(self, domain: str | None = None, dry_run: bool = False, force: bool = False):
+    def renew_certificate(self, domain: str | None = None, test_ca: bool = False, force: bool = False):
         self.logger.info(
             "Renewing certificate",
-            extra_fields={"domain": domain or "primary", "dry_run": dry_run, "force": force},
+            extra_fields={"domain": domain or "primary", "test_ca": test_ca, "force": force},
         )
 
         if domain is None:
@@ -565,7 +565,7 @@ class SSLCertificateManager:
                 self.logger.warning("Certificate not found for renewal", extra_fields={"domain": domain})
                 raise SSLCertificateNotFoundError(domain)
 
-        if dry_run:
+        if test_ca:
             self.output_handler.print(
                 "[fm.warn]DRY RUN MODE: Using Let's Encrypt staging server[/fm.warn]",
                 emoji_code="🧪 ",
@@ -573,18 +573,18 @@ class SSLCertificateManager:
             self.output_handler.print(
                 "[fm.muted]No system modifications will be made (no symlinks or nginx restart)[/fm.muted]"
             )
-            self.logger.debug("Enabled staging mode for dry run")
+            self.logger.debug("Enabled staging mode for test-CA rehearsal")
 
-        with _letsencrypt_staging(dry_run):
+        with _letsencrypt_staging(test_ca):
             self._renew_single_certificate(
                 certificate=certificate,
-                dry_run=dry_run,
+                test_ca=test_ca,
                 force=force,
                 skip_nginx_restart=False,
             )
             self.logger.info("Certificate renewed successfully", extra_fields={"domain": certificate.domain})
 
-    def renew_all_certificates(self, dry_run: bool = False, force: bool = False):
+    def renew_all_certificates(self, test_ca: bool = False, force: bool = False):
         """
         Renew all SSL certificates that are due for renewal.
 
@@ -593,7 +593,7 @@ class SSLCertificateManager:
         skipped with a warning. After all renewals, nginx is restarted once.
 
         Args:
-            dry_run: If True, uses Let's Encrypt staging server and skips system modifications
+            test_ca: If True, uses Let's Encrypt staging server and skips system modifications
             force: If True, forces renewal for all certificates regardless of expiry
 
         Raises:
@@ -604,7 +604,7 @@ class SSLCertificateManager:
 
         self.output_handler.change_head("Renewing certificates for all domains")
 
-        if dry_run:
+        if test_ca:
             self.output_handler.print(
                 "[fm.warn]DRY RUN MODE: Using Let's Encrypt staging server[/fm.warn]",
                 emoji_code="🧪",
@@ -616,12 +616,12 @@ class SSLCertificateManager:
         renewed_count = 0
         skipped_count = 0
 
-        with _letsencrypt_staging(dry_run):
+        with _letsencrypt_staging(test_ca):
             for certificate in self.certificates:
                 try:
                     self._renew_single_certificate(
                         certificate=certificate,
-                        dry_run=dry_run,
+                        test_ca=test_ca,
                         force=force,
                         skip_nginx_restart=True,
                     )
@@ -640,8 +640,8 @@ class SSLCertificateManager:
                     self.output_handler.print(f"Failed to renew {certificate.domain}: {e}", emoji_code="❌")
 
             if renewed_count > 0:
-                if dry_run:
-                    self.output_handler.print("[fm.warn]Skipped: Restarting nginx (dry run)[/fm.warn]", emoji_code="⏭️ ")
+                if test_ca:
+                    self.output_handler.print("[fm.warn]Skipped: Restarting nginx (test-CA rehearsal)[/fm.warn]", emoji_code="⏭️ ")
                 else:
                     self.nginx_controller.restart()
                 self.output_handler.print(f"Renewal complete: {renewed_count} renewed, {skipped_count} skipped")

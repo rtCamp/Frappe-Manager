@@ -261,7 +261,7 @@ class AcmeShCertificateService:
                 exit_code = int(line.decode())
         return exit_code
 
-    def generate_certificate(self, certificate: SSLCertificate, dry_run: bool = False) -> tuple[Path, Path]:
+    def generate_certificate(self, certificate: SSLCertificate, test_ca: bool = False) -> tuple[Path, Path]:
         """
         Issue individual certificate using acme.sh.
 
@@ -269,7 +269,7 @@ class AcmeShCertificateService:
 
         Args:
             certificate: Certificate configuration
-            dry_run: If True, skips copying cert files to permanent location (staging only)
+            test_ca: If True, skips copying cert files to permanent location (staging only)
 
         Returns:
             Tuple of (privkey_path, fullchain_path)
@@ -354,10 +354,10 @@ class AcmeShCertificateService:
             self.output.display_error(error_msg)
             raise SSLCertificateNotFoundError(certificate.domain)
 
-        if dry_run:
+        if test_ca:
             self.output.print(f"[fm.ok]Certificate generated successfully (staging) for {certificate.domain}[/fm.ok]")
             self.output.print(
-                "[fm.warn]Skipped: Copying certificate files (dry run)[/fm.warn]",
+                "[fm.warn]Skipped: Copying certificate files (test-CA rehearsal)[/fm.warn]",
                 emoji_code=":fast_forward:",
             )
             return (key_path, fullchain_path)
@@ -375,13 +375,13 @@ class AcmeShCertificateService:
         self.output.print(f"Certificate generated successfully for {certificate.domain}")
         return (dest_key, dest_fullchain)
 
-    def renew_certificate(self, certificate: SSLCertificate, dry_run: bool = False) -> bool:
+    def renew_certificate(self, certificate: SSLCertificate, test_ca: bool = False) -> bool:
         """
         Renew certificate using acme.sh.
 
         Args:
             certificate: Certificate to renew
-            dry_run: If True, skips copying cert files to permanent location (staging only)
+            test_ca: If True, skips copying cert files to permanent location (staging only)
 
         Returns:
             True if renewal succeeded, False otherwise
@@ -447,10 +447,10 @@ class AcmeShCertificateService:
         key_path = cert_dir / f"{certificate.domain}.key"
 
         if fullchain_path.exists() and key_path.exists():
-            if dry_run:
+            if test_ca:
                 self.output.print(f"[fm.ok]Certificate renewed successfully (staging) for {certificate.domain}[/fm.ok]")
                 self.output.print(
-                    "[fm.warn]Skipped: Copying certificate files (dry run)[/fm.warn]",
+                    "[fm.warn]Skipped: Copying certificate files (test-CA rehearsal)[/fm.warn]",
                     emoji_code=":fast_forward:",
                 )
                 return True

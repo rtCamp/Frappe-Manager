@@ -132,7 +132,7 @@ def _add_bench_certificate(
     domain: str,
     challenge: LETSENCRYPT_PREFERRED_CHALLENGE,
     cname: str | None,
-    dry_run: bool,
+    test_ca: bool,
     dev: bool = False,
     dns_provider: str | None = None,
     custom: bool = False,
@@ -210,7 +210,7 @@ def _add_bench_certificate(
             behind_proxy=behind_proxy,
         )
     elif custom:
-        # cname/dns_provider/challenge/dry_run/standalone incompatibilities are already refused in
+        # cname/dns_provider/challenge/test_ca/standalone incompatibilities are already refused in
         # add.py before this is reached; nothing left to guard here.
         cert = CustomCertificate(
             domain=domain,
@@ -237,9 +237,9 @@ def _add_bench_certificate(
             output.print(f"Using CNAME delegation: {cname}", emoji_code=":information:")
 
     with spinner(output, f"Adding SSL certificate for {domain}"):
-        bench.certificate_manager.add_certificate(cert, dry_run=dry_run)
+        bench.certificate_manager.add_certificate(cert, test_ca=test_ca)
 
-    if not dry_run:
+    if not test_ca:
         # The site this domain serves, not the bench's own: see _site_serving. And only when the
         # domain IS that site's own name: a site's name is its canonical domain
         # (`get_site_mappings` maps `site -> site`, aliases map `alias -> site`), and `host_name`

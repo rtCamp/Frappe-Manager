@@ -272,7 +272,7 @@ def renewing():
 
 def _renew_all(harness, **kwargs):
     kwargs.setdefault("standalone", False)
-    kwargs.setdefault("dry_run", False)
+    kwargs.setdefault("test_ca", False)
     kwargs.setdefault("force", False)
     return renew(harness.ctx, address="all", **kwargs)
 
@@ -294,20 +294,20 @@ def test_renew_all_asks_each_bench_for_all_of_its_certificates(renewing):
     _renew_all(renewing)
 
     for bench in renewing.benches.values():
-        bench.ssl.renew_all_certificates.assert_called_once_with(dry_run=False, force=False)
+        bench.ssl.renew_all_certificates.assert_called_once_with(test_ca=False, force=False)
 
 
-def test_renew_all_carries_dry_run_and_force_to_every_bench(renewing):
-    _renew_all(renewing, dry_run=True, force=True)
+def test_renew_all_carries_test_ca_and_force_to_every_bench(renewing):
+    _renew_all(renewing, test_ca=True, force=True)
 
     for bench in renewing.benches.values():
-        bench.ssl.renew_all_certificates.assert_called_once_with(dry_run=True, force=True)
+        bench.ssl.renew_all_certificates.assert_called_once_with(test_ca=True, force=True)
 
 
 def test_renew_of_one_bench_stays_on_that_bench(renewing):
     """The selector has to select: naming a bench must not expand to the registry now that the
     same positional carries both."""
-    renew(renewing.ctx, address=BENCH, standalone=False, dry_run=False, force=False)
+    renew(renewing.ctx, address=BENCH, standalone=False, test_ca=False, force=False)
 
     assert _renewed(renewing) == [BENCH]
 
@@ -399,7 +399,7 @@ def test_a_run_where_every_bench_succeeds_does_not_exit_nonzero(renewing):
 def test_renew_all_standalone_renews_every_external_domain(renewing):
     """--standalone is the other namespace, so `all` there means every external domain and no
     bench is touched at all."""
-    renew(renewing.ctx, address="all", standalone=True, dry_run=True, force=True)
+    renew(renewing.ctx, address="all", standalone=True, test_ca=True, force=True)
 
     renewing.external_all.assert_called_once_with(renewing.ctx, True, True)
     assert _renewed(renewing) == []

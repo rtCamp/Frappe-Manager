@@ -20,7 +20,8 @@ $ fm migrate BENCH|all [OPTIONS]
 * `--skip-config-backup`: Skip the config-file backups (bench config, compose files, site configs).
 * `--skip-db-backup`: Skip the per-site database dumps (DANGEROUS; the dumps are the rollback path for a failed migration).
 * `--exclude-bench`: Bench to leave alone (repeatable; commas also accepted). Only with the 'all' address.
-* `--auto-proceed`: Migrate without asking for confirmation.
+* `-y, --yes`: Migrate without asking for confirmation.
+* `--dry-run`: Print the migration plan and exit without migrating; never prompts.
 * `--rerun`: Re-run the migration steps on a bench that is already up to date.
 * `--on-failure`: What to do when a bench fails: prompt (ask, the default), archive (set failed benches aside and keep the rest migrated), rollback (revert every bench). A single-bench run always rolls back.
 
@@ -46,7 +47,13 @@ fm migrate all
 The combination for CI and large fleets: no prompts, and one bad bench does not undo the others.
 
 ```bash
-fm migrate all --auto-proceed --on-failure=archive
+fm migrate all --yes --on-failure=archive
+```
+
+### See the plan without migrating
+
+```bash
+fm migrate all --dry-run
 ```
 
 ### Leave some benches behind

@@ -716,7 +716,8 @@ def _run_migrate(
         "skip_config_backup": False,
         "skip_db_backup": False,
         "exclude_bench": [],
-        "auto_proceed": False,
+        "yes": False,
+        "dry_run": False,
         "rerun": False,
         "on_failure": None,
     }

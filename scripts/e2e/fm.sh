@@ -48,7 +48,7 @@ InstallLatestFM() {
 
 MigrateServices() {
 	info_blue "Migrating fm's global services & configuration"
-	fm --non-interactive services migrate --auto-proceed --on-failure rollback || {
+	fm --non-interactive services migrate --yes --on-failure rollback || {
 		info_red "fm services migrate failed"
 		exit 1
 	}
@@ -56,7 +56,7 @@ MigrateServices() {
 
 MigrateAllBenches() {
 	info_blue "Migrating all benches"
-	fm --non-interactive migrate all --auto-proceed --on-failure rollback || {
+	fm --non-interactive migrate all --yes --on-failure rollback || {
 		info_red "fm migrate all failed"
 		exit 1
 	}
@@ -133,7 +133,7 @@ RemoveFailingMigration() {
 
 ExpectServicesMigrateToFailAndRollBack() {
 	info_blue "Running services migration expected to FAIL and roll back"
-	if fm --non-interactive services migrate --auto-proceed --on-failure rollback; then
+	if fm --non-interactive services migrate --yes --on-failure rollback; then
 		info_red "fm services migrate SUCCEEDED with the failing migration injected"
 		exit 1
 	fi

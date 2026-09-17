@@ -62,14 +62,14 @@ class TestNoOpCertificateServiceGenerateCertificate:
         # Verify no files were created
         assert not any(root_dir.iterdir())
 
-    def test_generate_certificate_with_dry_run(self, tmp_path, mock_output_handler, mock_certificate, mocker):
-        """Test that generate_certificate handles dry_run parameter."""
+    def test_generate_certificate_with_test_ca(self, tmp_path, mock_output_handler, mock_certificate, mocker):
+        """Test that generate_certificate handles test_ca parameter."""
         service = NoOpCertificateService(
             root_dir=tmp_path / "ssl",
             output_handler=mock_output_handler,
         )
 
-        result = service.generate_certificate(mock_certificate, dry_run=True)
+        result = service.generate_certificate(mock_certificate, test_ca=True)
 
         assert result == (Path("/dev/null"), Path("/dev/null"))
 

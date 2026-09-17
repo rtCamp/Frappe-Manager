@@ -35,7 +35,7 @@ turned out to be a real defect and its pin is now inverted:
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 
 import pytest
 import typer
@@ -1028,7 +1028,10 @@ class TestPrune:
 
         self._releases_only(ship)
 
-        ship.orchestrator.prune_releases.assert_called_once_with(keep=None, dry_run=False)
+        # Plan-first: the planning pass is a dry_run call; nothing to do means no second call
+        # and no prompt.
+        ship.orchestrator.prune_releases.assert_called_once_with(keep=None, dry_run=True)
+        ship.output.prompt_ask.assert_not_called()
         assert ship.prints == ["Releases : nothing to prune (4 release(s) recorded, all within retention)"]
 
     def test_dry_run_lists_every_backup_dir_and_image(self, ship):
@@ -1049,9 +1052,9 @@ class TestPrune:
             "image       local/mybench:t1",
         ]
 
-    def test_a_real_prune_names_what_left_the_disk(self, ship):
-        """Deletions are never silent: unlike the old command (summary only under --dry-run),
-        a real prune reports the same listing with 'pruned'."""
+    def test_a_real_prune_shows_the_plan_then_executes_on_yes(self, ship):
+        """Plan-first: the listing (with 'would') is printed BEFORE anything happens, and
+        --yes skips the prompt; execution is a second prune_releases call without dry_run."""
         ship.orchestrator.prune_releases.return_value = {
             "entries": 2,
             "kept": 3,
@@ -1059,13 +1062,33 @@ class TestPrune:
             "images": ["local/mybench:t1"],
         }
 
+        self._releases_only(ship, keep_releases=3, yes=True)
+
+        assert ship.orchestrator.prune_releases.call_args_list == [
+            call(keep=3, dry_run=True),
+            call(keep=3, dry_run=False),
+        ]
+        ship.output.prompt_ask.assert_not_called()
+        assert ship.prints[0] == "Releases : would prune 2 release(s), keep 3 · 1 backup dir(s) · 1 image(s)"
+        assert ship.prints[-1].startswith("Done     :")
+
+    def test_without_yes_the_prompt_gates_execution_and_default_no_aborts(self, ship):
+        ship.orchestrator.prune_releases.return_value = {
+            "entries": 2,
+            "kept": 3,
+            "backups": ["/b/deploy-1"],
+            "images": [],
+        }
+        ship.output.prompt_ask.return_value = "no"
+
         self._releases_only(ship, keep_releases=3)
 
-        assert ship.prints == [
-            "Releases : pruned 2 release(s), keep 3 · 1 backup dir(s) · 1 image(s)",
-            "backup dir  /b/deploy-1",
-            "image       local/mybench:t1",
-        ]
+        kwargs = ship.output.prompt_ask.call_args.kwargs
+        assert kwargs["default"] == "no"
+        assert kwargs["required_flag"] == "--yes"
+        # Only the planning call happened; nothing was executed.
+        ship.orchestrator.prune_releases.assert_called_once_with(keep=3, dry_run=True)
+        assert ship.prints[-1] == "Aborted; nothing touched."
 
     def test_a_prune_failure_is_reported_as_exit_1(self, ship):
         ship.orchestrator.prune_releases.side_effect = DeployError("history unreadable")
@@ -1106,11 +1129,12 @@ class TestPruneAllCategories:
             (d / "f").write_bytes(b"x" * 100)
             os.utime(d, (now - (5 - i) * 60, now - (5 - i) * 60))
 
-        ship.prune(only=[PruneCategory.backups])
+        ship.prune(only=[PruneCategory.backups], yes=True)
 
         assert sorted(p.name for p in root.iterdir()) == ["s2", "s3", "s4"]  # newest 3 kept
-        assert any(p.startswith("Backups  : removed migrations: 2 session(s) beyond keep 3") for p in ship.prints)
-        assert any(p.startswith("Total    :") for p in ship.prints)
+        assert any(p.startswith("Backups  : would remove migrations: 2 session(s) beyond keep 3") for p in ship.prints)
+        assert any(p.startswith("Done     :") for p in ship.prints)
+        assert any(p.startswith("Total    :") for p in ship.prints)  # reclaimable, in the plan
 
     def test_logs_category_rotates_in_place_and_keeps_the_inode(self, ship):
         from frappe_manager.commands.prune import PruneCategory
@@ -1123,7 +1147,7 @@ class TestPruneAllCategories:
         small.write_bytes(b"y" * 10)
         inode = big.stat().st_ino
 
-        ship.prune(only=[PruneCategory.logs], rotate_over="1K")
+        ship.prune(only=[PruneCategory.logs], rotate_over="1K", yes=True)
 
         assert big.stat().st_size == 0  # truncated in place...
         assert big.stat().st_ino == inode  # ...same inode: the writers' fd stays valid
@@ -1166,4 +1190,4 @@ class TestKeepFloor:
 
         ship.prune(keep_releases=1)
 
-        ship.orchestrator.prune_releases.assert_called_once_with(keep=1, dry_run=False)
+        ship.orchestrator.prune_releases.assert_called_once_with(keep=1, dry_run=True)

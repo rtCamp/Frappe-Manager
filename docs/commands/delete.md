@@ -24,6 +24,7 @@ $ fm delete BENCH(/SITE) [OPTIONS]
 * `-y, --yes`: Delete without the removal confirmation, including the typed-name confirmation a multi-site bench asks for. The database question is asked anyway, and --all-sites is still required.
 * `--delete-db-from-mariadb/--no-delete-db-from-mariadb`: Drop the schema and user from the mariadb container, or keep them. Applies to every site being deleted that is on the mariadb container, and never touches a database on an external server. fm asks when neither is passed.
 * `--delete-backups`: Also delete the removed site's recorded database dumps. Off by default: a dump is the last copy of something, and once its history row is gone fm can no longer offer to prune it, so the paths are printed instead.
+* `--dry-run`: Print the deletion plan and exit without deleting anything; never prompts.
 
 
 ## Examples

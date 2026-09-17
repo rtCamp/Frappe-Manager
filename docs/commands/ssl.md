@@ -44,7 +44,7 @@ $ fm ssl renew BENCH(/DOMAIN)|all [OPTIONS]
 **Options**:
 
 * `--standalone`: Renew an external (non-bench) domain.
-* `--dry-run`: Rehearse against Let's Encrypt staging.
+* `--test-ca`: Renew against Let's Encrypt's test CA (staging): real challenges and issuance, no production rate-limit cost; the live certificate and system stay untouched.
 * `--force`: Renew even when the certificate is not due.
 
 
@@ -158,7 +158,7 @@ $ fm ssl add BENCH(/DOMAIN) [OPTIONS]
 * `-c, --challenge`: ACME validation method.
 * `--cname`: Delegated zone for _acme-challenge. dns01 only.
 * `--dns-provider`: Label of the \[ssl.dns_providers] credential set that authenticates this domain, from fm ssl dns-config cloudflare --name. Omit for the default account. dns01 only.
-* `--dry-run`: Rehearse against Let's Encrypt staging. Nothing is kept: no certificate, no nginx change.
+* `--test-ca`: Rehearse against Let's Encrypt staging. Nothing is kept: no certificate, no nginx change.
 * `--standalone`: For an external Docker project on the fm-frontend-network network.
 * `--dev`: Issue from fm's local CA, so no internet or public DNS is needed. Bench mode only.
 * `--skip-dns-check`: Skip the DNS pre-check. Standalone mode only.
@@ -191,7 +191,7 @@ fm ssl add mybench/example.com --challenge dns01
 ### Rehearse against the staging server first
 
 ```bash
-fm ssl add mybench/example.com --dry-run
+fm ssl add mybench/example.com --test-ca
 ```
 
 ### Issue for every domain the bench serves

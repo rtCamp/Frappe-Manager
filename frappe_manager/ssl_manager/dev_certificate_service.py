@@ -144,13 +144,13 @@ class DevCertificateService:
     # SSLCertificateService Protocol implementation
     # ------------------------------------------------------------------
 
-    def generate_certificate(self, certificate: SSLCertificate, dry_run: bool = False) -> tuple[Path, Path]:
+    def generate_certificate(self, certificate: SSLCertificate, test_ca: bool = False) -> tuple[Path, Path]:
         """
         Generate a leaf certificate signed by the local dev CA.
 
         Args:
             certificate: Certificate configuration (uses domain field)
-            dry_run: If True, generates cert but skips trust store installation
+            test_ca: If True, generates cert but skips trust store installation
 
         Returns:
             Tuple of (privkey_path, fullchain_path)
@@ -159,10 +159,10 @@ class DevCertificateService:
 
         ca_key, ca_cert = self._ensure_ca()
 
-        if not dry_run:
+        if not test_ca:
             self._ensure_ca_installed()
         else:
-            self.output.debug("Skipping trust store installation (dry run)")
+            self.output.debug("Skipping trust store installation (test-CA rehearsal)")
 
         leaf_key = ec.generate_private_key(ec.SECP256R1())
 
@@ -221,7 +221,7 @@ class DevCertificateService:
         self.output.print(f"Dev certificate generated for {certificate.domain}")
         return key_path, fullchain_path
 
-    def renew_certificate(self, certificate: SSLCertificate, dry_run: bool = False) -> bool:
+    def renew_certificate(self, certificate: SSLCertificate, test_ca: bool = False) -> bool:
         """
         Re-issue leaf certificate (same CA, fresh validity window).
 
@@ -233,7 +233,7 @@ class DevCertificateService:
             return False
 
         self.output.change_head(f"Renewing dev certificate for {certificate.domain}")
-        self.generate_certificate(certificate, dry_run=dry_run)
+        self.generate_certificate(certificate, test_ca=test_ca)
         return True
 
     def remove_certificate(self, certificate: SSLCertificate) -> bool:

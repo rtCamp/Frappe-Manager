@@ -39,8 +39,12 @@ class MigrationFailureAction(str, Enum):
 )
 @example(
     "Migrate every bench unattended",
-    "all --auto-proceed --on-failure=archive",
+    "all --yes --on-failure=archive",
     detail="The combination for CI and large fleets: no prompts, and one bad bench does not undo the others.",
+)
+@example(
+    "See the plan without migrating",
+    "all --dry-run",
 )
 @example(
     "Leave some benches behind",
@@ -78,9 +82,13 @@ def migrate(
             show_default=False,
         ),
     ] = [],
-    auto_proceed: Annotated[
+    yes: Annotated[
         bool,
-        typer.Option("--auto-proceed", help="Migrate without asking for confirmation."),
+        typer.Option("--yes", "-y", help="Migrate without asking for confirmation."),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print the migration plan and exit without migrating; never prompts."),
     ] = False,
     rerun: Annotated[
         bool,
@@ -157,7 +165,8 @@ def migrate(
         skip_config_backup=skip_config_backup,
         skip_db_backup=skip_db_backup,
         exclude_benches=exclude_bench_list,
-        auto_proceed=auto_proceed,
+        auto_proceed=yes,
+        dry_run=dry_run,
         rerun=rerun,
         on_failure=failure_action,
         target_benches=target_benches,
@@ -170,6 +179,9 @@ def migrate(
 
     if not migration_status:
         raise typer.Exit(1)
+
+    if dry_run:
+        return
 
     if target_benches:
         for bench_name in target_benches:

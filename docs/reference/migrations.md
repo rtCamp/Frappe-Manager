@@ -31,7 +31,7 @@ Both are **version-aware**: FM records the version each one is migrated to and o
 
 A bench that is behind the CLI is refused, not silently used. Two gates enforce it:
 
-- **The top-level callback**, before any subcommand runs. If the global services & configuration or the bench named on the command line are behind, it warns and asks: **Update now** (runs the migration inline, with `--auto-proceed` and `--on-failure=rollback`) or **Update later**. Choosing later exits with status 1, so the command never runs.
+- **The top-level callback**, before any subcommand runs. If the global services & configuration or the bench named on the command line are behind, it warns and asks: **Update now** (runs the migration inline, unattended, with `--on-failure=rollback`) or **Update later**. Choosing later exits with status 1, so the command never runs.
 - **The command's own check** (`check_bench_migration_required`), carried by every command that reads or mutates a live bench. It does not prompt: it prints `Run: fm migrate <bench>` and exits 1. This catches the cases where the callback could not resolve the bench name out of `sys.argv`.
 
 Commands that skip the callback gate entirely: `list`, `migrate`, `services migrate`, `bake`, `deploy`, `switch`, `compose`, `self update-images`.
@@ -114,7 +114,7 @@ Do you want to proceed?
   no - Abort and revert to previous fm version
 ```
 
-Answering `no` prints the `uv tool install frappe-manager==<previous>` command to get back to the CLI you came from. `--auto-proceed` answers yes for you; `--exclude-bench` (with `all`) leaves named benches alone; `--rerun` re-applies the current release's steps to an already-current target. Every flag: [`fm migrate`](../commands/migrate.md), [`fm services migrate`](../commands/services.md#fm-services-migrate).
+Answering `no` prints the `uv tool install frappe-manager==<previous>` command to get back to the CLI you came from. `--yes` answers yes for you; `--exclude-bench` (with `all`) leaves named benches alone; `--rerun` re-applies the current release's steps to an already-current target. Every flag: [`fm migrate`](../commands/migrate.md), [`fm services migrate`](../commands/services.md#fm-services-migrate).
 
 !!! info "Running benches are recreated"
     The bench does not need to be stopped first. If it is running, FM warns that its containers will be restarted (recreated) during migration. Stop it with `fm stop mybench` beforehand only if you want to pick the downtime window yourself.
@@ -165,7 +165,7 @@ Rolls back without asking: backups are restored, the recorded version is rewound
 ### `--on-failure=archive` {#on-failure-archive}
 
 ```bash
-fm migrate all --auto-proceed --on-failure=archive
+fm migrate all --yes --on-failure=archive
 ```
 
 Each failed bench is rolled back to its last successfully completed migration version and its directory is moved from `~/frappe/sites/<bench>/` to `~/frappe/archived/<bench>/`. The benches that succeeded stay migrated. FM prints which benches it archived.

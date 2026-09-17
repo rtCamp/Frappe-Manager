@@ -211,12 +211,27 @@ def test_a_one_site_bench_is_never_told_to_pass_all_sites(one_site):
     assert "--all-sites" not in run.said
 
 
-def test_a_one_site_bench_is_not_asked_to_type_its_name(one_site):
-    """Without `--yes` it keeps the yes/no question `remove_bench` asks, so the command must
-    neither prompt itself nor pre-answer that question by handing on yes=True."""
-    run = _run([BENCH], root=one_site, sites=[SITE_A])
+def test_a_one_site_bench_is_also_asked_to_type_its_name(one_site):
+    """The typed-name ceremony covers EVERY whole-bench deletion now, single-site included:
+    a y/N cannot catch the wrong-bench / wrong-terminal accident. The typed name replaces
+    `remove_bench`'s own yes/no (yes=True), exactly as on the multi-site path."""
+    run = _run([BENCH], root=one_site, sites=[SITE_A], answer=BENCH)
+    assert "Type the bench name" in run.payload("prompt")["prompt"]
+    assert run.payload("delete_bench")[1]["yes"] is True
+
+
+def test_a_one_site_bench_shows_the_plan_before_the_ceremony(one_site):
+    run = _run([BENCH], root=one_site, sites=[SITE_A], answer=BENCH)
+    assert f"permanently delete bench '{BENCH}'" in run.said
+
+
+def test_dry_run_prints_the_plan_and_deletes_nothing(one_site):
+    run = _run([BENCH, "--dry-run"], root=one_site, sites=[SITE_A])
+    assert f"permanently delete bench '{BENCH}'" in run.said
+    assert "Dry run: nothing deleted" in run.said
     assert run.index("prompt") == -1
-    assert run.payload("delete_bench")[1]["yes"] is False
+    assert run.index("delete_bench") == -1
+    assert run.result.exit_code == 0
 
 
 def test_a_bench_with_no_sites_left_deletes_without_all_sites(one_site):

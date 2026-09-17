@@ -131,7 +131,7 @@ class TestMigrationExecutorAutoProceedFlag:
 
             auto_proceed_call_found = False
             for call in mock_output.print.call_args_list:
-                if "Proceeding with migration (--auto-proceed)" in str(call):
+                if "Proceeding with migration (--yes)" in str(call):
                     auto_proceed_call_found = True
                     break
 

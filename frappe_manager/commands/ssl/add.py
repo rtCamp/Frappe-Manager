@@ -31,7 +31,7 @@ from .helpers import get_output_handler
 )
 @example(
     "Rehearse against the staging server first",
-    "{benchname}/example.com --dry-run",
+    "{benchname}/example.com --test-ca",
     benchname="mybench",
 )
 @example(
@@ -86,10 +86,10 @@ def add_certificate(
             help="Label of the \\[ssl.dns_providers] credential set that authenticates this domain, from fm ssl dns-config cloudflare --name. Omit for the default account. dns01 only.",
         ),
     ] = None,
-    dry_run: Annotated[
+    test_ca: Annotated[
         bool,
         typer.Option(
-            "--dry-run",
+            "--test-ca",
             help="Rehearse against Let's Encrypt staging. Nothing is kept: no certificate, no nginx change.",
         ),
     ] = False,
@@ -211,10 +211,10 @@ def add_certificate(
         output.display_error("--custom is bench mode only; --standalone is not supported yet")
         raise typer.Exit(1)
 
-    if custom and dry_run:
+    if custom and test_ca:
         output = get_output_handler(ctx)
         output.display_error(
-            "--custom cannot be used with --dry-run: there is no staging server to rehearse an import against"
+            "--custom cannot be used with --test-ca: there is no staging server to rehearse an import against"
         )
         raise typer.Exit(1)
 
@@ -304,7 +304,7 @@ def add_certificate(
                 typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
-        _add_external_certificate(ctx, address, challenge, cname, dry_run, skip_dns_check, wait_for_dns)
+        _add_external_certificate(ctx, address, challenge, cname, test_ca, skip_dns_check, wait_for_dns)
         return
 
     address = prompt_for_bench_selection(address)
@@ -329,7 +329,7 @@ def add_certificate(
             target,
             challenge,
             cname,
-            dry_run,
+            test_ca,
             dev=dev,
             dns_provider=dns_provider,
             custom=custom,

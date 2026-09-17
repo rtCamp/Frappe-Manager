@@ -89,7 +89,7 @@ def _add_external_certificate(
     domain: str,
     challenge: LETSENCRYPT_PREFERRED_CHALLENGE,
     cname: str | None,
-    dry_run: bool,
+    test_ca: bool,
     skip_dns_check: bool = False,
     wait_for_dns: bool = False,
 ):
@@ -214,7 +214,7 @@ def _add_external_certificate(
         # Step 3: Generate certificate (HTTP-01 challenge will now work)
         try:
             with spinner(output, f"Generating SSL certificate for {domain}"):
-                cert_manager.add_certificate(cert, dry_run=dry_run)
+                cert_manager.add_certificate(cert, test_ca=test_ca)
         except Exception as cert_error:
             # Certificate generation failed - clean up nginx config
             output.change_head("Cleaning up after certificate generation failure")
@@ -227,11 +227,11 @@ def _add_external_certificate(
             # Re-raise the original certificate error
             raise cert_error
 
-        # Steps 4 and 5 mutate the SHARED nginx-proxy conf.d, so they are dry-run guarded the
-        # same way the persistence step below is: a dry run deliberately never issues (or links)
+        # Steps 4 and 5 mutate the SHARED nginx-proxy conf.d, so they are test-CA-rehearsal guarded the
+        # same way the persistence step below is: a test-CA rehearsal deliberately never issues (or links)
         # a certificate, and an HTTPS vhost pointing at absent cert files is a fatal nginx config
         # error that breaks reloads and startup for every bench the global proxy fronts.
-        if not dry_run:
+        if not test_ca:
             # Step 4: Update nginx config to enable HTTPS
             output.change_head(f"Enabling HTTPS for {domain}")
             try:
@@ -245,7 +245,7 @@ def _add_external_certificate(
                 # HTTPS config or reload failed -- cert was already issued; clean up to avoid orphan
                 output.change_head("Cleaning up after HTTPS configuration failure")
                 # Certificate removal must not be able to block the nginx cleanup: the cert is
-                # only registered on the non-dry-run path, so on a dry run this raises
+                # only registered on the real-CA path, so on a test-CA rehearsal this raises
                 # SSLCertificateNotFoundError and the orphaned vhost this handler exists to
                 # delete would survive.
                 try:
@@ -260,16 +260,16 @@ def _add_external_certificate(
                     output.debug(f"Failed to clean up after HTTPS config failure: {cleanup_error}")
                 raise post_cert_error
         else:
-            # A dry run persists nothing, so the temporary ACME-challenge vhost from step 1 must
+            # A test-CA rehearsal persists nothing, so the temporary ACME-challenge vhost from step 1 must
             # go as well: left behind it is an invisible standalone vhost that neither
             # `fm ssl remove --standalone` nor `fm ssl list --standalone` can reach, because
             # the domain was never written to external_domains.toml.
-            output.change_head("Cleaning up dry-run nginx configuration")
+            output.change_head("Cleaning up rehearsal nginx configuration")
             standalone_nginx.remove_config(domain)
             nginx_controller.reload()
-            output.print("Removed temporary nginx configuration (dry run)", emoji_code=":white_check_mark:")
+            output.print("Removed temporary nginx configuration (test-CA rehearsal)", emoji_code=":white_check_mark:")
 
-        if not dry_run:
+        if not test_ca:
             # Save to external domains config
             external_manager.add_domain(
                 ExternalDomainConfig(
@@ -516,7 +516,7 @@ def _list_external_certificates(ctx: typer.Context):
         output.print("[fm.muted]  fm ssl add --standalone <domain>[/fm.muted]", emoji_code="")
 
 
-def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool, force: bool = False):
+def _renew_external_certificate(ctx: typer.Context, domain: str, test_ca: bool, force: bool = False):
     """Renew SSL certificate for a specific external domain."""
 
     services_manager = ctx.obj["services"]
@@ -544,7 +544,7 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool, 
         cert_manager = _build_certificate_manager([cert], storage_config, link_manager, nginx_controller, output)
 
         with spinner(output, f"Renewing certificate for {domain}"):
-            cert_manager.renew_certificate(domain=domain, dry_run=dry_run, force=force)
+            cert_manager.renew_certificate(domain=domain, test_ca=test_ca, force=force)
         output.print(f"Certificate renewal for {domain} completed", emoji_code=":white_check_mark:")
 
     # A not-yet-due certificate is a healthy state, not a failure: renew_certificate raises this
@@ -559,7 +559,7 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool, 
         raise typer.Exit(1)
 
 
-def _renew_all_external_certificates(ctx: typer.Context, dry_run: bool, force: bool = False):
+def _renew_all_external_certificates(ctx: typer.Context, test_ca: bool, force: bool = False):
     """Renew all external domain SSL certificates."""
 
     services_manager = ctx.obj["services"]
@@ -582,7 +582,7 @@ def _renew_all_external_certificates(ctx: typer.Context, dry_run: bool, force: b
     for domain_config in external_domains:
         domain = domain_config.domain
         try:
-            _renew_external_certificate(ctx, domain, dry_run, force)
+            _renew_external_certificate(ctx, domain, test_ca, force)
         except typer.Exit as e:
             # _renew_external_certificate has already printed the real reason and signalled
             # failure with `raise typer.Exit(1)`. click.exceptions.Exit carries no message, so

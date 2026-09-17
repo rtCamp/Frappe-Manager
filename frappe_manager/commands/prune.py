@@ -130,6 +130,7 @@ def report_log_plan(output, plan: LogPrune, dry_run: bool) -> int:
 @example(
     "Everything: old releases, old backup sessions, oversized logs",
     "{benchname}",
+    detail="Shows the full plan (every path) first, then asks. A bare Enter aborts; type y to proceed, or pass --yes.",
     benchname="mybench",
 )
 @example(
@@ -187,15 +188,19 @@ def prune(
             show_default=False,
         ),
     ] = None,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Prune without asking for confirmation."),
+    ] = False,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Report what would be pruned without deleting anything."),
+        typer.Option("--dry-run", help="Print the plan and exit without deleting anything; never prompts."),
     ] = False,
 ):
     """
     Reclaim this bench's disk: old deploy releases, old backup sessions, oversized logs.
 
-    Runs all three categories by default; narrow with --only. Retention comes from the \\[prune] table (bench overriding host) and \\[switch].keep_releases; flags override for one run. Log rotation copies to <name>.log.<timestamp>.gz and truncates the live file in place, because the writing processes hold it open. Nothing in fm cleans up on its own: this command (and fm services prune for the host tier) is the only trigger.
+    Plan-first: the full plan (every path that would be touched) is printed, then one confirmation covers it; a bare Enter aborts, --yes skips the question, --dry-run stops after the plan. Runs all three categories by default; narrow with --only. Retention comes from the \\[prune] table (bench overriding host) and \\[switch].keep_releases; flags override for one run. Log rotation copies to <name>.log.<timestamp>.gz and truncates the live file in place, because the writing processes hold it open. Nothing in fm cleans up on its own: this command (and fm services prune for the host tier) is the only trigger.
     """
     from frappe_manager.commands.deploy import _reject_impossible_keep
     from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError, DeployOrchestrator
@@ -216,56 +221,90 @@ def prune(
         rotate_over=rotate_over,
     )
 
+    # ---- plan everything first; the report below is exactly what execution will do.
     total = 0
 
+    release_summary = None
     if PruneCategory.releases in categories:
         if bench.bench_config.runtime != BenchRuntime.image:
             output.print("Releases : not an image-runtime bench, nothing to prune", emoji_code="")
         else:
             try:
-                summary = DeployOrchestrator(bench, output_handler=output).prune_releases(
-                    keep=keep_releases, dry_run=dry_run
+                release_summary = DeployOrchestrator(bench, output_handler=output).prune_releases(
+                    keep=keep_releases, dry_run=True
                 )
             except DeployError as e:
                 output.display_error(str(e))
                 raise typer.Exit(1) from e
-            if not summary["entries"]:
+            if not release_summary["entries"]:
                 output.print(
-                    f"Releases : nothing to prune ({summary['kept']} release(s) recorded, all within retention)",
+                    f"Releases : nothing to prune ({release_summary['kept']} release(s) recorded, all within retention)",
                     emoji_code="",
                 )
             else:
-                verb = "would prune" if dry_run else "pruned"
-                detail = f"{verb} {summary['entries']} release(s), keep {summary['kept']}"
-                if summary["backups"]:
-                    detail += f" · {len(summary['backups'])} backup dir(s)"
-                if summary["images"]:
-                    detail += f" · {len(summary['images'])} image(s)"
+                detail = f"would prune {release_summary['entries']} release(s), keep {release_summary['kept']}"
+                if release_summary["backups"]:
+                    detail += f" · {len(release_summary['backups'])} backup dir(s)"
+                if release_summary["images"]:
+                    detail += f" · {len(release_summary['images'])} image(s)"
                 output.print(f"Releases : {detail}", emoji_code="")
-                for backup_dir in summary["backups"]:
+                for backup_dir in release_summary["backups"]:
                     output.print(f"backup dir  {backup_dir}", emoji_code="", prefix="  ")
-                for image in summary["images"]:
+                for image in release_summary["images"]:
                     output.print(f"image       {image}", emoji_code="", prefix="  ")
 
+    session_plans = []
     if PruneCategory.backups in categories:
-        plans = [
+        session_plans = [
             plan_session_prune(bench.path / "backups" / group, keep_sessions) for group in ("migrations", "workers")
         ]
-        total += report_session_plans(output, plans, dry_run)
-        if not dry_run:
-            for plan in plans:
-                execute_session_prune(plan)
+        total += report_session_plans(output, session_plans, dry_run=True)
 
+    log_plan = None
     if PruneCategory.logs in categories:
         log_dirs = [
             bench.path / "workspace" / "frappe-bench" / "logs",
             bench.path / "configs" / "nginx" / "logs",
         ]
-        plan = plan_log_prune(log_dirs, over_bytes, keep_archives)
-        total += report_log_plan(output, plan, dry_run)
-        if not dry_run:
-            execute_log_prune(plan)
+        log_plan = plan_log_prune(log_dirs, over_bytes, keep_archives)
+        total += report_log_plan(output, log_plan, dry_run=True)
 
     if total:
-        verb = "reclaimable" if dry_run else "reclaimed"
-        output.print(f"Total    : ~{format_size(total)} {verb}", emoji_code="")
+        output.print(f"Total    : ~{format_size(total)} reclaimable", emoji_code="")
+
+    nothing_to_do = (
+        (release_summary is None or not release_summary["entries"])
+        and not any(plan.count for plan in session_plans)
+        and (log_plan is None or (not log_plan.rotations and not log_plan.drop_count))
+    )
+    if nothing_to_do or dry_run:
+        return
+
+    # ---- one confirmation covers everything shown above; a bare Enter aborts.
+    if not yes:
+        choice = output.prompt_ask(
+            prompt="Proceed with the deletions and rotations listed above? (default: no)",
+            choices=["yes", "no"],
+            default="no",
+            required_flag="--yes",
+        )
+        if choice != "yes":
+            output.print("Aborted; nothing touched.", emoji_code="")
+            return
+
+    # ---- execute exactly the plans that were shown.
+    reclaimed = 0
+    if release_summary is not None and release_summary["entries"]:
+        try:
+            DeployOrchestrator(bench, output_handler=output).prune_releases(keep=keep_releases, dry_run=False)
+        except DeployError as e:
+            output.display_error(str(e))
+            raise typer.Exit(1) from e
+    for plan in session_plans:
+        reclaimed += plan.size
+        execute_session_prune(plan)
+    if log_plan is not None:
+        reclaimed += log_plan.rotate_size
+        execute_log_prune(log_plan)
+
+    output.print(f"Done     : ~{format_size(reclaimed)} reclaimed", emoji_code="")

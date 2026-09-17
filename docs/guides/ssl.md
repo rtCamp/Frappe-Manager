@@ -56,14 +56,14 @@ fm domain add mybench example.com
 - [ ] The token is saved with `fm ssl dns-config cloudflare`
 
 !!! warning "Rehearse first"
-    `--dry-run` issues against the Let's Encrypt **staging** CA and keeps nothing: no certificate is installed, no symlink or `vhostd` redirect is written, and nginx is not restarted. It does still reach the staging endpoint and register an account there, so it is a network operation, not an offline check. Use it to burn mistakes on staging instead of your [production rate limit](https://letsencrypt.org/docs/rate-limits/) (50 certificates per registered domain per week, 5 per identical set of names per week).
+    `--test-ca` issues against the Let's Encrypt **staging** CA and keeps nothing: no certificate is installed, no symlink or `vhostd` redirect is written, and nginx is not restarted. It does still reach the staging endpoint and register an account there, so it is a network operation, not an offline check. Use it to burn mistakes on staging instead of your [production rate limit](https://letsencrypt.org/docs/rate-limits/) (50 certificates per registered domain per week, 5 per identical set of names per week).
 
 ---
 
 ## HTTP-01 setup
 
 ```bash
-fm ssl add mybench/example.com --dry-run
+fm ssl add mybench/example.com --test-ca
 ```
 
 A successful rehearsal ends with `Certificate generated successfully (staging)` followed by the skipped-step lines (symlinks, redirect config, nginx restart, config save). Then issue for real:
@@ -117,7 +117,7 @@ With `--name`, the credentials land in `[ssl.dns_providers.<label>]` instead, at
 ### 3. Issue
 
 ```bash
-fm ssl add mybench/example.com --challenge dns01 --dry-run
+fm ssl add mybench/example.com --challenge dns01 --test-ca
 fm ssl add mybench/example.com --challenge dns01
 
 # Authenticate this domain against a labelled credential set
@@ -204,7 +204,7 @@ Give `--cert` the full chain (leaf first, then intermediates) in PEM: fm copies 
 
 The import is refused when a file is missing or unreadable, when it does not parse as PEM, when the key does not match the certificate's public key, when the certificate does not cover the domain (SAN is checked first, then CN as the pre-SAN fallback), or when the certificate has already expired. A certificate with fewer than 30 days left imports with a warning, because fm cannot renew it for you.
 
-`--custom` is bench mode only, like `--dev`, and the domain must already be configured on the bench (see [Before you start](#before-you-start)). It cannot be combined with `--dev`, `--standalone`, `--dry-run`, `--cname`, `--dns-provider`, or an explicitly passed `--challenge`, and `--cert`/`--key`/`--ca` are refused without `--custom`.
+`--custom` is bench mode only, like `--dev`, and the domain must already be configured on the bench (see [Before you start](#before-you-start)). It cannot be combined with `--dev`, `--standalone`, `--test-ca`, `--cname`, `--dns-provider`, or an explicitly passed `--challenge`, and `--cert`/`--key`/`--ca` are refused without `--custom`.
 
 !!! warning "fm will not rotate this certificate"
     Renewal stays your job. `fm ssl renew` reports a custom certificate and changes nothing, at any age: fm keeps only the imported bytes, not the paths to your original files, and it never re-issues a certificate it did not create. When you have a replacement, run `fm ssl add BENCH/DOMAIN --custom` again with the new files. Expiry shows up in `fm ssl list` like any other certificate, so put the date in whatever calendar your issuer's renewals already live in.
@@ -345,7 +345,7 @@ fm list
 | Connection refused on port 80 | Firewall or security group | Open port 80 to the internet |
 | Connect timeout | A record points elsewhere | Correct the A record and wait for the TTL to expire |
 | Let's Encrypt gets an unexpected response from `/.well-known/acme-challenge/` | Another web server is answering port 80 | Stop or move it; only fm's nginx-proxy should own port 80 |
-| Rate limit refusal | More than 5 certificates for the same name set this week | Wait, and use `--dry-run` while experimenting |
+| Rate limit refusal | More than 5 certificates for the same name set this week | Wait, and use `--test-ca` while experimenting |
 
 ### DNS-01 failures
 

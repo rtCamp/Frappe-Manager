@@ -2,6 +2,16 @@
 
 Complete reference for all `fm` CLI commands. Each command page includes usage, options, and real-world examples.
 
+
+## Flag Conventions
+
+Four rules hold across every fm command, so a flag means the same thing everywhere:
+
+- **`--yes` / `-y`** answers any confirmation prompt: "do the thing I typed, don't ask." It never expands what a command does. Every prompt defaults to **No**: a bare Enter aborts. Under `--non-interactive`, an unanswered prompt refuses and names `--yes`.
+- **Dangerous behaviors are their own named flags** (`--restore-db`, `--delete-backups`, `--skip-db-backup`, `--on-failure`). A decision that changes *what* happens is never buried in a prompt only: the flag names it, and `--yes` never answers it for you.
+- **`--force` selects a stronger action** (recreate containers, interrupt jobs, renew early). It never skips a question.
+- **`--dry-run` prints the plan and changes nothing** -- exit 0, never prompts. Available on the plan-first commands (`prune`, `services prune`, `migrate`, `services migrate`, `delete`); it is the scriptable way to see a plan, since non-interactive runs without `--yes` refuse instead.
+
 ---
 
 ## Quick Start

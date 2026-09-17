@@ -68,13 +68,13 @@ class TestCustomMutualExclusivity:
         assert _errors(output) == ["--custom is bench mode only; --standalone is not supported yet"]
         issue.assert_not_called()
 
-    def test_custom_with_dry_run_is_refused(self, add):
+    def test_custom_with_test_ca_is_refused(self, add):
         output, issue = add
         with pytest.raises(typer.Exit):
-            add_certificate(_ctx(), address=BENCH, custom=True, dry_run=True)
+            add_certificate(_ctx(), address=BENCH, custom=True, test_ca=True)
 
         assert _errors(output) == [
-            "--custom cannot be used with --dry-run: there is no staging server to rehearse an import against"
+            "--custom cannot be used with --test-ca: there is no staging server to rehearse an import against"
         ]
         issue.assert_not_called()
 

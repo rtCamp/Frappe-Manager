@@ -279,7 +279,8 @@ class TestMigrationExecutorUserPrompt:
         kwargs = yes_output.prompt_ask.call_args[1]
         assert kwargs["prompt"] == "Do you want to proceed?"
         assert [choice["value"] for choice in kwargs["choices"]] == ["yes", "no"]
-        assert kwargs["required_flag"] == "--auto-proceed"
+        assert kwargs["required_flag"] == "--yes"
+        assert kwargs["default"] == "no"  # a bare Enter aborts, everywhere
 
         # "yes" runs the migration and reports success
         assert yes_result is True
@@ -595,3 +596,42 @@ class TestMigrationNeverPrunesOnlyHints:
         assert len(list(root.iterdir())) == 5
         prints = " ".join(str(call) for call in output.print.call_args_list)
         assert "fm services prune" not in prints
+
+
+class TestDryRun:
+    @pytest.mark.timeout(15)
+    def test_dry_run_shows_the_plan_and_executes_nothing(self, mock_fm_config):
+        """--dry-run is the scriptable plan viewer: the preamble prints, then a clean exit --
+        no prompt (the -n path without --yes is a refusal by design), no orchestration, no
+        ledger stamp."""
+        mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
+
+        migration = Mock()
+        migration.version = Version("0.19.0")
+        migration.get_rollback_version = Mock(return_value=Version("0.19.0"))
+
+        mock_output = Mock()
+
+        with (
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
+        ):
+            executor = MigrationExecutor(
+                mock_fm_config, migrate_global_services=True, dry_run=True, output_handler=mock_output
+            )
+
+            with (
+                patch.object(executor.discovery, "discover_migrations", return_value=[migration]),
+                patch.object(executor, "_check_benches_need_migration", return_value=False),
+                patch.object(executor.orchestrator, "execute_migrations") as orchestrate,
+            ):
+                result = executor.execute()
+
+        assert result is True
+        orchestrate.assert_not_called()
+        mock_output.prompt_ask.assert_not_called()
+        migration.up.assert_not_called()
+        mock_fm_config.set_system_migration_version.assert_not_called()
+        prints = " ".join(str(call) for call in mock_output.print.call_args_list)
+        assert "Migration versions" in prints  # the plan preamble was shown
+        assert "Dry run: nothing migrated." in prints

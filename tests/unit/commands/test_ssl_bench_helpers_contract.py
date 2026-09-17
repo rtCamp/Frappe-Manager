@@ -10,7 +10,7 @@ Two production surfaces are pinned here so a later refactor cannot change them s
 * which certificate each flag combination builds -- a bare ``SSLCertificate`` for dev, a
   ``LetsencryptSSLCertificate`` otherwise, delegating or not according to ``delegation_cname``
   -- and with which field values, since those select the downstream issuance path.
-* what each path *writes*: ``dry_run`` suppresses the ``host_name`` rewrite entirely; a
+* what each path *writes*: ``test_ca`` suppresses the ``host_name`` rewrite entirely; a
   successful add flips ``host_name`` to ``https://``, a successful remove back to
   ``http://``, and both treat a failure of that write as non-fatal.
 * the certificate-state table produced by ``_list_bench_certificates``: it is driven by the
@@ -201,7 +201,7 @@ def _add(
     domain=DOMAIN,
     challenge=HTTP01,
     cname=None,
-    dry_run=False,
+    test_ca=False,
     dev=False,
     custom=False,
     cert_path=None,
@@ -215,7 +215,7 @@ def _add(
         domain,
         challenge,
         cname,
-        dry_run,
+        test_ca,
         dev,
         custom=custom,
         cert_path=cert_path,
@@ -486,24 +486,24 @@ def test_add_wraps_issuance_in_a_spinner_labelled_for_the_domain(h):
 
 
 @pytest.mark.timeout(15)
-def test_add_forwards_dry_run_to_the_certificate_manager(h):
-    _add(h, dry_run=True)
+def test_add_forwards_test_ca_to_the_certificate_manager(h):
+    _add(h, test_ca=True)
 
     h.cert_manager.add_certificate.assert_called_once()
-    assert h.cert_manager.add_certificate.call_args.kwargs == {"dry_run": True}
+    assert h.cert_manager.add_certificate.call_args.kwargs == {"test_ca": True}
 
 
 @pytest.mark.timeout(15)
-def test_add_dry_run_writes_nothing_and_claims_nothing(h):
-    _add(h, dry_run=True)
+def test_add_test_ca_writes_nothing_and_claims_nothing(h):
+    _add(h, test_ca=True)
 
     h.bench.set_bench_site_config.assert_not_called()
     assert h.prints() == []
 
 
 @pytest.mark.timeout(15)
-def test_add_flips_host_name_to_https_and_confirms_when_not_a_dry_run(h):
-    _add(h, dry_run=False)
+def test_add_flips_host_name_to_https_and_confirms_when_not_a_test_ca(h):
+    _add(h, test_ca=False)
 
     assert h.site_config_writes() == [(DOMAIN, {"host_name": f"https://{DOMAIN}"})]
     assert h.prints() == [
@@ -585,12 +585,12 @@ def test_the_hint_check_is_made_for_the_domain_being_added(h):
 
 
 @pytest.mark.timeout(15)
-def test_the_hint_runs_even_on_a_dry_run(h):
-    """Advisory, not tied to issuance: a dry run is exactly when an operator most wants the nudge,
+def test_the_hint_runs_even_on_a_test_ca(h):
+    """Advisory, not tied to issuance: a test-CA rehearsal is exactly when an operator most wants the nudge,
     before spending a real certificate on a mode they may not need."""
     h.cdn_detect.return_value = CDNDetectionResult(status=CDNProxyStatus.proxied)
 
-    _add(h, behind_proxy=False, dry_run=True)
+    _add(h, behind_proxy=False, test_ca=True)
 
     assert any("add --behind-proxy" in p for p in h.prints())
 
@@ -603,7 +603,7 @@ def test_the_hint_runs_even_on_a_dry_run(h):
 def test_add_regenerates_bench_and_workers_compose(h):
     """This is the ONLY thing that carries a --dev/--custom --ca certificate's CA trust into the
     compose file; fm ssl add used to call neither generate_compose."""
-    _add(h, dry_run=False)
+    _add(h, test_ca=False)
 
     h.bench.generate_compose.assert_called_once_with(h.bench.bench_config.export_to_compose_inputs.return_value)
     h.bench.workers.generate_compose.assert_called_once_with()
@@ -613,16 +613,16 @@ def test_add_regenerates_bench_and_workers_compose(h):
 def test_add_skips_workers_regen_when_no_workers_compose_exists(h):
     h.bench.workers.compose_file_manager.compose_path.exists.return_value = False
 
-    _add(h, dry_run=False)
+    _add(h, test_ca=False)
 
     h.bench.generate_compose.assert_called_once()
     h.bench.workers.generate_compose.assert_not_called()
 
 
 @pytest.mark.timeout(15)
-def test_add_dry_run_never_regenerates_compose(h):
-    """--dry-run promises no nginx change; the bench's own compose must stay untouched too."""
-    _add(h, dry_run=True)
+def test_add_test_ca_never_regenerates_compose(h):
+    """--test-ca promises no nginx change; the bench's own compose must stay untouched too."""
+    _add(h, test_ca=True)
 
     h.bench.generate_compose.assert_not_called()
     h.bench.workers.generate_compose.assert_not_called()
@@ -633,7 +633,7 @@ def test_add_dry_run_never_regenerates_compose(h):
 def test_add_regen_failure_warns_and_skips_the_converge_instruction_but_does_not_abort(h):
     h.bench.generate_compose.side_effect = RuntimeError("disk full")
 
-    _add(h, dry_run=False)  # must not raise
+    _add(h, test_ca=False)  # must not raise
 
     assert any("Could not update" in w and "disk full" in w for w in h.warnings())
     assert not any("fm start" in p for p in h.prints())
@@ -692,9 +692,9 @@ def test_add_with_behind_proxy_regenerates_the_supervisor_config_and_prints_rest
 
 
 @pytest.mark.timeout(15)
-def test_add_dry_run_never_regenerates_the_supervisor_config(h):
-    """--dry-run promises no nginx change; the gunicorn wrapper must stay untouched too."""
-    _add(h, behind_proxy=True, dev=True, dry_run=True)
+def test_add_test_ca_never_regenerates_the_supervisor_config(h):
+    """--test-ca promises no nginx change; the gunicorn wrapper must stay untouched too."""
+    _add(h, behind_proxy=True, dev=True, test_ca=True)
 
     h.bench.supervisor.setup_supervisor.assert_not_called()
     assert not any("fm restart" in p for p in h.prints())
@@ -815,7 +815,7 @@ def test_add_treats_a_failed_host_name_write_as_non_fatal(h):
     """A bench whose site does not exist yet has no site_config.json; that must not fail the add."""
     h.bench.set_bench_site_config.side_effect = RuntimeError("no site_config.json")
 
-    _add(h, dry_run=False)
+    _add(h, test_ca=False)
 
     assert any("Could not update host_name to https://" in d for d in h.debugs())
     assert f"SSL certificate added for {DOMAIN}" in h.prints()
@@ -1882,7 +1882,7 @@ def test_add_writes_host_name_to_the_site_the_domain_serves(h):
     """
     h.set_sites({DOMAIN: [], "second.example.com": []})
 
-    _add(h, domain="second.example.com", dry_run=False)
+    _add(h, domain="second.example.com", test_ca=False)
 
     assert h.site_config_writes() == [
         ("second.example.com", {"host_name": "https://second.example.com"})
@@ -1913,7 +1913,7 @@ def test_an_alias_certificate_leaves_host_name_alone(h):
     """
     h.set_sites({DOMAIN: [], "second.example.com": ["www.second.example.com"]})
 
-    _add(h, domain="www.second.example.com", dry_run=False)
+    _add(h, domain="www.second.example.com", test_ca=False)
 
     assert h.site_config_writes() == []
     assert "www.second.example.com is an alias of second.example.com; leaving host_name alone" in h.debugs()
@@ -1925,7 +1925,7 @@ def test_adding_for_the_sites_own_name_still_writes_host_name_when_it_has_aliase
     name of a site that ALSO carries aliases must keep writing `host_name`."""
     h.set_sites({DOMAIN: [], "second.example.com": ["www.second.example.com"]})
 
-    _add(h, domain="second.example.com", dry_run=False)
+    _add(h, domain="second.example.com", test_ca=False)
 
     assert h.site_config_writes() == [
         ("second.example.com", {"host_name": "https://second.example.com"})
@@ -1962,6 +1962,6 @@ def test_an_unmapped_domain_leaves_every_host_name_alone(h):
     h.set_sites({DOMAIN: []})
     h.bench.bench_config.get_site_mappings.return_value = {}
 
-    _add(h, dry_run=False)
+    _add(h, test_ca=False)
 
     assert h.site_config_writes() == []

@@ -53,7 +53,7 @@ def renew(
     ctx: typer.Context,
     address: BenchDomainAllArgument = None,
     standalone: Annotated[bool, typer.Option("--standalone", help="Renew an external (non-bench) domain.")] = False,
-    dry_run: Annotated[bool, typer.Option("--dry-run", help="Rehearse against Let's Encrypt staging.")] = False,
+    test_ca: Annotated[bool, typer.Option("--test-ca", help="Renew against Let's Encrypt's test CA (staging): real challenges and issuance, no production rate-limit cost; the live certificate and system stay untouched.")] = False,
     force: Annotated[bool, typer.Option("--force", help="Renew even when the certificate is not due.")] = False,
 ):
     """
@@ -78,7 +78,7 @@ def renew(
             )
             raise typer.Exit(1)
         if address == RESERVED_BENCH_NAME:
-            _renew_all_external_certificates(ctx, dry_run, force)
+            _renew_all_external_certificates(ctx, test_ca, force)
             return
         if not address:
             output = get_output_handler(ctx)
@@ -86,7 +86,7 @@ def renew(
             with temporary_stop(output):
                 typer.echo(ctx.get_help())
             raise typer.Exit(1)
-        _renew_external_certificate(ctx, address, dry_run, force)
+        _renew_external_certificate(ctx, address, test_ca, force)
         return
 
     services_manager = ctx.obj["services"]
@@ -128,14 +128,14 @@ def renew(
                     raise typer.Exit(1)
 
                 with spinner(output, f"Renewing certificate for {domain}"):
-                    bench.ssl.renew_certificate(domain, dry_run=dry_run, force=force)
-                if not dry_run:
+                    bench.ssl.renew_certificate(domain, test_ca=test_ca, force=force)
+                if not test_ca:
                     output.print(f"Certificate renewed for {domain}", emoji_code=":white_check_mark:")
             else:
                 # No domain, or `BENCH/all`: every certificate the bench holds. The two mean the
                 # same thing, because a bench's certificates ARE its domains' certificates.
                 with spinner(output, f"Renewing certificates for {address}"):
-                    bench.ssl.renew_all_certificates(dry_run=dry_run, force=force)
+                    bench.ssl.renew_all_certificates(test_ca=test_ca, force=force)
         except (
             BenchSSLCertificateNotIssued,
             SSLCertificateNotDueForRenewalError,

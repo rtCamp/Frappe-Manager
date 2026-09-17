@@ -91,12 +91,12 @@ class CustomCertificateService:
     # SSLCertificateService Protocol implementation
     # ------------------------------------------------------------------
 
-    def generate_certificate(self, certificate: SSLCertificate, dry_run: bool = False) -> tuple[Path, Path]:
+    def generate_certificate(self, certificate: SSLCertificate, test_ca: bool = False) -> tuple[Path, Path]:
         """Validate the operator-supplied cert/key/ca and copy them into fm's own storage.
 
-        `dry_run` is accepted for Protocol conformance only: `fm ssl add --custom --dry-run` is
+        `test_ca` is accepted for Protocol conformance only: `fm ssl add --custom --test-ca` is
         refused at the CLI (there is no staging server to rehearse against), so this is never
-        actually invoked with `dry_run=True` in production.
+        actually invoked with `test_ca=True` in production.
         """
         # `cert_source`/`key_source`/`ca_source` are declared only on `CustomCertificate`. Dispatch
         # into this service is by `ssl_type == "custom"` value, not `isinstance`, and every
@@ -197,7 +197,7 @@ class CustomCertificateService:
         self.output.print(f"Custom certificate imported for {certificate.domain}")
         return key_dest, fullchain_dest
 
-    def renew_certificate(self, certificate: SSLCertificate, dry_run: bool = False) -> bool:
+    def renew_certificate(self, certificate: SSLCertificate, test_ca: bool = False) -> bool:
         """Always refuses: fm has no bytes to renew from. See SSLCertificateManualRenewalRequired."""
         raise SSLCertificateManualRenewalRequired(certificate.domain)
 

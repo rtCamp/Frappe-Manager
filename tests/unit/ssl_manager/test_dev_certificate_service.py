@@ -152,23 +152,23 @@ class TestDevCertificateServiceRemove:
 
 @pytest.mark.unit
 class TestDevCertificateServiceTrustStore:
-    def test_dry_run_skips_trust_store_install(self, tmp_path):
+    def test_test_ca_skips_trust_store_install(self, tmp_path):
         svc = make_service(tmp_path)
         with patch("frappe_manager.ssl_manager.dev_certificate_service.TrustStoreManager") as mock_ts:
-            svc.generate_certificate(make_cert(), dry_run=True)
+            svc.generate_certificate(make_cert(), test_ca=True)
         mock_ts.return_value.install.assert_not_called()
 
     def test_live_run_calls_trust_store_install(self, tmp_path):
         svc = make_service(tmp_path)
         with patch("frappe_manager.ssl_manager.dev_certificate_service.TrustStoreManager") as mock_ts:
-            svc.generate_certificate(make_cert(), dry_run=False)
+            svc.generate_certificate(make_cert(), test_ca=False)
         mock_ts.return_value.install.assert_called_once()
 
     def test_sentinel_prevents_reinstall(self, tmp_path):
         svc = make_service(tmp_path)
         svc.ca_sentinel_path.touch()
         with patch("frappe_manager.ssl_manager.dev_certificate_service.TrustStoreManager") as mock_ts:
-            svc.generate_certificate(make_cert(), dry_run=False)
+            svc.generate_certificate(make_cert(), test_ca=False)
         mock_ts.return_value.install.assert_not_called()
 
     def test_a_trust_store_failure_still_issues_the_certificate(self, tmp_path):
@@ -188,5 +188,5 @@ class TestDevCertificateServiceTrustStore:
         svc = make_service(tmp_path)
         with patch("frappe_manager.ssl_manager.dev_certificate_service.TrustStoreManager") as mock_ts:
             mock_ts.return_value.install.return_value = True
-            svc.generate_certificate(make_cert(), dry_run=False)
+            svc.generate_certificate(make_cert(), test_ca=False)
         assert svc.ca_sentinel_path.exists()

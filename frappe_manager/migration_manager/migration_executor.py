@@ -34,6 +34,7 @@ class MigrationExecutor:
         skip_db_backup: bool = False,
         exclude_benches: list[str] | None = None,
         auto_proceed: bool = False,
+        dry_run: bool = False,
         rerun: bool = False,
         on_failure: str = "prompt",
         target_benches: list[str] | None = None,
@@ -42,6 +43,7 @@ class MigrationExecutor:
     ):
         self.fm_config_manager: FMConfigManager = fm_config_manager
         self.rerun = rerun
+        self.dry_run = dry_run
         # The services-tier ledger, via the one getter both migration gates use -- NEVER the
         # informational top-level `version` field. One source of truth: if the gate said
         # "behind", discovery here must agree, and vice versa.
@@ -121,7 +123,7 @@ class MigrationExecutor:
         finally:
             host_lock.close()
 
-    def _execute(self):
+    def _execute(self):  # noqa: PLR0911 - each early return is a distinct terminal outcome (nothing-to-do, unknown version, dry run, abort, failure policy)
         """The migration run itself; `execute` holds the host grip around it."""
 
         global_services_version_outdated = self.rerun or (self.prev_version < self.current_version)
@@ -228,18 +230,26 @@ class MigrationExecutor:
                     )
                     self.output.print("", emoji_code="")
 
+            if self.dry_run:
+                # The scriptable plan viewer: the whole preamble above IS the plan, and the
+                # non-interactive path without --yes is a refusal by design, so this is the
+                # only way automation can see it. Exit clean, touch nothing, never prompt.
+                self.output.print("Dry run: nothing migrated.", emoji_code="")
+                return True
+
             if not self.auto_proceed:
                 continue_migration = self.output.prompt_ask(
                     prompt="Do you want to proceed?",
                     choices=[
                         {"name": "yes - Start migration", "value": "yes"},
-                        {"name": "no - Abort and revert to previous fm version", "value": "no"},
+                        {"name": "no - Abort and revert to previous fm version (default)", "value": "no"},
                     ],
-                    required_flag="--auto-proceed",
+                    default="no",
+                    required_flag="--yes",
                 )
             else:
                 continue_migration = "yes"
-                self.output.print("Proceeding with migration (--auto-proceed)", emoji_code="")
+                self.output.print("Proceeding with migration (--yes)", emoji_code="")
 
             if continue_migration == "no":
                 self.output.print("", emoji_code="")
@@ -250,6 +260,12 @@ class MigrationExecutor:
                 self.output.print(f"  uv tool install frappe-manager=={self.prev_version.version!s}", emoji_code="")
                 self.output.print("", emoji_code="")
                 return False
+
+        if self.dry_run:
+            # Reached only when discovery selected nothing to show (the shown-plan path
+            # returned above): still never execute under a dry run.
+            self.output.print("Dry run: nothing migrated.", emoji_code="")
+            return True
 
         # Orchestration: Execute migrations with error handling.
         #

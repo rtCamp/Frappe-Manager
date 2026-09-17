@@ -198,7 +198,7 @@ class OutputHandler(ABC):
         Set interactive mode from global --non-interactive flag and TTY detection.
 
         This implements priority level 2 & 3 of the interactive mode system:
-        - Priority 1 (command flags like --force) handled in prompt_ask()
+        - Priority 1 (the command's --yes flag) handled in prompt_ask()
         - Priority 2: Global --non-interactive flag (this method)
         - Priority 3: Auto-detect TTY (fallback)
 
@@ -235,7 +235,7 @@ class OutputHandler(ABC):
         Prompt the user for input with 3-level priority system.
 
         Priority system:
-        1. If force_yes=True → return "yes" (command-specific flags like --force)
+        1. If force_yes=True → return "yes" (the command's --yes flag; --force is never a prompt bypass)
         2. If not interactive → return default or raise NonInteractiveError
         3. Else → show prompt (interactive mode)
 
@@ -243,7 +243,7 @@ class OutputHandler(ABC):
             prompt: Question to ask the user
             choices: List of valid choices (optional)
             default: Default value if non-interactive (required for non-interactive)
-            force_yes: Force "yes" response (for command-specific --force/--yes flags)
+            force_yes: Force "yes" response (the command's --yes flag)
             required_flag: Flag name to suggest in error message (e.g., "--yes")
                           If set and non-interactive, raises NonInteractiveError with this suggestion
             **kwargs: Implementation-specific prompt arguments

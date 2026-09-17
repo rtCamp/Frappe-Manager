@@ -292,7 +292,7 @@ class TestSSLCertificateManagerAddCertificate:
         assert new_cert in ssl_certificate_manager.certificates
         assert "new-domain.com" in ssl_certificate_manager.services
 
-        mock_service.generate_certificate.assert_called_once_with(new_cert, dry_run=False)
+        mock_service.generate_certificate.assert_called_once_with(new_cert, test_ca=False)
 
         # Verify symlinks were created
         ssl_certificate_manager.link_manager.link_certificate.assert_called_once()
@@ -318,7 +318,7 @@ class TestSSLCertificateManagerAddCertificate:
         with pytest.raises(ValueError, match="already exists"):
             ssl_certificate_manager.add_certificate(duplicate_cert)
 
-    def test_add_certificate_dry_run_uses_staging(
+    def test_add_certificate_test_ca_uses_staging(
         self,
         mocker,
         tmp_path,
@@ -326,7 +326,7 @@ class TestSSLCertificateManagerAddCertificate:
         mock_letsencrypt_certificate_http01,
         monkeypatch,
     ):
-        """Test that dry run mode uses staging server."""
+        """Test that test-CA rehearsal mode uses staging server."""
         cert_dir = tmp_path / "ssl" / "acmesh" / "test.com"
         cert_dir.mkdir(parents=True)
         key_path = cert_dir / "key.pem"
@@ -346,7 +346,7 @@ class TestSSLCertificateManagerAddCertificate:
 
         monkeypatch.delenv("FM_LETSENCRYPT_STAGING", raising=False)
 
-        ssl_certificate_manager.add_certificate(new_cert, dry_run=True)
+        ssl_certificate_manager.add_certificate(new_cert, test_ca=True)
 
         assert new_cert not in ssl_certificate_manager.certificates
         ssl_certificate_manager.link_manager.link_certificate.assert_not_called()
@@ -607,7 +607,7 @@ class TestSSLCertificateManagerRenewCertificate:
 
         ssl_certificate_manager.renew_certificate(domain=domain)
 
-        mock_service.renew_certificate.assert_called_once_with(ssl_certificate_manager.certificates[0], dry_run=False)
+        mock_service.renew_certificate.assert_called_once_with(ssl_certificate_manager.certificates[0], test_ca=False)
 
     def test_renew_certificate_raises_if_not_due(self, mocker, ssl_certificate_manager):
         """Test that renewal raises error if certificate not due for renewal."""
@@ -625,8 +625,8 @@ class TestSSLCertificateManagerRenewCertificate:
         with pytest.raises(SSLCertificateNotFoundError):
             ssl_certificate_manager.renew_certificate(domain="nonexistent.com")
 
-    def test_renew_certificate_dry_run_uses_staging(self, mocker, ssl_certificate_manager, monkeypatch):
-        """Test that dry run mode uses staging server and skips system modifications."""
+    def test_renew_certificate_test_ca_uses_staging(self, mocker, ssl_certificate_manager, monkeypatch):
+        """Test that test-CA rehearsal mode uses staging server and skips system modifications."""
         # Mock needs_renewal to return True
         mocker.patch.object(ssl_certificate_manager, "needs_renewal", return_value=True)
 
@@ -640,15 +640,15 @@ class TestSSLCertificateManagerRenewCertificate:
         # Clear any existing FM_LETSENCRYPT_STAGING
         monkeypatch.delenv("FM_LETSENCRYPT_STAGING", raising=False)
 
-        ssl_certificate_manager.renew_certificate(dry_run=True)
+        ssl_certificate_manager.renew_certificate(test_ca=True)
 
         # Verify service renew was called
         mock_service.renew_certificate.assert_called_once()
 
-        # Verify symlinks were NOT updated (dry run)
+        # Verify symlinks were NOT updated (test-CA rehearsal)
         ssl_certificate_manager.link_manager.link_certificate.assert_not_called()
 
-        # Verify nginx was NOT restarted (dry run)
+        # Verify nginx was NOT restarted (test-CA rehearsal)
         ssl_certificate_manager.nginx_controller.restart.assert_not_called()
 
     def test_renew_certificate_handles_symlink_recreation_failure(self, mocker, ssl_certificate_manager):
@@ -873,8 +873,8 @@ class TestSSLCertificateManagerRenewAllCertificates:
         assert not any(e == "❌" for e in emojis)
         assert any("custom.example.com" in p and "--custom" in p for p in prints)
 
-    def test_renew_all_certificates_dry_run_mode(self, mocker, ssl_certificate_manager, monkeypatch):
-        """Test that dry run mode uses staging server."""
+    def test_renew_all_certificates_test_ca_mode(self, mocker, ssl_certificate_manager, monkeypatch):
+        """Test that test-CA rehearsal mode uses staging server."""
         mocker.patch.object(ssl_certificate_manager, "needs_renewal", return_value=True)
 
         expiry_date = datetime.now() + timedelta(days=10)
@@ -886,15 +886,15 @@ class TestSSLCertificateManagerRenewAllCertificates:
 
         monkeypatch.delenv("FM_LETSENCRYPT_STAGING", raising=False)
 
-        ssl_certificate_manager.renew_all_certificates(dry_run=True)
+        ssl_certificate_manager.renew_all_certificates(test_ca=True)
 
         # Verify service renew was called
         mock_service.renew_certificate.assert_called_once()
 
-        # Verify symlinks were NOT updated (dry run)
+        # Verify symlinks were NOT updated (test-CA rehearsal)
         ssl_certificate_manager.link_manager.link_certificate.assert_not_called()
 
-        # Verify nginx was NOT restarted (dry run)
+        # Verify nginx was NOT restarted (test-CA rehearsal)
         ssl_certificate_manager.nginx_controller.restart.assert_not_called()
 
 
