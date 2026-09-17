@@ -77,6 +77,14 @@ class MigrationBase(ABC):
         return self.version
 
     def up(self):
+        """Run this migration: services tier (when targeted), then the bench loop.
+
+        VERIFICATION CONVENTION: there is deliberately no separate verify() hook. Any
+        exception raised anywhere in here triggers the error handler's rollback/halt, so
+        a migration verifies its own work by ENDING its hook with a health check that
+        raises -- exactly what v0.20.0 and v0.21.0 do with wait_till_db_start() after
+        bringing the engine up. Do not return with the world unverified.
+        """
         if self.skip:
             return True
 
