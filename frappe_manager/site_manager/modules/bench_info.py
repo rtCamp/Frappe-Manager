@@ -549,5 +549,37 @@ class BenchInfo:
             if running_bench_admin_tools:
                 card.fact("tools", dots(running_bench_admin_tools))
 
+        # ---- disk (does the operator need fm prune?)
+        from frappe_manager.utils.prune import host_prune_settings, parse_size, summarize_disk_status
+
+        host_prune = host_prune_settings()
+        bench_prune = config.prune
+
+        def _setting(name):
+            value = getattr(bench_prune, name, None) if bench_prune else None
+            return value if value is not None else getattr(host_prune, name)
+
+        releases_beyond = 0
+        if config.runtime == BenchRuntime.image and config.deploy_state and config.deploy_state.history:
+            keep_releases = config.switch.keep_releases if config.switch else 7
+            releases_beyond = max(0, len(config.deploy_state.history) - keep_releases)
+
+        summary, actionable = summarize_disk_status(
+            session_roots=[self.bench_path / "backups" / "migrations", self.bench_path / "backups" / "workers"],
+            log_dirs=[
+                self.bench_path / "workspace" / "frappe-bench" / "logs",
+                self.bench_path / "configs" / "nginx" / "logs",
+            ],
+            keep_sessions=int(_setting("keep_backup_sessions")),
+            keep_archives=int(_setting("keep_log_archives")),
+            over_bytes=parse_size(_setting("rotate_logs_over")),
+            releases_beyond=releases_beyond,
+        )
+        card.section("disk")
+        if actionable:
+            card.fact("status", f"{summary}  [fm.info]fm prune {self.bench_name}[/fm.info]")
+        else:
+            card.fact("status", f"[fm.muted]{summary}[/fm.muted]")
+
         # Themed singleton console via the handler (no raw Console() bypass).
         self.output.print_data(card.render())

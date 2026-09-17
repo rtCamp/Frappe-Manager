@@ -64,4 +64,24 @@ def info(ctx: typer.Context):
     dots = "   ".join(f"{railcard.status_dot(state)} {svc}" for svc, state in sorted(statuses.items()))
     card.fact("global", dots)
 
+    # ---- disk (does the operator need fm services prune?)
+    # CLI_MIGARATIONS_DIR read as a module attribute: the test suite repoints it away from
+    # the developer's real ~/frappe/backups (see tests/conftest.py).
+    from frappe_manager.migration_manager import backup_manager
+    from frappe_manager.utils.prune import parse_size, summarize_disk_status
+
+    prune_cfg = ctx.obj["fm_config_manager"].prune
+    summary, actionable = summarize_disk_status(
+        session_roots=[backup_manager.CLI_MIGARATIONS_DIR / "migrations"],
+        log_dirs=[services_manager.path / "mariadb" / "logs", services_manager.path / "nginx-proxy" / "logs"],
+        keep_sessions=prune_cfg.keep_backup_sessions,
+        keep_archives=prune_cfg.keep_log_archives,
+        over_bytes=parse_size(prune_cfg.rotate_logs_over),
+    )
+    card.section("disk")
+    if actionable:
+        card.fact("status", f"{summary}  [fm.info]fm services prune[/fm.info]")
+    else:
+        card.fact("status", f"[fm.muted]{summary}[/fm.muted]")
+
     output.print_data(card.render())

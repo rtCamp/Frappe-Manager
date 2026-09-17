@@ -534,8 +534,13 @@ class ServicesInfoHarness:
             default if statuses is None else statuses
         )
 
+        from frappe_manager.metadata_manager import FMPruneConfig
+
+        self.fm_config = MagicMock(name="fm_config_manager")
+        self.fm_config.prune = FMPruneConfig()
+
         self.ctx = MagicMock(spec=typer.Context)
-        self.ctx.obj = {"services": self.services}
+        self.ctx.obj = {"services": self.services, "fm_config_manager": self.fm_config}
 
     def run(self, monkeypatch) -> _CardSpy:
         from frappe_manager.output_manager import railcard
@@ -845,3 +850,43 @@ def test_services_prune_rejects_an_unknown_category(tmp_path, out):
 
     with _pytest.raises(typer.BadParameter, match="releases"):
         _run_services_prune(tmp_path, out, only="releases")
+
+
+def test_services_info_disk_row_reads_within_retention_when_clean(tmp_path, out, monkeypatch):
+    """The clean wording is FULL (what was counted, against which threshold), so the row
+    reads as a performed check rather than a skipped one."""
+    h = ServicesInfoHarness(tmp_path)
+
+    card = h.run(monkeypatch)
+
+    assert card.facts["status"] == "[fm.muted]within retention (0 backup session(s) kept, logs under 10.0 MB)[/fm.muted]"
+
+
+def test_services_info_disk_row_points_at_prune_when_beyond_retention(tmp_path, out, monkeypatch):
+    import os
+    import time
+
+    from frappe_manager.migration_manager import backup_manager
+
+    h = ServicesInfoHarness(tmp_path)
+    sessions = backup_manager.CLI_MIGARATIONS_DIR / "migrations"
+    sessions.mkdir(parents=True)
+    now = time.time()
+    for i in range(5):
+        d = sessions / f"s{i}"
+        d.mkdir()
+        (d / "cfg").write_bytes(b"x" * 512)
+        os.utime(d, (now - (5 - i) * 60, now - (5 - i) * 60))
+    logs = h.services.path / "nginx-proxy" / "logs"
+    logs.mkdir(parents=True)
+    (logs / "access.log").write_bytes(b"a" * (11 * 1024 * 1024))
+
+    card = h.run(monkeypatch)
+
+    status = card.facts["status"]
+    assert "2 backup session(s) beyond keep 3" in status
+    assert "1 log(s) over 10.0 MB" in status
+    assert "[fm.info]fm services prune[/fm.info]" in status
+    # A status row never mutates: everything is still there.
+    assert len(list(sessions.iterdir())) == 5
+    assert (logs / "access.log").stat().st_size == 11 * 1024 * 1024

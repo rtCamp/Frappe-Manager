@@ -179,3 +179,58 @@ def execute_log_prune(plan: LogPrune) -> None:
             old.unlink(missing_ok=True)
     for old in plan.archives_to_drop:
         old.unlink(missing_ok=True)
+
+
+# ------------------------------------------------------------------ status row
+
+
+def host_prune_settings():
+    """The host `[prune]` table, for callers with no FMConfigManager in hand (the bench
+    info card). Falls back to the model defaults when the file is unreadable, because a
+    status row must never be the thing that breaks `fm info`."""
+    from frappe_manager.metadata_manager import FMConfigManager, FMPruneConfig
+
+    try:
+        return FMConfigManager.import_from_toml().prune
+    except Exception:
+        return FMPruneConfig()
+
+
+def summarize_disk_status(
+    *,
+    session_roots: list[Path],
+    log_dirs: list[Path],
+    keep_sessions: int,
+    keep_archives: int,
+    over_bytes: int,
+    releases_beyond: int = 0,
+) -> tuple[str, bool]:
+    """``(plain-text summary, actionable)`` for the info cards' `disk` row.
+
+    Pure stats and globs -- no docker, no deletion, cheap enough for every `fm info`.
+    The clean wording is deliberately FULL (what was counted, against which threshold),
+    so "within retention" reads as a performed check rather than a skipped one. The
+    caller appends the command name and applies markup.
+    """
+    stale_count = 0
+    stale_size = 0
+    kept = 0
+    for root in session_roots:
+        plan = plan_session_prune(root, keep_sessions)
+        stale_count += plan.count
+        stale_size += plan.size
+        kept += plan.kept
+
+    log_plan = plan_log_prune(log_dirs, over_bytes, keep_archives)
+
+    parts: list[str] = []
+    if releases_beyond:
+        parts.append(f"{releases_beyond} release(s) beyond keep")
+    if stale_count:
+        parts.append(f"{stale_count} backup session(s) beyond keep {keep_sessions} ({format_size(stale_size)})")
+    if log_plan.rotations:
+        parts.append(f"{len(log_plan.rotations)} log(s) over {format_size(over_bytes)} ({format_size(log_plan.rotate_size)})")
+
+    if parts:
+        return " · ".join(parts), True
+    return f"within retention ({kept} backup session(s) kept, logs under {format_size(over_bytes)})", False

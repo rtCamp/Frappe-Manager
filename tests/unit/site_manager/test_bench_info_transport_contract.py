@@ -104,6 +104,9 @@ def _config(*, sites=None, aliases=None, **over):
         "seed_image": None,
         "admin_tools": False,
         "auth": None,
+        # The disk row's inputs: no per-bench overrides, no switch table (keep_releases default).
+        "prune": None,
+        "switch": None,
         # The real model stores None rather than an empty table, and `site_names` falls back to the
         # BENCH name there: enumeration has to read `sites` to tell those two apart. Each entry is
         # a site record, which is what carries that site's own aliases.
