@@ -16,7 +16,6 @@ from frappe_manager.site_manager.bench_config import (
     RestartPolicyEnum,
 )
 from frappe_manager.site_manager.modules import db_tls
-from frappe_manager.site_manager.modules.compose_shape import BENCH_REDIS_SERVICES
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployOrchestrator
 from frappe_manager.site_manager.modules.worker_drain import drain_gate
 from frappe_manager.site_manager.site import Bench
@@ -216,7 +215,7 @@ def update(
         str | None,
         typer.Option(
             "--redis-cache",
-            help="Point the bench's framework cache at an external redis, e.g. redis://r.example:6379/0. Requires --redis-queue.",
+            help="Point the bench's framework cache at an external redis, e.g. redis://r.example:6379/0. Independent of the queue: the cache can stay on fm's own container while the queue moves out, or the other way round.",
             show_default=False,
             rich_help_panel=_PANEL_REDIS,
         ),
@@ -225,16 +224,34 @@ def update(
         str | None,
         typer.Option(
             "--redis-queue",
-            help="Point the bench's queue and realtime at an external redis, e.g. redis://r.example:6379/1. Requires --redis-cache.",
+            help="Point the bench's queue and realtime at an external redis, e.g. redis://r.example:6379/1. Independent of the cache.",
             show_default=False,
             rich_help_panel=_PANEL_REDIS,
         ),
     ] = None,
+    no_redis_cache: Annotated[
+        bool,
+        typer.Option(
+            "--no-redis-cache",
+            help="Bring the framework cache back to fm's own per-bench redis container, leaving the queue as it is.",
+            show_default=False,
+            rich_help_panel=_PANEL_REDIS,
+        ),
+    ] = False,
+    no_redis_queue: Annotated[
+        bool,
+        typer.Option(
+            "--no-redis-queue",
+            help="Bring the queue and realtime back to fm's own per-bench redis container, leaving the cache as it is.",
+            show_default=False,
+            rich_help_panel=_PANEL_REDIS,
+        ),
+    ] = False,
     no_redis: Annotated[
         bool,
         typer.Option(
             "--no-redis",
-            help="Drop the external redis and go back to fm's own per-bench redis containers.",
+            help="Bring BOTH sides back to fm's own per-bench redis containers.",
             show_default=False,
             rich_help_panel=_PANEL_REDIS,
         ),
@@ -293,6 +310,8 @@ def update(
         db_ca=db_ca,
         redis_cache=redis_cache,
         redis_queue=redis_queue,
+        no_redis_cache=no_redis_cache,
+        no_redis_queue=no_redis_queue,
         no_redis=no_redis,
     )
 
@@ -435,15 +454,24 @@ def _apply_container_work(bench: Bench, plan: UpdatePlan, output) -> None:
                 bench.admin_tools.generate_compose()
 
     if plan.redis_change and plan.redis is not None:
-        # `set_service_disabled` puts the two per-bench redis services in the `disabled` profile,
-        # which stops compose STARTING them -- it does not stop ones already running, and a
-        # `compose up` simply ignores a service whose profile is inactive. Verified on a live
-        # bench: after a switch to an external redis both fm containers were still up, serving a
-        # queue nothing read any more. Removed explicitly, by name: `down --remove-orphans` would
-        # take the workers and admin-tools containers with them, since fm's compose files share
-        # one directory and therefore one compose project.
-        output.change_head("Removing the bench's own redis containers")
-        bench.docker_client.compose.rm(services=list(BENCH_REDIS_SERVICES), stop=True, force=True)
+        # `set_service_disabled` puts a suppressed redis service in the `disabled` profile, which
+        # stops compose STARTING it -- it does not stop one already running, and a `compose up`
+        # silently ignores a service whose profile is inactive. Verified on a live bench: after a
+        # switch to an external redis both fm containers were still up, serving a queue nothing
+        # read any more.
+        #
+        # Only the sides that actually moved out, because `[redis]` is per side: a bench with an
+        # external queue and a local cache must keep its `redis-cache` container running.
+        # Removed by NAME rather than with `down --remove-orphans`, which would take the workers
+        # and admin-tools containers too: fm's compose files share one directory, so one project.
+        moved_out = [
+            service
+            for service, url in (("redis-cache", plan.redis.cache), ("redis-queue", plan.redis.queue))
+            if url
+        ]
+        if moved_out:
+            output.change_head(f"Removing fm's own {', '.join(moved_out)}")
+            bench.docker_client.compose.rm(services=moved_out, stop=True, force=True)
 
     if plan.recreate_everything:
         output.change_head("Recreating containers")

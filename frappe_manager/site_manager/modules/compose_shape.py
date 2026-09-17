@@ -253,14 +253,24 @@ def db_cli_env(config) -> tuple[tuple[str, str], ...]:
 
 
 def redis_service_specs(config) -> tuple[ServiceSpec, ...]:
-    """Enabled state of the two per-bench redis containers.
+    """Enabled state of the two per-bench redis containers, decided per SIDE.
 
-    ``[redis]`` means the bench talks to a redis fm does not own, so fm must not
-    start its own. Absent means today's behaviour, and the specs then carry
-    ``enabled=True`` so dropping ``[redis]`` clears the profile again.
+    A `[redis]` key means that side talks to a redis fm does not own, so fm must not start its
+    own container for it. The sides are independent: `[redis].queue` alone suppresses only
+    `redis-queue` and leaves `redis-cache` running, which is the usual managed-redis shape (the
+    stateful half moves out, the throwaway latency-sensitive half stays local).
+
+    An absent key -- or no table at all -- carries ``enabled=True``, so dropping either side
+    clears that container's profile again.
     """
-    enabled = config.redis is None
-    return tuple(ServiceSpec(name=name, image=None, managed_binds=(), enabled=enabled) for name in BENCH_REDIS_SERVICES)
+    external = {
+        "redis-cache": bool(config.redis and config.redis.cache),
+        "redis-queue": bool(config.redis and config.redis.queue),
+    }
+    return tuple(
+        ServiceSpec(name=name, image=None, managed_binds=(), enabled=not external[name])
+        for name in BENCH_REDIS_SERVICES
+    )
 
 
 def bench_service_specs(config, ctx: RenderContext = DEFAULT_CONTEXT) -> tuple[ServiceSpec, ...]:

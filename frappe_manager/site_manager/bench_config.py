@@ -1583,24 +1583,56 @@ class SiteConfig(BaseModel):
 
 
 class RedisConfig(BaseModel):
-    """External redis for the whole bench (`[redis]`; absent means fm-managed redis containers)."""
+    """External redis for this bench (`[redis]`), per side.
+
+    Each key names a redis fm does NOT own; an absent key means that side stays on fm's own
+    per-bench container. So the table carries only the sides you moved out, and an absent table
+    means both are fm's -- the same "absent means managed" convention every other fm table uses.
+
+    A SPLIT is a first-class shape, not a degenerate one. Frappe has always taken `redis_cache`
+    and `redis_queue` as independent config keys and does not care whether they name one server;
+    requiring both was fm's own restriction. The split is usually the better architecture: the
+    queue is the stateful half, where a managed provider's durability and failover earn their
+    keep, while the cache is throwaway and latency-sensitive, so paying a network hop and a
+    per-operation charge for data you can regenerate is the worse trade.
+
+    It also removes a hazard instead of adding one: the shared-logical-database danger below
+    cannot arise when the two sides live on physically different servers.
+    """
 
     # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
     model_config = ConfigDict(extra="allow")
 
-    cache: str = Field(..., description="Redis URL for the framework cache (e.g. 'redis://r.example:6379/0').")
-    queue: str = Field(..., description="Redis URL for the queue and realtime (e.g. 'redis://r.example:6379/1').")
+    cache: str | None = Field(
+        None, description="Redis URL for the framework cache; absent leaves it on fm's container."
+    )
+    queue: str | None = Field(
+        None, description="Redis URL for the queue and realtime; absent leaves it on fm's container."
+    )
+
+    @model_validator(mode="after")
+    def _at_least_one_side(self) -> "RedisConfig":
+        """An empty `[redis]` table is a mistake, not a shape.
+
+        Both sides managed is spelled by having no table at all, so a table naming neither side
+        would read as "external redis" while addressing fm's own containers.
+        """
+        if not self.cache and not self.queue:
+            raise ValueError("[redis] must name at least one of cache or queue; drop the table to use both of fm's own")
+        return self
 
     @model_validator(mode="after")
     def _distinct_logical_databases(self) -> "RedisConfig":
         """Cache and queue must not be the same logical database.
 
-        A restore calls ``frappe.cache.delete_keys("")``, a mass delete, so a shared
-        index would destroy the queue along with the cache.
+        A restore calls ``frappe.cache.delete_keys("")``, a mass delete, so a shared index would
+        destroy the queue along with the cache. Only checkable when BOTH sides are external: a
+        split has one side on fm's own container, which is a different server by construction.
         """
         from frappe_manager.site_manager.modules.compose_shape import validate_redis_endpoints
 
-        validate_redis_endpoints(self.cache, self.queue)
+        if self.cache and self.queue:
+            validate_redis_endpoints(self.cache, self.queue)
         return self
 
 
@@ -2223,9 +2255,14 @@ class BenchConfig(BaseModel):
         if config.redis is not None:
             from frappe_manager.site_manager.modules.compose_shape import unsupported_redis_scheme
 
+            # Only the sides the table actually names: an absent key means fm's own container,
+            # whose URL fm builds itself and never needs checking.
             scheme_problems = [
                 problem
-                for problem in (unsupported_redis_scheme(config.redis.cache), unsupported_redis_scheme(config.redis.queue))
+                for problem in (
+                    unsupported_redis_scheme(config.redis.cache) if config.redis.cache else None,
+                    unsupported_redis_scheme(config.redis.queue) if config.redis.queue else None,
+                )
                 if problem
             ]
             if scheme_problems:

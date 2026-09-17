@@ -488,22 +488,24 @@ def _refuse_unsupported_redis_scheme(redis_cache: str, redis_queue: str) -> None
     that read-time warning, so an operator sees identical wording from either path.
     """
     for flag, url in (("--redis-cache", redis_cache), ("--redis-queue", redis_queue)):
-        problem = unsupported_redis_scheme(url)
+        # Only the side that was named: an absent one means fm's own container, whose URL fm
+        # builds itself and never needs checking.
+        problem = unsupported_redis_scheme(url) if url else None
         if problem:
             raise typer.BadParameter(f"{flag}: {problem}")
 
 
 def _resolve_redis(redis_cache: str | None, redis_queue: str | None) -> RedisConfig | None:
-    """``[redis]`` from the flag pair, or None for the fm-managed redis containers."""
+    """``[redis]`` from whichever sides were named, or None for the fm-managed redis containers.
+
+    The two sides are independent: naming only ``--redis-queue`` moves the queue out and leaves
+    the cache on fm's own container, which is the usual managed-redis shape (the stateful half is
+    worth a provider, the throwaway latency-sensitive half is not). Frappe has always taken
+    ``redis_cache`` and ``redis_queue`` as separate config keys; requiring both was fm's
+    restriction, not the framework's.
+    """
     if redis_cache is None and redis_queue is None:
         return None
-    if not (redis_cache and redis_queue):
-        missing = "--redis-queue" if redis_cache else "--redis-cache"
-        raise typer.BadParameter(
-            f"--redis-cache and --redis-queue must be given together, and {missing} is missing. A redis-less "
-            "bench is not a thing: a missing redis_queue raises outright and redis_cache backs the document "
-            "cache and sessions."
-        )
     _refuse_unsupported_redis_scheme(redis_cache, redis_queue)
     try:
         return RedisConfig(cache=redis_cache, queue=redis_queue)
@@ -950,7 +952,7 @@ def create(
         str | None,
         typer.Option(
             "--redis-cache",
-            help="External redis URL for the framework cache, e.g. redis://r.example:6379/0. Requires --redis-queue.",
+            help="External redis URL for the framework cache, e.g. redis://r.example:6379/0. Independent of the queue: either side may stay on fm's own container.",
             show_default=False,
             rich_help_panel=_PANEL_REDIS,
         ),

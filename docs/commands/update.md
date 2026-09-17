@@ -30,9 +30,11 @@ $ fm update BENCH(/SITE) [OPTIONS]
 * `--skip-version-check`: Accept a Python/Node version that does not satisfy frappe's requirement.
 * `--recreate-python-env/--no-recreate-python-env`: Rebuild the venv. Alongside --python it is the default (the new interpreter needs a fresh venv); --no-recreate-python-env installs the new Python and leaves the existing venv in place. On its own, with no version change, it rebuilds the venv at the recorded Python/Node and reinstalls the apps.
 * `--drain/--no-drain`: Suspend RQ workers and wait for in-flight jobs before restarting or recreating them, and abort the update if they outlast \[workers].drain_timeout; --no-drain interrupts them instead.
-* `--redis-cache`: Point the bench's framework cache at an external redis, e.g. redis://r.example:6379/0. Requires --redis-queue.
-* `--redis-queue`: Point the bench's queue and realtime at an external redis, e.g. redis://r.example:6379/1. Requires --redis-cache.
-* `--no-redis`: Drop the external redis and go back to fm's own per-bench redis containers.
+* `--redis-cache`: Point the bench's framework cache at an external redis, e.g. redis://r.example:6379/0. Independent of the queue: the cache can stay on fm's own container while the queue moves out, or the other way round.
+* `--redis-queue`: Point the bench's queue and realtime at an external redis, e.g. redis://r.example:6379/1. Independent of the cache.
+* `--no-redis-cache`: Bring the framework cache back to fm's own per-bench redis container, leaving the queue as it is.
+* `--no-redis-queue`: Bring the queue and realtime back to fm's own per-bench redis container, leaving the cache as it is.
+* `--no-redis`: Bring BOTH sides back to fm's own per-bench redis containers.
 * `--db-ca`: Reinstall the external database CA after a rotation: the site PEM, the bench ca-bundle.pem the dumps use, and the recorded path are refreshed together.
 * `--dry-run`: Print what would change and exit without touching the bench.
 

@@ -870,10 +870,19 @@ cache = "redis://r.example:6379/0"
 queue = "redis://r.example:6379/1"
 ```
 
+The two sides are independent, and a **split is a first-class shape**: each key names a redis FM does not own, and an absent key leaves that side on FM's own per-bench container. Moving only the queue out is the usual managed-redis setup, because the queue is the stateful half where a provider's durability and failover earn their keep, while the cache is throwaway and latency-sensitive.
+
+```toml
+[redis]
+queue = "redis://r.example:6379/1"   # cache absent: stays on FM's redis-cache container
+```
+
+An absent `[redis]` table means both sides are FM's. A table naming neither side is refused, since that is what dropping the table already says.
+
 !!! danger "Cache and queue need different logical databases"
     Loading the config fails when they share one. A restore calls `frappe.cache.delete_keys("")`, a mass delete, so a shared index would wipe the queue along with the cache.
 
-**Set via:** `fm create BENCH --redis-cache URL --redis-queue URL` at create time; `fm update BENCH --redis-cache URL --redis-queue URL` afterwards, and `fm update BENCH --no-redis` to go back to FM's own per-bench redis containers. Both URLs are always required together: a redis-less bench is not a thing, and a half-configured pair would leave the queue on FM's container while the cache moved away.
+**Set via:** `fm create BENCH --redis-cache URL --redis-queue URL` at create time; `fm update BENCH --redis-cache URL` and/or `--redis-queue URL` afterwards, with `--no-redis-cache`, `--no-redis-queue` and `--no-redis` to bring a side (or both) back to FM's own per-bench redis containers. Either side can be moved on its own, and `--no-redis-cache`/`--no-redis-queue` bring one side back while leaving the other alone; `--no-redis` brings both back. Realtime rides the cache endpoint (`redis_socketio` is set from `redis_cache`), so moving the cache out moves realtime with it.
 
 Changing the endpoints re-renders the compose file and recreates the whole bench, because the two per-bench redis containers appear or disappear with this table and every process holds its connection from start-up. Queued jobs and cached sessions do **not** move with the endpoint: anything still in the old queue is left there, and sessions are invalidated by the cache change. Workers drain first, so in-flight jobs finish before the switch (see [`[workers]`](#workers)).
 
