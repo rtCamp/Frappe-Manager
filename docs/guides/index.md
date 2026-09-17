@@ -70,7 +70,7 @@ Everyday bench workflows, for any bench: dev or prod, on your laptop or a server
 
     ---
 
-    Point a site at your own MariaDB server instead of fm's `global-db`. Declared per site, not per bench.
+    Point a site at your own MariaDB server instead of fm's `mariadb`. Declared per site, not per bench.
 
 </div>
 

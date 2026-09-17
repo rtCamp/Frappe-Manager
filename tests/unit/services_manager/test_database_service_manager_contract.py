@@ -7,7 +7,7 @@ once:
 1. **Endpoint resolution.** `DatabaseServerServiceInfo` decides *which* server a password travels
    to. `external` is the switch: False means "a compose service fm owns, exec the client into that
    container", True means "a DNS name fm does not own, run the client from the bench's frappe
-   container instead". Getting that default wrong routes the global-db root password at a foreign
+   container instead". Getting that default wrong routes the mariadb root password at a foreign
    host, or tries to exec into a container that does not exist.
 2. **Statement shape.** Every method here is a string-building function around a shell-out. Nothing
    in this file validates its own SQL, so the argv/SQL *is* the contract. These tests pin the exact
@@ -66,7 +66,7 @@ def docker_error(*, stdout=(), stderr=(), exit_code=1) -> DockerException:
 
 
 def make_info(**overrides) -> DatabaseServerServiceInfo:
-    fields: dict = {"host": "global-db", "user": "root", "port": 3306, "password": "rootpw"}
+    fields: dict = {"host": "mariadb", "user": "root", "port": 3306, "password": "rootpw"}
     fields.update(overrides)
     return DatabaseServerServiceInfo(**fields)
 
@@ -85,7 +85,7 @@ def make_manager(
     """
     info = info or make_info()
     compose_file_manager = mock.MagicMock()
-    names = container_names if container_names is not None else {"global-db": "fm-global-db", "frappe": "fm-frappe"}
+    names = container_names if container_names is not None else {"mariadb": "fm-mariadb", "frappe": "fm-frappe"}
     compose_file_manager.get_container_names.return_value = names
     docker_client = mock.MagicMock()
     docker_client.compose.get_all_services_status.return_value = [
@@ -115,8 +115,8 @@ def test_an_endpoint_is_fm_owned_unless_it_is_explicitly_declared_external():
 
 
 def test_a_fm_owned_endpoint_runs_the_client_inside_the_database_container_itself():
-    manager = make_manager(make_info(host="global-db"))
-    assert manager.run_on_compose_service == "global-db"
+    manager = make_manager(make_info(host="mariadb"))
+    assert manager.run_on_compose_service == "mariadb"
     # the engine image has no `frappe` user; passing one breaks the `compose run` fallback
     assert manager._run_user is None
 
@@ -130,12 +130,12 @@ def test_an_external_endpoint_runs_the_client_from_the_bench_frappe_container():
 
 
 def test_an_explicit_run_on_compose_service_overrides_both_defaults():
-    internal = make_manager(make_info(host="global-db"), run_on_compose_service="frappe")
+    internal = make_manager(make_info(host="mariadb"), run_on_compose_service="frappe")
     assert internal.run_on_compose_service == "frappe"
     assert internal._run_user == "frappe"
 
-    external = make_manager(make_info(host="db.example.com", external=True), run_on_compose_service="global-db")
-    assert external.run_on_compose_service == "global-db"
+    external = make_manager(make_info(host="db.example.com", external=True), run_on_compose_service="mariadb")
+    assert external.run_on_compose_service == "mariadb"
     assert external._run_user is None
 
 
@@ -160,17 +160,17 @@ def test_compose_import_prefers_the_secret_file_over_an_inline_password(tmp_path
         tmp_path=tmp_path,
     )
 
-    info = DatabaseServerServiceInfo.import_from_compose_file("global-db", compose_file_manager)
+    info = DatabaseServerServiceInfo.import_from_compose_file("mariadb", compose_file_manager)
 
     assert info.password == "from-secret-file"
     compose_file_manager.get_secret_file_path.assert_called_once_with("db_root_password")
-    compose_file_manager.get_envs.assert_called_once_with(container="global-db")
+    compose_file_manager.get_envs.assert_called_once_with(container="mariadb")
 
 
 def test_compose_import_falls_back_to_the_inline_root_password_env():
     compose_file_manager = _compose_file_with({"MYSQL_ROOT_PASSWORD": "inline-pw"})
 
-    info = DatabaseServerServiceInfo.import_from_compose_file("global-db", compose_file_manager)
+    info = DatabaseServerServiceInfo.import_from_compose_file("mariadb", compose_file_manager)
 
     assert info.password == "inline-pw"
     compose_file_manager.get_secret_file_path.assert_not_called()
@@ -184,9 +184,9 @@ def test_compose_import_hardcodes_root_at_the_service_name_and_the_engine_port()
     """
     compose_file_manager = _compose_file_with({"MYSQL_ROOT_PASSWORD": "inline-pw"})
 
-    info = DatabaseServerServiceInfo.import_from_compose_file("global-db", compose_file_manager)
+    info = DatabaseServerServiceInfo.import_from_compose_file("mariadb", compose_file_manager)
 
-    assert (info.user, info.host, info.port, info.external) == ("root", "global-db", 3306, False)
+    assert (info.user, info.host, info.port, info.external) == ("root", "mariadb", 3306, False)
     assert info.name is None
 
 
@@ -194,9 +194,9 @@ def test_compose_import_raises_when_no_password_env_is_present_and_asked_to():
     compose_file_manager = _compose_file_with({"MYSQL_DATABASE": "root"})
 
     with pytest.raises(DatabaseServicePasswordNotFound) as excinfo:
-        DatabaseServerServiceInfo.import_from_compose_file("global-db", compose_file_manager)
+        DatabaseServerServiceInfo.import_from_compose_file("mariadb", compose_file_manager)
 
-    assert excinfo.value.service_name == "global-db"
+    assert excinfo.value.service_name == "mariadb"
 
 
 def test_compose_import_without_raise_exception_still_refuses_to_build_a_passwordless_endpoint():
@@ -207,7 +207,7 @@ def test_compose_import_without_raise_exception_still_refuses_to_build_a_passwor
     compose_file_manager = _compose_file_with({"MYSQL_DATABASE": "root"})
 
     with pytest.raises(ValidationError):
-        DatabaseServerServiceInfo.import_from_compose_file("global-db", compose_file_manager, raise_exception=False)
+        DatabaseServerServiceInfo.import_from_compose_file("mariadb", compose_file_manager, raise_exception=False)
 
 
 # --- DatabaseServerServiceInfo.import_from_bench ---
@@ -323,9 +323,9 @@ def test_bench_import_tolerates_an_empty_common_config_object(tmp_path):
 
 
 def test_client_flags_carry_user_password_port_and_host_in_that_exact_order():
-    manager = make_manager(make_info(host="global-db", user="root", port=3306, password="s3cr3t"))
+    manager = make_manager(make_info(host="mariadb", user="root", port=3306, password="s3cr3t"))
 
-    assert manager.client_flags == "-u'root' -p's3cr3t' -P3306 -h'global-db'"
+    assert manager.client_flags == "-u'root' -p's3cr3t' -P3306 -h'mariadb'"
 
 
 def test_the_base_command_is_the_canonical_mariadb_client_not_a_legacy_mysql_symlink():
@@ -337,7 +337,7 @@ def test_the_base_command_is_the_canonical_mariadb_client_not_a_legacy_mysql_sym
 
 
 def test_no_option_file_env_is_emitted_for_the_global_database():
-    """global-db carries no TLS, so nothing should make the client read a my.cnf."""
+    """mariadb carries no TLS, so nothing should make the client read a my.cnf."""
     assert make_manager()._env is None
 
 
@@ -353,17 +353,17 @@ def test_a_mysql_home_is_emitted_as_the_env_that_makes_the_client_read_its_optio
 def test_a_running_service_is_recognised_by_matching_its_compose_container_name():
     manager = make_manager(running=True)
 
-    assert manager._is_service_running("global-db") is True
+    assert manager._is_service_running("mariadb") is True
 
 
 def test_a_stopped_service_is_reported_not_running():
     manager = make_manager(running=False)
 
-    assert manager._is_service_running("global-db") is False
+    assert manager._is_service_running("mariadb") is False
 
 
 def test_a_service_with_no_container_at_all_is_reported_not_running():
-    manager = make_manager(container_names={"global-db": "fm-global-db"})
+    manager = make_manager(container_names={"mariadb": "fm-mariadb"})
 
     assert manager._is_service_running("redis-cache") is False
 
@@ -374,7 +374,7 @@ def test_a_running_service_gets_a_compose_exec_carrying_the_command_and_env():
     manager._compose_exec_or_run("SOME COMMAND", stream=False, user="frappe", rm=True)
 
     manager.docker_client.compose.exec.assert_called_once_with(
-        "global-db",
+        "mariadb",
         command="SOME COMMAND",
         stream=False,
         env=["MYSQL_HOME=/opt/tls"],
@@ -389,7 +389,7 @@ def test_a_stopped_service_gets_a_compose_run_that_smuggles_the_command_in_as_th
     manager._compose_exec_or_run("SOME COMMAND", stream=False, user="frappe", rm=True, entrypoint="ignored")
 
     manager.docker_client.compose.run.assert_called_once_with(
-        "global-db",
+        "mariadb",
         stream=False,
         user="frappe",
         rm=True,
@@ -432,7 +432,7 @@ def test_an_uncaptured_query_streams_and_is_rendered_through_the_docker_noise_fi
 def test_a_docker_failure_is_translated_into_the_domain_exception_the_caller_supplied():
     manager = make_manager(running=True)
     manager.docker_client.compose.exec.side_effect = docker_error(stderr=["boom"])
-    domain = DatabaseServiceException("global-db", "translated")
+    domain = DatabaseServiceException("mariadb", "translated")
 
     with pytest.raises(DatabaseServiceException) as excinfo:
         manager.db_run_query("'SELECT 1;'", on_failure=lambda: domain)
@@ -505,7 +505,7 @@ def test_waiting_gives_up_after_timeout_attempts_and_reports_interval_times_time
     assert ping.call_count == 4
     assert sleep.call_count == 4
     assert "8" in str(excinfo.value)
-    assert excinfo.value.service_name == "global-db"
+    assert excinfo.value.service_name == "mariadb"
 
 
 # --- MariaDBManager: users ---
@@ -714,7 +714,7 @@ def test_an_import_copies_the_dump_into_the_container_tmp_then_sources_it(tmp_pa
 
     manager.docker_client.compose.cp.assert_called_once_with(
         str(dump.absolute()),
-        "global-db:/tmp/dump.sql",
+        "mariadb:/tmp/dump.sql",
         stream=False,
     )
     assert manager.docker_client.compose.exec.call_args.kwargs["command"] == (

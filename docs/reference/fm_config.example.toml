@@ -24,10 +24,9 @@
 
 # Network configuration for the global frontend network.
 # [network]
-# CIDR subnet for the global-frontend-network (e.g. 10.1.0.0/16) [optional, unset by default]
+# CIDR subnet for the frontend-network (e.g. 10.1.0.0/16) [optional, unset by default]
 # subnet_cidr = ...
-# Static IP of global-nginx-proxy on global-frontend-network (e.g. 10.1.0.2) [optional, unset by
-# default]
+# Static IP of nginx-proxy on frontend-network (e.g. 10.1.0.2) [optional, unset by default]
 # proxy_ip = ...
 
 # ---- [output] ------------------------------------------------------------------------------

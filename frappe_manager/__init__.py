@@ -62,12 +62,12 @@ STABLE_APP_BRANCH_MAPPING_LIST = {
     "hrms": "version-16",
 }
 
-# The shared global-db engine. Pinned to what Frappe's own CI tests against on the
+# The shared mariadb engine. Pinned to what Frappe's own CI tests against on the
 # branch above (frappe/.github/workflows/_base-server-tests.yml), which is the real
 # statement of support: the soft bounds in frappe/database/mariadb/setup_db.py warn
 # below 10.6 and above 11.8. Kept in sync with the `image:` line in both
-# docker-compose.services templates by tests/unit/services_manager/test_global_db_image.py.
-GLOBAL_DB_IMAGE = "mariadb:11.8"
+# docker-compose.services templates by tests/unit/services_manager/test_mariadb_image.py.
+MARIADB_IMAGE = "mariadb:11.8"
 
 # Commands that must not trigger the first-install prefetch of the stock image set.
 # The prefetch exists so a first `fm create` does not stall halfway through pulling

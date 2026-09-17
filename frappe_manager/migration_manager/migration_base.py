@@ -283,7 +283,7 @@ class MigrationBase(ABC):
         Read straight out of ``bench_config.toml`` rather than through the model, so it works
         against whatever config version is already on disk. Without it the dump connects in
         plaintext, because the `mariadb` client never reads ``db_ssl_*`` from ``site_config.json``,
-        and an enforcing server refuses it with 3159. None for a site on the global-db container.
+        and an enforcing server refuses it with 3159. None for a site on the shared mariadb container.
 
         Both shapes are accepted because a migration meets either: ``[database."<site>"]`` at the
         top level before the sites table lands, and ``[sites."<site>".database]`` after. Reading

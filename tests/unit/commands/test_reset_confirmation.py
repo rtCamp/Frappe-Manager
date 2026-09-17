@@ -24,7 +24,7 @@ are pinned here:
   schema was about to be dropped, which describes a blast radius three times the real one.
 * The external-database refusal is per SITE. `reinstall` drops and recreates a schema, so
   fm declines for the same reason `fm delete` declines to drop it: the schema is not fm's.
-  On a mixed bench the global-db site still resets and only the external one is refused,
+  On a mixed bench the mariadb site still resets and only the external one is refused,
   and the refusal carries the site, the schema and the host so the operator can act.
 
 `fm reset` deliberately gains NO new confirmation for the multi-site case. It destroys
@@ -294,7 +294,7 @@ def test_an_address_with_no_site_part_falls_back_to_the_benchs_own_site():
 # ------------------------------------------------- the external-database refusal
 
 
-def test_a_global_db_site_on_a_mixed_bench_resets():
+def test_a_mariadb_site_on_a_mixed_bench_resets():
     """One bench, two sites, two database servers. The site fm owns the schema of is not
     punished for its neighbour."""
     result = _run(

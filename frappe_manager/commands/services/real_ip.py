@@ -26,10 +26,10 @@ def _proxy_conf_is_valid(services) -> bool | None:
     nothing to validate against and nothing to reload."""
     from frappe_manager.docker import DockerException
 
-    if not services.is_service_running("global-nginx-proxy"):
+    if not services.is_service_running("nginx-proxy"):
         return None
     try:
-        services.docker_client.compose.exec(service="global-nginx-proxy", command="nginx -t", stream=False)
+        services.docker_client.compose.exec(service="nginx-proxy", command="nginx -t", stream=False)
     except DockerException:
         return False
     return True
@@ -203,7 +203,7 @@ def real_ip(
     if not services.nginx_controller.reload():
         output.warning(
             f"Real-ip written and validated ({summary}), but the proxy did not reload; "
-            "run 'fm services restart global-nginx-proxy' to apply it"
+            "run 'fm services restart nginx-proxy' to apply it"
         )
         return
 

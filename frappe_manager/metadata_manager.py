@@ -100,11 +100,11 @@ class FMNetworkConfig(BaseModel):
 
     subnet_cidr: str | None = Field(
         default=None,
-        description="CIDR subnet for the global-frontend-network (e.g. 10.1.0.0/16)",
+        description="CIDR subnet for the frontend-network (e.g. 10.1.0.0/16)",
     )
     proxy_ip: str | None = Field(
         default=None,
-        description="Static IP of global-nginx-proxy on global-frontend-network (e.g. 10.1.0.2)",
+        description="Static IP of nginx-proxy on frontend-network (e.g. 10.1.0.2)",
     )
 
     @property

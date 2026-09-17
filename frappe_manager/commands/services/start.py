@@ -15,7 +15,7 @@ from frappe_manager.services_manager.services import ServicesManager
 )
 @example(
     "Start the database only",
-    "global-db",
+    "mariadb",
 )
 def start_services(
     ctx: typer.Context,

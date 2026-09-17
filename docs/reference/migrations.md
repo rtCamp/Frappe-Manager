@@ -6,7 +6,7 @@ Updating the `fm` CLI does not update what it manages. `fm migrate` brings FM's 
 
 FM migrates two things, tracked separately:
 
-1. **FM infrastructure**: the global services (`global-db`, `global-nginx-proxy`) and `~/frappe/fm_config.toml`
+1. **FM infrastructure**: the global services (`mariadb`, `nginx-proxy`) and `~/frappe/fm_config.toml`
 2. **Benches**: each bench's `bench_config.toml`, compose files, generated nginx and supervisor config
 
 Both are **version-aware**: FM records the version each one is migrated to and only runs the migrations newer than that.
@@ -66,19 +66,20 @@ Migrations only reach back to **v0.18.0**. From anything older, FM refuses and p
 
 ```
 Cannot migrate from v0.17.0. Minimum supported version is v0.18.0.
-Migration path: v0.17.0 → v0.18.0 → v0.20.0
+Migration path: v0.17.0 → v0.18.0 → v0.21.0
 ```
 
 ---
 
 ## Migrations on Disk {#inventory}
 
-Two migrations ship with the current CLI. Each one runs only if the target is below its version.
+Three migrations ship with the current CLI. Each one runs only if the target is below its version.
 
 | Version | Infrastructure | Per bench |
 |---|---|---|
-| **v0.19.0** | `global-nginx-proxy` image bumped to `jwilder/nginx-proxy:1.11` | the `[ssl]` table becomes a top-level `[[ssl_certificates]]` array and `preferred_challenge` becomes `challenge_type`, though nothing reads that array where it lands (see the v0.20.0 row and the warning below); nginx `SITENAME` becomes `SITE_MAPPINGS`; `alias_domains`, `upload_limit`, `restart_policy` added; runtime moves from pyenv/nvm to uv/fnm and from certbot to acme.sh; supervisor config regenerated |
-| **v0.20.0** | `global-db` moved off end-of-life `mariadb:10.6` to `mariadb:11.8`, with `MARIADB_AUTO_UPGRADE` letting the image upgrade the system tables; the global `[cloudflare]` table in `fm_config.toml` becomes the credential set labelled `cloudflare` under `[ssl.dns_providers]`, so both scopes now store labelled sets and nothing else | Adminer 4 to 5 with the FM login plugin; `admin_tools_username` / `admin_tools_password` move into the `[auth]` table; bench nginx gains the real-IP overlay and re-renders `default.conf` so it logs JSON; the `[ssl]` table is reshaped into the one form the loader reads: v0.19.0's top-level `ssl_certificates` array and `dns_providers` table move under `[ssl]`, `[ssl].dns_challenge_providers` is renamed `dns_providers`, a credential left on a certificate moves into the set labelled `cloudflare`, and the dead certificate keys (`email`, `status`, `cert_path`, `key_path`, `issued_date`, `last_renewal_attempt`, `toml_exclude`) are deleted; every bench gains a `[sites."<site>"]` entry and `[database."<site>"]` and a top-level `alias_domains` list move under it; each recorded deploy's `backup` path becomes a `backups` map keyed by site; `[switch].migrate = "auto"` becomes `true`; `default_site` is recorded in `common_site_config.json` for a bench that has none |
+| **v0.19.0** | `nginx-proxy` image bumped to `jwilder/nginx-proxy:1.11` | the `[ssl]` table becomes a top-level `[[ssl_certificates]]` array and `preferred_challenge` becomes `challenge_type`, though nothing reads that array where it lands (see the v0.20.0 row and the warning below); nginx `SITENAME` becomes `SITE_MAPPINGS`; `alias_domains`, `upload_limit`, `restart_policy` added; runtime moves from pyenv/nvm to uv/fnm and from certbot to acme.sh; supervisor config regenerated |
+| **v0.20.0** | `mariadb` moved off end-of-life `mariadb:10.6` to `mariadb:11.8`, with `MARIADB_AUTO_UPGRADE` letting the image upgrade the system tables; the global `[cloudflare]` table in `fm_config.toml` becomes the credential set labelled `cloudflare` under `[ssl.dns_providers]`, so both scopes now store labelled sets and nothing else | Adminer 4 to 5 with the FM login plugin; `admin_tools_username` / `admin_tools_password` move into the `[auth]` table; bench nginx gains the real-IP overlay and re-renders `default.conf` so it logs JSON; the `[ssl]` table is reshaped into the one form the loader reads: v0.19.0's top-level `ssl_certificates` array and `dns_providers` table move under `[ssl]`, `[ssl].dns_challenge_providers` is renamed `dns_providers`, a credential left on a certificate moves into the set labelled `cloudflare`, and the dead certificate keys (`email`, `status`, `cert_path`, `key_path`, `issued_date`, `last_renewal_attempt`, `toml_exclude`) are deleted; every bench gains a `[sites."<site>"]` entry and `[database."<site>"]` and a top-level `alias_domains` list move under it; each recorded deploy's `backup` path becomes a `backups` map keyed by site; `[switch].migrate = "auto"` becomes `true`; `default_site` is recorded in `common_site_config.json` for a bench that has none |
+| **v0.21.0** | the shared services are renamed to their engine names, atomically with everything that carries the old names: compose service `global-db` becomes `mariadb` and `global-nginx-proxy` becomes `nginx-proxy` (containers `fm_mariadb`, `fm_nginx-proxy`), the shared networks become `fm-frontend-network` / `fm-backend-network` with their subnets carried over unchanged, and on macOS the data volume is copied to `fm-mariadb-data` (the old volume is kept as the rollback path and reported for manual removal) | every bench is taken down for the network swap; its compose files are rewritten to the renamed external networks and `db_host: global-db` becomes `mariadb` in every site config (external database endpoints are never touched); benches that were running are started again |
 
 The v0.19.0 runtime rebuild is the slow part: it recreates the Python virtualenv with `uv`, reinstalls apps, and rebuilds assets.
 
@@ -96,7 +97,7 @@ Unless you skip them, backups are taken **per migration version** immediately be
 | What | Notes |
 |---|---|
 | `bench_config.toml` | |
-| `docker-compose.yml` | v0.20.0 also backs up `docker-compose.admin-tools.yml` |
+| `docker-compose.yml` | v0.20.0 also backs up `docker-compose.admin-tools.yml`; v0.21.0 backs up all three compose files |
 | `common_site_config.json`, `site_config.json` | |
 | `db-<bench>-<DD-MM-YYYY--HH-MM-SS>.sql.gz` | gzipped logical dump of the bench database |
 | `supervisor.conf`, `*.fm.supervisor.conf` | v0.19.0 only, because it regenerates them |
@@ -107,7 +108,7 @@ Unless you skip them, backups are taken **per migration version** immediately be
 | What | Notes |
 |---|---|
 | `docker-compose.yml` | the global services compose file |
-| `global-db-all-databases-<timestamp>.sql.gz` | v0.20.0 only: whole-server dump taken while the old engine still runs, because the datadir upgrade is one-way |
+| `global-db-all-databases-<timestamp>.sql.gz` | v0.20.0 only: whole-server dump taken while the old engine still runs, because the datadir upgrade is one-way (the file keeps the service's pre-v0.21.0 name, which is what it was called when that migration ran) |
 
 !!! info "Timestamp format"
     `DD-Mon-YY--HH-MM-SS`, for example `12-Apr-26--14-30-45`. Collisions within one run get microseconds appended.

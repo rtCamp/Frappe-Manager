@@ -55,7 +55,10 @@ from pathlib import Path
 import tomlkit
 from ruamel.yaml import YAML
 
-from frappe_manager import CLI_FM_CONFIG_PATH, GLOBAL_DB_IMAGE
+# Mechanical alias, not a behavior change: v0.21.0 renamed the constant to MARIADB_IMAGE;
+# this frozen migration keeps its old-world name for the identical value.
+from frappe_manager import CLI_FM_CONFIG_PATH
+from frappe_manager import MARIADB_IMAGE as GLOBAL_DB_IMAGE
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.migration_manager.migration_helpers import MigrationBench

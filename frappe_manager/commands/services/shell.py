@@ -10,11 +10,11 @@ from frappe_manager.services_manager.services import ServicesManager
 
 @example(
     "Open a shell in the global database",
-    "global-db",
+    "mariadb",
 )
 @example(
     "Open a shell in the proxy",
-    "global-nginx-proxy",
+    "nginx-proxy",
 )
 def shell_services(
     ctx: typer.Context,

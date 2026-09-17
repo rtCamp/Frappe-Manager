@@ -1,6 +1,6 @@
 """Regression contracts for `fm self *` and `fm services *`.
 
-These commands act on SHARED infrastructure: the global-db + global-nginx-proxy stack every
+These commands act on SHARED infrastructure: the mariadb + nginx-proxy stack every
 bench on the host depends on, plus every bench at once. The decisions defended here are the ones
 whose failure mode is "every bench on this host", not "this command misbehaved":
 
@@ -145,8 +145,8 @@ def test_shutdown_runs_benches_then_the_proxy_then_the_database(out):
 
     assert h.calls == [
         "stop-bench:vtest.localhost",
-        "stop-service:global-nginx-proxy",
-        "stop-service:global-db",
+        "stop-service:nginx-proxy",
+        "stop-service:mariadb",
     ]
 
 
@@ -163,7 +163,7 @@ def test_global_only_never_touches_the_benches(out):
 
     h.run(global_only=True)
 
-    assert h.calls == ["stop-service:global-nginx-proxy", "stop-service:global-db"]
+    assert h.calls == ["stop-service:nginx-proxy", "stop-service:mariadb"]
 
 
 def test_an_already_stopped_service_is_still_skipped(out):
@@ -172,7 +172,7 @@ def test_an_already_stopped_service_is_still_skipped(out):
     h.run(global_only=True)
 
     assert h.calls == []
-    assert "Skipping already stopped service global-db" in joined(out.print)
+    assert "Skipping already stopped service mariadb" in joined(out.print)
 
 
 def test_a_bench_that_could_not_be_stopped_makes_the_command_exit_nonzero(out):
@@ -189,8 +189,8 @@ def test_a_bench_that_could_not_be_stopped_makes_the_command_exit_nonzero(out):
     # Best effort preserved: the other bench and both global services were still stopped.
     assert h.calls == [
         "stop-bench:b.localhost",
-        "stop-service:global-nginx-proxy",
-        "stop-service:global-db",
+        "stop-service:nginx-proxy",
+        "stop-service:mariadb",
     ]
     assert "Failed to stop a.localhost: compose down failed" in joined(out.warning)
     assert "Still running: a.localhost" in joined(out.display_error)
@@ -383,7 +383,7 @@ class RealIpHarness:
         self.services.is_service_running.side_effect = lambda _s: proxy_running
         if nginx_t_fails:
             self.services.docker_client.compose.exec.side_effect = docker_failure(
-                ["docker", "compose", "exec", "global-nginx-proxy", "nginx", "-t"],
+                ["docker", "compose", "exec", "nginx-proxy", "nginx", "-t"],
                 'invalid number of arguments in "deny" directive',
             )
         self.services.nginx_controller.reload.return_value = reload_ok
@@ -443,7 +443,7 @@ def test_a_validated_config_is_written_and_the_proxy_reloaded(tmp_path, out):
 
     assert h.conf.read_text() == build_proxy_realip_conf(["203.0.113.0/24"], "X-Forwarded-For", recursive=True)
     h.services.docker_client.compose.exec.assert_called_once_with(
-        service="global-nginx-proxy", command="nginx -t", stream=False
+        service="nginx-proxy", command="nginx -t", stream=False
     )
     h.services.nginx_controller.reload.assert_called_once_with()
     assert "Real-ip active" in joined(out.print)
@@ -511,20 +511,20 @@ class ServicesInfoHarness:
         self.services = MagicMock(name="services_manager")
         self.services.path = tmp_path / "services"
         self.services.database_manager.database_server_info = SimpleNamespace(
-            user="root", password="rootpass", host="global-db"
+            user="root", password="rootpass", host="mariadb"
         )
         self.services.proxy_storage.dirs.confd.host = str(self.confd)
         self.services.compose_file_manager.get_services_list.return_value = [
-            "global-db",
-            "global-nginx-proxy",
+            "mariadb",
+            "nginx-proxy",
         ]
         self.services.compose_file_manager.get_container_names.return_value = {
-            "global-db": "fm__global-db",
-            "global-nginx-proxy": "fm__global-nginx-proxy",
+            "mariadb": "fm__mariadb",
+            "nginx-proxy": "fm__nginx-proxy",
         }
         default = [
-            {"Service": "global-db", "State": "running", "Name": "fm__global-db"},
-            {"Service": "global-nginx-proxy", "State": "running", "Name": "fm__global-nginx-proxy"},
+            {"Service": "mariadb", "State": "running", "Name": "fm__mariadb"},
+            {"Service": "nginx-proxy", "State": "running", "Name": "fm__nginx-proxy"},
         ]
         self.services.docker_client.compose.get_all_services_status.return_value = (
             default if statuses is None else statuses
@@ -545,13 +545,13 @@ class ServicesInfoHarness:
 
 def test_services_info_carries_the_root_db_credentials(tmp_path, out, monkeypatch):
     """The row moved off the bench card, so this card is now the ONLY place fm prints the
-    shared global-db root credentials."""
+    shared mariadb root credentials."""
     h = ServicesInfoHarness(tmp_path)
 
     card = h.run(monkeypatch)
 
     assert card.facts["root db"] == (
-        "root [fm.muted]/[/fm.muted] [fm.secret]rootpass[/fm.secret] [fm.muted]@[/fm.muted] global-db"
+        "root [fm.muted]/[/fm.muted] [fm.secret]rootpass[/fm.secret] [fm.muted]@[/fm.muted] mariadb"
     )
     assert card.active
 
@@ -582,12 +582,12 @@ def test_services_info_reports_a_missing_container_as_stopped(tmp_path, out, mon
     """get_all_services_status only reports containers that exist, so a never-created service
     would otherwise silently vanish from the card."""
     h = ServicesInfoHarness(
-        tmp_path, statuses=[{"Service": "global-db", "State": "running", "Name": "fm__global-db"}]
+        tmp_path, statuses=[{"Service": "mariadb", "State": "running", "Name": "fm__mariadb"}]
     )
 
     card = h.run(monkeypatch)
 
-    assert "stopped:[/fm.muted] global-nginx-proxy" in card.facts["global"]
+    assert "stopped:[/fm.muted] nginx-proxy" in card.facts["global"]
     assert not card.active
 
 
@@ -611,10 +611,10 @@ def test_starting_a_stopped_service_confirms_the_work(out):
 
     ctx, services = make_services_ctx(running=False)
 
-    start_services(ctx, ServicesEnum.global_db)
+    start_services(ctx, ServicesEnum.mariadb)
 
-    services.start_service.assert_called_once_with(services=["global-db"])
-    assert "Started service global-db" in joined(out.print)
+    services.start_service.assert_called_once_with(services=["mariadb"])
+    assert "Started service mariadb" in joined(out.print)
 
 
 def test_stopping_a_running_service_confirms_the_work(out):
@@ -622,10 +622,10 @@ def test_stopping_a_running_service_confirms_the_work(out):
 
     ctx, services = make_services_ctx(running=True)
 
-    stop_services(ctx, ServicesEnum.global_db)
+    stop_services(ctx, ServicesEnum.mariadb)
 
-    services.stop_service.assert_called_once_with(services=["global-db"])
-    assert "Stopped service global-db" in joined(out.print)
+    services.stop_service.assert_called_once_with(services=["mariadb"])
+    assert "Stopped service mariadb" in joined(out.print)
 
 
 def test_a_no_op_start_still_says_it_skipped(out):
@@ -633,10 +633,10 @@ def test_a_no_op_start_still_says_it_skipped(out):
 
     ctx, services = make_services_ctx(running=True)
 
-    start_services(ctx, ServicesEnum.global_db)
+    start_services(ctx, ServicesEnum.mariadb)
 
     services.start_service.assert_not_called()
-    assert "Skipping already running service global-db" in joined(out.print)
+    assert "Skipping already running service mariadb" in joined(out.print)
 
 
 def test_services_shell_refuses_all_instead_of_running_a_bogus_exec():
@@ -672,7 +672,7 @@ def test_services_shell_propagates_the_containers_exit_code():
     def _with_ctx(ctx: typer.Context):
         ctx.obj = {"services": manager}
 
-    result = runner.invoke(app, ["shell", "global-db"])
+    result = runner.invoke(app, ["shell", "mariadb"])
 
     assert result.exit_code == 130
-    manager.docker_client.compose.exec.assert_called_once_with("global-db", command="/bin/bash", capture_output=False)
+    manager.docker_client.compose.exec.assert_called_once_with("mariadb", command="/bin/bash", capture_output=False)

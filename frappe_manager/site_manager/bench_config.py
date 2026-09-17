@@ -1340,7 +1340,7 @@ class MonitoringConfig(BaseModel):
 class DatabaseConfig(BaseModel):
     """The database server one site lives on (`[sites."<site>".database]`).
 
-    Absent means that site is on the fm-managed `global-db` container. This is the only switch:
+    Absent means that site is on the fm-managed `mariadb` container. This is the only switch:
     there is no separate boolean.
     """
 
@@ -1527,7 +1527,7 @@ class SiteConfig(BaseModel):
     database: DatabaseConfig | None = Field(
         None,
         description="External database server for this site. Absent means the site lives on the "
-        "fm-managed 'global-db' container, exactly as before `[database]` existed.",
+        "fm-managed 'mariadb' container, exactly as before `[database]` existed.",
     )
     alias_domains: list[str] = Field(
         default=[],
@@ -1854,7 +1854,7 @@ class BenchConfig(BaseModel):
         """
         External database configuration for a site, or None when there is none.
 
-        Absence means the site lives on the fm-managed `global-db` container, exactly as before
+        Absence means the site lives on the fm-managed `mariadb` container, exactly as before
         `[database]` existed. This is the only switch: there is no separate boolean.
 
         Args:
@@ -2252,7 +2252,7 @@ class BenchConfig(BaseModel):
         """Per-site `sites/<site>/site_config.json` payload for an external database.
 
         This file is the ONLY per-site config source Frappe reads, and it must exist before
-        anything connects, because TLS has no CLI flag. Returns {} for a site on `global-db`,
+        anything connects, because TLS has no CLI flag. Returns {} for a site on `mariadb`,
         where Frappe's own `make_site_config` writes the file during `new-site`.
 
         provisioning: True on the schema-absent path, where `rds_db` is meaningful. `rds_db` is

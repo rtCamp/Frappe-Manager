@@ -5,8 +5,8 @@ services:
     command: launch_supervisor_service.sh
     networks:
       site-network:
-      global-backend-network:
-      global-frontend-network:
+      backend-network:
+      frontend-network:
     volumes:
       - fm-sockets:/fm-sockets
       - ./workspace:/workspace
@@ -24,9 +24,9 @@ networks:
   site-network:
     name: fm__SITE_NAME_PREFIX__site-network
     external: true
-  global-backend-network:
-    name: fm-global-backend-network
+  backend-network:
+    name: fm-backend-network
     external: true
-  global-frontend-network:
-    name: fm-global-frontend-network
+  frontend-network:
+    name: fm-frontend-network
     external: true

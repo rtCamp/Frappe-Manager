@@ -76,13 +76,13 @@ class SiteSchema:
     schema: str | None
     """`db_name`, or None when the site config is missing, unparseable, or has no `db_name`."""
     external_host: str | None
-    """None means fm's own `global-db` container, which fm may drop. A host means a server fm does
+    """None means fm's own `mariadb` container, which fm may drop. A host means a server fm does
     not own, whose schema is never dropped and never asked about."""
     absent: bool = False
     """True when `sites/<site>/site_config.json` does not exist at all.
 
     Different from :attr:`unreadable`, and the difference decides whether removal may proceed. A
-    file that exists and cannot be parsed may name a schema still sitting in global-db, so fm must
+    file that exists and cannot be parsed may name a schema still sitting in mariadb, so fm must
     not destroy it. A file that does not exist names nothing: there is no record to preserve and no
     directory to keep, so blocking buys nothing and only makes a `[sites]` entry with no site
     permanently unremovable."""
@@ -97,7 +97,7 @@ class SiteSchema:
         """True when fm cannot tell what schema this site uses AND a file might have said.
 
         Neither dropped nor deliberately left, so it BLOCKS removal of the bench directory: that
-        directory may hold the only record of a schema still present in global-db. An ABSENT site
+        directory may hold the only record of a schema still present in mariadb. An ABSENT site
         config is excluded, because there is no such record to lose.
         """
         return self.schema is None and not self.absent
@@ -108,7 +108,7 @@ def orphaned_database_error(bench: "Bench", outstanding: "list[tuple[SiteSchema,
 
     Removing the bench directory destroys `bench_config.toml` and every
     `sites/<site>/site_config.json`, which hold the only record of those schemas and their
-    passwords, so a schema left behind in global-db can afterwards only be found by hand. The
+    passwords, so a schema left behind in mariadb can afterwards only be found by hand. The
     directory stays put and the operator is handed the statements that finish the job.
 
     With N sites this is also the partial-failure report: sites 1 and 2 may have dropped cleanly
@@ -118,7 +118,7 @@ def orphaned_database_error(bench: "Bench", outstanding: "list[tuple[SiteSchema,
         f"Database deletion failed for {len(outstanding)} of {len(bench.site_schemas())} site(s).",
         "",
         f"The bench directory was kept at {bench.path}: it carries the only record of these schemas,",
-        "so removing it now would leave databases in global-db that nothing points at.",
+        "so removing it now would leave databases in mariadb that nothing points at.",
         "",
     ]
 
@@ -135,8 +135,8 @@ def orphaned_database_error(bench: "Bench", outstanding: "list[tuple[SiteSchema,
 
     lines += [
         "",
-        "Drop them on global-db, then delete the bench again:",
-        f"  fm delete {bench.name} --yes --no-delete-db-from-global-db",
+        "Drop them on mariadb, then delete the bench again:",
+        f"  fm delete {bench.name} --yes --no-delete-db-from-mariadb",
     ]
 
     return BenchException(bench.name, message="\n".join(lines))
@@ -698,7 +698,7 @@ class Bench:
                 upload_limit_changed = self.apply_upload_limit()
                 hsts_changed = self.apply_hsts()
                 if (upload_limit_changed or hsts_changed) and self.services.is_service_running(
-                    "global-nginx-proxy"
+                    "nginx-proxy"
                 ):
                     self.services.nginx_controller.reload()
             except Exception as e:
@@ -1255,7 +1255,7 @@ class Bench:
         )
 
     def remove_database_and_user(self, site: str | None = None):
-        """Drop one site's schema and user from global-db. None means this bench's own site."""
+        """Drop one site's schema and user from mariadb. None means this bench's own site."""
         extra = {"operation": "db_remove", "bench_name": self.name, "site": site}
         self.logger.debug(f"Removing database and user for bench: {self.name}", extra_fields=extra)
         try:
@@ -1384,7 +1384,7 @@ class Bench:
             self.docker_ops.start(services=["nginx"], force_recreate=True, pull="never")
 
     def remove_site(
-        self, site: str, delete_db_from_global_db: bool | None = None, delete_backups: bool = False
+        self, site: str, delete_db_from_mariadb: bool | None = None, delete_backups: bool = False
     ) -> bool:
         """Remove ONE site. The bench, its containers and its other sites keep running.
 
@@ -1406,7 +1406,7 @@ class Bench:
                 message=f"{self.name} has no site '{site}' on disk. It serves {', '.join(sorted(recorded)) or 'no sites'}.",
             )
 
-        why = self._resolve_site_schema(entry, delete_db_from_global_db)
+        why = self._resolve_site_schema(entry, delete_db_from_mariadb)
         if why is not None:
             raise orphaned_database_error(self, [(entry, why)])
 
@@ -1530,7 +1530,7 @@ class Bench:
 
     def remove_bench(
         self,
-        delete_db_from_global_db: bool | None = None,
+        delete_db_from_mariadb: bool | None = None,
         prompt: bool = True,
     ) -> bool:
         """Remove the bench: its certificate, then its schema, then its containers and directory.
@@ -1542,7 +1542,7 @@ class Bench:
         collapsed before that happens.
 
         Args:
-            delete_db_from_global_db: None prompts when the schema is fm's to drop
+            delete_db_from_mariadb: None prompts when the schema is fm's to drop
             prompt: False skips the confirmation entirely, which is what `--yes` means
         """
         extra = {"operation": "bench_remove", "bench_name": self.name}
@@ -1579,7 +1579,7 @@ class Bench:
                 # the directory goes only once EVERY site is resolved, where resolved means dropped,
                 # deliberately left because it is external, or declined by the operator.
                 try:
-                    outstanding = self._handle_database_deletion(delete_db_from_global_db)
+                    outstanding = self._handle_database_deletion(delete_db_from_mariadb)
                 except Exception as e:
                     raise orphaned_database_error(self, [(entry, str(e)) for entry in self.site_schemas()]) from e
 
@@ -1595,15 +1595,15 @@ class Bench:
             raise
 
     def external_database_config(self, site: str | None = None) -> DatabaseConfig | None:
-        """The `[database]` entry for one site, or None when its schema is on fm's `global-db`.
+        """The `[database]` entry for one site, or None when its schema is on fm's `mariadb`.
 
         Presence is the switch: an entry means the schema lives on a server fm does not own. Keyed
-        by SITE, because one bench can hold one site on `global-db` and another on an external
+        by SITE, because one bench can hold one site on `mariadb` and another on an external
         server, and that mixture is normal rather than exceptional.
         """
         return self.bench_config.get_database_config(site or self.site_name)
 
-    def _resolve_site_schema(self, entry: SiteSchema, delete_db_from_global_db: bool | None) -> str | None:
+    def _resolve_site_schema(self, entry: SiteSchema, delete_db_from_mariadb: bool | None) -> str | None:
         """Deal with ONE site's schema. None when resolved, else why it is still outstanding.
 
         Resolved means dropped, deliberately left because it is external, or declined. Declining is
@@ -1617,7 +1617,7 @@ class Bench:
             # gone, so if a schema was ever created for this site its name is no longer knowable.
             self.output.warning(
                 f"{entry.site}: no site_config.json, so there is no schema name to drop. Clearing "
-                f"the record. If a schema was created for it, it is still on global-db under a name "
+                f"the record. If a schema was created for it, it is still on mariadb under a name "
                 f"beginning 'fm_' that only a listing can now reveal.",
             )
             return None
@@ -1637,15 +1637,15 @@ class Bench:
             )
             return None
 
-        should_delete = delete_db_from_global_db
+        should_delete = delete_db_from_mariadb
 
         if should_delete is None:
             should_delete = (
                 self.output.prompt_ask(
-                    prompt=f"🗄️  Do you want to remove the database for site '[bold]{entry.site}[/bold]' from global-db?",
+                    prompt=f"🗄️  Do you want to remove the database for site '[bold]{entry.site}[/bold]' from mariadb?",
                     choices=["yes", "no"],
                     default="no",
-                    required_flag="--delete-db-from-global-db or --no-delete-db-from-global-db",
+                    required_flag="--delete-db-from-mariadb or --no-delete-db-from-mariadb",
                 )
                 == "yes"
             )
@@ -1653,11 +1653,11 @@ class Bench:
         if should_delete:
             self.remove_database_and_user(entry.site)
         else:
-            self.output.print(f"[fm.info]{entry.site}[/fm.info]: skipping database deletion from global-db")
+            self.output.print(f"[fm.info]{entry.site}[/fm.info]: skipping database deletion from mariadb")
 
         return None
 
-    def _handle_database_deletion(self, delete_db_from_global_db: bool | None) -> list[tuple[SiteSchema, str]]:
+    def _handle_database_deletion(self, delete_db_from_mariadb: bool | None) -> list[tuple[SiteSchema, str]]:
         """Account for every site's schema, and report the ones left outstanding.
 
         Returns the sites the caller must NOT destroy the directory for. An empty list means every
@@ -1666,7 +1666,7 @@ class Bench:
         does not leave the other schemas unaccounted for as well.
 
         Args:
-            delete_db_from_global_db: None asks per site, True drops, False keeps
+            delete_db_from_mariadb: None asks per site, True drops, False keeps
         """
         extra = {"operation": "db_handle_deletion", "bench_name": self.name}
         self.logger.debug(f"Handling database deletion for bench: {self.name}", extra_fields=extra)
@@ -1683,7 +1683,7 @@ class Bench:
         outstanding: list[tuple[SiteSchema, str]] = []
         for entry in self.site_schemas():
             try:
-                why = self._resolve_site_schema(entry, delete_db_from_global_db)
+                why = self._resolve_site_schema(entry, delete_db_from_mariadb)
             except Exception as e:
                 self.logger.exception(f"Database deletion failed for site {entry.site}", extra_fields=extra)
                 why = str(e)
@@ -1986,7 +1986,7 @@ class Bench:
         self.ensure_fm_nginx_confs()
         self.apply_upload_limit()
 
-        if self.services.is_service_running("global-nginx-proxy"):
+        if self.services.is_service_running("nginx-proxy"):
             self.services.nginx_controller.reload()
 
         self.output.print(
@@ -2000,7 +2000,7 @@ class Bench:
         older services composes without an ipam block."""
         try:
             networks = self.services.compose_file_manager.yml.get("networks", {})
-            ipam = networks.get("global-frontend-network", {}).get("ipam", {})
+            ipam = networks.get("frontend-network", {}).get("ipam", {})
             subnet = (ipam.get("config") or [{}])[0].get("subnet")
             if subnet:
                 return str(subnet)

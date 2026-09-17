@@ -998,7 +998,7 @@ class TestGraftApps:
 class TestSiteEnv:
     """MYSQL_HOME points the mariadb CLI at this bench's own CA -- and only its own."""
 
-    def test_a_global_db_bench_gets_no_option_file(self, tmp_path):
+    def test_a_mariadb_bench_gets_no_option_file(self, tmp_path):
         manager = _manager(tmp_path, external_db=False)
 
         assert manager._site_env() == {}

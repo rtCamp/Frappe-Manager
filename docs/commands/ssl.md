@@ -159,7 +159,7 @@ $ fm ssl add BENCH(/DOMAIN) [OPTIONS]
 * `--cname`: Delegated zone for _acme-challenge. dns01 only.
 * `--dns-provider`: Label of the \[ssl.dns_providers] credential set that authenticates this domain, from fm ssl dns-config cloudflare --name. Omit for the default account. dns01 only.
 * `--dry-run`: Rehearse against Let's Encrypt staging. Nothing is kept: no certificate, no nginx change.
-* `--standalone`: For an external Docker project on the fm-global-frontend-network network.
+* `--standalone`: For an external Docker project on the fm-frontend-network network.
 * `--dev`: Issue from fm's local CA, so no internet or public DNS is needed. Bench mode only.
 * `--skip-dns-check`: Skip the DNS pre-check. Standalone mode only.
 * `--wait-for-dns`: Wait up to 5 min for the CNAME. Standalone only.

@@ -40,7 +40,7 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `--admin-pass`: Administrator password for sites created on this bench.
 * `--allow-domain-conflicts`: Skip the domain uniqueness check.
 * `--alias-domains`: Extra domains THIS SITE answers on (comma-separated). Certificates come from 'fm ssl add'.
-* `--db-host`: External MariaDB host, replacing fm's global-db container. MySQL is not a supported backend.
+* `--db-host`: External MariaDB host, replacing fm's mariadb container. MySQL is not a supported backend.
 * `--db-port`: Port of the external database server.
 * `--db-name`: Schema on that server this site lives in. Required with --db-host.
 * `--db-user`: Login user for the schema. Defaults to the schema name, and must equal it on a v15 bench.

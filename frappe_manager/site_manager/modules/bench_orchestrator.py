@@ -92,7 +92,7 @@ class BenchOrchestrator:
         self.output = output_handler or RichOutputHandler()
 
         # Decided by the external database gate between phase 1 and phase 2. None means this
-        # bench has no `[database]` entry and sits on the `global-db` container, where nothing
+        # bench has no `[database]` entry and sits on the `mariadb` container, where nothing
         # in this feature runs and the create is what it has always been.
         self._external_flow: db_probe.Flow | None = None
         # The schema this run provisioned, so a later phase failing can name exactly what fm
@@ -185,7 +185,7 @@ class BenchOrchestrator:
 
             if not bench_only:
                 # Between phase 1 and phase 2, and the placement is the whole point. See
-                # `_external_database_gate`. No-op for a bench on the `global-db` container.
+                # `_external_database_gate`. No-op for a bench on the `mariadb` container.
                 self._external_database_gate()
 
             if bench.bench_config.seed_image:
@@ -571,7 +571,7 @@ class BenchOrchestrator:
         """Stage one of the database preflight, the flow decision, and the per-site config file.
 
         Returns immediately when this site has no `[database]` entry, which is every bench on the
-        `global-db` container: that create runs exactly the phases it has always run, in the same
+        `mariadb` container: that create runs exactly the phases it has always run, in the same
         order, and never opens a probe connection.
 
         Why it sits between phase 1 and phase 2. The compose file exists by now, so the probe
@@ -1237,13 +1237,13 @@ class BenchOrchestrator:
             # decline. It answers only the question this method itself asks -- remove the bench
             # directory and its containers -- never the one `_offer_to_drop_provisioned_schema`
             # already asked above: a schema on a server fm does not own stays declined, flag or
-            # no flag. The schema THIS bench owns on the fm-managed global-db container is
+            # no flag. The schema THIS bench owns on the fm-managed mariadb container is
             # different: it is the bench's own data, the same thing an ordinary `fm delete`
-            # already drops by default, so `delete_db_from_global_db=True` is passed explicitly
+            # already drops by default, so `delete_db_from_mariadb=True` is passed explicitly
             # rather than left for `_resolve_site_schema` to ask about -- unanswered, that prompt
             # would raise `NonInteractiveError` from inside `remove_bench` with nobody there to
             # answer it, defeating the one promise this flag makes.
-            bench.remove_bench(prompt=False, delete_db_from_global_db=True)
+            bench.remove_bench(prompt=False, delete_db_from_mariadb=True)
             self.output.warning(
                 f"--remove-on-failure: removed the failed bench {bench.name!r} and its containers "
                 f"from {bench.path}. The create still failed."

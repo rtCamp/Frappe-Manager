@@ -1611,7 +1611,7 @@ class TestRestoreConfirmation:
         orch._restore_db(SITE, dump)
         manager.db_import.assert_not_called()
 
-    def test_the_global_db_is_confirmed_like_any_other_schema(self, tmp_path):
+    def test_the_mariadb_is_confirmed_like_any_other_schema(self, tmp_path):
         """fm owning the container is not a reason to drop its tables unasked: the
         operator loses the same site data either way, so the typed-name question is
         the same. Only the wording naming the owner differs."""
@@ -1621,7 +1621,7 @@ class TestRestoreConfirmation:
         manager.db_run_query.assert_called_once()
         manager.db_import.assert_called_once_with("shopdb", dump, force=True)
         warned = " ".join(str(c.args) for c in orch.output.warning.call_args_list)
-        assert "fm's own global-db container" in warned
+        assert "fm's own mariadb container" in warned
 
     def test_typing_the_schema_name_authorises_the_overwrite(self, tmp_path):
         orch, manager, dump = self._restorer(tmp_path, answer=" shopdb ")
@@ -1674,7 +1674,7 @@ class TestRestoreConfirmation:
         with pytest.raises(DeployError, match=r"ca-bundle\.pem"):
             orch._restore_db(SITE, dump)
 
-    def test_a_global_db_import_failure_propagates_unwrapped(self, tmp_path):
+    def test_a_mariadb_import_failure_propagates_unwrapped(self, tmp_path):
         orch, manager, dump = self._restorer(tmp_path, external=False)
         manager.db_import.side_effect = RuntimeError("access denied")
         with pytest.raises(RuntimeError, match="access denied"):
@@ -2282,7 +2282,7 @@ class TestHealthAndRunningProbes:
 class TestPerSiteDatabaseResolution:
     """``_external_db`` is answered PER SITE, and ``_db_manager`` follows that answer.
 
-    One bench can serve one site on fm's own global-db container and another on a server fm
+    One bench can serve one site on fm's own mariadb container and another on a server fm
     does not own. Resolving the entry once from the PRIMARY makes the external site's TLS
     handling a property of a DIFFERENT site's configuration: the client is handed no CA for a
     server that demands one, and the failure that follows carries no hint saying why.
@@ -2301,7 +2301,7 @@ class TestPerSiteDatabaseResolution:
         assert orch._external_db(SITE2) is entry
 
     def test_the_primarys_entry_is_not_handed_to_the_secondary_site(self, tmp_path):
-        """The mirror arrangement. Asked about a site on global-db while the PRIMARY is the
+        """The mirror arrangement. Asked about a site on mariadb while the PRIMARY is the
         external one, the answer is still that site's own: None."""
         orch, entry = self._mixed_bench(tmp_path, SITE)
         assert orch._external_db(SITE) is entry
@@ -2309,7 +2309,7 @@ class TestPerSiteDatabaseResolution:
 
     def test_only_the_external_site_is_given_a_mysql_home(self, tmp_path):
         """The observable consequence. MYSQL_HOME is the only way the client learns a CA, so
-        it has to name the CA of the site being talked to; global-db gets None, whose
+        it has to name the CA of the site being talked to; mariadb gets None, whose
         certificate an external CA would not describe."""
         orch, _ = self._mixed_bench(tmp_path, SITE2)
         with (

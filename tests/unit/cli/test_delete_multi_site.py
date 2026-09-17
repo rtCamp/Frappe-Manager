@@ -41,7 +41,7 @@ SITE_B = "b.example.com"
 class _Schema:
     """Stand-in for `SiteSchema`, the value `Bench.site_schemas()` yields per site on disk.
 
-    `external_host` None means the schema is in the global-db container fm owns and fm may drop it;
+    `external_host` None means the schema is in the shared mariadb container fm owns and fm may drop it;
     set means a server fm does not own. `schema` None means site_config.json could not be read.
     """
 
@@ -344,7 +344,7 @@ def test_the_blast_radius_names_the_schemas_it_will_drop(two_sites):
     said = _run([BENCH, "--all-sites"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
     assert "2 schemas dropped" in said
     assert "fm_a_example_com_9f2c, fm_b_example_com_1d4e" in said
-    assert "global-db" in said
+    assert "mariadb" in said
 
 
 def test_the_blast_radius_says_the_containers_and_workspace_go_too(two_sites):
@@ -368,7 +368,7 @@ def test_an_external_schema_is_not_counted_among_the_dropped(two_sites):
     schemas = [_Schema(SITE_A, "fm_a_example_com_9f2c"), _Schema(SITE_B, "prod_erp", "rds.internal")]
     said = _run([BENCH, "--all-sites"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
     assert "1 schema dropped" in said
-    assert "prod_erp  (global-db)" not in said
+    assert "prod_erp  (mariadb)" not in said
 
 
 def test_an_unreadable_schema_is_reported_as_unreadable(two_sites):
@@ -453,10 +453,10 @@ def test_the_operator_is_told_the_rest_of_the_bench_survives(two_sites):
 
 
 def test_the_database_choice_reaches_a_single_site_removal(one_site):
-    run = _run([f"{BENCH}/{SITE_A}", "--yes", "--no-delete-db-from-global-db"], root=one_site, sites=[SITE_A])
+    run = _run([f"{BENCH}/{SITE_A}", "--yes", "--no-delete-db-from-mariadb"], root=one_site, sites=[SITE_A])
     # `delete_backups` rides along on the same call: off unless asked, because dropping the site's
     # deploy-history rows is what makes its dumps unreachable by prune, and a dump is a last copy.
-    assert run.payload("remove_site")[1] == {"delete_db_from_global_db": False, "delete_backups": False}
+    assert run.payload("remove_site")[1] == {"delete_db_from_mariadb": False, "delete_backups": False}
 
 
 def test_asking_for_the_dumps_reaches_the_single_site_removal(one_site):
@@ -468,12 +468,12 @@ def test_the_database_choice_stays_bench_wide_and_tri_state(one_site):
     """Neither flag passed stays None, which is what makes fm ask. It is deliberately not per-site:
     the only sites it can apply to are the fm-managed ones."""
     run = _run([BENCH, "--yes"], root=one_site, sites=[SITE_A])
-    assert run.payload("delete_bench")[1]["delete_db_from_global_db"] is None
+    assert run.payload("delete_bench")[1]["delete_db_from_mariadb"] is None
 
 
 def test_the_database_choice_reaches_a_bench_wide_delete(one_site):
-    run = _run([BENCH, "--yes", "--delete-db-from-global-db"], root=one_site, sites=[SITE_A])
-    assert run.payload("delete_bench")[1]["delete_db_from_global_db"] is True
+    run = _run([BENCH, "--yes", "--delete-db-from-mariadb"], root=one_site, sites=[SITE_A])
+    assert run.payload("delete_bench")[1]["delete_db_from_mariadb"] is True
 
 
 # ------------------------------------------------------------------- the help surface

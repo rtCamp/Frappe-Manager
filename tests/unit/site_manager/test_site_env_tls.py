@@ -73,7 +73,7 @@ def test_env_follows_the_site_it_was_asked_about(manager):
     assert env["MYSQL_HOME"] != db_tls.site_mysql_home(SITE)
 
 
-def test_a_site_on_the_global_db_container_gets_no_env(manager):
+def test_a_site_on_the_mariadb_container_gets_no_env(manager):
     # No `[database]` entry for it, so there is no CA and no option file to point at.
     assert manager._site_env(PLAIN) == {}
 

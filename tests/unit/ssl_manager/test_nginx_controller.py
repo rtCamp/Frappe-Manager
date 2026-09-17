@@ -62,7 +62,7 @@ class TestNginxControllerReload:
         mock_output = mocker.Mock()
 
         controller = NginxController(
-            "global-nginx-proxy",
+            "nginx-proxy",
             mock_compose_file_manager,
             mock_docker_client,
             output_handler=mock_output,
@@ -75,12 +75,12 @@ class TestNginxControllerReload:
         calls = mock_docker_client.compose.exec.call_args_list
         assert len(calls) == 2
         assert calls[0].kwargs == {
-            "service": "global-nginx-proxy",
+            "service": "nginx-proxy",
             "command": "sh -c 'kill -HUP $(pidof docker-gen)'",
             "stream": False,
         }
         assert calls[1].kwargs == {
-            "service": "global-nginx-proxy",
+            "service": "nginx-proxy",
             "command": "nginx -s reload",
             "stream": False,
         }
@@ -103,7 +103,7 @@ class TestNginxControllerReload:
         mock_docker_client.compose.exec.side_effect = [None, raced, None]
 
         controller = NginxController(
-            "global-nginx-proxy",
+            "nginx-proxy",
             mock_compose_file_manager,
             mock_docker_client,
             output_handler=mock_output,

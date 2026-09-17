@@ -71,7 +71,7 @@ class ExternalDomainConfigManager:
 
     This manager handles SSL certificate configurations for domains not associated
     with Frappe benches, enabling FM's SSL management to work with any Docker project
-    that uses FM's nginx-proxy (via fm-global-frontend-network).
+    that uses FM's nginx-proxy (via fm-frontend-network).
 
     Storage location: <services_path>/nginx-proxy/external_domains.toml
 

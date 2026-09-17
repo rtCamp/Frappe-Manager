@@ -20,8 +20,8 @@ services:
         # service name `frappe` also lives on the shared frontend network).
         aliases:
           - frappe-site
-      global-backend-network:
-      global-frontend-network:
+      backend-network:
+      frontend-network:
 
   nginx:
     image: ghcr.io/rtcamp/frappe-manager-nginx:{{ nginx_image_tag }}
@@ -44,13 +44,13 @@ services:
     networks:
       site-network:
         # Same hazard as `frappe-site`/`socketio-site` above: the bare service name `nginx` also
-        # resolves on the shared global-frontend-network, where every bench's nginx carries it, so
+        # resolves on the shared frontend-network, where every bench's nginx carries it, so
         # DNS round-robins across benches. `fm-web-server.sh.tmpl` resolves THIS alias, not the
         # bare name, to trust the one nginx container that actually proxies to this bench's own
         # gunicorn (see ssl_manager/certificate.py's `behind_proxy` docstring).
         aliases:
           - nginx-site
-      global-frontend-network:
+      frontend-network:
 
   socketio:
     image: ghcr.io/rtcamp/frappe-manager-frappe:{{ frappe_image_tag }}
@@ -69,7 +69,7 @@ services:
       site-network:
         aliases:
           - socketio-site
-      global-frontend-network:
+      frontend-network:
 
   schedule:
     image: ghcr.io/rtcamp/frappe-manager-frappe:{{ frappe_image_tag }}
@@ -84,8 +84,8 @@ services:
       - ./workspace:/workspace
     networks:
       site-network:
-      global-backend-network:
-      global-frontend-network:
+      backend-network:
+      frontend-network:
 
   redis-cache:
     image: redis:8-alpine
@@ -118,9 +118,9 @@ volumes:
 networks:
   site-network:
     name: fm__SITE_NAME_PREFIX__site-network
-  global-frontend-network:
-    name: fm-global-frontend-network
+  frontend-network:
+    name: fm-frontend-network
     external: true
-  global-backend-network:
-    name: fm-global-backend-network
+  backend-network:
+    name: fm-backend-network
     external: true

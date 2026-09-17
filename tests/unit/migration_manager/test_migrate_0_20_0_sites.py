@@ -28,7 +28,7 @@ from unittest.mock import MagicMock
 import pytest
 import tomlkit
 
-from frappe_manager import GLOBAL_DB_IMAGE
+from frappe_manager import MARIADB_IMAGE as GLOBAL_DB_IMAGE
 from frappe_manager.docker import DockerException
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.migrations import migrate_0_20_0 as migrate_mod

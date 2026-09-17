@@ -24,7 +24,7 @@ import pytest
 import tomlkit
 from ruamel.yaml import YAML
 
-from frappe_manager import GLOBAL_DB_IMAGE
+from frappe_manager import MARIADB_IMAGE as GLOBAL_DB_IMAGE
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.migration_manager.migration_constants import DOCKER_COMPOSE_DOWN_TIMEOUT_SECONDS

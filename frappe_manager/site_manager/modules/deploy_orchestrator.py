@@ -665,9 +665,9 @@ class DeployOrchestrator:
         self.compose.__init__(self.compose.compose_path)  # type: ignore[misc]
 
     def _external_db(self, site: str) -> DatabaseConfig | None:
-        """That site's external database entry, or None for the global-db container.
+        """That site's external database entry, or None for the mariadb container.
 
-        Per site, not per bench: one bench can serve a site on global-db and another on an
+        Per site, not per bench: one bench can serve a site on mariadb and another on an
         external server, so this cannot be resolved once and reused.
         """
         return self.config.get_database_config(site)
@@ -680,7 +680,7 @@ class DeployOrchestrator:
         )
         db_name = db_info.name or self.config.db_name
         # MYSQL_HOME is the only way the client learns a CA: it reads <dir>/my.cnf.
-        # None for global-db, whose certificate an external CA would not describe.
+        # None for mariadb, whose certificate an external CA would not describe.
         mysql_home = db_tls.site_mysql_home(site) if self._external_db(site) else None
         manager = MariaDBManager(
             db_info,
@@ -811,7 +811,7 @@ class DeployOrchestrator:
         must not give.
 
         Both databases are guarded. A schema on a server fm does not own is the
-        louder case, but fm's own global-db schema holds the same site, and "fm
+        louder case, but fm's own mariadb schema holds the same site, and "fm
         owns the container" is not a reason to drop its tables without asking:
         the operator loses the same data either way. The wording differs, the
         question does not.
@@ -825,7 +825,7 @@ class DeployOrchestrator:
         endpoint = manager.database_server_info
         host = f"{endpoint.host}:{endpoint.port}"
         external = self._external_db(site) is not None
-        owner = "a database fm does not own" if external else "fm's own global-db container"
+        owner = "a database fm does not own" if external else "fm's own mariadb container"
 
         def refuse(reason: str) -> RestoreNotConfirmed:
             return RestoreNotConfirmed(

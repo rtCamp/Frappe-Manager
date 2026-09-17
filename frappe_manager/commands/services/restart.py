@@ -10,7 +10,7 @@ from frappe_manager.services_manager.services import ServicesManager
 
 @example(
     "Apply a change to the proxy",
-    "global-nginx-proxy",
+    "nginx-proxy",
     detail="A restart is what puts a new proxy config into effect, for instance after fm services real-ip.",
 )
 @example(
@@ -25,7 +25,7 @@ def restart_services(
     """
     Restart the global services shared by every bench.
 
-    Every bench is reached through global-nginx-proxy and keeps its data in global-db, so restarting these is a brief outage for every bench on this host. The containers are restarted in place and never recreated, so a newly pulled image or an edited compose file is not picked up.
+    Every bench is reached through nginx-proxy and keeps its data in mariadb, so restarting these is a brief outage for every bench on this host. The containers are restarted in place and never recreated, so a newly pulled image or an edited compose file is not picked up.
     """
     services_manager: ServicesManager = ctx.obj["services"]
     output = get_global_output_handler()

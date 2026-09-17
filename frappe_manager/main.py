@@ -54,7 +54,7 @@ def cli_entrypoint():
     #   * Frappe's own bench exits 1 as root unless `frappe_user` is set in the bench config
     #     (bench/cli.py change_uid), which fm does not set, so web and workers land in FATAL
     #     and the site serves 502 while the bench looks created.
-    #   * the shared service containers are named fixedly (fm_global-db, fm_global-nginx-proxy),
+    #   * the shared service containers are named fixedly (fm_mariadb, fm_nginx-proxy),
     #     so a root fm fights the same containers as the non-root fm on that host.
     #   * anything written before the refusal is root-owned inside the user's own ~/frappe,
     #     which the user then cannot remove without sudo. Hence: check first, write nothing.

@@ -1,6 +1,6 @@
 services:
-  global-db:
-    container_name: fm_global-db
+  mariadb:
+    container_name: fm_mariadb
     image: mariadb:11.8
     user: REPLACE_WITH_CURRENT_USER:REPLACE_WITH_CURRENT_USER_GROUP
     restart: always
@@ -21,17 +21,17 @@ services:
       MYSQL_USER: REPLACE_WITH_DB_USER
       MYSQL_PASSWORD_FILE: REPLACE_WITH_DB_PASSWORD_SECRET_FILE
     volumes:
-      - fm-global-db-data:/var/lib/mysql
+      - mariadb-data:/var/lib/mysql
       - ./mariadb/conf:/etc/mysql
       - ./mariadb/logs:/var/log/mysql
     networks:
-        - global-backend-network
+        - backend-network
     secrets:
         - db_password
         - db_root_password
 
-  global-nginx-proxy:
-    container_name: fm_global-nginx-proxy
+  nginx-proxy:
+    container_name: fm_nginx-proxy
     user: REPLACE_WITH_CURRENT_USER:REPLACE_WITH_CURRENT_USER_GROUP
     image: jwilder/nginx-proxy:1.11
     environment:
@@ -57,16 +57,16 @@ services:
       - "./nginx-proxy/cache:/var/cache/nginx"
       - "/var/run/docker.sock:/tmp/docker.sock:ro"
     networks:
-      - global-frontend-network
+      - frontend-network
 
 networks:
-  global-frontend-network:
-    name: fm-global-frontend-network
+  frontend-network:
+    name: fm-frontend-network
     ipam:
       config:
       - subnet: '10.1.0.0/16'
-  global-backend-network:
-    name: fm-global-backend-network
+  backend-network:
+    name: fm-backend-network
     ipam:
       config:
       - subnet: '10.2.0.0/16'
@@ -78,4 +78,5 @@ secrets:
      file: REPLACE_ME_WITH_DB_ROOT_PASSWORD_TXT_PATH
 
 volumes:
-  fm-global-db-data:
+  mariadb-data:
+    name: fm-mariadb-data

@@ -179,10 +179,10 @@ services:
       VIRTUAL_HOST: example.com
       VIRTUAL_PORT: 80
     networks:
-      - fm-global-frontend-network
+      - fm-frontend-network
 
 networks:
-  fm-global-frontend-network:
+  fm-frontend-network:
     external: true
 ```
 

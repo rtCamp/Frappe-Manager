@@ -21,7 +21,7 @@ The first updates the CLI, the second brings fm's config, the global services an
 
 ### Can I run multiple benches on the same machine?
 
-Yes. Each bench gets its own containers, workspace, apps and database schema. Two things are shared: one MariaDB server (`global-db`) and one nginx proxy holding ports 80 and 443, which routes to the right bench by domain. `fm list` shows them all.
+Yes. Each bench gets its own containers, workspace, apps and database schema. Two things are shared: one MariaDB server (`mariadb`) and one nginx proxy holding ports 80 and 443, which routes to the right bench by domain. `fm list` shows them all.
 
 ---
 
@@ -150,7 +150,7 @@ They are the two ways `bench_config.toml` and the disk can disagree, and they ar
 fm delete mybench/ghost.localhost --yes
 ```
 
-fm will say it found no schema name to drop. That is the point of the message rather than an error: a schema is minted as `fm_<site>_<hex>` and the name is written only into the site config that is gone, so if a database was ever created for that site it is still on `global-db` under a name only a listing can reveal.
+fm will say it found no schema name to drop. That is the point of the message rather than an error: a schema is minted as `fm_<site>_<hex>` and the name is written only into the site config that is gone, so if a database was ever created for that site it is still on `mariadb` under a name only a listing can reveal.
 
 ### `fm shell mybench` lands on the wrong site. Why?
 

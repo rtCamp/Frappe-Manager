@@ -564,8 +564,8 @@ def app_callback(
 
             services_manager.init()
 
-            # The global stack (global-db, global-nginx-proxy) is a bench RUNTIME
-            # dependency: a bench's schema lives in global-db and the proxy is its only
+            # The global stack (mariadb, nginx-proxy) is a bench RUNTIME
+            # dependency: a bench's schema lives in mariadb and the proxy is its only
             # route in, so a command that acts on a running bench needs both up. `bake`
             # touches neither -- it never loads a Bench, a database manager or the proxy,
             # it only builds an image -- so it needs the stack neither started NOR
@@ -573,7 +573,7 @@ def app_callback(
             # DB passwords, allocates a subnet and pulls mariadb + nginx-proxy, all of
             # which a build discards. `migrate` owns its own service lifecycle, so the
             # stack is ensured for it but not started. `switch` is deliberately absent
-            # from both lists: it runs bench migrate against global-db.
+            # from both lists: it runs bench migrate against mariadb.
             if invoked_command != "bake":
                 try:
                     services_manager.entrypoint_checks(start=invoked_command != "migrate")

@@ -2,7 +2,7 @@
 Docker network utility functions for CIDR selection and IP allocation.
 
 Provides helpers to automatically find an available subnet and proxy IP
-for the global-frontend-network, avoiding conflicts with existing Docker networks.
+for the frontend-network, avoiding conflicts with existing Docker networks.
 """
 
 import ipaddress
@@ -10,8 +10,8 @@ import ipaddress
 from frappe_manager.docker.docker_client import DockerClient
 
 PREFERRED_SUBNET = ipaddress.IPv4Network("10.1.0.0/16")
-DEFAULT_PROXY_NAME = "fm_global-nginx-proxy"
-DEFAULT_NETWORK_NAME = "fm-global-frontend-network"
+DEFAULT_PROXY_NAME = "fm_nginx-proxy"
+DEFAULT_NETWORK_NAME = "fm-frontend-network"
 
 
 def get_docker_network_subnets(docker: DockerClient | None = None) -> list[ipaddress.IPv4Network]:

@@ -113,7 +113,7 @@ def _bench(path: Path, docker_ops) -> Bench:
     # otherwise make them depend on whether fm's network happens to be up on this machine.
     bench.services = MagicMock()
     bench.services.compose_file_manager.yml = {
-        "networks": {"global-frontend-network": {"ipam": {"config": [{"subnet": "10.1.0.0/16"}]}}}
+        "networks": {"frontend-network": {"ipam": {"config": [{"subnet": "10.1.0.0/16"}]}}}
     }
     return bench
 

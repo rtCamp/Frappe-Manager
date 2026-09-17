@@ -1,6 +1,6 @@
 """Characterization of `ServicesManager`: the lifecycle of the shared global services stack.
 
-`services.py` manages the one global-db + global-nginx-proxy stack that every bench on the machine
+`services.py` manages the one mariadb + nginx-proxy stack that every bench on the machine
 depends on. It is the only place that decides:
 
 * whether the stack must be **created** at all (`self.path.exists()`), and what happens when that
@@ -26,7 +26,7 @@ from unittest import mock
 import pytest
 import typer
 
-from frappe_manager import GLOBAL_DB_IMAGE
+from frappe_manager import MARIADB_IMAGE
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.output_manager.rich_output import RichOutputHandler
@@ -46,7 +46,7 @@ SERVICES_MODULE = "frappe_manager.services_manager.services"
 def make_manager(
     path: Path,
     *,
-    services=("global-db", "global-nginx-proxy"),
+    services=("mariadb", "nginx-proxy"),
     containers=None,
     statuses=None,
     invoked_subcommand: str | None = None,
@@ -60,7 +60,7 @@ def make_manager(
     containers = (
         containers
         if containers is not None
-        else {"global-db": "fm-global-db", "global-nginx-proxy": "fm-global-nginx-proxy"}
+        else {"mariadb": "fm-mariadb", "nginx-proxy": "fm-nginx-proxy"}
     )
     manager.compose_file_manager = mock.MagicMock()
     manager.compose_file_manager.get_services_list.return_value = list(services)
@@ -157,14 +157,14 @@ def test_init_points_the_docker_client_at_the_services_compose_file(tmp_path):
     )
 
 
-def test_init_wires_the_proxy_against_the_global_nginx_proxy_service(tmp_path):
+def test_init_wires_the_proxy_against_the_nginx_proxy_service(tmp_path):
     with init_harness() as harness:
         ServicesManager(path=tmp_path, output_handler=mock.MagicMock()).init()
 
     compose_file = harness.compose_file.return_value
-    harness.proxy_storage.assert_called_once_with("global-nginx-proxy", compose_file)
+    harness.proxy_storage.assert_called_once_with("nginx-proxy", compose_file)
     harness.nginx_controller.assert_called_once_with(
-        "global-nginx-proxy",
+        "nginx-proxy",
         compose_file,
         harness.docker_client.return_value,
     )
@@ -363,11 +363,11 @@ def test_a_fully_running_stack_is_left_alone(tmp_path):
 
 def test_a_partly_stopped_stack_is_brought_up_pulling_only_what_is_missing(tmp_path):
     write_compose(tmp_path)
-    containers = {"global-db": "fm-global-db", "global-nginx-proxy": "fm-global-nginx-proxy"}
+    containers = {"mariadb": "fm-mariadb", "nginx-proxy": "fm-nginx-proxy"}
     manager = make_manager(
         tmp_path,
         containers=containers,
-        statuses=running_statuses(containers, {"global-db": "running", "global-nginx-proxy": "exited"}),
+        statuses=running_statuses(containers, {"mariadb": "running", "nginx-proxy": "exited"}),
     )
     maria, info = _patch_database_manager()
     with maria, info:
@@ -379,11 +379,11 @@ def test_a_partly_stopped_stack_is_brought_up_pulling_only_what_is_missing(tmp_p
 def test_a_service_with_no_container_row_at_all_counts_as_not_running(tmp_path):
     """Absent is not the same as stopped, but both must lead to a start."""
     write_compose(tmp_path)
-    containers = {"global-db": "fm-global-db", "global-nginx-proxy": "fm-global-nginx-proxy"}
+    containers = {"mariadb": "fm-mariadb", "nginx-proxy": "fm-nginx-proxy"}
     manager = make_manager(
         tmp_path,
         containers=containers,
-        statuses=running_statuses(containers, {"global-db": "running"}),
+        statuses=running_statuses(containers, {"mariadb": "running"}),
     )
     maria, info = _patch_database_manager()
     with maria, info:
@@ -395,9 +395,9 @@ def test_a_service_with_no_container_row_at_all_counts_as_not_running(tmp_path):
 def test_status_rows_for_foreign_containers_are_ignored(tmp_path):
     """`get_all_services_status` can report containers that are not part of this stack."""
     write_compose(tmp_path)
-    containers = {"global-db": "fm-global-db", "global-nginx-proxy": "fm-global-nginx-proxy"}
-    statuses = running_statuses(containers, {"global-db": "running", "global-nginx-proxy": "running"})
-    statuses.append({"Name": "some-other-bench", "Service": "global-db", "State": "exited"})
+    containers = {"mariadb": "fm-mariadb", "nginx-proxy": "fm-nginx-proxy"}
+    statuses = running_statuses(containers, {"mariadb": "running", "nginx-proxy": "running"})
+    statuses.append({"Name": "some-other-bench", "Service": "mariadb", "State": "exited"})
     manager = make_manager(tmp_path, containers=containers, statuses=statuses)
     maria, info = _patch_database_manager()
     with maria, info:
@@ -408,24 +408,24 @@ def test_status_rows_for_foreign_containers_are_ignored(tmp_path):
 
 @pytest.mark.parametrize("family", ["services", "self", "compose"])
 def test_the_exempt_command_families_do_not_auto_start_the_stack(tmp_path, family):
-    """`fm services stop global-db`, `fm self stop` and `fm compose BENCH ps` must act on a
+    """`fm services stop mariadb`, `fm self stop` and `fm compose BENCH ps` must act on a
     stopped stack, not start it: the first two act ON the stack, and `compose` is a diagnostic
     passthrough that must report a stopped stack as stopped.
 
     This used to be pinned as `invoked_subcommand="service"`, which no command ever produces: the
     root callback passes `ctx.invoked_subcommand`, and for a sub-Typer registered as
     `add_typer(services_app, name="services")` that value is the GROUP name. The guard was
-    therefore dead, and `fm services stop global-db` first ran `compose up` for both globals --
-    restarting a `global-nginx-proxy` the operator had deliberately stopped.
+    therefore dead, and `fm services stop mariadb` first ran `compose up` for both globals --
+    restarting a `nginx-proxy` the operator had deliberately stopped.
 
     `compose` is top-level, so for it the value is the command name itself.
     """
     write_compose(tmp_path)
-    containers = {"global-db": "fm-global-db"}
+    containers = {"mariadb": "fm-mariadb"}
     manager = make_manager(
         tmp_path,
         containers=containers,
-        statuses=running_statuses(containers, {"global-db": "exited"}),
+        statuses=running_statuses(containers, {"mariadb": "exited"}),
         invoked_subcommand=family,
     )
     maria, info = _patch_database_manager()
@@ -440,11 +440,11 @@ def test_the_exempt_command_families_do_not_auto_start_the_stack(tmp_path, famil
 def test_every_other_command_still_gets_the_stack_started(tmp_path, family):
     """The exemption is narrow: a bench command on a stopped stack must still bring it up."""
     write_compose(tmp_path)
-    containers = {"global-db": "fm-global-db"}
+    containers = {"mariadb": "fm-mariadb"}
     manager = make_manager(
         tmp_path,
         containers=containers,
-        statuses=running_statuses(containers, {"global-db": "exited"}),
+        statuses=running_statuses(containers, {"mariadb": "exited"}),
         invoked_subcommand=family,
     )
     maria, info = _patch_database_manager()
@@ -456,11 +456,11 @@ def test_every_other_command_still_gets_the_stack_started(tmp_path, family):
 
 def test_a_stopped_stack_is_not_started_when_start_was_not_requested(tmp_path):
     write_compose(tmp_path)
-    containers = {"global-db": "fm-global-db"}
+    containers = {"mariadb": "fm-mariadb"}
     manager = make_manager(
         tmp_path,
         containers=containers,
-        statuses=running_statuses(containers, {"global-db": "exited"}),
+        statuses=running_statuses(containers, {"mariadb": "exited"}),
     )
     maria, info = _patch_database_manager()
     with maria, info:
@@ -469,14 +469,14 @@ def test_a_stopped_stack_is_not_started_when_start_was_not_requested(tmp_path):
     manager.docker_client.compose.up.assert_not_called()
 
 
-def test_entrypoint_checks_always_installs_a_database_manager_for_the_global_db(tmp_path):
+def test_entrypoint_checks_always_installs_a_database_manager_for_the_mariadb(tmp_path):
     write_compose(tmp_path)
     manager = make_manager(tmp_path)
     maria, info = _patch_database_manager()
     with maria as maria_cls, info as info_cls:
         manager.entrypoint_checks()
 
-    info_cls.import_from_compose_file.assert_called_once_with("global-db", manager.compose_file_manager)
+    info_cls.import_from_compose_file.assert_called_once_with("mariadb", manager.compose_file_manager)
     maria_cls.assert_called_once_with(
         info_cls.import_from_compose_file.return_value,
         manager.compose_file_manager,
@@ -490,33 +490,33 @@ def test_entrypoint_checks_always_installs_a_database_manager_for_the_global_db(
 
 
 def test_a_running_service_is_reported_running(tmp_path):
-    containers = {"global-db": "fm-global-db"}
+    containers = {"mariadb": "fm-mariadb"}
     manager = make_manager(
-        tmp_path, containers=containers, statuses=running_statuses(containers, {"global-db": "running"})
+        tmp_path, containers=containers, statuses=running_statuses(containers, {"mariadb": "running"})
     )
 
-    assert manager.is_service_running("global-db") is True
+    assert manager.is_service_running("mariadb") is True
 
 
 def test_a_stopped_service_is_reported_not_running(tmp_path):
-    containers = {"global-db": "fm-global-db"}
+    containers = {"mariadb": "fm-mariadb"}
     manager = make_manager(
-        tmp_path, containers=containers, statuses=running_statuses(containers, {"global-db": "exited"})
+        tmp_path, containers=containers, statuses=running_statuses(containers, {"mariadb": "exited"})
     )
 
-    assert manager.is_service_running("global-db") is False
+    assert manager.is_service_running("mariadb") is False
 
 
 def test_a_service_absent_from_the_compose_file_is_reported_not_running(tmp_path):
-    manager = make_manager(tmp_path, containers={"global-db": "fm-global-db"})
+    manager = make_manager(tmp_path, containers={"mariadb": "fm-mariadb"})
 
-    assert manager.is_service_running("global-nginx-proxy") is False
+    assert manager.is_service_running("nginx-proxy") is False
 
 
 def test_a_declared_service_with_no_container_row_is_reported_not_running(tmp_path):
-    manager = make_manager(tmp_path, containers={"global-db": "fm-global-db"}, statuses=[])
+    manager = make_manager(tmp_path, containers={"mariadb": "fm-mariadb"}, statuses=[])
 
-    assert manager.is_service_running("global-db") is False
+    assert manager.is_service_running("mariadb") is False
 
 
 # --- start / stop / restart ---
@@ -535,10 +535,10 @@ def test_starting_with_no_names_starts_the_whole_stack_without_pulling(tmp_path)
 def test_starting_named_services_passes_them_through_and_can_force_a_recreate(tmp_path):
     manager = make_manager(tmp_path)
 
-    manager.start_service(["global-db"], force_recreate=True)
+    manager.start_service(["mariadb"], force_recreate=True)
 
     manager.docker_client.compose.up.assert_called_once_with(
-        services=["global-db"], detach=True, pull="never", force_recreate=True
+        services=["mariadb"], detach=True, pull="never", force_recreate=True
     )
 
 
@@ -546,11 +546,11 @@ def test_stopping_uses_a_bounded_default_timeout_and_honours_an_override(tmp_pat
     manager = make_manager(tmp_path)
 
     manager.stop_service()
-    manager.stop_service(["global-db"], timeout=1)
+    manager.stop_service(["mariadb"], timeout=1)
 
     assert manager.docker_client.compose.stop.call_args_list == [
         mock.call(services=[], timeout=10),
-        mock.call(services=["global-db"], timeout=1),
+        mock.call(services=["mariadb"], timeout=1),
     ]
 
 
@@ -571,15 +571,15 @@ def test_generate_compose_converts_user_dicts_into_uid_gid_pairs_and_commits_onc
 
     manager.generate_compose(
         {
-            "environment": {"global-db": {"A": "1"}},
-            "labels": {"global-db": {"L": "1"}},
-            "user": {"global-db": {"uid": 501, "gid": 20}},
+            "environment": {"mariadb": {"A": "1"}},
+            "labels": {"mariadb": {"L": "1"}},
+            "user": {"mariadb": {"uid": 501, "gid": 20}},
         }
     )
 
-    cf.with_envs.assert_called_once_with({"global-db": {"A": "1"}})
-    cf.with_labels.assert_called_once_with({"global-db": {"L": "1"}})
-    cf.with_users.assert_called_once_with({"global-db": (501, 20)})
+    cf.with_envs.assert_called_once_with({"mariadb": {"A": "1"}})
+    cf.with_labels.assert_called_once_with({"mariadb": {"L": "1"}})
+    cf.with_users.assert_called_once_with({"mariadb": (501, 20)})
     cf.commit.assert_called_once_with()
 
 
@@ -597,7 +597,7 @@ def test_any_failure_while_building_the_compose_file_becomes_services_not_create
     manager.compose_file_manager.with_envs.side_effect = KeyError("services")
 
     with pytest.raises(ServicesNotCreated):
-        manager.generate_compose({"environment": {"global-db": {"A": "1"}}})
+        manager.generate_compose({"environment": {"mariadb": {"A": "1"}}})
 
 
 # --- shell / remove_itself ---
@@ -606,19 +606,19 @@ def test_any_failure_while_building_the_compose_file_becomes_services_not_create
 def test_a_shell_without_a_user_does_not_pass_one_to_compose_exec(tmp_path):
     manager = make_manager(tmp_path)
 
-    manager.shell("global-db")
+    manager.shell("mariadb")
 
     manager.output.stop.assert_called_once_with()
-    manager.docker_client.compose.exec.assert_called_once_with("global-db", command="/bin/bash", capture_output=False)
+    manager.docker_client.compose.exec.assert_called_once_with("mariadb", command="/bin/bash", capture_output=False)
 
 
 def test_a_shell_with_a_user_execs_as_that_user(tmp_path):
     manager = make_manager(tmp_path)
 
-    manager.shell("global-db", user="frappe")
+    manager.shell("mariadb", user="frappe")
 
     manager.docker_client.compose.exec.assert_called_once_with(
-        "global-db", user="frappe", command="/bin/bash", capture_output=False
+        "mariadb", user="frappe", command="/bin/bash", capture_output=False
     )
 
 
@@ -632,7 +632,7 @@ def test_a_nonzero_shell_exit_is_propagated_as_the_commands_exit_code(tmp_path):
     )
 
     with pytest.raises(typer.Exit) as excinfo:
-        manager.shell("global-db")
+        manager.shell("mariadb")
 
     assert excinfo.value.exit_code == 130
     assert "130" in manager.output.warning.call_args.args[0]
@@ -655,8 +655,8 @@ def test_removing_the_stack_deletes_the_whole_services_directory(tmp_path):
 def _create_manager(tmp_path: Path) -> ServicesManager:
     manager = make_manager(tmp_path / "services")
     manager.compose_file_manager.yml = {
-        "services": {"global-nginx-proxy": {"networks": ["global-frontend-network"]}},
-        "networks": {"global-frontend-network": {"ipam": {"config": [{"subnet": "10.0.0.0/24"}]}}},
+        "services": {"nginx-proxy": {"networks": ["frontend-network"]}},
+        "networks": {"frontend-network": {"ipam": {"config": [{"subnet": "10.0.0.0/24"}]}}},
     }
     return manager
 
@@ -740,7 +740,7 @@ def test_create_drops_the_explicit_container_user_on_darwin(tmp_path):
         manager.create()
 
     removed = [call.args[0] for call in manager.compose_file_manager.remove_container_user.call_args_list]
-    assert removed == ["global-nginx-proxy", "global-db"]
+    assert removed == ["nginx-proxy", "mariadb"]
 
 
 def test_create_keeps_the_container_user_on_linux_and_puts_the_proxy_in_the_docker_group(tmp_path):
@@ -752,9 +752,9 @@ def test_create_keeps_the_container_user_on_linux_and_puts_the_proxy_in_the_dock
 
     manager.compose_file_manager.remove_container_user.assert_not_called()
     users = generate.call_args.args[0]["user"]
-    assert users["global-nginx-proxy"]["gid"] == 999
-    assert users["global-db"]["uid"] == os.getuid()
-    assert users["global-db"]["gid"] == os.getgid()
+    assert users["nginx-proxy"]["gid"] == 999
+    assert users["mariadb"]["uid"] == os.getuid()
+    assert users["mariadb"]["gid"] == os.getgid()
 
 
 def test_create_gives_the_proxy_no_explicit_user_entry_on_darwin(tmp_path):
@@ -764,7 +764,7 @@ def test_create_gives_the_proxy_no_explicit_user_entry_on_darwin(tmp_path):
         generate = harness.stub_generate_compose()
         manager.create()
 
-    assert set(generate.call_args.args[0]["user"]) == {"global-db"}
+    assert set(generate.call_args.args[0]["user"]) == {"mariadb"}
     harness.get_unix_groups.assert_not_called()
 
 
@@ -805,7 +805,7 @@ def test_create_seeds_the_mariadb_config_from_the_same_image_the_compose_file_ru
         manager.create()
 
     harness.host_run_cp.assert_called_once_with(
-        image=GLOBAL_DB_IMAGE,
+        image=MARIADB_IMAGE,
         source="/etc/mysql/.",
         destination=str((manager.path / "mariadb/conf").absolute()),
         docker=manager.docker_client,
@@ -819,7 +819,7 @@ def test_create_declares_the_root_password_as_a_secret_file_never_an_inline_env(
         generate = harness.stub_generate_compose()
         manager.create()
 
-    envs = generate.call_args.args[0]["environment"]["global-db"]
+    envs = generate.call_args.args[0]["environment"]["mariadb"]
     # S105: these are secret *file paths*, which is precisely the point of the assertion.
     assert envs["MYSQL_ROOT_PASSWORD_FILE"] == "/run/secrets/db_root_password"
     assert "MYSQL_ROOT_PASSWORD" not in envs
@@ -833,9 +833,9 @@ def test_create_pins_the_configured_subnet_and_proxy_ip_into_the_compose_yaml(tm
         manager.create()
 
     yml = manager.compose_file_manager.yml
-    assert yml["networks"]["global-frontend-network"]["ipam"]["config"][0]["subnet"] == "10.5.0.0/24"
-    nets = yml["services"]["global-nginx-proxy"]["networks"]
-    assert nets["global-frontend-network"]["ipv4_address"] == "10.5.0.2"
+    assert yml["networks"]["frontend-network"]["ipam"]["config"][0]["subnet"] == "10.5.0.0/24"
+    nets = yml["services"]["nginx-proxy"]["networks"]
+    assert nets["frontend-network"]["ipv4_address"] == "10.5.0.2"
     # an already configured network is never re-detected or re-allocated
     harness.detect_running_network.assert_not_called()
     harness.find_available_subnet.assert_not_called()
@@ -845,54 +845,54 @@ def test_pinning_the_proxy_ip_rewrites_a_list_of_networks_into_a_mapping(tmp_pat
     """The template lists networks by name; a static IP needs the mapping form, and the other
     networks the proxy is on must survive the rewrite."""
     manager = _create_manager(tmp_path)
-    manager.compose_file_manager.yml["services"]["global-nginx-proxy"]["networks"] = [
-        "global-frontend-network",
-        "global-backend-network",
+    manager.compose_file_manager.yml["services"]["nginx-proxy"]["networks"] = [
+        "frontend-network",
+        "backend-network",
     ]
 
     with create_harness(tmp_path):
         manager.create()
 
-    nets = manager.compose_file_manager.yml["services"]["global-nginx-proxy"]["networks"]
-    assert nets["global-backend-network"] == {}
-    assert nets["global-frontend-network"] == {"ipv4_address": "10.5.0.2"}
+    nets = manager.compose_file_manager.yml["services"]["nginx-proxy"]["networks"]
+    assert nets["backend-network"] == {}
+    assert nets["frontend-network"] == {"ipv4_address": "10.5.0.2"}
 
 
 def test_pinning_the_proxy_ip_keeps_the_other_settings_on_an_existing_network_entry(tmp_path):
     manager = _create_manager(tmp_path)
-    manager.compose_file_manager.yml["services"]["global-nginx-proxy"]["networks"] = {
-        "global-frontend-network": {"aliases": ["proxy"]},
+    manager.compose_file_manager.yml["services"]["nginx-proxy"]["networks"] = {
+        "frontend-network": {"aliases": ["proxy"]},
     }
 
     with create_harness(tmp_path):
         manager.create()
 
-    entry = manager.compose_file_manager.yml["services"]["global-nginx-proxy"]["networks"]
-    assert entry["global-frontend-network"] == {"aliases": ["proxy"], "ipv4_address": "10.5.0.2"}
+    entry = manager.compose_file_manager.yml["services"]["nginx-proxy"]["networks"]
+    assert entry["frontend-network"] == {"aliases": ["proxy"], "ipv4_address": "10.5.0.2"}
 
 
 def test_a_proxy_with_no_networks_key_at_all_still_gets_its_static_ip(tmp_path):
     manager = _create_manager(tmp_path)
-    del manager.compose_file_manager.yml["services"]["global-nginx-proxy"]["networks"]
+    del manager.compose_file_manager.yml["services"]["nginx-proxy"]["networks"]
 
     with create_harness(tmp_path):
         manager.create()
 
-    nets = manager.compose_file_manager.yml["services"]["global-nginx-proxy"]["networks"]
-    assert nets == {"global-frontend-network": {"ipv4_address": "10.5.0.2"}}
+    nets = manager.compose_file_manager.yml["services"]["nginx-proxy"]["networks"]
+    assert nets == {"frontend-network": {"ipv4_address": "10.5.0.2"}}
 
 
 def test_a_network_entry_that_is_not_a_mapping_is_replaced_rather_than_crashed_on(tmp_path):
     manager = _create_manager(tmp_path)
-    manager.compose_file_manager.yml["services"]["global-nginx-proxy"]["networks"] = {
-        "global-frontend-network": None,
+    manager.compose_file_manager.yml["services"]["nginx-proxy"]["networks"] = {
+        "frontend-network": None,
     }
 
     with create_harness(tmp_path):
         manager.create()
 
-    nets = manager.compose_file_manager.yml["services"]["global-nginx-proxy"]["networks"]
-    assert nets["global-frontend-network"] == {"ipv4_address": "10.5.0.2"}
+    nets = manager.compose_file_manager.yml["services"]["nginx-proxy"]["networks"]
+    assert nets["frontend-network"] == {"ipv4_address": "10.5.0.2"}
 
 
 def test_a_compose_file_with_no_frontend_network_block_does_not_abort_the_creation(tmp_path):
@@ -936,7 +936,7 @@ def test_a_running_network_with_no_attached_proxy_gets_a_free_ip_rather_than_an_
         harness.detect_running_network.return_value = {"subnet_cidr": "10.9.0.0/24", "proxy_ip": None}
         manager.create()
 
-    harness.pick_proxy_ip.assert_called_once_with("10.9.0.0/24", "fm-global-frontend-network")
+    harness.pick_proxy_ip.assert_called_once_with("10.9.0.0/24", "fm-frontend-network")
     assert harness.fm_config.network.proxy_ip == "10.9.0.9"
 
 
@@ -947,7 +947,7 @@ def test_create_allocates_a_free_subnet_when_no_network_is_running(tmp_path):
         manager.create()
 
     harness.find_available_subnet.assert_called_once_with(["10.0.0.0/24"])
-    harness.compute_network_config.assert_called_once_with("10.7.0.0/24", "fm-global-frontend-network")
+    harness.compute_network_config.assert_called_once_with("10.7.0.0/24", "fm-frontend-network")
     assert harness.fm_config.network.subnet_cidr == "10.7.0.0/24"
     assert harness.fm_config.network.proxy_ip == "10.7.0.2"
     harness.fm_config.export_to_toml.assert_called_once_with()
@@ -1028,7 +1028,7 @@ def test_a_failed_compose_generation_names_the_underlying_cause(tmp_path):
     manager.compose_file_manager.with_envs.side_effect = cause
 
     with pytest.raises(ServicesNotCreated) as excinfo:
-        manager.generate_compose({"environment": {"global-db": {"A": "1"}}})
+        manager.generate_compose({"environment": {"mariadb": {"A": "1"}}})
 
     assert "read-only fs" in str(excinfo.value)
     assert excinfo.value.__cause__ is cause

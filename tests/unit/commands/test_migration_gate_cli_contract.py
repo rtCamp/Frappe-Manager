@@ -251,10 +251,10 @@ class TestGetBenchArgFromArgv:
 
 
 class TestTheGlobalStackIsGatedOnTheCommand:
-    """Which commands make ``app_callback`` boot global-db + global-nginx-proxy.
+    """Which commands make ``app_callback`` boot mariadb + nginx-proxy.
 
     The global stack is a bench RUNTIME dependency: a bench's schema lives in
-    global-db and the proxy is its only route in. Ensuring it is not free -- a
+    mariadb and the proxy is its only route in. Ensuring it is not free -- a
     first run mints a DB password pair, allocates a Docker subnet and pulls
     mariadb plus nginx-proxy -- so a command that never touches a bench must not
     pay for it. This shares the ``cli_gate`` harness above because the decision

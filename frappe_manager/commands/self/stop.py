@@ -30,7 +30,7 @@ def stop(
     ),
 ):
     """
-    Stop every bench on this host, then the global services (global-nginx-proxy, global-db).
+    Stop every bench on this host, then the global services (nginx-proxy, mariadb).
 
     Nothing fm manages is left running unless you narrow the blast radius with --benches-only or --global-only.
 

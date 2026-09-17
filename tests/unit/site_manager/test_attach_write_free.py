@@ -13,8 +13,8 @@ purpose: `bootstrap_database` runs outside `new-site`'s `if setup:` block and op
 `DROP TABLE IF EXISTS` per core doctype, so `--no-setup-db` does not make it safe -- there is no
 shape of that command that survives a schema which already holds a site.
 
-`test_global_db_create_still_calls_new_site_and_phase_six` is the control: the same harness on a
-`global-db` bench must record `new-site` and reach phase 6. Without it every assertion above
+`test_mariadb_create_still_calls_new_site_and_phase_six` is the control: the same harness on a
+`mariadb` bench must record `new-site` and reach phase 6. Without it every assertion above
 could pass because the harness records nothing at all.
 
 Layer 2 (`integration`) is the empirical half: fingerprint the schema, run the attach, fingerprint
@@ -39,7 +39,7 @@ SITE = "app.example.com"
 SCHEMA = "app_prod"
 EXTERNAL_HOST = "mydb.abc.rds.amazonaws.com"
 SITE_PASSWORD = "site-db-secret"
-GLOBAL_DB_ROOT_PASSWORD = "global-db-root-secret"
+GLOBAL_DB_ROOT_PASSWORD = "mariadb-root-secret"
 
 _BASE_TOML = f"""
 name = "{SITE}"
@@ -141,7 +141,7 @@ class _Harness:
         site_manager.output = MagicMock()
         services = site_manager.services = MagicMock()
         services.database_manager.database_server_info.password = GLOBAL_DB_ROOT_PASSWORD
-        services.database_manager.database_server_info.host = "global-db"
+        services.database_manager.database_server_info.host = "mariadb"
         services.database_manager.database_server_info.port = 3306
         site_manager._container_run = self.run  # type: ignore[method-assign]
         site_manager._container_exec_argv = self.exec_argv  # type: ignore[method-assign]
@@ -287,7 +287,7 @@ def test_attach_persists_switch_migrate_false(tmp_path, monkeypatch, _probe_says
     assert harness.saved_migrate[-1] is False  # persisted, not just set in memory
 
 
-def test_global_db_create_still_calls_new_site_and_phase_six(tmp_path):
+def test_mariadb_create_still_calls_new_site_and_phase_six(tmp_path):
     """Control for the two tests above: the same harness, a bench with no `[database]` entry.
 
     Everything the attach tests assert the absence of has to be present here, or those assertions
@@ -349,18 +349,18 @@ def _docker_or_skip() -> None:
         pytest.skip("the docker daemon is not reachable")
 
 
-def _global_db_container_or_skip() -> str:
+def _mariadb_container_or_skip() -> str:
     result = _run(["docker", "ps", "--format", "{{.Names}}"])
     if result.returncode != 0:
         pytest.skip("could not list running containers")
-    names = [name for name in result.stdout.decode().split() if "global-db" in name]
+    names = [name for name in result.stdout.decode().split() if "mariadb" in name]
     if not names:
-        pytest.skip("the fm global-db container is not running")
+        pytest.skip("the fm mariadb container is not running")
     return names[0]
 
 
 def _local_site_or_skip() -> dict:
-    """A site fm already runs on `global-db`.
+    """A site fm already runs on `mariadb`.
 
     The contract under test is "this code path issues no writes", and the path does not care whose
     server it is talking to, so no external server is needed.
@@ -375,7 +375,7 @@ def _local_site_or_skip() -> dict:
                 site_config = json.loads(config_path.read_text())
             except (OSError, ValueError):
                 continue
-            external = site_config.get("db_host") and "global-db" not in str(site_config["db_host"])
+            external = site_config.get("db_host") and "mariadb" not in str(site_config["db_host"])
             if external or not site_config.get("db_name") or not site_config.get("db_password"):
                 continue
             return {
@@ -384,7 +384,7 @@ def _local_site_or_skip() -> dict:
                 "user": site_config.get("db_user") or site_config["db_name"],
                 "password": site_config["db_password"],
             }
-    pytest.skip("no fm bench with a global-db site to fingerprint")
+    pytest.skip("no fm bench with a mariadb site to fingerprint")
     raise AssertionError  # unreachable; pytest.skip raises
 
 
@@ -420,7 +420,7 @@ def test_attach_leaves_the_schema_byte_identical():
     fingerprint moves.
     """
     _docker_or_skip()
-    container = _global_db_container_or_skip()
+    container = _mariadb_container_or_skip()
     site = _local_site_or_skip()
 
     # The determinism control, FIRST and with nothing in between: two dumps of an untouched schema.
@@ -454,7 +454,7 @@ def test_attach_leaves_the_schema_byte_identical():
         attach=True,
         credentials=db_probe.CredentialInputs(site_password_given=True, admin_given=False, db_name=site["schema"]),
         schema=site["schema"],
-        host="global-db",
+        host="mariadb",
     )
     if decision.flow is not db_probe.Flow.attach:
         pytest.skip(f"{site['schema']} is not attachable, so nothing was exercised: {decision.message}")

@@ -39,20 +39,20 @@ class FMLoginServers extends AdminerLoginServers {
             // container can never reach a unix socket living in another one. With db_host also set
             // the operator named a TCP endpoint explicitly — plausibly the same server, and a path
             // that works — so that card stays. Without it the fallback below would aim the card at
-            // the shared global-db: a different, real, writable database than the one the site
+            // the shared mariadb: a different, real, writable database than the one the site
             // actually uses, and a button to the wrong database is worse than no button.
             if (!empty($cfg['db_socket']) && empty($cfg['db_host'])) {
                 continue;
             }
             // Per site, not bench-wide: the DB endpoint moved into each site's own file when a
             // bench could serve several, so fm no longer writes db_host/db_port to common at all.
-            $host = (string) ($cfg['db_host'] ?? $common['db_host'] ?? 'global-db');
+            $host = (string) ($cfg['db_host'] ?? $common['db_host'] ?? 'mariadb');
             $port = (int) ($cfg['db_port'] ?? $common['db_port'] ?? 0);
             // Adminer splits the server string with `^(\[(.+)]|([^:]+)):([^:]+)$` (host_port() in
             // upstream include/functions.inc.php): a port is only recognised after a plain name or
             // a bracketed `[ipv6]`, so a bare IPv6 literal must gain brackets before a port can be
             // appended — a colon check alone dropped the port for every IPv6 host. The port is only
-            // appended when set and non-default, so the shared global-db cards read exactly as they
+            // appended when set and non-default, so the shared mariadb cards read exactly as they
             // always did; a host already carrying a port Adminer can parse is left alone, and no
             // brackets are added when no port is appended (`[ipv6]` bare fails that regex too).
             $endpoint = $host;

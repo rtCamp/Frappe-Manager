@@ -2,10 +2,10 @@
 
 Two things about `bench reinstall`, both about a database fm does not own:
 
-D04 -- `reinstall` drops and recreates the site's schema. On the `global-db` container fm owns
+D04 -- `reinstall` drops and recreates the site's schema. On the `mariadb` container fm owns
 that is the whole point of `fm reset`. On a server named by a `[database]` entry it is the exact
 operation `fm delete` refuses to perform ("the schema is not fm's to drop"), and reaching it means
-first sending the global-db ROOT password -- which means nothing on that host -- through a MySQL
+first sending the mariadb ROOT password -- which means nothing on that host -- through a MySQL
 auth handshake and into the container's process listing. So the external case is refused before
 any argv is built.
 
@@ -34,7 +34,7 @@ EXTERNAL_SITE = "app.example.com"
 EXTERNAL_HOST = "mydb.abc.rds.amazonaws.com"
 SCHEMA = "app_prod"
 ROOT_USER = "root"
-ROOT_PASSWORD = "global-db-root-secret"
+ROOT_PASSWORD = "mariadb-root-secret"
 
 # Passwords an operator can legitimately choose. Each one breaks a different way when joined into
 # a shell string unquoted: word splitting, an unbalanced quote, a command separator.
@@ -74,7 +74,7 @@ def _manager(config: BenchConfig, site: str | None = None) -> BenchSiteManager:
     info = manager.services = MagicMock()
     info.database_manager.database_server_info.user = ROOT_USER
     info.database_manager.database_server_info.password = ROOT_PASSWORD
-    info.database_manager.database_server_info.host = "global-db"
+    info.database_manager.database_server_info.host = "mariadb"
     info.database_manager.database_server_info.port = 3306
     return manager
 
@@ -134,12 +134,12 @@ def test_the_refusal_never_builds_the_root_credential_into_a_command(tmp_path):
 def test_the_refusal_resolves_per_site_not_per_bench(tmp_path):
     """`--site <name>` is what reinstall acts on, so the lookup follows that name.
 
-    One bench, two sites: the `global-db` one resets, the external one is refused.
+    One bench, two sites: the `mariadb` one resets, the external one is refused.
 
     The site now arrives as an argument rather than as the manager's bench name. It was read off the
     bench name, which is the same string only while a bench holds one site named after it: on a bench
     `shop` serving `shop.localhost` the lookup missed the table entirely, so an EXTERNAL site read as
-    global-db and this refusal never fired.
+    mariadb and this refusal never fired.
     """
     manager = _manager(_config(tmp_path, name=GLOBAL_DB_SITE, external_site=EXTERNAL_SITE))
 
@@ -168,7 +168,7 @@ def test_without_a_site_the_benchs_own_is_reinstalled(tmp_path):
     assert _argv(_commands(manager)[0])[2] == GLOBAL_DB_SITE
 
 
-def test_reset_on_global_db_still_sends_the_root_credential(tmp_path):
+def test_reset_on_mariadb_still_sends_the_root_credential(tmp_path):
     """Unchanged behaviour on the container fm owns: this is the reset that must keep working."""
     manager = _manager(_config(tmp_path, name=GLOBAL_DB_SITE))
 
@@ -199,7 +199,7 @@ def test_a_reset_password_reaches_bench_as_exactly_one_argument(tmp_path, passwo
 
 
 def test_a_reset_root_password_reaches_bench_as_exactly_one_argument(tmp_path):
-    """The global-db root password is generated, but it is joined into the same string."""
+    """The mariadb root password is generated, but it is joined into the same string."""
     manager = _manager(_config(tmp_path, name=GLOBAL_DB_SITE))
     manager.services.database_manager.database_server_info.password = "r00t pass'word"
 
@@ -210,7 +210,7 @@ def test_a_reset_root_password_reaches_bench_as_exactly_one_argument(tmp_path):
 
 @pytest.mark.parametrize("password", TRICKY_PASSWORDS)
 def test_a_create_admin_password_reaches_bench_as_exactly_one_argument(tmp_path, password):
-    """`fm create` builds its argv the same way; the global-db branch, where new-site provisions."""
+    """`fm create` builds its argv the same way; the mariadb branch, where new-site provisions."""
     manager = _manager(_config(tmp_path, name=GLOBAL_DB_SITE))
 
     manager.create_bench_site(admin_pass=password)

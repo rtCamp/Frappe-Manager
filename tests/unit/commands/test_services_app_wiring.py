@@ -32,7 +32,7 @@ def test_bare_subcommand_renders_help_instead_of_missing_argument_error(subcomma
     # ...and the help screen really is rendered: the enumerated service names
     # and the worked-examples panel only appear in the help panels.
     assert "Examples" in output
-    assert "global-nginx-proxy" in output
+    assert "nginx-proxy" in output
 
 
 @pytest.mark.timeout(15)
@@ -52,7 +52,7 @@ def test_subcommand_with_an_argument_is_not_diverted_to_help(subcommand):
     # The help divert is keyed on "no arguments" only: once an argument is
     # supplied the command parses and dispatches for real (and then fails on
     # the absent ctx.obj, proving the body was entered).
-    result = runner.invoke(services_app, [subcommand, "global-db"])
+    result = runner.invoke(services_app, [subcommand, "mariadb"])
 
     assert "Examples" not in result.output
     assert isinstance(result.exception, TypeError)

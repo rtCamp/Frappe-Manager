@@ -236,7 +236,7 @@ def test_each_site_on_a_bench_resolves_its_own_schema(tmp_path):
     """Two sites, two schemas, one bench. Anything bench-keyed would hand back one answer for
     both, which on the destructive path means dropping the wrong site's database."""
     h = _Harness(tmp_path)
-    _write_common_site_config(h.bench_path, {"db_host": "global-db", "db_port": 3306})
+    _write_common_site_config(h.bench_path, {"db_host": "mariadb", "db_port": 3306})
     _write_site_config(h.bench_path, SITE_NAME, {"db_name": "fm_site1_aaa", "db_password": "one"})
     _write_site_config(h.bench_path, SECOND_SITE, {"db_name": "fm_b_bbb", "db_password": "two"})
 
@@ -249,7 +249,7 @@ def test_each_site_on_a_bench_resolves_its_own_schema(tmp_path):
 
 def test_connection_info_merges_common_and_site_config(tmp_path):
     h = _Harness(tmp_path)
-    _write_common_site_config(h.bench_path, {"db_host": "global-db", "db_port": 3306})
+    _write_common_site_config(h.bench_path, {"db_host": "mariadb", "db_port": 3306})
     _write_site_config(
         h.bench_path,
         SITE_NAME,
@@ -258,7 +258,7 @@ def test_connection_info_merges_common_and_site_config(tmp_path):
 
     assert h.database.get_connection_info() == {
         "password": "s3cret",
-        "host": "global-db",
+        "host": "mariadb",
         "port": 3306,
         "name": "site1_local_db",
         "user": "site1_local_db",
@@ -267,7 +267,7 @@ def test_connection_info_merges_common_and_site_config(tmp_path):
 
 def test_site_config_endpoint_overrides_the_common_one(tmp_path):
     h = _Harness(tmp_path)
-    _write_common_site_config(h.bench_path, {"db_host": "global-db", "db_port": 3306})
+    _write_common_site_config(h.bench_path, {"db_host": "mariadb", "db_port": 3306})
     _write_site_config(
         h.bench_path,
         SITE_NAME,
@@ -288,13 +288,13 @@ def test_connection_info_without_any_config_file_is_password_only(tmp_path):
 def test_connection_info_from_common_config_alone_has_no_name(tmp_path):
     """No site config means no `name`, which is exactly what disarms the removal path."""
     h = _Harness(tmp_path)
-    _write_common_site_config(h.bench_path, {"db_host": "global-db", "db_port": 3306})
+    _write_common_site_config(h.bench_path, {"db_host": "mariadb", "db_port": 3306})
 
     info = h.database.get_connection_info()
 
     assert "name" not in info
     assert "user" not in info
-    assert info == {"password": None, "host": "global-db", "port": 3306}
+    assert info == {"password": None, "host": "mariadb", "port": 3306}
 
 
 def test_db_user_is_the_db_name(tmp_path):
@@ -332,7 +332,7 @@ def test_removal_without_a_site_drops_the_primary_sites_schema(tmp_path, conn_in
 def test_a_drop_on_a_site_not_named_after_its_bench_reaches_the_database(tmp_path):
     """Was a silent no-op: keyed by the bench name, `sites/shop/site_config.json` did not exist,
     the info dict had no `name`, and this returned having dropped nothing while the caller
-    reported success, leaving the schema orphaned in global-db."""
+    reported success, leaving the schema orphaned in mariadb."""
     h = _Harness(tmp_path, bench_name="shop", primary_site="shop.localhost")
     _write_site_config(
         h.bench_path,
@@ -373,12 +373,12 @@ def test_removal_announces_before_asking_the_database_anything(tmp_path):
 
     h.database.remove_database_and_user()
 
-    assert _calls(h.recorder)[0] == call.output.change_head("Removing bench db and db users from global-db")
+    assert _calls(h.recorder)[0] == call.output.change_head("Removing bench db and db users from mariadb")
 
 
 def test_removal_without_a_name_refuses_all_database_work(tmp_path, conn_info):
     """The only guard that can stop the whole operation: no `name` in the info dict."""
-    conn_info.return_value = {"password": None, "host": "global-db", "port": 3306}
+    conn_info.return_value = {"password": None, "host": "mariadb", "port": 3306}
     h = _Harness(tmp_path)
 
     h.database.remove_database_and_user()
@@ -399,7 +399,7 @@ def test_missing_database_is_warned_about_and_never_dropped(tmp_path):
 
     h.db.check_db_exists.assert_called_once_with("site1_local_db")
     h.db.remove_db.assert_not_called()
-    assert "global-db: Bench db [fm.info]site1_local_db[/fm.info] not found. Skipping.." in h.warnings
+    assert "mariadb: Bench db [fm.info]site1_local_db[/fm.info] not found. Skipping.." in h.warnings
 
 
 @pytest.mark.usefixtures("conn_info")
@@ -411,7 +411,7 @@ def test_existing_database_is_dropped_and_reported(tmp_path):
     h.database.remove_database_and_user()
 
     h.db.remove_db.assert_called_once_with("site1_local_db")
-    assert "global-db: Removed bench db [fm.info]site1_local_db[/fm.info]" in h.printed
+    assert "mariadb: Removed bench db [fm.info]site1_local_db[/fm.info]" in h.printed
 
 
 @pytest.mark.usefixtures("conn_info")
@@ -424,7 +424,7 @@ def test_missing_user_is_warned_about_and_never_dropped(tmp_path):
 
     h.db.check_user_exists.assert_called_once_with("site1_local_user")
     h.db.remove_user.assert_not_called()
-    assert "global-db: Bench db user [fm.info]site1_local_user[/fm.info] not found. Skipping.." in h.warnings
+    assert "mariadb: Bench db user [fm.info]site1_local_user[/fm.info] not found. Skipping.." in h.warnings
 
 
 @pytest.mark.usefixtures("conn_info")
@@ -437,7 +437,7 @@ def test_existing_user_is_dropped_on_every_host(tmp_path):
     h.database.remove_database_and_user()
 
     assert h.db.remove_user.call_args == call("site1_local_user", remove_all_host=True)
-    assert "global-db: Removed bench db users [fm.info]site1_local_user[/fm.info]" in h.printed
+    assert "mariadb: Removed bench db users [fm.info]site1_local_user[/fm.info]" in h.printed
 
 
 @pytest.mark.usefixtures("conn_info")

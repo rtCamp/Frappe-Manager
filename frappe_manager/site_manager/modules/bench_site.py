@@ -127,7 +127,7 @@ class BenchSiteManager:
         services are available or timeout is reached.
 
         A candidate carries the compose service name and the endpoint to probe separately,
-        because they are only the same string for the fm managed containers: `global-db` is both
+        because they are only the same string for the fm managed containers: `mariadb` is both
         a compose service and the DNS name the site dials. An external endpoint has no compose
         service at all, so there is nothing to profile-check and the real host and port are
         probed directly.
@@ -284,7 +284,7 @@ class BenchSiteManager:
         credentials and configuration. It also sets the site as default and
         enables the scheduler.
 
-        On the `global-db` container the invocation is unchanged: fm owns that server, so it
+        On the `mariadb` container the invocation is unchanged: fm owns that server, so it
         hands new-site the root password and lets Frappe create the schema, the user and the
         grant. For a site with a `[database]` entry the schema work has already happened (either
         `provision_external_schema` or the operator did it), the endpoint and the TLS keys are
@@ -316,7 +316,7 @@ class BenchSiteManager:
         # Build new-site command
         new_site_command = self.bench_cli_cmd + ["new-site"]
         if database_config:
-            # External server. --db-root-password is deliberately absent: the global-db root
+            # External server. --db-root-password is deliberately absent: the mariadb root
             # password means nothing here and must never be sent to a host fm does not own, and
             # any admin credential this flow needed was already spent by the direct
             # setup_database call, over stdin.
@@ -404,7 +404,7 @@ class BenchSiteManager:
         Not `bench new-site --db-root-username`, which provisions perfectly well but only after a
         root connection made at a point where the site directory must not exist yet, so the only
         config it can read is `common_site_config.json`. `db_ssl_ca` there is bench wide, and that
-        was measured breaking a sibling `global-db` site, which began failing with
+        was measured breaking a sibling `mariadb` site, which began failing with
         `TLS/SSL error: self-signed certificate` for as long as the key was present. `setup_database`
         is a plain function, so calling it after the site file exists removes the ordering
         constraint: the root connection reads the per site TLS keys like any other connection.
@@ -442,7 +442,7 @@ class BenchSiteManager:
             raise BenchOperationException(
                 self.bench_name,
                 f"refusing to provision a schema for {site}: it has no [database] entry, so its"
-                " database is the global-db container, which new-site provisions itself.",
+                " database is the mariadb container, which new-site provisions itself.",
             )
 
         script = "\n".join(
@@ -545,16 +545,16 @@ class BenchSiteManager:
         This method runs 'bench reinstall' which drops and recreates the
         site's database, effectively resetting it to a fresh state.
 
-        Only for a site on the `global-db` container fm owns. A site with a `[database]` entry is
+        Only for a site on the `mariadb` container fm owns. A site with a `[database]` entry is
         refused, for the reason `_resolve_site_schema` gives when `fm delete` skips the same schema:
         `reinstall` drops and recreates it, and it is not fm's to drop. The refusal is also what
-        keeps the global-db root credential -- which means nothing on a host fm does not own -- out
+        keeps the mariadb root credential -- which means nothing on a host fm does not own -- out
         of the argv, out of the container's process listing and off the wire.
 
         Keyed by SITE, both for the refusal and for `--site`. Both read the BENCH name before, which
         was the same string only while a bench held one site named after it. On a bench `shop`
         serving `shop.localhost` the refusal looked up a site that is not in the table, found no
-        `[database]` entry, and so an EXTERNAL site read as global-db and was reinstalled with the
+        `[database]` entry, and so an EXTERNAL site read as mariadb and was reinstalled with the
         wrong root credentials against a server fm does not own.
 
         Args:
@@ -582,17 +582,17 @@ class BenchSiteManager:
                 f"schema, and that schema is not fm's to drop.",
             )
 
-        # Only global-db sites get here, so there is no per-site MYSQL_HOME to carry: `_site_env()`
+        # Only mariadb sites get here, so there is no per-site MYSQL_HOME to carry: `_site_env()`
         # is empty for exactly the sites this method does not refuse.
-        global_db_info = self.services.database_manager.database_server_info
+        mariadb_info = self.services.database_manager.database_server_info
 
         # The list is joined into one string that `_container_run` hands to `compose.exec`, which
         # shlex-splits it again, so an unquoted password carrying a space fragments into extra
         # positional arguments and one carrying an apostrophe breaks the split outright.
         reset_bench_site_command = self.bench_cli_cmd + ["--site", target]
         reset_bench_site_command += ["reinstall", "--admin-password", shlex.quote(admin_password)]
-        reset_bench_site_command += ["--db-root-username", global_db_info.user]
-        reset_bench_site_command += ["--db-root-password", shlex.quote(global_db_info.password)]
+        reset_bench_site_command += ["--db-root-username", mariadb_info.user]
+        reset_bench_site_command += ["--db-root-password", shlex.quote(mariadb_info.password)]
         reset_bench_site_command += ["--yes"]
 
         reset_bench_site_command = " ".join(reset_bench_site_command)
@@ -641,7 +641,7 @@ class BenchSiteManager:
             DockerException: If command fails and no exception object provided
         """
         # Empty or None leaves the invocation byte identical to what fm issued before `[database]`
-        # existed, which is what every bench on the global-db container still gets.
+        # existed, which is what every bench on the mariadb container still gets.
         env_options = [f"{name}={value}" for name, value in env.items()] if env else None
 
         # `compose.run`/`compose.exec` shlex-split the string they are handed, so the wrapping is

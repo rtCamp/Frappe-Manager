@@ -107,7 +107,7 @@ def test_a_free_bench_name_passes_the_guard_into_the_body(cli, benches):
 """Three invocations used to exit 0 having thrown the operator's flag away.
 
 `--bench-only` skips `record_site`, so an entire external database was accepted and the bench came
-up on the global-db container instead: working, and pointed at the wrong server. `fm create
+up on the mariadb container instead: working, and pointed at the wrong server. `fm create
 BENCH/SITE` reaches `_add_site_to_bench`, which has no database parameters at all. And `--bench-only`
 beside a `BENCH/SITE` address is a contradiction that was resolved by ignoring the flag.
 

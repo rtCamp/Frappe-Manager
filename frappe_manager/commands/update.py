@@ -313,7 +313,7 @@ def update(
         if database_config is None:
             output.display_error(
                 f"{bench.site_name} has no \\[database] entry in bench_config.toml: the bench uses the fm-managed "
-                "'global-db' container, whose TLS material fm owns, so there is no external CA to refresh.",
+                "'mariadb' container, whose TLS material fm owns, so there is no external CA to refresh.",
             )
             raise typer.Exit(1)
 

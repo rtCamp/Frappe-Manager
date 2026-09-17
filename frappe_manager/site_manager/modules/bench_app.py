@@ -839,8 +839,8 @@ fi
         ``<dir>/my.cnf`` when ``MYSQL_HOME=<dir>``, and that option file is what
         carries ``ssl-ca`` and ``ssl-verify-server-cert``.
 
-        Empty for a ``global-db`` bench, and deliberately so: an option file
-        naming an external CA would make the client reject ``global-db``'s own
+        Empty for a ``mariadb`` bench, and deliberately so: an option file
+        naming an external CA would make the client reject ``mariadb``'s own
         certificate.
         """
         if self.bench_config.get_database_config(self.bench_name) is None:

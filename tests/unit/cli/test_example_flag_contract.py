@@ -53,8 +53,8 @@ _FLAG_RE = re.compile(r"(?<![\w-])(--[a-z][a-z0-9-]{2,})")
 # - `fm services shell` (`services/shell.py`) LOOKS like part of the same passthrough family but
 #   is not one: `shell_services` takes a typed `service_name: ServicesEnum` argument and its own
 #   `--user` option, and its registration (`services/__init__.py:19`) sets no
-#   `allow_extra_args`/`ctx.args` forwarding at all. Its two examples ("global-db",
-#   "global-nginx-proxy") are enum VALUES, not flags. Nothing foreign can ever reach it through
+#   `allow_extra_args`/`ctx.args` forwarding at all. Its two examples ("mariadb",
+#   "nginx-proxy") are enum VALUES, not flags. Nothing foreign can ever reach it through
 #   this mechanism, so it gets no entry.
 FOREIGN: dict[tuple[str, ...], frozenset[str]] = {
     # `bench`'s own flag, forwarded through the heredoc example's `bench build --app frappe`

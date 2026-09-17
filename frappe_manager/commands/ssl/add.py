@@ -97,7 +97,7 @@ def add_certificate(
         bool,
         typer.Option(
             "--standalone",
-            help="For an external Docker project on the fm-global-frontend-network network.",
+            help="For an external Docker project on the fm-frontend-network network.",
         ),
     ] = False,
     dev: Annotated[

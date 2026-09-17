@@ -22,7 +22,7 @@ nameless backup failure on a bench where most of the dumps landed.
 **A restore replaces the current database, on both kinds of server.** `db_import(force=True)` +
 a Frappe dump's per-table `DROP TABLE IF EXISTS` is the most destructive thing fm does. The typed
 schema-name confirmation used to be reached only for a `[database]` entry, so the schema fm owns
-in global-db was overwritten with no question at all, losing exactly as much site data. Both are
+in mariadb was overwritten with no question at all, losing exactly as much site data. Both are
 confirmed now. The two paths that reach a restore are NOT the same, though, and the distinction is
 the contract:
 
@@ -190,7 +190,7 @@ def _real_backup_rig(tmp_path, *, sites=(SITE,), running=True, db_names=None, ex
         site_dir.mkdir(parents=True, exist_ok=True)
         (site_dir / "site_config.json").write_text("{}")
         manager = MagicMock()
-        manager.database_server_info = SimpleNamespace(host="global-db", port=3306)
+        manager.database_server_info = SimpleNamespace(host="mariadb", port=3306)
         if site in (exports or {}):
             manager.db_export.side_effect = exports[site]
         elif site in dumps:
@@ -437,7 +437,7 @@ class TestRequestedRestoreRefuses:
 
     @pytest.mark.parametrize("external", [False, True])
     def test_a_requested_restore_refuses_when_it_cannot_ask(self, tmp_path, external):
-        """The global-db half is the new one: fm owning the container never made the site
+        """The mariadb half is the new one: fm owning the container never made the site
         data less valuable."""
         orch, manager, dump = self._restorer(tmp_path, external=external, interactive=False)
         with pytest.raises(RestoreNotConfirmed, match="Nothing was imported"):
@@ -472,17 +472,17 @@ class TestRequestedRestoreRefuses:
             orch._restore_db(SITE, dump, requested=True)
         manager.db_import.assert_not_called()
 
-    def test_the_global_db_prompt_says_whose_database_it_is(self, tmp_path):
+    def test_the_mariadb_prompt_says_whose_database_it_is(self, tmp_path):
         orch, _manager, dump = self._restorer(tmp_path, external=False)
         orch._restore_db(SITE, dump, requested=True)
-        assert "fm's own global-db container" in _warnings(orch)
+        assert "fm's own mariadb container" in _warnings(orch)
 
     def test_the_external_prompt_still_says_fm_does_not_own_it(self, tmp_path):
         orch, _manager, dump = self._restorer(tmp_path, external=True)
         orch._restore_db(SITE, dump, requested=True)
         assert "a database fm does not own" in _warnings(orch)
 
-    def test_the_global_db_table_count_is_read_from_the_server(self, tmp_path):
+    def test_the_mariadb_table_count_is_read_from_the_server(self, tmp_path):
         """The number in the question has to be current, or it is false reassurance."""
         orch, manager, dump = self._restorer(tmp_path, external=False)
         orch._restore_db(SITE, dump, requested=True)

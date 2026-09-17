@@ -26,7 +26,7 @@ class BenchDatabase:
 
     Responsibilities:
     - Get database connection information
-    - Remove database and user from global-db
+    - Remove database and user from mariadb
     - Sync common site config with the bench's redis wiring
     """
 
@@ -72,19 +72,19 @@ class BenchDatabase:
 
     def remove_database_and_user(self, site: str | None = None):
         """
-        Drop one site's schema and its user from global-db.
+        Drop one site's schema and its user from mariadb.
 
         Keyed by SITE. It read `sites/<bench name>/site_config.json` before, which stopped being the
         site directory when bench and site names came apart: it found nothing, `name` was absent, and
         this method returned having dropped nothing while the caller reported success. The schema was
-        left behind in global-db with the only record of its name inside a directory about to be
+        left behind in mariadb with the only record of its name inside a directory about to be
         removed.
 
         Args:
             site: which site's schema to drop. None means the bench's own site.
         """
         bench_db_info = self.get_connection_info(site)
-        self.output.change_head("Removing bench db and db users from global-db")
+        self.output.change_head("Removing bench db and db users from mariadb")
 
         if "name" in bench_db_info:
             db_name = bench_db_info["name"]
@@ -92,17 +92,17 @@ class BenchDatabase:
 
             # Remove database
             if not self.services.database_manager.check_db_exists(db_name):
-                self.output.warning(f"global-db: Bench db [fm.info]{db_name}[/fm.info] not found. Skipping..")
+                self.output.warning(f"mariadb: Bench db [fm.info]{db_name}[/fm.info] not found. Skipping..")
             else:
                 self.services.database_manager.remove_db(db_name)
-                self.output.print(f"global-db: Removed bench db [fm.info]{db_name}[/fm.info]")
+                self.output.print(f"mariadb: Removed bench db [fm.info]{db_name}[/fm.info]")
 
             # Remove user
             if not self.services.database_manager.check_user_exists(db_user):
-                self.output.warning(f"global-db: Bench db user [fm.info]{db_user}[/fm.info] not found. Skipping..")
+                self.output.warning(f"mariadb: Bench db user [fm.info]{db_user}[/fm.info] not found. Skipping..")
             else:
                 self.services.database_manager.remove_user(db_user, remove_all_host=True)
-                self.output.print(f"global-db: Removed bench db users [fm.info]{db_user}[/fm.info]")
+                self.output.print(f"mariadb: Removed bench db users [fm.info]{db_user}[/fm.info]")
 
     def sync_common_site_config(self):
         """

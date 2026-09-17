@@ -174,7 +174,7 @@ class BenchService:
         self,
         bench_name: str,
         yes: bool = False,
-        delete_db_from_global_db: bool | None = None,
+        delete_db_from_mariadb: bool | None = None,
     ) -> bool:
         """Resolve the bench, then hand it to the one removal sequence.
 
@@ -186,7 +186,7 @@ class BenchService:
         except FileNotFoundError:
             bench = self._create_cleanup_bench(bench_name)
 
-        return bench.remove_bench(delete_db_from_global_db=delete_db_from_global_db, prompt=not yes)
+        return bench.remove_bench(delete_db_from_mariadb=delete_db_from_mariadb, prompt=not yes)
 
     def discover_benches(self) -> dict[str, Path]:
         """

@@ -3,7 +3,7 @@
 Root is not a supported way to run fm, and it fails in ways worse than a refusal: Frappe's own
 bench exits 1 as root unless ``frappe_user`` is set in the bench config (bench/cli.py
 ``change_uid``), which fm does not set, so web and workers land in FATAL while the bench still
-looks created; and the shared service containers are named per-host (``fm_global-db``), so a root
+looks created; and the shared service containers are named per-host (``fm_mariadb``), so a root
 fm fights the real user's containers.
 
 The load-bearing part is the ORDER: the check fires before ``app()``, because ``app_callback``

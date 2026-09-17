@@ -293,7 +293,7 @@ class TestBenchMustBeRunning:
 
 NO_DATABASE_REFUSAL = (
     f"{BENCH} has no \\[database] entry in bench_config.toml: the bench uses the fm-managed "
-    "'global-db' container, whose TLS material fm owns, so there is no external CA to refresh."
+    "'mariadb' container, whose TLS material fm owns, so there is no external CA to refresh."
 )
 
 
@@ -885,7 +885,7 @@ class TestSwitchTargetImageResolution:
             "migrate_override": None,
             "restore_db_dumps": {},
             "prune_keep": None,
-            # False because no --yes was passed: a restore that would overwrite fm's own global-db
+            # False because no --yes was passed: a restore that would overwrite fm's own mariadb
             # has to be confirmed, not just requested.
             "restore_confirmed": False,
         }

@@ -337,19 +337,19 @@ class TestCaptureOutputForwarding:
     def test_capture_output_false_reaches_the_subprocess_runner(self, wrapper):
         with patch("frappe_manager.docker.docker_compose.run_command_with_exit_code") as mock_run:
             mock_run.return_value = None
-            wrapper.exec("global-db", command="/bin/bash", capture_output=False)
+            wrapper.exec("mariadb", command="/bin/bash", capture_output=False)
 
         args, kwargs = mock_run.call_args
         assert kwargs == {"stream": False, "capture_output": False}
         # ...and it still is not a compose option.
         assert "--capture-output" not in args[0]
-        assert args[0][-3:] == ["exec", "global-db", "/bin/bash"]
+        assert args[0][-3:] == ["exec", "mariadb", "/bin/bash"]
 
     @pytest.mark.timeout(15)
     def test_capture_output_defaults_to_capturing(self, wrapper):
         with patch("frappe_manager.docker.docker_compose.run_command_with_exit_code") as mock_run:
             mock_run.return_value = SubprocessOutput([], [], [], 0)
-            wrapper.exec("global-db", command="ls")
+            wrapper.exec("mariadb", command="ls")
 
         assert mock_run.call_args[1]["capture_output"] is True
 

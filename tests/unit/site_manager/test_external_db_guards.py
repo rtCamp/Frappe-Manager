@@ -32,7 +32,7 @@ EXTERNAL_BENCH = "shop"
 EXTERNAL_HOST = "mydb.abc.rds.amazonaws.com"
 SCHEMA = "app_prod"
 GLOBAL_SCHEMA = "fm_local_localhost_a1b2"  # what fm mints for a site of its own: `fm_<site>_<hex>`
-ROOT_PASSWORD = "global-db-root-secret"
+ROOT_PASSWORD = "mariadb-root-secret"
 
 
 def _config(tmp_path: Path, *, name: str, external_site: str | None = None, ca: str | None = None) -> BenchConfig:
@@ -42,7 +42,7 @@ def _config(tmp_path: Path, *, name: str, external_site: str | None = None, ca: 
     invariant: create and the migration both write one per bench, and it is how a bench-scoped
     command knows which site it means. `external_site` differs from `name` in the test that proves
     the guard resolves per site rather than per bench, and there the config legitimately describes
-    two: the bench's own on global-db, and the external one.
+    two: the bench's own on mariadb, and the external one.
     """
     toml = f'name = "{name}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
     toml += f'\n[sites."{name}"]\n'
@@ -109,7 +109,7 @@ def _printed(output: MagicMock) -> str:
 
 @pytest.mark.parametrize("preference", [None, True, False])
 def test_delete_never_drops_an_external_schema(tmp_path, preference):
-    """Not even when the operator passed --delete-db-from-global-db: it is not fm's schema."""
+    """Not even when the operator passed --delete-db-from-mariadb: it is not fm's schema."""
     bench = _bench(
         tmp_path,
         _config(tmp_path, name=EXTERNAL_BENCH, external_site=EXTERNAL_SITE),
@@ -126,7 +126,7 @@ def test_delete_never_drops_an_external_schema(tmp_path, preference):
     assert SCHEMA in message
 
 
-def test_delete_prompts_and_drops_on_global_db(tmp_path):
+def test_delete_prompts_and_drops_on_mariadb(tmp_path):
     """Unchanged behaviour for a bench on the container fm owns."""
     bench = _bench(tmp_path, _config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE, {GLOBAL_DB_SITE: GLOBAL_SCHEMA})
     bench.output.prompt_ask.return_value = "yes"
@@ -138,7 +138,7 @@ def test_delete_prompts_and_drops_on_global_db(tmp_path):
 
 
 @pytest.mark.parametrize(("preference", "dropped"), [(True, [GLOBAL_DB_SITE]), (False, [])])
-def test_delete_honours_an_explicit_preference_on_global_db(tmp_path, preference, dropped):
+def test_delete_honours_an_explicit_preference_on_mariadb(tmp_path, preference, dropped):
     bench = _bench(tmp_path, _config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE, {GLOBAL_DB_SITE: GLOBAL_SCHEMA})
 
     bench._handle_database_deletion(preference)
@@ -148,10 +148,10 @@ def test_delete_honours_an_explicit_preference_on_global_db(tmp_path, preference
 
 
 def test_the_guard_resolves_per_site_not_per_bench(tmp_path):
-    """One bench, two sites on disk: the `global-db` one is dropped, the external one is refused.
+    """One bench, two sites on disk: the `mariadb` one is dropped, the external one is refused.
 
     The switch is the presence of *that site's own* `[database]` entry. A bench-level test
-    (`if config.database:`) would refuse both and quietly leak a `global-db` schema on every
+    (`if config.database:`) would refuse both and quietly leak a `mariadb` schema on every
     delete; the mirror bug drops the external one. One pass over one bench is what makes the two
     outcomes comparable: they are decisions the same loop takes about different sites.
     """
@@ -181,7 +181,7 @@ def test_bench_service_delete_shares_the_guard(tmp_path):
     through the public entry point rather than the handler, so it stays true however the delegation
     is spelled.
 
-    A mixed bench, because that is what this config describes: the bench's own site on fm's global-db
+    A mixed bench, because that is what this config describes: the bench's own site on fm's mariadb
     and a second one on a server fm does not own. Both are recorded in `[sites]`, so both have to be
     on disk; a recorded site with no `site_config.json` is unreadable, and unreadable blocks.
     """
@@ -196,7 +196,7 @@ def test_bench_service_delete_shares_the_guard(tmp_path):
 
     _service(output, bench).delete_bench(EXTERNAL_BENCH, yes=True)
 
-    # The external one is never dropped and never asked about; the global-db one still is.
+    # The external one is never dropped and never asked about; the mariadb one still is.
     assert _dropped(bench) == [EXTERNAL_BENCH]
     assert EXTERNAL_SITE not in _dropped(bench)
     assert EXTERNAL_HOST in _printed(bench.output)
@@ -204,7 +204,7 @@ def test_bench_service_delete_shares_the_guard(tmp_path):
     bench.remove_containers_and_dirs.assert_called_once_with()
 
 
-def test_bench_service_delete_still_drops_a_global_db_schema(tmp_path):
+def test_bench_service_delete_still_drops_a_mariadb_schema(tmp_path):
     bench = _bench(tmp_path, _config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE, {GLOBAL_DB_SITE: GLOBAL_SCHEMA})
     bench.output.prompt_ask.return_value = "yes"
 
@@ -216,7 +216,7 @@ def test_bench_service_delete_still_drops_a_global_db_schema(tmp_path):
 
 def test_the_yes_flag_skips_only_the_removal_confirmation(tmp_path):
     """`--yes` means "do not ask whether to remove the bench". It does NOT mean "drop the schema":
-    that question is separate and `--delete-db-from-global-db` answers it, so one prompt remains."""
+    that question is separate and `--delete-db-from-mariadb` answers it, so one prompt remains."""
     bench = _bench(tmp_path, _config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE, {GLOBAL_DB_SITE: GLOBAL_SCHEMA})
     bench.output.prompt_ask.return_value = "no"
 
@@ -225,7 +225,7 @@ def test_the_yes_flag_skips_only_the_removal_confirmation(tmp_path):
     asked = [str(call.kwargs.get("prompt", "")) for call in bench.output.prompt_ask.call_args_list]
     assert len(asked) == 1
     # Both prompts contain "want to remove", so the schema question is what names a database.
-    assert "global-db" in asked[0]
+    assert "mariadb" in asked[0]
     assert "the database" in asked[0]
     assert GLOBAL_DB_SITE in asked[0]  # and it names the SITE whose schema is at stake
 
@@ -246,7 +246,7 @@ def test_common_site_config_carries_no_endpoint_key_at_all(tmp_path):
     """Not `db_host`, not `db_port`, and above all not `db_ssl_*`.
 
     `common_site_config.json` is bench-wide. A sibling site on another server reads these keys
-    too, and a `db_ssl_ca` there was measured breaking a `global-db` sibling outright: it began
+    too, and a `db_ssl_ca` there was measured breaking a `mariadb` sibling outright: it began
     failing with `TLS/SSL error: self-signed certificate` for as long as the key was present.
     """
     config = _config(tmp_path, name=EXTERNAL_BENCH, external_site=EXTERNAL_SITE, ca="/host/rds-bundle.pem")
@@ -274,7 +274,7 @@ def _site_manager(captured: list[tuple[str, dict]], config: BenchConfig) -> Benc
     manager.output = MagicMock()
     info = manager.services = MagicMock()
     info.database_manager.database_server_info.password = ROOT_PASSWORD
-    info.database_manager.database_server_info.host = "global-db"
+    info.database_manager.database_server_info.host = "mariadb"
     info.database_manager.database_server_info.port = 3306
 
     def run(command, **kwargs):
@@ -284,7 +284,7 @@ def _site_manager(captured: list[tuple[str, dict]], config: BenchConfig) -> Benc
     return manager
 
 
-def test_no_global_db_secret_or_endpoint_reaches_an_external_create(tmp_path):
+def test_no_mariadb_secret_or_endpoint_reaches_an_external_create(tmp_path):
     """Every command of the external create, not just `new-site`, plus the env they carry.
 
     `test_bench_site_force.py` asserts the root password is absent from the `new-site` argv; the
@@ -296,7 +296,7 @@ def test_no_global_db_secret_or_endpoint_reaches_an_external_create(tmp_path):
     # config names, and the external branch triggers on `[sites."<that site>".database]`. Splitting the
     # two the way the delete guards above do would describe a bench holding a `[database]` entry
     # for a site it is not creating, which is a misconfiguration rather than this scenario. It was
-    # measured: with the names split, the argv came out as global-db, carrying the root password
+    # measured: with the names split, the argv came out as mariadb, carrying the root password
     # and no `--no-setup-db`. That is the phase 3 failure mode, and it belongs in a test of its
     # own once a site has an identity separate from the bench.
     config = _config(tmp_path, name=EXTERNAL_SITE, external_site=EXTERNAL_SITE)
@@ -306,12 +306,12 @@ def test_no_global_db_secret_or_endpoint_reaches_an_external_create(tmp_path):
     assert captured, "the external create issued no commands at all"
     for command, kwargs in captured:
         assert ROOT_PASSWORD not in command
-        assert "global-db" not in command  # the endpoint comes from site_config.json, not the argv
+        assert "mariadb" not in command  # the endpoint comes from site_config.json, not the argv
         assert ROOT_PASSWORD not in json.dumps(kwargs.get("env") or {})
 
     new_site_command = captured[0]
     assert "new-site" in new_site_command[0]
-    # The endpoint flags belong to the global-db branch: on the external path Frappe reads host,
+    # The endpoint flags belong to the mariadb branch: on the external path Frappe reads host,
     # port and TLS out of the site file, which the create pipeline wrote before this ran.
     for flag in ("--db-host", "--db-port", "--db-name", "--db-root-username", "--db-root-password"):
         assert flag not in new_site_command[0]
@@ -341,7 +341,7 @@ def test_external_create_pairs_no_setup_db_with_force_even_when_forced(tmp_path)
 """ABSENT is not UNREADABLE, and the difference decides whether the record can ever be cleared.
 
 `unreadable` blocks removal because the file that will not parse may hold the only record of a
-schema still sitting in global-db, and destroying it makes that schema findable only by hand. That
+schema still sitting in mariadb, and destroying it makes that schema findable only by hand. That
 reasoning does not survive the file being gone: there is no record to lose and no directory to
 keep, so blocking bought nothing and made a `[sites]` entry with no site permanently unremovable.
 `fm info` reports that entry as missing; without this, nothing could act on the report.
@@ -405,7 +405,7 @@ def test_an_absent_site_resolves_instead_of_blocking(tmp_path):
     entry = {e.site: e for e in bench.site_schemas()}["ghost.localhost"]
 
     # None means resolved: nothing outstanding, so removal may proceed.
-    assert bench._resolve_site_schema(entry, delete_db_from_global_db=True) is None
+    assert bench._resolve_site_schema(entry, delete_db_from_mariadb=True) is None
     assert _dropped(bench) == []
 
 
@@ -416,12 +416,12 @@ def test_the_absent_warning_says_the_schema_may_still_be_there(tmp_path):
     bench = _bench(tmp_path, config, "shop", {})
     entry = {e.site: e for e in bench.site_schemas()}["ghost.localhost"]
 
-    bench._resolve_site_schema(entry, delete_db_from_global_db=True)
+    bench._resolve_site_schema(entry, delete_db_from_mariadb=True)
 
     warned = "\n".join(str(c.args[0]) for c in bench.output.warning.call_args_list if c.args)
     assert "ghost.localhost" in warned
     assert "no site_config.json" in warned
-    assert "global-db" in warned
+    assert "mariadb" in warned
     assert "fm_" in warned
 
 
@@ -434,7 +434,7 @@ def test_an_unreadable_site_still_blocks(tmp_path):
     (site_dir / "site_config.json").write_text("{not json")
     entry = {e.site: e for e in bench.site_schemas()}["broken.localhost"]
 
-    why = bench._resolve_site_schema(entry, delete_db_from_global_db=True)
+    why = bench._resolve_site_schema(entry, delete_db_from_mariadb=True)
 
     assert why is not None
     assert "could not be read" in why
@@ -475,7 +475,7 @@ def test_the_removed_sites_proxy_upload_limit_files_go(tmp_path):
     for domain in ("shop.localhost", "b.example.com"):
         (_vhostd(bench) / domain).write_text("client_max_body_size 50m;\n")
 
-    bench.remove_site("b.example.com", delete_db_from_global_db=True)
+    bench.remove_site("b.example.com", delete_db_from_mariadb=True)
 
     assert not (_vhostd(bench) / "b.example.com").exists()
 
@@ -486,7 +486,7 @@ def test_a_surviving_sites_proxy_file_is_untouched(tmp_path):
     for domain in ("shop.localhost", "b.example.com"):
         (_vhostd(bench) / domain).write_text("client_max_body_size 50m;\n")
 
-    bench.remove_site("b.example.com", delete_db_from_global_db=True)
+    bench.remove_site("b.example.com", delete_db_from_mariadb=True)
 
     assert (_vhostd(bench) / "shop.localhost").read_text() == "client_max_body_size 50m;\n"
 
@@ -502,7 +502,7 @@ def test_the_removed_sites_backup_rows_are_dropped_but_the_dumps_are_kept(tmp_pa
                                   backups={"shop.localhost": str(tmp_path / "s.sql"), "b.example.com": str(dump)})]
     )
 
-    bench.remove_site("b.example.com", delete_db_from_global_db=True)
+    bench.remove_site("b.example.com", delete_db_from_mariadb=True)
 
     assert bench.bench_config.deploy_state.history[0].backups == {"shop.localhost": str(tmp_path / "s.sql")}
     assert dump.exists()
@@ -519,7 +519,7 @@ def test_the_dumps_go_when_asked(tmp_path):
                                   backups={"b.example.com": str(dump)})]
     )
 
-    bench.remove_site("b.example.com", delete_db_from_global_db=True, delete_backups=True)
+    bench.remove_site("b.example.com", delete_db_from_mariadb=True, delete_backups=True)
 
     assert not dump.exists()
 
@@ -539,7 +539,7 @@ def test_a_dump_another_release_still_names_survives_being_asked(tmp_path):
         ]
     )
 
-    bench.remove_site("b.example.com", delete_db_from_global_db=True, delete_backups=True)
+    bench.remove_site("b.example.com", delete_db_from_mariadb=True, delete_backups=True)
 
     assert shared.exists()
 
@@ -551,7 +551,7 @@ def test_the_removed_sites_database_tls_material_goes(tmp_path):
     tls.mkdir(parents=True)
     (tls / "db-ca.pem").write_text("cert")
 
-    bench.remove_site("b.example.com", delete_db_from_global_db=True)
+    bench.remove_site("b.example.com", delete_db_from_mariadb=True)
 
     assert not tls.exists()
 
@@ -561,7 +561,7 @@ def test_cleanup_that_fails_warns_and_still_finishes_the_removal(tmp_path):
     half-removed AND still recorded, which is worse than a leftover file."""
     bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
     with patch("frappe_manager.site_manager.site.remove_site_tls", side_effect=RuntimeError("permission denied")):
-        assert bench.remove_site("b.example.com", delete_db_from_global_db=True) is True
+        assert bench.remove_site("b.example.com", delete_db_from_mariadb=True) is True
 
     assert "b.example.com" not in bench.bench_config.sites
     warned = "\n".join(str(c.args[0]) for c in bench.output.warning.call_args_list if c.args)

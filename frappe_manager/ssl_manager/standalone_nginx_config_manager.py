@@ -48,7 +48,7 @@ server {{
     
     # Default response for all other requests
     location / {{
-        return 503 '<html><head><title>503 Backend Not Connected</title></head><body><h1>503 Backend Not Connected</h1><p>This domain is managed by Frappe Manager but no backend service is configured.</p><p>To connect your Docker service:</p><ol><li>Add to your docker-compose.yml:</li><pre>services:\n  your-app:\n    environment:\n      VIRTUAL_HOST: {domain}\n      VIRTUAL_PORT: 80\n    networks:\n      - fm-global-frontend-network\n\nnetworks:\n  fm-global-frontend-network:\n    external: true</pre><li>Start your service: <code>docker compose up -d</code></li></ol></body></html>';
+        return 503 '<html><head><title>503 Backend Not Connected</title></head><body><h1>503 Backend Not Connected</h1><p>This domain is managed by Frappe Manager but no backend service is configured.</p><p>To connect your Docker service:</p><ol><li>Add to your docker-compose.yml:</li><pre>services:\n  your-app:\n    environment:\n      VIRTUAL_HOST: {domain}\n      VIRTUAL_PORT: 80\n    networks:\n      - fm-frontend-network\n\nnetworks:\n  fm-frontend-network:\n    external: true</pre><li>Start your service: <code>docker compose up -d</code></li></ol></body></html>';
         add_header Content-Type text/html;
     }}
 }}
@@ -97,7 +97,7 @@ server {{
     
     # Default response for all other requests
     location / {{
-        return 503 '<html><head><title>503 Backend Not Connected</title></head><body><h1>503 Backend Not Connected</h1><p>This domain has a valid SSL certificate but no backend service is configured.</p><p>To connect your Docker service:</p><ol><li>Add to your docker-compose.yml:</li><pre>services:\n  your-app:\n    environment:\n      VIRTUAL_HOST: {domain}\n      VIRTUAL_PORT: 80\n    networks:\n      - fm-global-frontend-network\n\nnetworks:\n  fm-global-frontend-network:\n    external: true</pre><li>Start your service: <code>docker compose up -d</code></li><li>Access at: https://{domain}</li></ol></body></html>';
+        return 503 '<html><head><title>503 Backend Not Connected</title></head><body><h1>503 Backend Not Connected</h1><p>This domain has a valid SSL certificate but no backend service is configured.</p><p>To connect your Docker service:</p><ol><li>Add to your docker-compose.yml:</li><pre>services:\n  your-app:\n    environment:\n      VIRTUAL_HOST: {domain}\n      VIRTUAL_PORT: 80\n    networks:\n      - fm-frontend-network\n\nnetworks:\n  fm-frontend-network:\n    external: true</pre><li>Start your service: <code>docker compose up -d</code></li><li>Access at: https://{domain}</li></ol></body></html>';
         add_header Content-Type text/html;
     }}
 }}

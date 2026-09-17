@@ -8,7 +8,7 @@ from typing import Any
 import typer
 from jinja2 import Template
 
-from frappe_manager import CLI_DIR, CLI_SERVICES_DIRECTORY, GLOBAL_DB_IMAGE
+from frappe_manager import CLI_DIR, CLI_SERVICES_DIRECTORY, MARIADB_IMAGE
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import OutputHandler
@@ -87,6 +87,23 @@ class ServicesManager:
                 f"Seems like global services has taken a down. No compose file found at {self.compose_path}.",
             )
 
+        # A pre-v0.21.0 install still has `global-db`/`global-nginx-proxy` in its services
+        # compose. Commands whitelisted past the migration gate (`fm list`, `fm compose`, ...)
+        # reach this init anyway, and against the old names it dies deep inside MariaDBManager
+        # with a missing-password error that says nothing about the actual problem. Detect the
+        # old shape and refuse with the fix. Not legacy support: nothing here can run on it.
+        # `migrate` and the `self` family stay usable because they ARE the way out (this check
+        # runs before the migrate command body gets to do the cutover); for them the database
+        # manager below stays unwired, since it cannot be built against the old names either.
+        old_names = self.compose_file_manager.get_services_list()
+        if "global-db" in old_names and "mariadb" not in old_names:
+            if self.invoked_subcommand not in ("migrate", "self"):
+                self.output.exit(
+                    "The global services predate the v0.21.0 rename (global-db -> mariadb). "
+                    "Run 'fm migrate' to cut this install over."
+                )
+            return
+
         if start:
             # The root callback passes ctx.invoked_subcommand, which for the sub-Typers is the
             # group name ("services"/"self"), never a singular "service". Those two families act
@@ -110,7 +127,7 @@ class ServicesManager:
                     self.docker_client.compose.up(services=[], detach=True, pull="missing")
 
         self.database_manager: DatabaseServiceManager = MariaDBManager(
-            DatabaseServerServiceInfo.import_from_compose_file("global-db", self.compose_file_manager),
+            DatabaseServerServiceInfo.import_from_compose_file("mariadb", self.compose_file_manager),
             self.compose_file_manager,
             self.docker_client,
             output_handler=self.output,
@@ -128,8 +145,8 @@ class ServicesManager:
         self.compose_file_manager = ComposeFile(self.compose_path, template_name=template_name)
         self.docker_client = DockerClient(compose_file_path=self.compose_path, output=self.output)
 
-        self.proxy_storage = ProxyStoragePaths("global-nginx-proxy", self.compose_file_manager)
-        self.nginx_controller = NginxController("global-nginx-proxy", self.compose_file_manager, self.docker_client)
+        self.proxy_storage = ProxyStoragePaths("nginx-proxy", self.compose_file_manager)
+        self.nginx_controller = NginxController("nginx-proxy", self.compose_file_manager, self.docker_client)
 
         # For backward compatibility
         # TODO: Remove this when all code is updated
@@ -155,7 +172,7 @@ class ServicesManager:
 
     def create(self, backup: bool = False, clean_install: bool = True):
         envs = {
-            "global-db": {
+            "mariadb": {
                 "MYSQL_ROOT_PASSWORD_FILE": "/run/secrets/db_root_password",
                 "MYSQL_DATABASE": "root",
                 "MYSQL_USER": "admin",
@@ -166,14 +183,14 @@ class ServicesManager:
         inputs: dict[str, Any] = {"environment": envs}
         try:
             user = {
-                "global-db": {
+                "mariadb": {
                     "uid": os.getuid(),
                     "gid": os.getgid(),
                 },
             }
 
             if not current_system == "Darwin":
-                user["global-nginx-proxy"] = {
+                user["nginx-proxy"] = {
                     "uid": os.getuid(),
                     "gid": get_unix_groups()["docker"],
                 }
@@ -222,12 +239,12 @@ class ServicesManager:
         fm_config = FMConfigManager.import_from_toml()
         if not fm_config.network.configured:
             # Reuse the network if it's already running (e.g. from a previous setup)
-            running = detect_running_network("fm-global-frontend-network", docker=self.docker_client)
+            running = detect_running_network("fm-frontend-network", docker=self.docker_client)
             if running:
                 subnet_cidr = running["subnet_cidr"]
                 # The proxy may not be attached yet; pick a free IP in the subnet
                 # instead of persisting an empty address.
-                proxy_ip = running["proxy_ip"] or pick_proxy_ip(subnet_cidr, "fm-global-frontend-network")
+                proxy_ip = running["proxy_ip"] or pick_proxy_ip(subnet_cidr, "fm-frontend-network")
                 fm_config.network.subnet_cidr = subnet_cidr
                 fm_config.network.proxy_ip = proxy_ip
                 fm_config.export_to_toml()
@@ -236,7 +253,7 @@ class ServicesManager:
                 self.output.change_head("Configuring global frontend network")
                 used_subnets = get_docker_network_subnets()
                 cidr = find_available_subnet(used_subnets)
-                net_config = compute_network_config(str(cidr), "fm-global-frontend-network")
+                net_config = compute_network_config(str(cidr), "fm-frontend-network")
                 fm_config.network.subnet_cidr = net_config["subnet_cidr"]
                 fm_config.network.proxy_ip = net_config["proxy_ip"]
                 fm_config.export_to_toml()
@@ -245,7 +262,7 @@ class ServicesManager:
         # Set the subnet in the compose YAML
         if fm_config.network.subnet_cidr:
             try:
-                self.compose_file_manager.yml["networks"]["global-frontend-network"]["ipam"]["config"][0]["subnet"] = (
+                self.compose_file_manager.yml["networks"]["frontend-network"]["ipam"]["config"][0]["subnet"] = (
                     fm_config.network.subnet_cidr
                 )
             except (KeyError, IndexError):
@@ -254,24 +271,24 @@ class ServicesManager:
         # Pin the proxy's static IP without dropping any other networks it's on
         if fm_config.network.proxy_ip:
             try:
-                proxy_service = self.compose_file_manager.yml["services"]["global-nginx-proxy"]
+                proxy_service = self.compose_file_manager.yml["services"]["nginx-proxy"]
                 nets = proxy_service.get("networks")
                 if isinstance(nets, list):
                     nets = {name: {} for name in nets}
                 elif not isinstance(nets, dict):
                     nets = {}
-                entry = nets.get("global-frontend-network")
+                entry = nets.get("frontend-network")
                 if not isinstance(entry, dict):
                     entry = {}
                 entry["ipv4_address"] = fm_config.network.proxy_ip
-                nets["global-frontend-network"] = entry
+                nets["frontend-network"] = entry
                 proxy_service["networks"] = nets
             except KeyError:
                 pass
 
         if current_system == "Darwin":
-            self.compose_file_manager.remove_container_user("global-nginx-proxy")
-            self.compose_file_manager.remove_container_user("global-db")
+            self.compose_file_manager.remove_container_user("nginx-proxy")
+            self.compose_file_manager.remove_container_user("mariadb")
         else:
             dirs_to_create.append("mariadb/data")
 
@@ -296,7 +313,7 @@ class ServicesManager:
         mariadb_conf = self.path / "mariadb/conf"
         mariadb_conf = str(mariadb_conf.absolute())
         host_run_cp(
-            image=GLOBAL_DB_IMAGE,
+            image=MARIADB_IMAGE,
             source="/etc/mysql/.",
             destination=mariadb_conf,
             docker=self.docker_client,

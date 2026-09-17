@@ -12,7 +12,7 @@ def info(ctx: typer.Context):
     """
     Show the global services' card: live container state, the root database credentials and the proxy's real-ip trust.
 
-    The root database password is printed in cleartext. It belongs to the global-db container every bench shares, which is why it is on this card and not on any bench's fm info.
+    The root database password is printed in cleartext. It belongs to the mariadb container every bench shares, which is why it is on this card and not on any bench's fm info.
     """
     from frappe_manager.output_manager import railcard
 

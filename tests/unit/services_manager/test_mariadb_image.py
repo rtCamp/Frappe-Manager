@@ -1,4 +1,4 @@
-"""The global-db engine is pinned in three places and must not drift.
+"""The mariadb engine is pinned in three places and must not drift.
 
 `services.py` seeds `mariadb/conf` by copying `/etc/mysql` out of the same image the
 compose file runs, so a stale tag in either place seeds one major version's config
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from frappe_manager import GLOBAL_DB_IMAGE
+from frappe_manager import MARIADB_IMAGE
 
 _TEMPLATES = Path("frappe_manager/templates")
 _SERVICES_TEMPLATES = (
@@ -20,22 +20,22 @@ _SERVICES_TEMPLATES = (
 )
 
 
-def _global_db_image(text: str) -> str:
-    # the global-db service is the first block in both templates
-    block = text.split("global-db:", 1)[1]
+def _mariadb_image(text: str) -> str:
+    # the mariadb service is the first block in both templates
+    block = text.split("mariadb:", 1)[1]
     match = re.search(r"^\s*image:\s*(\S+)", block, re.MULTILINE)
-    assert match, "no image line found under global-db"
+    assert match, "no image line found under mariadb"
     return match.group(1)
 
 
 def test_both_service_templates_pin_the_constant():
     for template in _SERVICES_TEMPLATES:
-        assert _global_db_image(template.read_text()) == GLOBAL_DB_IMAGE, template
+        assert _mariadb_image(template.read_text()) == MARIADB_IMAGE, template
 
 
 def test_the_pin_is_a_mariadb_tag_with_an_explicit_version():
     # `latest` would drift past the range frappe tests, and a bare `mariadb` is worse.
-    repo, _, tag = GLOBAL_DB_IMAGE.partition(":")
+    repo, _, tag = MARIADB_IMAGE.partition(":")
     assert repo == "mariadb"
     assert tag
     assert tag != "latest"
@@ -45,7 +45,7 @@ def test_the_pin_is_a_mariadb_tag_with_an_explicit_version():
 def test_the_pin_stays_inside_the_range_frappe_declares():
     # frappe/database/mariadb/setup_db.py warns below 10.6 and above 11.8 on v16.
     # Crossing either bound should be a deliberate edit here, not a silent bump.
-    major, minor = (int(part) for part in GLOBAL_DB_IMAGE.partition(":")[2].split(".")[:2])
+    major, minor = (int(part) for part in MARIADB_IMAGE.partition(":")[2].split(".")[:2])
     assert (major, minor) >= (10, 6)
     assert (major, minor) <= (11, 8)
 
@@ -63,7 +63,7 @@ def test_engine_flags_are_exactly_the_three_that_are_needed():
     ]
     for template in _SERVICES_TEMPLATES:
         compose = yaml.safe_load(template.read_text())
-        assert compose["services"]["global-db"]["command"] == expected, template
+        assert compose["services"]["mariadb"]["command"] == expected, template
 
 
 def test_engine_auto_upgrades_system_tables_on_a_version_change():
@@ -71,4 +71,4 @@ def test_engine_auto_upgrades_system_tables_on_a_version_change():
     # system tables, which surfaces later as confusing privilege and schema errors.
     for template in _SERVICES_TEMPLATES:
         compose = yaml.safe_load(template.read_text())
-        assert compose["services"]["global-db"]["environment"]["MARIADB_AUTO_UPGRADE"] == 1, template
+        assert compose["services"]["mariadb"]["environment"]["MARIADB_AUTO_UPGRADE"] == 1, template

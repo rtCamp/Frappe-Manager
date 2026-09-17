@@ -1,23 +1,23 @@
 # External Database
 
-By default every site fm creates lives on `global-db`, the MariaDB container fm runs and owns. Point a site at your own server instead when you want a managed database, a replicated one, or one your DBA already administers.
+By default every site fm creates lives on `mariadb`, the MariaDB container fm runs and owns. Point a site at your own server instead when you want a managed database, a replicated one, or one your DBA already administers.
 
-An external database is declared per site, not per bench, as a [`[sites."<sitename>".database]`](../reference/configuration.md#sites-database) table in `bench_config.toml`. No table means that site is on `global-db`, which is the only switch there is.
+An external database is declared per site, not per bench, as a [`[sites."<sitename>".database]`](../reference/configuration.md#sites-database) table in `bench_config.toml`. No table means that site is on `mariadb`, which is the only switch there is.
 
 ## What fm refuses to do on a server it does not own
 
 Read this first: it is the part you have to trust, and it is deliberate rather than accidental. fm holds the site's own database password (it is in `site_config.json`, where Frappe needs it), and the grant Frappe asks for includes `DROP` at schema scope. fm is therefore perfectly capable of destroying your schema and chooses not to.
 
-| Operation | On `global-db` | On your server |
+| Operation | On `mariadb` | On your server |
 |---|---|---|
 | `fm reset <bench>` | drops the schema and reinstalls every app | **refused**: `bench reinstall` would drop a schema that is not fm's |
-| `fm delete <bench>/<site> --delete-db-from-global-db` | drops that site's schema and the user | schema and user are **left in place**, flag or no flag |
-| `fm delete <bench> --delete-db-from-global-db` | drops the schema and the user of every site in the bench | any schema on your server is **left in place**, flag or no flag |
+| `fm delete <bench>/<site> --delete-db-from-mariadb` | drops that site's schema and the user | schema and user are **left in place**, flag or no flag |
+| `fm delete <bench> --delete-db-from-mariadb` | drops the schema and the user of every site in the bench | any schema on your server is **left in place**, flag or no flag |
 | `fm switch <bench> --restore-db` | imports the dump | typed confirmation naming the host, the schema and its current table count; **refused** in non-interactive mode |
 | `fm create` into a schema that already has tables | n/a: fm creates the schema | **refused**, unless you pass `--attach-existing-site` |
 | `fm create` with a login that already exists and a password fm minted | n/a | **refused**: Frappe's `CREATE USER IF NOT EXISTS` would keep the old password and the site would be unconnectable |
 
-The last two are worth spelling out. fm will not `ALTER USER` on a database it does not own, so it cannot repair a login for you: if the schema already exists, pass `--db-password` with the existing login's password and drop the admin credentials. And it never sends the `global-db` root credential, which means nothing on your server, anywhere near it.
+The last two are worth spelling out. fm will not `ALTER USER` on a database it does not own, so it cannot repair a login for you: if the schema already exists, pass `--db-password` with the existing login's password and drop the admin credentials. And it never sends the `mariadb` root credential, which means nothing on your server, anywhere near it.
 
 ## Server preconditions
 

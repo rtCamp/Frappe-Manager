@@ -6,7 +6,7 @@ How fm's containers, networks and volumes fit together, and the path a request t
 
 fm runs a **two-tier Docker layout**:
 
-1. **Global services**, started once per machine: a shared MariaDB (`global-db`) and a `jwilder/nginx-proxy` (`global-nginx-proxy`) that owns ports 80 and 443.
+1. **Global services**, started once per machine: a shared MariaDB (`mariadb`) and a `jwilder/nginx-proxy` (`nginx-proxy`) that owns ports 80 and 443.
 2. **Per-bench services**, one stack per bench: the frappe web container, its own nginx, socketio, the scheduler, two Redis instances, the RQ worker containers and (optionally) admin tools.
 
 Many benches share one host, one database server and one proxy.
@@ -30,7 +30,7 @@ flowchart TB
     Edge -->|Port 80/443| Proxy
 
     subgraph global[" 🌐 GLOBAL SERVICES "]
-        Proxy[global-nginx-proxy<br/>jwilder/nginx-proxy<br/>publishes 80 + 443<br/>routes by VIRTUAL_HOST] -..-o DB[(global-db<br/>MariaDB<br/>one database per bench)]
+        Proxy[nginx-proxy<br/>jwilder/nginx-proxy<br/>publishes 80 + 443<br/>routes by VIRTUAL_HOST] -..-o DB[(mariadb<br/>MariaDB<br/>one database per bench)]
     end
 
     Proxy -->|frontend network<br/>sets X-Real-IP| BN
@@ -72,8 +72,8 @@ Every request crosses the same hops, and each one changes something that the nex
 
 ```
 client (or CDN edge)
-  → global-nginx-proxy        published :80/:443, TLS terminates here
-  → bench nginx               on fm-global-frontend-network, :80 exposed only
+  → nginx-proxy               published :80/:443, TLS terminates here
+  → bench nginx               on fm-frontend-network, :80 exposed only
   → gunicorn / bench serve    or socketio for /socket.io
 ```
 
@@ -89,7 +89,7 @@ client (or CDN edge)
 
 ### The frontend network is the only way in {#frontend-network}
 
-Bench nginx declares `expose: 80`, never `ports:`. Nothing about a bench is reachable from the host or the LAN; the only route in is the shared `fm-global-frontend-network` that the global proxy also sits on.
+Bench nginx declares `expose: 80`, never `ports:`. Nothing about a bench is reachable from the host or the LAN; the only route in is the shared `fm-frontend-network` that the global proxy also sits on.
 
 That network's subnet is a `/16` in `10.0.0.0/8`. fm prefers `10.1.0.0/16` and, on first `fm services` setup, falls back to the first free `10.x.0.0/16` if that one collides with an existing Docker network. The chosen value and the proxy's static address on it are persisted as [`network.subnet_cidr` and `network.proxy_ip`](configuration.md#network) in `fm_config.toml` and written into the services compose file. The backend network keeps a fixed `10.2.0.0/16`.
 
@@ -222,11 +222,11 @@ fm keeps everything under a single root directory (default `~/frappe/`).
 2. **CLI operation log**: everything every `fm` command did. Rotates at 10 MiB, keeping `fm.log.1.gz` to `fm.log.3.gz`.
 3. **Infrastructure migration backups**: one directory per migration session, named `%d-%b-%y--%H-%M-%S`, with a per-bench subdirectory inside.
 4. **Archived benches**: benches moved aside by `fm migrate --on-failure=archive`.
-5. **Global services**: the `global-db` and `global-nginx-proxy` stack.
-6. **Database secrets**: `db_password.txt` and `db_root_password.txt`, mounted into `global-db` as Docker secrets.
-7. **MariaDB data**: Linux only. macOS uses the named volume `fm-global-db-data` to avoid bind-mount slowness.
+5. **Global services**: the `mariadb` and `nginx-proxy` stack.
+6. **Database secrets**: `db_password.txt` and `db_root_password.txt`, mounted into `mariadb` as Docker secrets.
+7. **MariaDB data**: Linux only. macOS uses the named volume `fm-mariadb-data` to avoid bind-mount slowness.
 8. **acme.sh installation**: the certificate automation tool and its state.
-9. **Certificate symlinks**: what `global-nginx-proxy` actually reads. Each link's target is a container path (the proxy mounts `ssl/` at `/usr/share/nginx/ssl`), pointing at the real files in `ssl/acmesh/<domain>/`, `ssl/dev/<domain>/` or `ssl/custom/<domain>/`.
+9. **Certificate symlinks**: what `nginx-proxy` actually reads. Each link's target is a container path (the proxy mounts `ssl/` at `/usr/share/nginx/ssl`), pointing at the real files in `ssl/acmesh/<domain>/`, `ssl/dev/<domain>/` or `ssl/custom/<domain>/`.
 10. **Per-domain vhost snippets**: the HTTP-to-HTTPS redirects written by `fm ssl add`.
 11. **Global nginx `conf.d`**: fm's own snippets (the `fm services real-ip` config, `fm_headers.conf`) plus custom server blocks for non-fm Docker projects.
 12. **All benches**: one subdirectory per bench.
@@ -254,17 +254,17 @@ fm keeps everything under a single root directory (default `~/frappe/`).
 
 Started once by fm and shared by every bench on the host.
 
-### `global-db` {#global-db}
+### `mariadb` {#mariadb}
 
 `mariadb:11.8`, reachable on 3306 over the backend network only: it publishes no host port.
 
 Each bench gets its own database in this one server, named `fm_<benchname>_<16 hex chars>`, with a dedicated user scoped to it. Passwords are generated on setup and mounted as Docker secrets from `services/secrets/`.
 
-Storage is a bind mount at `services/mariadb/data/` on Linux and the named volume `fm-global-db-data` on macOS. The server runs with `utf8mb4` defaults and `--skip-character-set-client-handshake`, and `MARIADB_AUTO_UPGRADE` runs `mariadb-upgrade` when the engine version changes.
+Storage is a bind mount at `services/mariadb/data/` on Linux and the named volume `fm-mariadb-data` on macOS. The server runs with `utf8mb4` defaults and `--skip-character-set-client-handshake`, and `MARIADB_AUTO_UPGRADE` runs `mariadb-upgrade` when the engine version changes.
 
 ```bash
 # Shell into the database server
-fm services shell global-db
+fm services shell mariadb
 
 # Open a bench's own database
 fm shell mybench -c "bench mariadb"
@@ -272,7 +272,7 @@ fm shell mybench -c "bench mariadb"
 
 A bench can be pointed at an external server instead; see the [external database guide](../guides/external-database.md).
 
-### `global-nginx-proxy` {#global-nginx-proxy}
+### `nginx-proxy` {#nginx-proxy}
 
 `jwilder/nginx-proxy:1.11`, publishing 80 and 443. It watches the Docker socket, discovers each bench nginx by its `VIRTUAL_HOST` environment variable and routes by `Host:` header. It enables HTTPS for a domain as soon as `<domain>.crt` and `<domain>.key` appear in `services/nginx-proxy/certs/`.
 
@@ -307,8 +307,8 @@ fm compose mybench ps
 
 | Network | Scope | Carries |
 |---------|-------|---------|
-| `fm-global-frontend-network` | shared, external to the bench compose | `nginx`, `frappe`, `socketio`, `schedule` and the workers of **every** bench, plus `global-nginx-proxy`. The only route into a bench. |
-| `fm-global-backend-network` | shared, external to the bench compose | `frappe`, `schedule`, the workers and `adminer` of every bench, plus `global-db`. |
+| `fm-frontend-network` | shared, external to the bench compose | `nginx`, `frappe`, `socketio`, `schedule` and the workers of **every** bench, plus `nginx-proxy`. The only route into a bench. |
+| `fm-backend-network` | shared, external to the bench compose | `frappe`, `schedule`, the workers and `adminer` of every bench, plus `mariadb`. |
 | `fm__<bench>__site-network` | one per bench | Every container of that bench, including Redis and mailpit, which are on nothing else. |
 
 !!! warning "The shared networks are shared, not isolated"
@@ -318,7 +318,7 @@ fm compose mybench ps
 
 ## Docker volumes {#volumes}
 
-- `fm-global-db-data`: MariaDB data on macOS. Linux bind-mounts `services/mariadb/data/` instead.
+- `fm-mariadb-data`: MariaDB data on macOS. Linux bind-mounts `services/mariadb/data/` instead.
 - `fm__<bench>__fm-sockets`: the supervisorctl unix socket, shared by every process container in the bench. This is what lets [`fmx`](../guides/fmx.md) drive supervisor from any of them.
 - `fm__<bench>__redis-cache-data`, `fm__<bench>__redis-queue-data`: Redis persistence.
 - `fm__<bench>__mailpit-data`: the mailpit message database.

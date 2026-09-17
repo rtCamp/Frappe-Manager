@@ -1,7 +1,7 @@
 """Contract tests for the external-database config model and its two payload builders.
 
 `[database]` is keyed by site name and the presence of an entry for a site is the only
-switch between "this site is external" and "this site lives on the `global-db`
+switch between "this site is external" and "this site lives on the `mariadb`
 container". `[redis]` is per bench, not per site. Nothing secret is persisted: the admin
 credentials, the site password and the encryption key are create-time inputs only, so no
 *later* fm run can provision on someone's shared server.
@@ -74,7 +74,7 @@ def _db(**kwargs) -> DatabaseConfig:
 # --------------------------------------------------------------- keyed by site
 
 
-def test_no_database_table_means_the_global_db_container(tmp_path):
+def test_no_database_table_means_the_mariadb_container(tmp_path):
     assert _bc(tmp_path).get_database_config() is None
 
 
@@ -86,7 +86,7 @@ def test_get_database_config_defaults_to_the_benchs_own_name(tmp_path):
 
 
 def test_an_entry_for_another_site_leaves_this_bench_internal(tmp_path):
-    # One bench holding a `global-db` site plus an external one. The switch is the
+    # One bench holding a `mariadb` site plus an external one. The switch is the
     # presence of *that site's own* entry, which is what the delete guard leans on:
     # it must not refuse to drop `x.localhost` just because a sibling is external.
     other = DatabaseConfig(host="rds.example", name="other_prod")
@@ -183,7 +183,7 @@ def test_redis_retains_an_unknown_key_instead_of_rejecting_it():
 # ------------------------------------------------------------------ site_config.json
 
 
-def test_site_config_is_empty_for_a_site_on_global_db(tmp_path):
+def test_site_config_is_empty_for_a_site_on_mariadb(tmp_path):
     # Frappe's own make_site_config writes that file during new-site; fm must not
     # pre-empt it, because a pre-written file also trips _new_site's "already exists".
     bc = _bc(tmp_path, database={_OTHER: _db()})

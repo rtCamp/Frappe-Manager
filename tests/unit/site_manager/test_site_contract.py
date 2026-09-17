@@ -150,7 +150,7 @@ def build_bench(
     # `_frontend_network_subnet` reads the services compose yml first; a real dict keeps
     # the lookup deterministic instead of walking into MagicMock attributes.
     ipam = {"config": [{"subnet": subnet}]} if subnet else {}
-    services.compose_file_manager.yml = {"networks": {"global-frontend-network": {"ipam": ipam}}}
+    services.compose_file_manager.yml = {"networks": {"frontend-network": {"ipam": ipam}}}
 
     config_toml = bench_path / "bench_config.toml"
     config = bench_config if bench_config is not None else make_bench_config(config_toml)
@@ -1314,7 +1314,7 @@ class TestRemoveBench:
         bench._handle_database_deletion.side_effect = lambda pref: order.append(f"db:{pref}")
         bench.remove_containers_and_dirs.side_effect = lambda: order.append("dirs")
 
-        assert bench.remove_bench(delete_db_from_global_db=True) is True
+        assert bench.remove_bench(delete_db_from_mariadb=True) is True
 
         assert order == ["cert", "db:True", "dirs"]
 
@@ -1327,7 +1327,7 @@ class TestRemoveBench:
 
     def test_an_outstanding_site_keeps_the_bench_and_raises(self, harness):
         """The gate. The bench directory carries the only record of the schema, so removing it after
-        a failed drop leaves a database in global-db that nothing points at and no way to find its
+        a failed drop leaves a database in mariadb that nothing points at and no way to find its
         name. This used to warn "Continuing with bench removal", delete the directory anyway, and
         exit 0."""
         bench = self._removable(harness)
@@ -1499,14 +1499,14 @@ class TestMultiSiteRemoval:
         bench = self._bench(harness, {self.ALIAS: "fm_shop_a1", SITE: "fm_test_b2"})
         calls = record_removal_steps(harness)
 
-        assert bench.remove_bench(delete_db_from_global_db=True, prompt=False) is True
+        assert bench.remove_bench(delete_db_from_mariadb=True, prompt=False) is True
 
         assert calls.count(("dirs",)) == 1
         dirs = calls.index(("dirs",))
         assert calls.index(("drop", self.ALIAS)) < dirs
         assert calls.index(("drop", SITE)) < dirs
 
-    def test_an_external_site_beside_a_global_db_one_drops_exactly_one_and_still_removes_the_directory(self, harness):
+    def test_an_external_site_beside_a_mariadb_one_drops_exactly_one_and_still_removes_the_directory(self, harness):
         """A deliberately left schema counts as resolved: it is not fm's to drop, so nothing is
         outstanding and the directory goes. The operator is told where it was left."""
         bench = self._bench(
@@ -1516,7 +1516,7 @@ class TestMultiSiteRemoval:
         )
         calls = record_removal_steps(harness)
 
-        assert bench.remove_bench(delete_db_from_global_db=True, prompt=False) is True
+        assert bench.remove_bench(delete_db_from_mariadb=True, prompt=False) is True
 
         assert [c for c in calls if c[0] == "drop"] == [("drop", SITE)]
         assert calls.index(("dirs",)) > calls.index(("drop", SITE))
@@ -1533,12 +1533,12 @@ class TestMultiSiteRemoval:
         def drop(site=None):
             calls.append(("drop", site))
             if site == self.ALIAS:
-                raise RuntimeError("global-db unreachable")
+                raise RuntimeError("mariadb unreachable")
 
         bench.remove_database_and_user.side_effect = drop
 
         with pytest.raises(BenchException, match="Database deletion failed for 1 of 2 site") as excinfo:
-            bench.remove_bench(delete_db_from_global_db=True, prompt=False)
+            bench.remove_bench(delete_db_from_mariadb=True, prompt=False)
 
         assert ("drop", SITE) in calls
         assert ("dirs",) not in calls
@@ -1554,7 +1554,7 @@ class TestMultiSiteRemoval:
         calls = record_removal_steps(harness)
 
         with pytest.raises(BenchException, match="Database deletion failed for 1 of 2 site") as excinfo:
-            bench.remove_bench(delete_db_from_global_db=True, prompt=False)
+            bench.remove_bench(delete_db_from_mariadb=True, prompt=False)
 
         assert ("dirs",) not in calls
         assert ("drop", SITE) in calls  # the readable site was still accounted for

@@ -316,7 +316,7 @@ def _refuse_unhonoured_site_flags(ctx: typer.Context, *, bench_only: bool, added
 
     All three of these used to exit 0 having thrown the flag away: `--bench-only` skips
     `record_site` entirely, so `fm create shop --bench-only --db-host h --db-name n` accepted a
-    whole external database and created a bench on the global-db container instead; `fm create
+    whole external database and created a bench on the mariadb container instead; `fm create
     BENCH/SITE` reaches `_add_site_to_bench`, which takes no database arguments; and `--bench-only`
     beside a `BENCH/SITE` address is a straight contradiction that was resolved by ignoring the
     flag. Silently dropping database wiring is the worst of the three, because the bench comes up
@@ -477,8 +477,8 @@ def _resolve_redis(redis_cache: str | None, redis_queue: str | None) -> RedisCon
         raise typer.BadParameter(f"--redis-cache / --redis-queue: {_first_error(e)}") from e
 
 
-def mint_global_db_schema_name(site: str) -> str:
-    """The schema fm creates on its own `global-db` container for `site`.
+def mint_mariadb_schema_name(site: str) -> str:
+    """The schema fm creates on its own `mariadb` container for `site`.
 
     Off the SITE, not the bench. The schema belongs to the site, so two benches serving
     differently-named sites must not be able to collide here, and a bench renamed later must not
@@ -501,7 +501,7 @@ def record_site(
     Every bench records its site, external database or not, keyed by the SITE name. This is the only
     place that survives the bench name and the site name being different: the directory says `shop`,
     this says `shop.localhost`, and `Bench.site_name` reads it back. An entry with no keys
-    round-trips as a bare `[sites."<name>"]` header, which is the record a bench on the global-db
+    round-trips as a bare `[sites."<name>"]` header, which is the record a bench on the mariadb
     container needs.
 
     `alias_domains` arrives here rather than through `_FLAG_TO_CONFIG` because its key path depends
@@ -548,9 +548,9 @@ def _add_site_to_bench(
         emoji_code=":globe_with_meridians:",
     )
 
-    # A schema of this site's own on the global-db container. Never the bench's `db_name`: that one
+    # A schema of this site's own on the mariadb container. Never the bench's `db_name`: that one
     # names the first site's schema, and two sites sharing a schema is data loss.
-    schema = mint_global_db_schema_name(site)
+    schema = mint_mariadb_schema_name(site)
 
     # Recorded BEFORE `new-site`, because `get_site_config_data` and the TLS paths are keyed by site
     # and are read during creation. Saved to disk only once the site works, below.
@@ -574,7 +574,7 @@ def _add_site_to_bench(
         output.warning(
             f"Could not add {site}. The bench and its other sites are untouched. Any partial site "
             f"directory is at {bench.path / 'workspace' / 'frappe-bench' / 'sites' / site}, and a "
-            f"schema named {schema} may exist on global-db; neither is recorded in bench_config.toml, "
+            f"schema named {schema} may exist on mariadb; neither is recorded in bench_config.toml, "
             f"so nothing else refers to them.",
         )
         raise
@@ -589,7 +589,7 @@ def _add_site_to_bench(
     # just one is never skipped by short-circuiting the other.
     upload_limit_changed = bench.apply_upload_limit()
     hsts_changed = bench.apply_hsts()
-    if (upload_limit_changed or hsts_changed) and bench.services.is_service_running("global-nginx-proxy"):
+    if (upload_limit_changed or hsts_changed) and bench.services.is_service_running("nginx-proxy"):
         bench.services.nginx_controller.reload()
 
     # Routing last: the new site is in `[sites]`, so the republished map now carries its domain in
@@ -664,14 +664,14 @@ def _resolve_external_options(
         if orphans:
             raise typer.BadParameter(
                 f"{_flags(orphans)} --db-host. The endpoint is given on the command line as a whole, or not at "
-                "all; without it the bench uses the fm-managed global-db container."
+                "all; without it the bench uses the fm-managed mariadb container."
             )
         if configured is None:
             orphans = [flag for flag, given in credential_flags.items() if given]
             if orphans:
                 raise typer.BadParameter(
                     f"{_flags(orphans)} an external database: pass --db-host, or declare [database] in a "
-                    "--config overlay. Without one the bench uses the fm-managed global-db container."
+                    "--config overlay. Without one the bench uses the fm-managed mariadb container."
                 )
             return None, redis, None
     elif not db_name:
@@ -968,7 +968,7 @@ def create(
         str | None,
         typer.Option(
             "--db-host",
-            help="External MariaDB host, replacing fm's global-db container. MySQL is not a supported backend.",
+            help="External MariaDB host, replacing fm's mariadb container. MySQL is not a supported backend.",
             show_default=False,
             rich_help_panel=_PANEL_DATABASE,
         ),
@@ -1130,7 +1130,7 @@ def create(
 
     developer_mode_status = developer_mode == EnableDisableOptionsEnum.enable
     apps_config = cast("list[AppConfig]", apps)
-    global_db_name = mint_global_db_schema_name(sitename)
+    mariadb_name = mint_mariadb_schema_name(sitename)
 
     # One construction path: create defaults, then each --config overlay, then the flags the user
     # actually passed. Precedence is the merge order, so no field needs a per-field application step
@@ -1162,7 +1162,7 @@ def create(
             benchname=address,
             root_path=bench_config_path,
             base_image=base_image if "base_image" in requested else None,
-            db_name=global_db_name,
+            db_name=mariadb_name,
         )
     except ConfigOverlayError as e:
         output.display_error(str(e))
@@ -1237,7 +1237,7 @@ def create(
     if site_database is not None:
         output.print(
             f"External database: this site lives on [fm.info]{site_database.host}:{site_database.port}"
-            f"[/fm.info] in schema [fm.info]{site_database.name}[/fm.info], not the global-db container",
+            f"[/fm.info] in schema [fm.info]{site_database.name}[/fm.info], not the mariadb container",
             emoji_code=":floppy_disk:",
         )
 

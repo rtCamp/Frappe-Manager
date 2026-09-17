@@ -216,7 +216,7 @@ def test_recording_a_site_that_a_config_overlay_already_described_updates_it():
 
 
 def test_a_bench_with_no_external_database_still_records_its_site():
-    """The global-db case, which is most benches. Without the entry the site would have no name of
+    """The mariadb case, which is most benches. Without the entry the site would have no name of
     its own anywhere on disk."""
     from frappe_manager.commands.create import record_site
 
@@ -225,12 +225,12 @@ def test_a_bench_with_no_external_database_still_records_its_site():
     assert recorded[SITE].database is None
 
 
-def test_the_global_db_schema_is_minted_from_the_site_not_the_bench():
+def test_the_mariadb_schema_is_minted_from_the_site_not_the_bench():
     """The schema belongs to the site, so two benches serving differently-named sites must not be
     able to collide, and renaming a bench must not imply a different schema."""
-    from frappe_manager.commands.create import mint_global_db_schema_name
+    from frappe_manager.commands.create import mint_mariadb_schema_name
 
-    minted = mint_global_db_schema_name(SITE)
+    minted = mint_mariadb_schema_name(SITE)
 
     assert minted.startswith("fm_shop_localhost_")
     assert not minted.startswith("fm_shop_f")  # i.e. not minted from the bare bench name
@@ -239,9 +239,9 @@ def test_the_global_db_schema_is_minted_from_the_site_not_the_bench():
 def test_the_minted_schema_name_is_a_legal_identifier():
     """Dots and hyphens are illegal in a MariaDB schema name unquoted, and this one is interpolated
     into `bench new-site --db-name`."""
-    from frappe_manager.commands.create import mint_global_db_schema_name
+    from frappe_manager.commands.create import mint_mariadb_schema_name
 
-    minted = mint_global_db_schema_name("a-b.example.com")
+    minted = mint_mariadb_schema_name("a-b.example.com")
 
     assert "." not in minted
     assert "-" not in minted
@@ -250,9 +250,9 @@ def test_the_minted_schema_name_is_a_legal_identifier():
 def test_two_mints_for_one_site_still_differ():
     """The random suffix is what actually guarantees uniqueness; the prefix is for a human reading
     `SHOW DATABASES`."""
-    from frappe_manager.commands.create import mint_global_db_schema_name
+    from frappe_manager.commands.create import mint_mariadb_schema_name
 
-    assert mint_global_db_schema_name(SITE) != mint_global_db_schema_name(SITE)
+    assert mint_mariadb_schema_name(SITE) != mint_mariadb_schema_name(SITE)
 
 
 def test_the_config_reads_its_site_from_the_recorded_table(tmp_path):
@@ -462,9 +462,9 @@ def _refusal(bench: Bench, *failed: tuple[str, str]) -> str:
 def test_the_refusal_hands_over_the_statements_when_the_schema_is_known(tmp_path):
     bench = _bench_on_disk(tmp_path, (SITE, SCHEMA))
 
-    message = _refusal(bench, (SITE, "global-db refused the drop"))
+    message = _refusal(bench, (SITE, "mariadb refused the drop"))
 
-    assert f"  {SITE}: global-db refused the drop" in message
+    assert f"  {SITE}: mariadb refused the drop" in message
     assert f"DROP DATABASE IF EXISTS `{SCHEMA}`;" in message
     assert f"DROP USER IF EXISTS '{SCHEMA}'@'%';" in message
 
@@ -479,7 +479,7 @@ def test_the_refusal_points_at_the_site_config_when_the_schema_is_unreadable(tmp
 
     assert f"sites/{SITE}/site_config.json" in message
     assert f"sites/{BENCH}/site_config.json" not in message
-    assert f"fm delete {BENCH} --yes --no-delete-db-from-global-db" in message
+    assert f"fm delete {BENCH} --yes --no-delete-db-from-mariadb" in message
 
 
 def test_the_refusal_keeps_the_bench_directory_and_says_so(tmp_path):
@@ -511,7 +511,7 @@ def test_the_refusal_names_only_the_site_that_failed(tmp_path):
     hunting a schema that is already gone."""
     bench = _bench_on_disk(tmp_path, (SITE, SCHEMA), (SECOND, SECOND_SCHEMA))
 
-    message = _refusal(bench, (SECOND, "global-db refused the drop"))
+    message = _refusal(bench, (SECOND, "mariadb refused the drop"))
 
     assert "Database deletion failed for 1 of 2 site(s)." in message
     assert f"DROP DATABASE IF EXISTS `{SECOND_SCHEMA}`;" in message
@@ -522,10 +522,10 @@ def test_the_refusal_names_only_the_site_that_failed(tmp_path):
 
 def test_every_site_failing_is_counted_against_the_whole_bench(tmp_path):
     """The count is outstanding against total, so the operator can tell a single stuck site from
-    a global-db that refused everything."""
+    a mariadb that refused everything."""
     bench = _bench_on_disk(tmp_path, (SITE, SCHEMA), (SECOND, SECOND_SCHEMA))
 
-    message = _refusal(bench, (SITE, "global-db refused the drop"), (SECOND, "global-db refused the drop"))
+    message = _refusal(bench, (SITE, "mariadb refused the drop"), (SECOND, "mariadb refused the drop"))
 
     assert "Database deletion failed for 2 of 2 site(s)." in message
     assert f"DROP DATABASE IF EXISTS `{SCHEMA}`;" in message

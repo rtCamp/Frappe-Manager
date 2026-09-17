@@ -8,7 +8,7 @@ new-site populates the existing (empty) dir instead of aborting with
 A bench with a `[database]` entry takes the other branch entirely: it always forces
 (the create pipeline wrote `site_config.json`, so the site dir exists) and always pairs
 that with `--no-setup-db`, which is what makes `--force` inert. It never sends the
-global-db root password to a host fm does not own.
+mariadb root password to a host fm does not own.
 """
 
 from unittest.mock import MagicMock
@@ -20,7 +20,7 @@ from frappe_manager.site_manager.exceptions import BenchOperationException
 from frappe_manager.site_manager.modules.bench_site import BenchSiteManager
 
 EXTERNAL_DB = DatabaseConfig(host="mydb.abc.rds.amazonaws.com", name="app_prod")
-ROOT_PASSWORD = "global-db-root-secret"
+ROOT_PASSWORD = "mariadb-root-secret"
 
 
 def _manager(captured, database_config: DatabaseConfig | None = None):
@@ -30,13 +30,13 @@ def _manager(captured, database_config: DatabaseConfig | None = None):
     # `primary_site` is a real string, not a Mock: `create_bench_site` defaults the site it creates
     # to it and joins it into the argv, so a Mock here fails the join rather than the assertion.
     m.bench_config = MagicMock(db_name="db1", admin_pass="admin", primary_site="fm.alok.rt.gw")
-    # No `[database]` entry by default: the global-db container, which is the bench the
+    # No `[database]` entry by default: the shared mariadb container, which is the bench the
     # forcing tests below are about. Left as a bare MagicMock this returns a truthy Mock
     # and every create silently takes the external branch instead.
     m.bench_config.get_database_config.return_value = database_config
     info = m.services = MagicMock()
     info.database_manager.database_server_info.password = ROOT_PASSWORD
-    info.database_manager.database_server_info.host = "global-db"
+    info.database_manager.database_server_info.host = "mariadb"
     info.database_manager.database_server_info.port = 3306
     m.output = MagicMock()
 

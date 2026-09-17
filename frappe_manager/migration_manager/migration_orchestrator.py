@@ -136,7 +136,7 @@ class MigrationOrchestrator:
             ServicesComposeNotExist,  # services dir present but its docker-compose.yml is gone
             DatabaseServiceException,  # DatabaseServicePasswordNotFound while wiring MariaDBManager
             ComposeFileException,  # services compose is empty or has no services: section
-            ComposeServiceNotFound,  # compose file lacks global-nginx-proxy (init -> ProxyStoragePaths)
+            ComposeServiceNotFound,  # compose file lacks nginx-proxy (init -> ProxyStoragePaths)
             ComposeSecretNotFoundError,  # db_root_password secret entry absent from the compose file
             YAMLError,  # corrupt/truncated services docker-compose.yml
             OSError,  # permissions, missing dirs, unreadable template, unwritable fm_headers.conf

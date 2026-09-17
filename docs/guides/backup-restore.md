@@ -68,7 +68,7 @@ bench --site mybench.localhost restore \
   --with-private-files sites/mybench.localhost/private/backups/20260824_143000-mybench_localhost-private-files.tar
 ```
 
-`--with-public-files` and `--with-private-files` are `bench restore` flags, and both take the path to a tar file. At the `MySQL root password:` prompt, the user is `root` and the password is in `~/frappe/services/secrets/db_root_password.txt` on the host, which is where fm keeps the `global-db` root credential. For a scripted restore, pass `--db-root-username` and `--db-root-password` on the command line instead of waiting for the prompt.
+`--with-public-files` and `--with-private-files` are `bench restore` flags, and both take the path to a tar file. At the `MySQL root password:` prompt, the user is `root` and the password is in `~/frappe/services/secrets/db_root_password.txt` on the host, which is where fm keeps the `mariadb` root credential. For a scripted restore, pass `--db-root-username` and `--db-root-password` on the command line instead of waiting for the prompt.
 
 !!! danger "An external database has no root credential to hand it"
     On a bench with a `[database]` entry the schema lives on a server fm does not own. `bench restore` will still try to drop the schema and the login and recreate them, and fm holds no administrative credential for that server: `--db-admin-user` is create-time only and is never written to disk. Restoring there is between you and your database provider. See [External Database](external-database.md).
@@ -120,7 +120,7 @@ That dump is what `fm switch <benchname> --previous --restore-db` imports when a
 fm reset mybench    # drop the site database and reinstall every app
 ```
 
-`fm reset` runs `bench reinstall`, so all site data is gone and only the app code survives. It works only for a site on the `global-db` container fm owns: a bench with a `[database]` entry is refused, because that schema is not fm's to drop. `fm delete` draws the same line, and never drops an external schema whatever `--delete-db-from-global-db` says.
+`fm reset` runs `bench reinstall`, so all site data is gone and only the app code survives. It works only for a site on the `mariadb` container fm owns: a bench with a `[database]` entry is refused, because that schema is not fm's to drop. `fm delete` draws the same line, and never drops an external schema whatever `--delete-db-from-mariadb` says.
 
 ---
 

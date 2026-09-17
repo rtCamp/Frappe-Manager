@@ -176,7 +176,7 @@ class MariaDBManager(DatabaseServiceManager):
 
         # Credentials and endpoint are emitted together, from one object, so a password can
         # only ever travel to the host it was minted for. `import_from_compose_file` is the
-        # only source of the global-db root password and it hardcodes `host` to the compose
+        # only source of the mariadb root password and it hardcodes `host` to the compose
         # service name, which is why that password cannot reach an external server.
         self.client_flags = (
             f"-u'{self.database_server_info.user}' -p'{self.database_server_info.password}' "
@@ -191,13 +191,13 @@ class MariaDBManager(DatabaseServiceManager):
         self.base_query = "-e "
 
         # Every CLI shell-out is plaintext unless the client reads an option file, and
-        # MYSQL_HOME=<dir> is what makes it read <dir>/my.cnf. None means global-db, where
+        # MYSQL_HOME=<dir> is what makes it read <dir>/my.cnf. None means mariadb, where
         # there is no TLS to carry, so no env is emitted at all.
         self._env: list[str] | None = [f"MYSQL_HOME={mysql_home}"] if mysql_home else None
 
         # `compose run` needs a user that exists in the TARGET image. The bench image
         # has frappe; the engine image does not (`unable to find user frappe`), which
-        # broke every fallback call against a stopped global-db. `compose exec` ignores
+        # broke every fallback call against a stopped mariadb. `compose exec` ignores
         # this, so only the run path was affected.
         self._run_user: str | None = "frappe" if self.run_on_compose_service == "frappe" else None
 

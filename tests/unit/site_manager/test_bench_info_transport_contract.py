@@ -75,7 +75,7 @@ def _config(*, sites=None, aliases=None, **over):
     """Minimal duck-typed BenchConfig: display_info only ever reads these attributes.
 
     `sites` maps each recorded site name to its external database config, or to None for a site on
-    the global-db container fm owns; it defaults to the single site every other test wants, and
+    the mariadb container fm owns; it defaults to the single site every other test wants, and
     `sites={}` is a bench with no site in it. It drives `name`, `sites`, `site_names`,
     `primary_site` and `get_database_config` TOGETHER, because a stand-in where those disagree
     describes no bench that can exist.
@@ -214,8 +214,8 @@ def _sites_dir(tmp_path):
 
 
 def test_get_common_config_reads_the_bench_wide_file(tmp_path):
-    (_sites_dir(tmp_path) / "common_site_config.json").write_text(json.dumps({"db_host": "global-db"}))
-    assert _info(tmp_path).get_common_config() == {"db_host": "global-db"}
+    (_sites_dir(tmp_path) / "common_site_config.json").write_text(json.dumps({"db_host": "mariadb"}))
+    assert _info(tmp_path).get_common_config() == {"db_host": "mariadb"}
 
 
 def test_get_common_config_missing_raises_bench_exception(tmp_path):
@@ -518,7 +518,7 @@ def test_display_info_marks_the_bench_config_password_as_default(tmp_path, card_
 
 
 def test_display_info_db_facts_fall_back_to_na_and_carry_no_root_credentials(tmp_path, card_spy):
-    """The db row degrades to N/A instead of crashing, and the shared global-db ROOT
+    """The db row degrades to N/A instead of crashing, and the shared mariadb ROOT
     credentials are absent: they moved to `fm services info`, so a bench card printing them
     again would resurrect the bench-wide secret this move removed."""
     info = _displayable(tmp_path, get_db_connection_info_fn=MagicMock(return_value={}))
@@ -1030,9 +1030,9 @@ def test_delete_bench_delegates_the_whole_sequence(tmp_path):
     service = _service(tmp_path)
     bench = MagicMock()
     with patch.object(BenchService, "get_bench", return_value=bench):
-        service.delete_bench("a.localhost", delete_db_from_global_db=True)
+        service.delete_bench("a.localhost", delete_db_from_mariadb=True)
 
-    bench.remove_bench.assert_called_once_with(delete_db_from_global_db=True, prompt=True)
+    bench.remove_bench.assert_called_once_with(delete_db_from_mariadb=True, prompt=True)
     bench.remove_containers_and_dirs.assert_not_called()
     bench.remove_certificate.assert_not_called()
 
@@ -1042,9 +1042,9 @@ def test_the_yes_flag_becomes_prompt_false(tmp_path):
     service = _service(tmp_path)
     bench = MagicMock()
     with patch.object(BenchService, "get_bench", return_value=bench):
-        service.delete_bench("a.localhost", yes=True, delete_db_from_global_db=False)
+        service.delete_bench("a.localhost", yes=True, delete_db_from_mariadb=False)
 
-    bench.remove_bench.assert_called_once_with(delete_db_from_global_db=False, prompt=False)
+    bench.remove_bench.assert_called_once_with(delete_db_from_mariadb=False, prompt=False)
 
 
 def test_delete_bench_returns_what_the_removal_returned(tmp_path):
@@ -1069,7 +1069,7 @@ def test_delete_bench_falls_back_to_the_cleanup_bench_when_the_config_is_missing
         service.delete_bench("a.localhost", yes=True)
 
     cleanup.assert_called_once_with("a.localhost")
-    stub.remove_bench.assert_called_once_with(delete_db_from_global_db=None, prompt=False)
+    stub.remove_bench.assert_called_once_with(delete_db_from_mariadb=None, prompt=False)
 
 
 def test_create_cleanup_bench_builds_an_unchecked_bench_with_a_placeholder_config(tmp_path):

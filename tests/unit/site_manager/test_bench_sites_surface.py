@@ -11,7 +11,7 @@ both had to learn four things at once:
   recorded and none is the bench's own, so a listing that reached for it would drop the row (or
   the whole card) of a bench whose only fault is being multi-site. `fm info` on exactly that
   bench is how an operator finds out WHY a bench-scoped command refuses.
-- absence of `[sites."<site>".database]` is the only switch between "on the global-db container
+- absence of `[sites."<site>".database]` is the only switch between "on the mariadb container
   fm owns" and "on a server fm does not own", whose host the card has to name.
 - a site directory on disk that `[sites]` does not record is REPORTED and never acted on.
 
@@ -57,7 +57,7 @@ def _external(host: str = "rds.internal", **over) -> DatabaseConfig:
 
 def _config(tmp_path: Path, *, sites, name: str = BENCH, **over) -> BenchConfig:
     """A real bench config. `sites` maps a recorded site to its external database config, or to
-    None for a site on the global-db container fm owns; `sites=None` is a bench with no site."""
+    None for a site on the mariadb container fm owns; `sites=None` is a bench with no site."""
     recorded = None if sites is None else {site: SiteConfig(database=db) for site, db in sites.items()}
     return BenchConfig(
         name=name,
@@ -268,7 +268,7 @@ def _info_card(tmp_path: Path, config: BenchConfig, **over) -> tuple[_CardSpy, B
 
 
 def test_a_one_site_bench_prints_the_url_it_always_has_and_no_per_site_rows(tmp_path, card_spy):
-    """The common case, and what every screenshot and doc shows: one site on fm's own global-db
+    """The common case, and what every screenshot and doc shows: one site on fm's own mariadb
     needs no per-site rows, because `url` already names it and its schema is in `access`."""
     config = _config(tmp_path, sites={SITE: None})
     card, info = _info_card(tmp_path, config, site_config={SITE: {}})
@@ -285,22 +285,22 @@ def test_a_two_site_bench_lists_every_site_and_marks_the_primary(tmp_path, card_
     card, _ = _info_card(tmp_path, config, site_config={SITE: {}})
 
     assert card.labelled("sites") == [
-        f"http://{SITE}  [fm.muted]global-db[/fm.muted]  [fm.ok]● primary[/fm.ok]",
-        f"http://{OTHER}  [fm.muted]global-db[/fm.muted]",
+        f"http://{SITE}  [fm.muted]mariadb[/fm.muted]  [fm.ok]● primary[/fm.ok]",
+        f"http://{OTHER}  [fm.muted]mariadb[/fm.muted]",
     ]
     # The primary's own line is unchanged: the rows are an addition, not a replacement.
     assert card.facts["url"] == f"http://{SITE}"
 
 
 def test_a_site_on_someone_elses_server_names_that_server(tmp_path, card_spy):
-    """One site on the global-db container fm owns, one on an external server. The absence of a
+    """One site on the mariadb container fm owns, one on an external server. The absence of a
     `[sites."<site>".database]` entry is the only switch, and the external host is the fact an
     operator cannot get anywhere else on this card."""
     config = _config(tmp_path, sites={SITE: None, OTHER: _external(port=3307)})
     card, _ = _info_card(tmp_path, config, site_config={SITE: {}})
 
     assert card.labelled("sites") == [
-        f"http://{SITE}  [fm.muted]global-db[/fm.muted]  [fm.ok]● primary[/fm.ok]",
+        f"http://{SITE}  [fm.muted]mariadb[/fm.muted]  [fm.ok]● primary[/fm.ok]",
         f"http://{OTHER}  [fm.muted]external · rds.internal:3307[/fm.muted]",
     ]
 
@@ -338,8 +338,8 @@ def test_an_ambiguous_primary_prints_why_instead_of_raising(tmp_path, card_spy):
 
     assert card.facts["url"] == "[fm.muted]2 sites recorded, none named after the bench[/fm.muted]"
     assert card.labelled("sites") == [
-        f"http://{FOREIGN_A}  [fm.muted]global-db[/fm.muted]",
-        f"http://{FOREIGN_B}  [fm.muted]global-db[/fm.muted]",
+        f"http://{FOREIGN_A}  [fm.muted]mariadb[/fm.muted]",
+        f"http://{FOREIGN_B}  [fm.muted]mariadb[/fm.muted]",
     ]
     # Nothing is marked primary, because nothing is: guessing one would point every bench-scoped
     # command at another site's schema.

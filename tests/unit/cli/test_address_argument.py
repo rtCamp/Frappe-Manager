@@ -403,8 +403,13 @@ def _usage(argv: list[str]) -> str:
     Scoped deliberately: `BENCHNAME` still appears in help PROSE, where it names the command's own
     argument inside a sentence like "fm update BENCHNAME --runtime mount". What must not say it is
     the interface itself, and the docstring sits between the usage line and the arguments panel.
+
+    `is_cli_help_called` reads sys.argv, which under CliRunner is pytest's own and never carries
+    `--help`; without the patch the root callback runs the REAL docker/migration gate against the
+    developer's ~/frappe, and these usage assertions start failing on the state of that machine.
     """
-    result = runner.invoke(fm_app, [*argv, "--help"])
+    with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        result = runner.invoke(fm_app, [*argv, "--help"])
     assert result.exit_code == 0, result.output
     for line in result.output.splitlines():
         if "Usage:" in line:

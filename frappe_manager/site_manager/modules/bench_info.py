@@ -296,8 +296,8 @@ class BenchInfo:
 
         config = self.bench_config
         bench_db_info = self.get_db_connection_info()
-        # The global-db ROOT credentials are deliberately absent: they belong to the shared
-        # global-db container, not to any one bench, and live on `fm services info` now.
+        # The mariadb ROOT credentials are deliberately absent: they belong to the shared
+        # mariadb container, not to any one bench, and live on `fm services info` now.
         protocol = "https" if self.has_certificate() else "http"
         active = self.is_running()
 
@@ -356,7 +356,7 @@ class BenchInfo:
             card.fact("https", f"{ssl_service_type.upper()} [fm.muted]·[/fm.muted] {remaining}")
         else:
             card.fact("https", "[fm.muted]not enabled[/fm.muted]")
-        # One row per site, skipped for the single ordinary case (one site on fm's own global-db)
+        # One row per site, skipped for the single ordinary case (one site on fm's own mariadb)
         # because `url` above already names it and its schema is in the `access` section: the common
         # bench's card keeps printing exactly what it always has. Every other shape says something
         # `url` cannot, namely that the bench serves more than one site, or that the one site's
@@ -365,8 +365,8 @@ class BenchInfo:
             for i, site in enumerate(sites):
                 database = config.get_database_config(site)
                 # Absence of a `[sites."<site>".database]` entry IS the switch: the site is on the
-                # global-db container fm owns. Anything else is someone else's server, named.
-                where = f"external · {database.host}:{database.port}" if database else "global-db"
+                # mariadb container fm owns. Anything else is someone else's server, named.
+                where = f"external · {database.host}:{database.port}" if database else "mariadb"
                 marker = "  [fm.ok]● primary[/fm.ok]" if site == primary else ""
                 card.fact("sites" if i == 0 else "", f"{protocol}://{site}  [fm.muted]{where}[/fm.muted]{marker}")
 

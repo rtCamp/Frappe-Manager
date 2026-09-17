@@ -139,12 +139,12 @@ class TestMultisite:
         out = _run(
             tmp_path,
             {
-                "shop.localhost": {"db_name": "db_shop", "db_password": "pw", "db_host": "global-db"},
+                "shop.localhost": {"db_name": "db_shop", "db_password": "pw", "db_host": "mariadb"},
                 "b.example.com": {"db_name": "db_b", "db_password": "pw", "db_host": "rds.internal"},
             },
         )
 
-        assert out["servers"]["shop.localhost"]["server"] == "global-db"
+        assert out["servers"]["shop.localhost"]["server"] == "mariadb"
         assert out["servers"]["b.example.com"]["server"] == "rds.internal"
 
 
@@ -167,10 +167,10 @@ class TestEndpointPort:
         appending unconditionally would rewrite every existing bench's card for no gain."""
         out = _run(
             tmp_path,
-            {"shop.localhost": {"db_name": "db_shop", "db_password": "pw", "db_host": "global-db", "db_port": 3306}},
+            {"shop.localhost": {"db_name": "db_shop", "db_password": "pw", "db_host": "mariadb", "db_port": 3306}},
         )
 
-        assert out["servers"]["shop.localhost"]["server"] == "global-db"
+        assert out["servers"]["shop.localhost"]["server"] == "mariadb"
         assert out["meta"]["shop.localhost"]["sub"] == "MariaDB · site database"
 
     def test_a_host_that_already_carries_a_port_is_not_given_a_second(self, tmp_path):
@@ -189,7 +189,7 @@ class TestFallbacks:
         endpoint became per-site -- so the literal default is the last resort and has to work."""
         out = _run(tmp_path, {"shop.localhost": {"db_name": "db_shop", "db_password": "pw"}})
 
-        assert out["servers"]["shop.localhost"]["server"] == "global-db"
+        assert out["servers"]["shop.localhost"]["server"] == "mariadb"
 
     def test_a_legacy_common_host_is_still_honoured(self, tmp_path):
         """A bench whose common file predates that change keeps working."""
@@ -224,12 +224,12 @@ class TestFallbacks:
         out = _run(
             tmp_path,
             {
-                "shop.localhost": {"db_name": "db_shop", "db_password": "pw", "db_host": "global-db"},
+                "shop.localhost": {"db_name": "db_shop", "db_password": "pw", "db_host": "mariadb"},
                 "broken.localhost": "{not json",
             },
         )
 
-        assert out["servers"]["shop.localhost"]["server"] == "global-db"
+        assert out["servers"]["shop.localhost"]["server"] == "mariadb"
         assert out["creds"]["shop.localhost"] == ["db_shop", "pw"]
         assert out["creds"]["broken.localhost"] == ["", ""]
 
@@ -337,7 +337,7 @@ class TestTlsAndSocket:
         assert out["servers"]["shop.localhost"]["server"] == "rds.internal"
 
     def test_a_socket_site_without_a_host_gets_no_card_at_all(self, tmp_path):
-        """Without db_host the plugin would fall back to the literal global-db -- a different,
+        """Without db_host the plugin would fall back to the literal mariadb -- a different,
         real, writable database than the one the site actually uses through its socket. A button
         that opens the wrong database is worse than no button, and one skipped site must not take
         a healthy sibling's card down with it."""
@@ -345,11 +345,11 @@ class TestTlsAndSocket:
             tmp_path,
             {
                 "socket.localhost": {"db_name": "db_sock", "db_password": "pw", "db_socket": "/run/mysqld.sock"},
-                "shop.localhost": {"db_name": "db_shop", "db_password": "pw", "db_host": "global-db"},
+                "shop.localhost": {"db_name": "db_shop", "db_password": "pw", "db_host": "mariadb"},
             },
         )
 
         assert "socket.localhost" not in out["servers"]
         assert "socket.localhost" not in out["creds"]
         assert "socket.localhost" not in out["meta"]
-        assert out["servers"]["shop.localhost"]["server"] == "global-db"
+        assert out["servers"]["shop.localhost"]["server"] == "mariadb"

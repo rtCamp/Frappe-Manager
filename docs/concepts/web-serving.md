@@ -4,10 +4,10 @@ How a request reaches your site, and how many requests a bench can handle at onc
 
 ## The request path
 
-Every request hits the machine-wide `global-nginx-proxy` (ports 80/443), which routes by the `Host:` header to the right bench's own nginx, which proxies to the bench's web process. Full topology: [Architecture](../reference/architecture.md).
+Every request hits the machine-wide `nginx-proxy` (ports 80/443), which routes by the `Host:` header to the right bench's own nginx, which proxies to the bench's web process. Full topology: [Architecture](../reference/architecture.md).
 
 ```
-browser -> global-nginx-proxy (routes by domain) -> bench nginx -> web process
+browser -> nginx-proxy (routes by domain) -> bench nginx -> web process
 ```
 
 The bench's nginx does more than forward. It serves the site's own `public/` files off disk, sends `/socket.io` to the socketio container instead of the web process, and answers `/.well-known/acme-challenge/` itself so certificate renewal works without touching Frappe.

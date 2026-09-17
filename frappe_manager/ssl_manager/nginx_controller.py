@@ -66,7 +66,7 @@ class NginxController:
 
         if self.docker_client.compose.is_service_running(self.service_name):
             reloaded = True
-            if self.service_name == "global-nginx-proxy":
+            if self.service_name == "nginx-proxy":
                 self.docker_client.compose.exec(
                     service=self.service_name,
                     command="sh -c 'kill -HUP $(pidof docker-gen)'",

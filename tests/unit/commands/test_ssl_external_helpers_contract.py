@@ -576,7 +576,7 @@ def test_add_success_prints_the_docker_compose_instructions(h):
     prints = h.prints()
     assert f"SSL certificate added for {DOMAIN}" in prints
     assert f"         VIRTUAL_HOST: {DOMAIN}" in prints
-    assert "         - fm-global-frontend-network" in prints
+    assert "         - fm-frontend-network" in prints
     assert f"3. Access your app at: https://{DOMAIN}" in prints
 
 
@@ -1098,7 +1098,7 @@ def nginx_probe(h):
         bench_service_cls = stack.enter_context(patch(f"{MODULE}.BenchService"))
         bench_cls = stack.enter_context(patch(f"{MODULE}.Bench"))
         h.services.compose_file_manager.get_container_names.return_value = {
-            "global-nginx-proxy": "fm-global-nginx-proxy"
+            "nginx-proxy": "fm-nginx-proxy"
         }
         bench_service_cls.return_value.get_bench_names.return_value = []
         yield SimpleNamespace(run=run, bench_service_cls=bench_service_cls, bench_cls=bench_cls)
@@ -1115,7 +1115,7 @@ def test_nginx_scan_issues_a_docker_exec_cat_of_default_conf(h, nginx_probe):
     assert call.args[0] == [
         "docker",
         "exec",
-        "fm-global-nginx-proxy",
+        "fm-nginx-proxy",
         "cat",
         "/etc/nginx/conf.d/default.conf",
     ]

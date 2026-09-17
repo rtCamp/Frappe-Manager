@@ -208,7 +208,7 @@ style = "rail"             # rail | box | flat | ascii
 **Default:** `null` (auto-managed)  
 **File key:** `[network]` → `subnet_cidr` / `proxy_ip`
 
-Static addressing for the global frontend Docker network: `subnet_cidr` is the CIDR of `fm-global-frontend-network` (e.g. `10.1.0.0/16`), `proxy_ip` the fixed IP of `global-nginx-proxy` on it. Normally written by FM; only set manually if the default subnet collides with your LAN.
+Static addressing for the global frontend Docker network: `subnet_cidr` is the CIDR of `fm-frontend-network` (e.g. `10.1.0.0/16`), `proxy_ip` the fixed IP of `nginx-proxy` on it. Normally written by FM; only set manually if the default subnet collides with your LAN.
 
 ---
 
@@ -386,7 +386,7 @@ alias_domains = ["www.mybench.com", "alt.mybench.com"]
 ```
 
 An entry with no keys is a complete record: it says the bench serves that site on the fm-managed
-`global-db` container with no aliases.
+`mariadb` container with no aliases.
 
 **Change via:** `fm create BENCH/SITE` to add one, `fm delete BENCH/SITE` to remove one.
 
@@ -455,7 +455,7 @@ could act on. `fm info` lists those entries under `missing`.
 **Type:** `string`  
 **File key:** `db_name`
 
-Schema this bench's site uses on the fm-managed `global-db` container. Generated at creation as `fm_<name>_<16 hex chars>`, where `<name>` is the bench name with every `.` and `-` replaced by `_`.
+Schema this bench's site uses on the fm-managed `mariadb` container. Generated at creation as `fm_<name>_<16 hex chars>`, where `<name>` is the bench name with every `.` and `-` replaced by `_`.
 
 ```toml
 db_name = "fm_mybench_localhost_9f4c1a77d0e35b62"
@@ -816,7 +816,7 @@ Worker care: how `fm restart` and the `fm switch` pipeline treat RQ workers and 
 **Default:** (absent)  
 **File key:** `[sites."<site>".database]`, one table per site name
 
-External MariaDB for one site. An absent entry means that site lives on the FM-managed `global-db` container; there is no separate on/off flag.
+External MariaDB for one site. An absent entry means that site lives on the FM-managed `mariadb` container; there is no separate on/off flag.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -1034,8 +1034,8 @@ Only the paths that hold configuration or credentials. The [Architecture referen
 │   ├── docker-compose.yml                   ← Global services compose
 │   ├── nginx-proxy/ssl/acmesh/              ← acme.sh certificate store
 │   ├── nginx-proxy/ssl/custom/              ← imported custom certificates (fm ssl add --custom)
-│   ├── mariadb/conf/                        ← global-db configuration
-│   └── secrets/                             ← global-db root and user password files
+│   ├── mariadb/conf/                        ← mariadb configuration
+│   └── secrets/                             ← mariadb root and user password files
 └── sites/<benchname>/
     ├── bench_config.toml                    ← Bench config
     ├── docker-compose.yml                   ← Main compose

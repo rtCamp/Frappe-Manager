@@ -37,7 +37,7 @@ $ fm tools enable BENCH(/SITE|all) [OPTIONS]
 
 **Options**:
 
-* `--mailpit-as-default-mail-server`: Route outgoing mail to Mailpit for every site the bench holds.
+* `--mailpit-as-default-mail-server`: Route outgoing mail to Mailpit: on BENCH for every site the bench holds (via common_site_config), on BENCH/SITE for that one site only (via its site_config.json). Applies when the site has no default outgoing Email Account configured in Frappe.
 
 
 ## Examples
@@ -62,6 +62,14 @@ The bench's other sites and their existing routes are untouched.
 
 ```bash
 fm tools enable mybench/site1.localhost
+```
+
+### Route one site's mail to Mailpit, leaving the rest on their real mail server
+
+Writes the mail keys into that site's own site_config.json, which wins over the bench-wide config.
+
+```bash
+fm tools enable mybench/site1.localhost --mailpit-as-default-mail-server
 ```
 
 ### Restore every opted-out site's route at once

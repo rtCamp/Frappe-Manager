@@ -26,7 +26,7 @@ $ fm services [OPTIONS] COMMAND [ARGS]...
 
 Show the global services' card: live container state, the root database credentials and the proxy's real-ip trust.
 
-The root database password is printed in cleartext. It belongs to the global-db container every bench shares, which is why it is on this card and not on any bench's fm info.
+The root database password is printed in cleartext. It belongs to the mariadb container every bench shares, which is why it is on this card and not on any bench's fm info.
 
 **Usage**:
 
@@ -63,7 +63,7 @@ fm services start all
 ### Start the database only
 
 ```bash
-fm services start global-db
+fm services start mariadb
 ```
 
 
@@ -71,7 +71,7 @@ fm services start global-db
 
 Stop the global services shared by every bench.
 
-Every bench is reached through global-nginx-proxy and keeps its data in global-db, so stopping these leaves the bench containers running but unreachable and without a database.
+Every bench is reached through nginx-proxy and keeps its data in mariadb, so stopping these leaves the bench containers running but unreachable and without a database.
 
 **Usage**:
 
@@ -99,7 +99,7 @@ fm services stop all
 
 Restart the global services shared by every bench.
 
-Every bench is reached through global-nginx-proxy and keeps its data in global-db, so restarting these is a brief outage for every bench on this host. The containers are restarted in place and never recreated, so a newly pulled image or an edited compose file is not picked up.
+Every bench is reached through nginx-proxy and keeps its data in mariadb, so restarting these is a brief outage for every bench on this host. The containers are restarted in place and never recreated, so a newly pulled image or an edited compose file is not picked up.
 
 **Usage**:
 
@@ -119,7 +119,7 @@ $ fm services restart SERVICE_NAME
 A restart is what puts a new proxy config into effect, for instance after fm services real-ip.
 
 ```bash
-fm services restart global-nginx-proxy
+fm services restart nginx-proxy
 ```
 
 ### Restart the whole global stack
@@ -155,13 +155,13 @@ $ fm services shell SERVICE_NAME [OPTIONS]
 ### Open a shell in the global database
 
 ```bash
-fm services shell global-db
+fm services shell mariadb
 ```
 
 ### Open a shell in the proxy
 
 ```bash
-fm services shell global-nginx-proxy
+fm services shell nginx-proxy
 ```
 
 

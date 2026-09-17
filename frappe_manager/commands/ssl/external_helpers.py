@@ -296,10 +296,10 @@ def _add_external_certificate(
             output.print(f"         VIRTUAL_HOST: {domain}", emoji_code="")
             output.print("         VIRTUAL_PORT: 80  # Your app's port", emoji_code="")
             output.print("       networks:", emoji_code="")
-            output.print("         - fm-global-frontend-network", emoji_code="")
+            output.print("         - fm-frontend-network", emoji_code="")
             output.print("", emoji_code="")
             output.print("   networks:", emoji_code="")
-            output.print("     fm-global-frontend-network:", emoji_code="")
+            output.print("     fm-frontend-network:", emoji_code="")
             output.print("       external: true", emoji_code="")
             output.print("", emoji_code="")
             output.print("2. Start your project:", emoji_code="")
@@ -390,7 +390,7 @@ def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
     - Are not managed by FM benches
     """
     try:
-        nginx_container_name = services_manager.compose_file_manager.get_container_names().get("global-nginx-proxy")
+        nginx_container_name = services_manager.compose_file_manager.get_container_names().get("nginx-proxy")
         if not nginx_container_name:
             return []
 

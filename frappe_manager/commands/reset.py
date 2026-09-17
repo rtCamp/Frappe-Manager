@@ -71,7 +71,7 @@ def reset(
     # Ahead of the confirmation and regardless of --yes: asking a question whose only honourable
     # answer fm cannot carry out wastes the operator's consent. `external_database_config` is the one
     # place that decision is made, and it is keyed on the SITE being reinstalled rather than on the
-    # bench, so a bench holding one global-db site and one external site resets the first and refuses
+    # bench, so a bench holding one mariadb site and one external site resets the first and refuses
     # the second. Presence of the entry is the whole switch, exactly as for the schema `fm delete`
     # declines to drop.
     external_db = bench.external_database_config(site)
