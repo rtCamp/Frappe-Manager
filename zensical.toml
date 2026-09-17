@@ -68,6 +68,7 @@ nav = [
     { "fm apps"        = "commands/apps.md" },
     { "fm domain"      = "commands/domain.md" },
     { "fm tools"       = "commands/tools.md" },
+    { "fm telemetry"   = "commands/telemetry.md" },
     { "fm auth"        = "commands/auth.md" },
     { "fm maintenance" = "commands/maintenance.md" },
     { "fm ssl" = [

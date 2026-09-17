@@ -208,6 +208,25 @@ class BenchDockerOps:
                 auto_save=False,
             )
 
+            # A disabled NewRelic must not leave its license key behind. `configure_bench` above
+            # merges envs (`append=True`), so a key the exporter stops emitting is retained, not
+            # dropped -- and this one is a credential. Popped explicitly and written back with
+            # `append=False`, the same pop-then-replace the CA trust block uses above and for the
+            # same reason. NEWRELIC_ENABLED itself is not popped: the exporter sets it to an
+            # explicit "false", which is what fm-web-server.sh tests at boot, so the wrapper takes
+            # the plain-gunicorn branch even on a container recreated from an older file.
+            #
+            # Read from the MERGED compose env rather than from bench_config: this must reflect
+            # what the file will actually say, and a caller handing in partial inputs (no frappe
+            # env at all) then keeps the enabled key that is already on disk instead of having it
+            # stripped out from under a bench whose agent is still on.
+            frappe_envs = dict(self.compose_file_manager.get_envs("frappe") or {})
+            if (
+                frappe_envs.get("NEWRELIC_ENABLED") != "true"
+                and frappe_envs.pop("NEWRELIC_LICENSE_KEY", None) is not None
+            ):
+                self.compose_file_manager.set_envs("frappe", frappe_envs, append=False)
+
             # `docker-compose.tmpl` bakes this alias into the nginx service, same as `frappe-site` and
             # `socketio-site` -- but ONLY a bench built fresh from the template gets it that way. This
             # compose file is loaded from disk and mutated in place on every later regen (see the CA
@@ -267,7 +286,9 @@ class BenchDockerOps:
                 if rolling:
                     self.compose_file_manager.remove_container_name(spec.name)
                 else:
-                    self.compose_file_manager.set_container_name(spec.name, f"{prefix}{CLI_DEFAULT_DELIMETER}{spec.name}")
+                    self.compose_file_manager.set_container_name(
+                        spec.name, f"{prefix}{CLI_DEFAULT_DELIMETER}{spec.name}"
+                    )
 
         self.output.print(f"Rendered image-mode compose pinned to {deploy_image}")
         return BakeManager.nginx_image_ref(deploy_image)

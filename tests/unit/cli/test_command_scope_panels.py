@@ -16,7 +16,7 @@ The expected panel for an ordinary command is DERIVED from its own positional ar
 `BENCH(/DOMAIN...)` from a small family of `Annotated` aliases), not hand-listed, for the same
 reason `test_option_scope_panels.py` derives its expectations instead of hardcoding them: a
 hand-written list is a second place to update and the first one to rot. The six sub-apps
-(`services`, `self`, `ssl`, `apps`, `domain`, `tools`) have no positional of their own at the top
+(`services`, `self`, `ssl`, `apps`, `domain`, `tools`, `telemetry`) have no positional of their own at the top
 level to derive a panel from -- their bucket is a deliberate taxonomy decision, pinned by hand
 below.
 """
@@ -38,7 +38,7 @@ def _group() -> click.Group:
     return group
 
 
-# The 6 sub-apps have no address of their own to derive a panel from; hand-pinned because there
+# The 7 sub-apps have no address of their own to derive a panel from; hand-pinned because there
 # are only a few of them and their bucket is a taxonomy decision, not a derivable fact.
 GROUP_PANELS = {
     "services": _PANEL_GLOBAL,
@@ -47,6 +47,7 @@ GROUP_PANELS = {
     "apps": _PANEL_SITE,
     "domain": _PANEL_DOMAIN,
     "tools": _PANEL_SITE,
+    "telemetry": _PANEL_SITE,
 }
 
 

@@ -32,7 +32,9 @@ migration runs, and the executor's version stamping keeps its usual meaning.
 
 import contextlib
 import platform
+from typing import Any, cast
 
+import tomlkit
 from ruamel.yaml import YAML
 
 from frappe_manager import CLI_BENCHES_DIRECTORY
@@ -44,6 +46,7 @@ from frappe_manager.migration_manager.migration_helpers import MigrationBench
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager.context_managers import spinner
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, MariaDBManager
+from frappe_manager.utils import toml_document
 from frappe_manager.utils.docker import run_command_with_exit_code
 from frappe_manager.utils.site import host_bench_dir
 
@@ -354,6 +357,10 @@ class MigrationV0210(MigrationBase):
         if changed_any:
             self.output.print(f"Renamed shared services in {bench.name}'s compose and site configs")
 
+        # Reported separately, and deliberately not folded into `changed_any`: this is the
+        # telemetry table rename, not the shared-service rename, and it prints its own line.
+        self._rewrite_telemetry_table(bench)
+
     def _rewrite_db_hosts(self, bench: MigrationBench) -> bool:
         """`db_host: global-db` -> `mariadb`, in every site config and the legacy common
         fallback. Only the exact shared-service value is touched: an external endpoint
@@ -380,6 +387,70 @@ class MigrationV0210(MigrationBase):
                 config_path.write_text(json.dumps(config, indent=1, sort_keys=True))
                 changed = True
         return changed
+
+    def _rewrite_telemetry_table(self, bench: MigrationBench) -> bool:
+        """Carry NewRelic settings to `[telemetry.newrelic]`, from BOTH earlier shapes.
+
+        Two hops land here because the first one never shipped with a migration:
+
+        * v0.19.0 wrote flat `newrelic_enabled` / `newrelic_license_key` at the top level;
+        * the 0.20/0.21 development line moved them to `[monitoring.newrelic]` and the reader
+          stopped understanding the flat keys, WITHOUT a migration to carry them over.
+
+        `BenchConfig` is `extra="allow"`, so the orphaned keys neither raised nor were read:
+        every bench that was reporting to NewRelic silently stopped on upgrade, with no error
+        and nothing in the output. That is the same failure this cycle fixed in
+        `fm telemetry disable` (an omitted env var read as a retained one), arriving by the
+        upgrade path instead.
+
+        The old keys are DELETED, not left beside the new table: writers merge and never strip
+        (`save_dict_to_file`), so anything left here would outlive every later write and the
+        next reader to grow a compatibility branch would find two disagreeing sources.
+        """
+        config_path = bench.path / "bench_config.toml"
+        if not config_path.is_file():
+            return False
+
+        doc = tomlkit.parse(config_path.read_text())
+
+        legacy_table = doc.get("monitoring")
+        flat_enabled = doc.get("newrelic_enabled")
+        flat_key = doc.get("newrelic_license_key")
+        if legacy_table is None and flat_enabled is None and flat_key is None:
+            return False
+
+        self.backup_manager.backup(config_path, bench_name=bench.name)
+
+        telemetry = doc.get("telemetry")
+        if telemetry is None:
+            telemetry = tomlkit.table()
+            doc["telemetry"] = telemetry
+
+        if legacy_table is not None:
+            # Every provider sub-table moves, not just newrelic: `[monitoring]` is extra="allow",
+            # so a hand-written sibling is a thing a user could already have.
+            for provider, table in dict(cast("dict[str, Any]", legacy_table)).items():
+                if provider not in telemetry:
+                    telemetry[provider] = table
+            del doc["monitoring"]
+
+        if (flat_enabled is not None or flat_key is not None) and "newrelic" not in telemetry:
+            newrelic = tomlkit.table()
+            newrelic["enabled"] = bool(flat_enabled) if flat_enabled is not None else False
+            if flat_key is not None:
+                newrelic["license_key"] = flat_key
+            telemetry["newrelic"] = newrelic
+
+        for stale in ("newrelic_enabled", "newrelic_license_key"):
+            if stale in doc:
+                del doc[stale]
+
+        toml_document.save(config_path, doc)
+        # `\[` is required: `output.print` interprets rich markup, and `[telemetry.newrelic]` is
+        # shaped exactly like a style tag, so an unescaped one renders as NOTHING -- this line
+        # printed "Moved audit's NewRelic settings to " on a real bench before the escape.
+        self.output.print(f"Moved {bench.name}'s NewRelic settings to \\[telemetry.newrelic]")
+        return True
 
     def _start_bench(self, bench: MigrationBench):
         """Bring a previously-running bench back on the renamed networks. Best-effort

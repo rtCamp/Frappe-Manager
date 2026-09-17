@@ -71,7 +71,6 @@ from frappe_manager.utils.process_lock import bench_lock
 _PANEL_BENCH = "Bench Options"
 _PANEL_RUNTIME = "Bench Options: Runtime"
 _PANEL_MOUNT = "Bench Options: Workspace (mount runtime only)"
-_PANEL_MONITORING = "Bench Options: Monitoring"
 _PANEL_REDIS = "Bench Options: External Redis (every site)"
 _PANEL_SITE = "Site Options"
 _PANEL_DATABASE = "Site Options: External Database"
@@ -90,8 +89,6 @@ _FLAG_TO_CONFIG: dict[str, tuple[str, ...]] = {
     "developer_mode": ("developer_mode",),
     "environment": ("environment",),
     "github_token": ("github_token",),
-    "newrelic": ("monitoring", "newrelic", "enabled"),
-    "newrelic_license_key": ("monitoring", "newrelic", "license_key"),
     "node_version": ("node_version",),
     "python_version": ("python_version",),
     "restart_policy": ("restart_policy",),
@@ -905,24 +902,6 @@ def create(
             rich_help_panel=_PANEL_BENCH,
         ),
     ] = [],
-    newrelic: Annotated[
-        bool,
-        typer.Option(
-            "--newrelic/--no-newrelic",
-            help="Enable NewRelic APM for the web process.",
-            show_default=False,
-            rich_help_panel=_PANEL_MONITORING,
-        ),
-    ] = False,
-    newrelic_license_key: Annotated[
-        str | None,
-        typer.Option(
-            "--newrelic-license-key",
-            help="NewRelic ingest license key. Required with --newrelic.",
-            show_default=False,
-            rich_help_panel=_PANEL_MONITORING,
-        ),
-    ] = None,
     redis_cache: Annotated[
         str | None,
         typer.Option(
@@ -1152,8 +1131,6 @@ def create(
                     "developer_mode": developer_mode_status,
                     "environment": environment,
                     "github_token": github_token,
-                    "newrelic": newrelic,
-                    "newrelic_license_key": newrelic_license_key,
                     "node_version": node_version,
                     "python_version": python_version,
                     "restart_policy": restart_policy,
@@ -1243,9 +1220,16 @@ def create(
             emoji_code=":floppy_disk:",
         )
 
-    newrelic_config = bench_config.get_newrelic_config()
+    # `--newrelic`/`--newrelic-license-key` are gone (APM is `fm telemetry`), but `--config` still
+    # carries a whole `[monitoring.newrelic]` table, so a TOML asking to monitor without a key
+    # can still arrive here. Refused rather than created: the exporter emits no env vars without
+    # the key, so the bench would record itself as monitored and report nothing.
+    newrelic_config = bench_config.get_telemetry_config("newrelic")
     if newrelic_config and newrelic_config.enabled and not newrelic_config.license_key:
-        raise typer.BadParameter("--newrelic-license-key is required when --newrelic is set.")
+        raise typer.BadParameter(
+            "[telemetry.newrelic] in --config sets enabled without a license_key. Add the key there, "
+            "or create the bench and run 'fm telemetry enable BENCH newrelic --license-key KEY'."
+        )
 
     all_domains = set(bench_config.domains)
     skip_check = allow_domain_conflicts or not fm_config.validation.enforce_domain_uniqueness

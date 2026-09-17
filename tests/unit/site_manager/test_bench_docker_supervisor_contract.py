@@ -41,7 +41,7 @@ from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     BenchRuntime,
     FMBenchEnvType,
-    MonitoringConfig,
+    TelemetryConfig,
     NewRelicConfig,
 )
 from frappe_manager.site_manager.exceptions import BenchOperationException, BenchServiceNotRunning
@@ -1513,7 +1513,7 @@ def _supervisor(
         admin_tools=False,
         environment_type=FMBenchEnvType.dev,
         root_path=Path("/nonexistent/bench_config.toml"),
-        monitoring=MonitoringConfig(newrelic=NewRelicConfig(enabled=newrelic_enabled, license_key=newrelic_license_key))
+        telemetry=TelemetryConfig(newrelic=NewRelicConfig(enabled=newrelic_enabled, license_key=newrelic_license_key))
         if newrelic_enabled or newrelic_license_key
         else None,
         ssl_certificates=list(ssl_certificates),
@@ -2004,7 +2004,13 @@ class TestSetupSupervisor:
             _supervisor().setup_supervisor(bench)
 
     @pytest.mark.timeout(15)
-    def test_newrelic_ini_is_written_only_when_enabled_with_a_key(self, tmp_path):
+    def test_newrelic_ini_carries_the_tuning_but_never_the_license_key(self, tmp_path):
+        """The credential has ONE home: the container environment.
+
+        It used to be written here too, which made a key change silently ineffective --
+        the agent reads NEW_RELIC_CONFIG_FILE, so the file's stale key outranked the one
+        the user just passed. fm-web-server.sh exports NEW_RELIC_LICENSE_KEY instead.
+        """
         bench = _bench_path(tmp_path)
 
         _supervisor(newrelic_enabled=True, newrelic_license_key="key-123").setup_supervisor(bench)
@@ -2012,8 +2018,41 @@ class TestSetupSupervisor:
         ini = bench / "workspace" / "frappe-bench" / "config" / "newrelic.ini"
         parsed = configparser.RawConfigParser()
         parsed.read_string(ini.read_text())
-        assert parsed.get("newrelic", "license_key") == "key-123"
         assert parsed.get("newrelic", "app_name") == "Frappe - test.localhost"
+        assert not parsed.has_option("newrelic", "license_key")
+        assert "key-123" not in ini.read_text()
+
+    @pytest.mark.timeout(15)
+    def test_an_existing_newrelic_ini_is_never_clobbered(self, tmp_path):
+        """Agent tuning is the operator's, so an off/on cycle must keep their edits.
+
+        The file was previously rewritten on every enable, discarding hand-tuned sampling
+        and tracer thresholds without a word.
+        """
+        bench = _bench_path(tmp_path)
+        config_dir = bench / "workspace" / "frappe-bench" / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        ini = config_dir / "newrelic.ini"
+        ini.write_text("[newrelic]\napp_name = hand tuned\ncustom_canary = keepme\n")
+
+        _supervisor(newrelic_enabled=True, newrelic_license_key="key-123").setup_newrelic(bench)
+
+        assert ini.read_text() == "[newrelic]\napp_name = hand tuned\ncustom_canary = keepme\n"
+
+    @pytest.mark.timeout(15)
+    def test_force_restores_the_generated_newrelic_ini(self, tmp_path):
+        bench = _bench_path(tmp_path)
+        config_dir = bench / "workspace" / "frappe-bench" / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        ini = config_dir / "newrelic.ini"
+        ini.write_text("[newrelic]\ncustom_canary = keepme\n")
+
+        _supervisor(newrelic_enabled=True, newrelic_license_key="key-123")._write_newrelic_config(
+            config_dir, force=True
+        )
+
+        assert "custom_canary" not in ini.read_text()
+        assert "app_name = Frappe - test.localhost" in ini.read_text()
 
     @pytest.mark.timeout(15)
     def test_newrelic_enabled_without_a_key_writes_no_ini(self, tmp_path):

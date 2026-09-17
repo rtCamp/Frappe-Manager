@@ -14,6 +14,7 @@ The decisions defended here are the ones whose failure mode is data loss or a da
 import json
 from unittest.mock import MagicMock, patch
 
+import tomlkit
 from ruamel.yaml import YAML
 
 from frappe_manager.migration_manager.migrations.migrate_0_21_0 import (
@@ -342,3 +343,133 @@ class TestRollbackPath:
             m.undo_services_migrate()
 
         assert not any(c.args[0][:3] == ["docker", "network", "create"] for c in run_cmd.call_args_list)
+
+
+def _write_bench_config(bench, text: str):
+    bench.path.mkdir(parents=True, exist_ok=True)
+    path = bench.path / "bench_config.toml"
+    path.write_text(text)
+    return path
+
+
+class TestTelemetryTableRewrite:
+    """`[monitoring.newrelic]` and the v0.19.0 flat keys both become `[telemetry.newrelic]`.
+
+    The flat hop is the one that matters: v0.19.0 wrote `newrelic_enabled` /
+    `newrelic_license_key` at the top level, the 0.20/0.21 line moved to a table and stopped
+    reading them, and NO migration carried them over. `BenchConfig` is `extra="allow"`, so the
+    keys neither raised nor were read and every bench reporting to NewRelic silently stopped on
+    upgrade. Both hops are pinned here because both still exist on real disks.
+    """
+
+    def test_the_flat_v0_19_keys_are_carried_into_the_table(self, tmp_path):
+        m = _migration(tmp_path)
+        bench = _bench(tmp_path)
+        path = _write_bench_config(
+            bench, 'name = "shop"\nnewrelic_enabled = true\nnewrelic_license_key = "eu01xx"\n'
+        )
+
+        assert m._rewrite_telemetry_table(bench) is True
+
+        doc = tomlkit.parse(path.read_text())
+        assert doc["telemetry"]["newrelic"]["enabled"] is True
+        assert doc["telemetry"]["newrelic"]["license_key"] == "eu01xx"
+
+    def test_the_flat_keys_are_deleted_not_left_beside_the_table(self, tmp_path):
+        """Writers merge and never strip, so a leftover key would outlive every later write."""
+        m = _migration(tmp_path)
+        bench = _bench(tmp_path)
+        path = _write_bench_config(
+            bench, 'name = "shop"\nnewrelic_enabled = true\nnewrelic_license_key = "eu01xx"\n'
+        )
+
+        m._rewrite_telemetry_table(bench)
+
+        text = path.read_text()
+        assert "newrelic_enabled" not in text
+        assert "newrelic_license_key" not in text
+
+    def test_the_monitoring_table_is_renamed_and_removed(self, tmp_path):
+        m = _migration(tmp_path)
+        bench = _bench(tmp_path)
+        path = _write_bench_config(
+            bench, 'name = "shop"\n\n[monitoring.newrelic]\nenabled = true\nlicense_key = "eu01xx"\n'
+        )
+
+        assert m._rewrite_telemetry_table(bench) is True
+
+        doc = tomlkit.parse(path.read_text())
+        assert "monitoring" not in doc
+        assert doc["telemetry"]["newrelic"]["license_key"] == "eu01xx"
+
+    def test_an_unknown_provider_sub_table_moves_too(self, tmp_path):
+        """`[monitoring]` was extra="allow", so a hand-written sibling is a real possibility and
+        must not be dropped on the floor by a newrelic-only rewrite."""
+        m = _migration(tmp_path)
+        bench = _bench(tmp_path)
+        path = _write_bench_config(bench, 'name = "shop"\n\n[monitoring.datadog]\nenabled = true\n')
+
+        m._rewrite_telemetry_table(bench)
+
+        doc = tomlkit.parse(path.read_text())
+        assert doc["telemetry"]["datadog"]["enabled"] is True
+
+    def test_a_disabled_flat_config_still_moves_with_its_key(self, tmp_path):
+        """Off with a stored key must stay off with a stored key: `fm telemetry enable` reuses it."""
+        m = _migration(tmp_path)
+        bench = _bench(tmp_path)
+        path = _write_bench_config(
+            bench, 'name = "shop"\nnewrelic_enabled = false\nnewrelic_license_key = "eu01xx"\n'
+        )
+
+        m._rewrite_telemetry_table(bench)
+
+        doc = tomlkit.parse(path.read_text())
+        assert doc["telemetry"]["newrelic"]["enabled"] is False
+        assert doc["telemetry"]["newrelic"]["license_key"] == "eu01xx"
+
+    def test_a_bench_with_neither_shape_is_left_untouched(self, tmp_path):
+        m = _migration(tmp_path)
+        bench = _bench(tmp_path)
+        path = _write_bench_config(bench, 'name = "shop"\n')
+
+        assert m._rewrite_telemetry_table(bench) is False
+        assert path.read_text() == 'name = "shop"\n'
+        m.backup_manager.backup.assert_not_called()
+
+    def test_it_is_idempotent_because_dev_builds_re_run_migrations(self, tmp_path):
+        m = _migration(tmp_path)
+        bench = _bench(tmp_path)
+        path = _write_bench_config(
+            bench, 'name = "shop"\nnewrelic_enabled = true\nnewrelic_license_key = "eu01xx"\n'
+        )
+
+        m._rewrite_telemetry_table(bench)
+        first = path.read_text()
+        assert m._rewrite_telemetry_table(bench) is False
+        assert path.read_text() == first
+
+    def test_an_already_migrated_table_wins_over_a_stale_legacy_one(self, tmp_path):
+        """A half-migrated bench must not have its current value overwritten by the old table."""
+        m = _migration(tmp_path)
+        bench = _bench(tmp_path)
+        path = _write_bench_config(
+            bench,
+            'name = "shop"\n\n[telemetry.newrelic]\nenabled = true\nlicense_key = "new"\n'
+            '\n[monitoring.newrelic]\nenabled = false\nlicense_key = "old"\n',
+        )
+
+        m._rewrite_telemetry_table(bench)
+
+        doc = tomlkit.parse(path.read_text())
+        assert doc["telemetry"]["newrelic"]["license_key"] == "new"
+        assert "monitoring" not in doc
+
+    def test_the_file_is_backed_up_before_being_rewritten(self, tmp_path):
+        m = _migration(tmp_path)
+        bench = _bench(tmp_path)
+        path = _write_bench_config(bench, 'name = "shop"\nnewrelic_enabled = true\n')
+
+        m._rewrite_telemetry_table(bench)
+
+        m.backup_manager.backup.assert_called_once_with(path, bench_name="shop")

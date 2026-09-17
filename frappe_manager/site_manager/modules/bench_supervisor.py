@@ -308,12 +308,18 @@ class BenchSupervisor:
         parsed.read_string(rendered)
         self._write_split_configs(parsed, config_dir)
         self._write_gunicorn_wrapper(config_dir, context)
-        newrelic = self.config.get_newrelic_config()
+        newrelic = self.config.get_telemetry_config("newrelic")
         if newrelic and newrelic.enabled and newrelic.license_key:
             self._write_newrelic_config(config_dir)
         self.output.print("Configured supervisor configs")
 
-    def setup_newrelic(self, bench_path) -> None:
+    def setup_newrelic(self, bench_path, force: bool = False) -> None:
+        """Refresh the gunicorn wrapper and, when the agent is on, seed its config.
+
+        ``force`` reaches `newrelic.ini` alone: see `_write_newrelic_config`, which owns the
+        never-clobber rule. The wrapper itself is fm's and is always rewritten -- it carries the
+        gunicorn sizing and the proxy-trust decision, not user tuning.
+        """
         from pathlib import Path
 
         bench_dir = host_bench_dir(Path(bench_path).resolve())
@@ -329,9 +335,9 @@ class BenchSupervisor:
 
         self._write_gunicorn_wrapper(config_dir, context)
 
-        newrelic = self.config.get_newrelic_config()
+        newrelic = self.config.get_telemetry_config("newrelic")
         if newrelic and newrelic.enabled and newrelic.license_key:
-            self._write_newrelic_config(config_dir)
+            self._write_newrelic_config(config_dir, force=force)
 
         self.output.print("Configured supervisor configs")
 
@@ -372,16 +378,33 @@ class BenchSupervisor:
                 stale.unlink()
                 self.logger.info(f"Removed stale supervisor conf {stale.name}")
 
-    def _write_newrelic_config(self, config_dir) -> None:
+    def _write_newrelic_config(self, config_dir, force: bool = False) -> None:
+        """Seed `config/newrelic.ini`, ONCE.
+
+        The file is the user's, not fm's: agent tuning (sampling, tracer thresholds, ignored
+        status codes) is exactly the kind of thing an operator edits per bench, and a rewrite
+        on every enable would silently discard it. So an existing file is LEFT ALONE and
+        `force` is the only way to restore the template. Disabling never deletes it either --
+        an off/on cycle keeps your edits, and a genuinely orphaned file is `fm prune`'s job.
+
+        It deliberately carries no `license_key`. The credential lives in exactly one place,
+        the container environment (NEWRELIC_LICENSE_KEY -> NEW_RELIC_LICENSE_KEY, exported by
+        fm-web-server.sh), because two homes means a changed key updates one and the file wins:
+        the agent reads NEW_RELIC_CONFIG_FILE, so a stale key in here would quietly outrank the
+        one the user just passed.
+        """
         import configparser
         import io
         from pathlib import Path
 
-        newrelic = self.config.get_newrelic_config()
+        target = Path(config_dir) / "newrelic.ini"
+        if target.exists() and not force:
+            self.logger.info("Kept existing newrelic.ini (user-owned; pass force to regenerate)")
+            return
+
         cfg = configparser.RawConfigParser()
 
         cfg.add_section("newrelic")
-        cfg.set("newrelic", "license_key", (newrelic.license_key if newrelic else None) or "")
         cfg.set("newrelic", "app_name", f"Frappe - {self.bench_name}")
         cfg.set("newrelic", "monitor_mode", "true")
         cfg.set("newrelic", "high_security", "false")
@@ -426,7 +449,7 @@ class BenchSupervisor:
 
         buf = io.StringIO()
         cfg.write(buf)
-        Path(config_dir / "newrelic.ini").write_text(buf.getvalue())
+        target.write_text(buf.getvalue())
         self.logger.info("Generated newrelic.ini")
 
     def _write_gunicorn_wrapper(self, config_dir, context: dict) -> None:

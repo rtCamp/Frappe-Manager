@@ -180,11 +180,18 @@ Use `dev` on your own machine, where you are editing app code and want the asset
 Only the `prod` web process can report to New Relic APM: the agent is wired into the Gunicorn wrapper, and a `dev` bench's `bench serve` never sees it.
 
 ```bash
-fm update mybench --newrelic --newrelic-license-key YOUR_INGEST_KEY
-fm update mybench --no-newrelic
+fm telemetry enable mybench newrelic --license-key YOUR_INGEST_KEY
+fm telemetry status mybench
+fm telemetry disable mybench newrelic
 ```
 
-Enabling wraps the web process with the New Relic agent; fm force-recreates the frappe container to apply it. Works on both runtimes; it is a settings-level change. A license key is required the first time you enable it, after which `fm update mybench --newrelic` on its own reuses the stored one. The stored keys live under [`[monitoring.newrelic]`](../reference/configuration.md#monitoring-newrelic) in `bench_config.toml`.
+Enabling wraps the web process with the New Relic agent; fm recreates the frappe container to apply it, because a container keeps the environment it was created with. Works on both runtimes. A license key is required the first time, after which `fm telemetry enable mybench newrelic` on its own reuses the stored one; pass `--license-key` again to rotate it. The stored values live under [`[telemetry.newrelic]`](../reference/configuration.md#telemetry-newrelic) in `bench_config.toml`, and the key reaches the agent through the container environment rather than being written into `newrelic.ini`, so rotating it is one command.
+
+Disabling stops the wrapping and drops the key from the compose file. Nothing on disk is deleted: the recorded key stays in `bench_config.toml` and `config/newrelic.ini` keeps any tuning you added, so re-enabling needs no arguments. That file is seeded once and then yours; fm never rewrites it unless you ask with `--force-config`.
+
+`fm telemetry status` reports `reporting` only when the bench has both the enabled flag and a stored key, because either one alone silently sends nothing.
+
+A bench can also start out monitored by passing the table in a create-time config: `fm create mybench --config 'telemetry.newrelic={enabled=true,license_key="KEY"}'`. There are no monitoring flags on `fm create`; APM is a subsystem with its own lifecycle, so it lives on `fm telemetry`.
 
 ---
 

@@ -247,11 +247,13 @@ _PANEL_SITE = "BENCH/SITE address commands"
 _PANEL_DOMAIN = "BENCH/DOMAIN address commands"
 _PANEL_GLOBAL = "GLOBAL address commands"
 
-# `apps`, `domain`, and `tools` commands call `check_bench_migration_required` (defined above)
-# at their own module's import time, so these three must be imported after that function exists
-# in this module's namespace -- unlike `self`/`services`/`ssl` above, which do not call it.
+# `apps`, `domain`, `tools` and `monitor` commands call `check_bench_migration_required`
+# (defined above) at their own module's import time, so these must be imported after that
+# function exists in this module's namespace -- unlike `self`/`services`/`ssl` above, which do
+# not call it.
 from frappe_manager.commands.apps import apps_app
 from frappe_manager.commands.domain import domain_app
+from frappe_manager.commands.telemetry import telemetry_app
 from frappe_manager.commands.tools import tools_app
 
 # Register subcommands
@@ -266,6 +268,12 @@ app.add_typer(ssl_app, name="ssl", help="Perform operations related to ssl.", ri
 app.add_typer(apps_app, name="apps", help="Manage the apps installed on a bench.", rich_help_panel=_PANEL_SITE)
 app.add_typer(domain_app, name="domain", help="Manage a bench's alias domains.", rich_help_panel=_PANEL_DOMAIN)
 app.add_typer(tools_app, name="tools", help="Manage a bench's admin tools.", rich_help_panel=_PANEL_SITE)
+app.add_typer(
+    telemetry_app,
+    name="telemetry",
+    help="Manage a bench's telemetry (APM) backends.",
+    rich_help_panel=_PANEL_SITE,
+)
 
 
 # App callback (runs before all commands)

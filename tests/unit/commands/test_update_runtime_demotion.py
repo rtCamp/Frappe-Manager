@@ -83,7 +83,7 @@ class DemotionWorld:
         cfg.deploy_state = None
         cfg.export_to_compose_inputs.side_effect = dict
         cfg.environment_type = SimpleNamespace(value="dev")
-        cfg.get_newrelic_config.return_value = None
+        cfg.get_telemetry_config.return_value = None
 
         # A missing worker compose file means the demotion skips regenerating it -- set the
         # default explicitly, else a bare MagicMock() from an unconfigured `.exists()` is truthy

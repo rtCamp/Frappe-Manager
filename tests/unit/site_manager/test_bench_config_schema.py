@@ -1,7 +1,7 @@
 """Round-trip contract for the redesigned bench_config schema.
 
 Locks the TOML shape: top-level `environment`/`image`, `[[apps]]` with per-app
-`hooks`/`hooks.host`, `[monitoring.newrelic]`, `[switch]` + `[switch.hooks]`/
+`hooks`/`hooks.host`, `[telemetry.newrelic]`, `[switch]` + `[switch.hooks]`/
 `[switch.hooks.host]`, `[build]`, and `[ssl]` (`dns_providers` + `certificates`).
 Import + export + re-import must preserve every value.
 """
@@ -10,7 +10,7 @@ from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     BenchRuntime,
     FMBenchEnvType,
-    MonitoringConfig,
+    TelemetryConfig,
     NewRelicConfig,
 )
 from frappe_manager.utils.config_keys import collect_unknown_keys
@@ -33,7 +33,7 @@ hooks.before_deps = "bench pip check"
 hooks.after_build = "./ci/upload.sh $APP"
 hooks.host.before_build = "./ci/patch.sh"
 
-[monitoring.newrelic]
+[telemetry.newrelic]
 enabled = true
 license_key = "nrkey"
 
@@ -68,8 +68,8 @@ def _assert_full(bc: BenchConfig):
     assert bc.runtime == BenchRuntime.image
     assert bc.image == "ghcr.io/fmcom/fm"
     # NOTE: apps_list is input-only (excluded from export); asserted separately.
-    assert bc.monitoring.newrelic.enabled is True
-    assert bc.monitoring.newrelic.license_key == "nrkey"
+    assert bc.telemetry.newrelic.enabled is True
+    assert bc.telemetry.newrelic.license_key == "nrkey"
     assert bc.switch.migrate is True
     assert bc.switch.maintenance_mode_phases == ["migrate"]
     assert bc.switch.hooks.before_migrate == "bench pre"
@@ -106,7 +106,7 @@ def test_export_reimport_roundtrip(tmp_path):
     assert text.index("environment =") < text.index("[switch]")
     assert text.index("image =") < text.index("[switch]")
     # New table shape, not the old flat keys.
-    assert "[monitoring.newrelic]" in text
+    assert "[telemetry.newrelic]" in text
     assert "[[ssl.certificates]]" in text
     assert "[ssl.dns_providers.cloudflare]" in text
     assert "environment_type" not in text
@@ -127,8 +127,8 @@ def test_mount_bench_has_no_pipeline_or_image_identity(tmp_path):
     assert bc.build is None
 
 
-def test_export_reimport_preserves_the_monitoring_table(tmp_path):
-    """`[monitoring.newrelic]` is now the only representation of the setting, in memory
+def test_export_reimport_preserves_the_telemetry_table(tmp_path):
+    """`[telemetry.newrelic]` is now the only representation of the setting, in memory
     and on disk, so a bench built in code has to survive the write/read cycle through it."""
     bc = BenchConfig(
         name="nr.localhost",
@@ -136,50 +136,50 @@ def test_export_reimport_preserves_the_monitoring_table(tmp_path):
         admin_tools=False,
         environment_type=FMBenchEnvType.prod,
         root_path=tmp_path / "bench_config.toml",
-        monitoring=MonitoringConfig(newrelic=NewRelicConfig(enabled=True, license_key="nrkey")),
+        telemetry=TelemetryConfig(newrelic=NewRelicConfig(enabled=True, license_key="nrkey")),
     )
 
     out = tmp_path / "out.toml"
     bc.export_to_toml(out)
-    assert "[monitoring.newrelic]" in out.read_text()
+    assert "[telemetry.newrelic]" in out.read_text()
 
     reimported = BenchConfig.import_from_toml(out)
-    assert reimported.monitoring.newrelic.enabled is True
-    assert reimported.monitoring.newrelic.license_key == "nrkey"
+    assert reimported.telemetry.newrelic.enabled is True
+    assert reimported.telemetry.newrelic.license_key == "nrkey"
 
 
-def test_a_misspelled_monitoring_key_is_retained_as_an_unknown_extra(tmp_path):
-    """A typo inside `[monitoring.newrelic]` used to load cleanly and leave NewRelic silently
-    off: the old loader hand-read `monitoring.newrelic.enabled` and dropped everything it did
-    not recognise. `[monitoring]`/`[monitoring.newrelic]` are models now, `extra="allow"`, so the
+def test_a_misspelled_telemetry_key_is_retained_as_an_unknown_extra(tmp_path):
+    """A typo inside `[telemetry.newrelic]` used to load cleanly and leave NewRelic silently
+    off: the old loader hand-read `telemetry.newrelic.enabled` and dropped everything it did
+    not recognise. `[telemetry]`/`[telemetry.newrelic]` are models now, `extra="allow"`, so the
     typo is retained (collectible by `collect_unknown_keys`) instead of vanishing OR raising."""
     p = tmp_path / "bench_config.toml"
     p.write_text(
         'name = "nr.localhost"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
-        '[monitoring.newrelic]\nenabld = true\nlicense_key = "nrkey"\n'
+        '[telemetry.newrelic]\nenabld = true\nlicense_key = "nrkey"\n'
     )
 
     bc = BenchConfig.import_from_toml(p)
 
-    assert bc.monitoring.newrelic.enabled is False  # the real field never saw the typo'd sibling
-    assert bc.monitoring.newrelic.license_key == "nrkey"
-    assert collect_unknown_keys(bc.monitoring) == ["newrelic.enabld"]
+    assert bc.telemetry.newrelic.enabled is False  # the real field never saw the typo'd sibling
+    assert bc.telemetry.newrelic.license_key == "nrkey"
+    assert collect_unknown_keys(bc.telemetry) == ["newrelic.enabld"]
 
 
-def test_a_misspelled_monitoring_table_is_retained_as_an_unknown_extra(tmp_path):
-    """A misspelled TABLE name lands as an unknown key on `MonitoringConfig` itself, one level
+def test_a_misspelled_telemetry_table_is_retained_as_an_unknown_extra(tmp_path):
+    """A misspelled TABLE name lands as an unknown key on `TelemetryConfig` itself, one level
     up from the field-level typo above: `newrelic` stays unset (None) rather than being
     populated from the wrongly-named table."""
     p = tmp_path / "bench_config.toml"
     p.write_text(
         'name = "nr.localhost"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
-        "[monitoring.newrelick]\nenabled = true\n"
+        "[telemetry.newrelick]\nenabled = true\n"
     )
 
     bc = BenchConfig.import_from_toml(p)
 
-    assert bc.monitoring.newrelic is None
-    assert collect_unknown_keys(bc.monitoring) == ["newrelick"]
+    assert bc.telemetry.newrelic is None
+    assert collect_unknown_keys(bc.telemetry) == ["newrelick"]
 
 
 _MINIMAL = 'name = "x.localhost"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'

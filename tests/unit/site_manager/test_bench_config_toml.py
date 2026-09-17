@@ -1221,3 +1221,45 @@ class TestVersionGateNeverRaisesOnAnOddMigratedTo:
 
         assert bc.migration_state is not None
         assert bc.migration_state.migrated_to == "2024-01-15"
+
+
+class TestDisabledNewRelicIsAnExplicitOffNotAnOmission:
+    """Every writer of the bench compose MERGES envs (`set_all_envs` -> `set_envs(append=True)`),
+    so a key the exporter stops emitting is a key KEPT, not removed.
+
+    Emitting nothing for a disabled agent therefore left the last `NEWRELIC_ENABLED=true` on
+    disk; `fm update --no-newrelic` then force-recreated the frappe container FROM that file,
+    and fm-web-server.sh -- which tests the var at boot -- kept running gunicorn under
+    newrelic-admin. The command reported success while telemetry carried on flowing under the
+    user's license key. The value has to be present and false for the disable to survive a
+    merge, so that is what is pinned here.
+    """
+
+    _ON = '\n[telemetry.newrelic]\nenabled = true\nlicense_key = "key-123"\n'
+    _OFF = '\n[telemetry.newrelic]\nenabled = false\nlicense_key = "key-123"\n'
+
+    def test_enabled_passes_the_flag_and_the_key(self, tmp_path):
+        env = _import(tmp_path, _BASE + self._ON).export_to_compose_inputs()["environment"]["frappe"]
+
+        assert env["NEWRELIC_ENABLED"] == "true"
+        assert env["NEWRELIC_LICENSE_KEY"] == "key-123"
+
+    def test_disabled_emits_an_explicit_false(self, tmp_path):
+        env = _import(tmp_path, _BASE + self._OFF).export_to_compose_inputs()["environment"]["frappe"]
+
+        assert env["NEWRELIC_ENABLED"] == "false"
+
+    def test_disabled_never_passes_the_license_key(self, tmp_path):
+        """A retained credential is the second half of the bug: the key stayed in a file users
+        paste into bug reports. `generate_compose` pops it from the service; the exporter must
+        not hand it back."""
+        env = _import(tmp_path, _BASE + self._OFF).export_to_compose_inputs()["environment"]["frappe"]
+
+        assert "NEWRELIC_LICENSE_KEY" not in env
+
+    def test_no_telemetry_table_at_all_is_still_an_explicit_false(self, tmp_path):
+        """A bench that never enabled it must not be the one case that omits the key, or the
+        omission-is-retention trap comes straight back for anyone who enables then downgrades."""
+        env = _import(tmp_path, _BASE).export_to_compose_inputs()["environment"]["frappe"]
+
+        assert env["NEWRELIC_ENABLED"] == "false"

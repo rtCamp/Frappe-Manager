@@ -193,7 +193,7 @@ Modify bench settings and infrastructure.
 ### :material-cog: [`fm update`](update.md) {.command-heading}
 **Update bench configuration**
 
-Change environment type, Python/Node versions, restart policy, and convert between mount and image runtimes. Apps, alias domains, and admin tools now have their own commands: `fm apps`, `fm domain`, and `fm tools` below.
+Change environment type, Python/Node versions, restart policy, and convert between mount and image runtimes. Apps, alias domains, admin tools and APM monitoring now have their own commands: `fm apps`, `fm domain`, `fm tools` and `fm telemetry` below.
 
 ```bash
 fm update mybench -e prod
@@ -232,6 +232,17 @@ Start or stop a bench's Adminer and Mailpit containers, or route a single site t
 fm tools enable mybench
 fm tools disable mybench
 fm tools status mybench
+```
+
+### :material-chart-line: [`fm telemetry`](telemetry.md) {.command-heading}
+**Manage APM monitoring**
+
+Turn New Relic reporting on or off for a bench and report whether it is actually reporting. The license key is stored once and reused; the agent's own config file is seeded once and then yours.
+
+```bash
+fm telemetry enable mybench newrelic --license-key YOUR_INGEST_KEY
+fm telemetry status mybench
+fm telemetry disable mybench newrelic
 ```
 
 ### :material-restore: [`fm reset`](reset.md) {.command-heading}

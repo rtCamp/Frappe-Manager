@@ -1341,7 +1341,7 @@ class BuildConfig(BaseModel):
 
 
 class NewRelicConfig(BaseModel):
-    """NewRelic APM settings (`[monitoring.newrelic]`)."""
+    """NewRelic APM settings (`[telemetry.newrelic]`)."""
 
     # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
     model_config = ConfigDict(extra="allow")
@@ -1350,8 +1350,20 @@ class NewRelicConfig(BaseModel):
     license_key: str | None = Field(None, description="NewRelic ingest license key.")
 
 
-class MonitoringConfig(BaseModel):
-    """Observability integrations (`[monitoring]`)."""
+class TelemetryConfig(BaseModel):
+    """Telemetry backends (`[telemetry]`).
+
+    One sub-table per provider, each free to carry its own shape: an APM ingest key, an OTLP
+    endpoint and a DSN have nothing in common but the `enabled` flag, so there is no shared
+    credential field to hoist. `extra="allow"` is what makes a provider fm does not know yet
+    load rather than raise, which is also why an unrecognised sub-table here is accepted and
+    reported by `collect_unknown_keys`, not rejected.
+
+    Named `telemetry` rather than `monitoring` because the umbrella holds more than APM
+    (traces, metrics, log shipping, uptime). fm's own future usage reporting, if it ever gains
+    any, belongs under `fm self`, never here: this table is always about a BENCH's data leaving
+    for a third party.
+    """
 
     # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
     model_config = ConfigDict(extra="allow")
@@ -1796,7 +1808,7 @@ class BenchConfig(BaseModel):
         description="Image deploy state tracking (managed by the deploy orchestrator)",
     )
 
-    monitoring: MonitoringConfig | None = Field(None, description="Observability integrations ([monitoring]).")
+    telemetry: TelemetryConfig | None = Field(None, description="Telemetry backends ([telemetry]).")
 
     @field_validator("restart_policy", mode="before")
     @classmethod
@@ -1961,7 +1973,7 @@ class BenchConfig(BaseModel):
         return get_container_name_prefix(self.name)
 
     def export_to_toml(self, path: Path) -> None:
-        """Export to TOML: `environment`, [monitoring], [switch], [build], [ssl],
+        """Export to TOML: `environment`, [telemetry], [switch], [build], [ssl],
         [database."<site>"], [redis]. Nested models round-trip through model_dump(exclude_none=True).
 
         Raises on a failed write rather than reporting it in a return value. The old `-> bool`
@@ -2144,7 +2156,7 @@ class BenchConfig(BaseModel):
             "prune": BenchPruneConfig(**dict(data["prune"])) if data.get("prune") else None,
             "workers": WorkersConfig(**dict(data["workers"])) if data.get("workers") else None,
             "build": BuildConfig(**dict(data["build"])) if data.get("build") else None,
-            "monitoring": MonitoringConfig(**dict(data["monitoring"])) if data.get("monitoring") else None,
+            "telemetry": TelemetryConfig(**dict(data["telemetry"])) if data.get("telemetry") else None,
             # Only the new shape is read. A bench that reaches this line has been migrated, exactly
             # as with the 0.20 `dns_challenge_providers` -> `dns_providers` rename: a compatibility
             # branch would be the departure, and it would land in the one function whose dual paths
@@ -2456,23 +2468,40 @@ class BenchConfig(BaseModel):
                     mappings[alias] = site
         return mappings
 
-    def get_newrelic_config(self) -> NewRelicConfig | None:
-        """`[monitoring.newrelic]`, or None when the bench configures no monitoring at all."""
-        return self.monitoring.newrelic if self.monitoring else None
+    def get_telemetry_config(self, provider: str = "newrelic") -> NewRelicConfig | None:
+        """One provider's `[telemetry.<provider>]` table, or None when it is not configured.
+
+        Keyed by provider rather than one method per backend, so a second one is a member of
+        `TelemetryProviderEnum` and a branch here, not another accessor every caller has to
+        learn. The return type widens to a union as providers arrive; callers narrow on the
+        provider they asked for, which they already know because they passed it.
+        """
+        if self.telemetry is None:
+            return None
+        return getattr(self.telemetry, provider, None)
 
     def export_to_compose_inputs(self):
         domains_string = ",".join(self.domains)
-        newrelic = self.get_newrelic_config()
+        newrelic = self.get_telemetry_config("newrelic")
 
         environment = {
             "frappe": {
                 "USERID": self.userid,
                 "USERGROUP": self.usergroup,
                 "SERVICE_NAME": "frappe",
+                # "off" MUST be an explicit value, never an omission. Every writer of this compose
+                # merges (`set_all_envs` -> `set_envs(append=True)`, compose_file.py), so a key left
+                # out is a key KEPT: omitting NEWRELIC_ENABLED on the disabled path left the last
+                # `true` on disk, the force-recreate rebuilt the container from it, and
+                # fm-web-server.sh (which tests this var at boot) kept running gunicorn under
+                # newrelic-admin -- telemetry still flowing after an explicit opt-out.
+                # The license key is NOT paired with the false value: it is a credential, so it is
+                # popped from the file outright (bench_docker.generate_compose) rather than left
+                # sitting inert in a file people paste into bug reports.
                 **(
                     {"NEWRELIC_ENABLED": "true", "NEWRELIC_LICENSE_KEY": newrelic.license_key}
                     if newrelic and newrelic.enabled and newrelic.license_key
-                    else {}
+                    else {"NEWRELIC_ENABLED": "false"}
                 ),
             },
             "nginx": {

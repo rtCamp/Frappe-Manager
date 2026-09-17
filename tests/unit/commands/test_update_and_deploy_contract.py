@@ -2,21 +2,20 @@
 Characterization tests for the ``fm update`` and ``fm switch``/``fm prune`` decision tables.
 
 ``fm update`` mutates a LIVE bench: it toggles developer mode, flips the environment, rewrites the
-restart policy, edits the upload limit, wires NewRelic, moves Python/Node and refreshes the external
-database CA. Every one of those is guarded, and several of them re-render compose files and recreate
-containers. The interesting content of that module is therefore not the plumbing but the DECISION
-TABLE:
+restart policy, edits the upload limit, moves Python/Node and refreshes the external database CA.
+Every one of those is guarded, and several of them re-render compose files and recreate containers.
+The interesting content of that module is therefore not the plumbing but the DECISION TABLE:
 
 * which flag is refused on which runtime, and with exactly which message;
-* which flag requires another one (``--newrelic`` needs a license key);
 * which flag only writes config, which one re-renders compose, and which one restarts containers;
 * whether the in-memory ``bench_config`` mutation is actually persisted
   (``bench_config_save``/``save_bench_config`` bookkeeping), including the paths where it is not.
 
-Apps (``fm apps add``), admin tools (``fm tools enable``/``disable``) and alias domains
-(``fm domain add``/``remove``) used to live here as flags on this command; they now have their own
-contract files (``test_apps_contract.py``, ``test_tools_contract.py``, ``test_domain_contract.py``)
-and are not re-pinned in this one. The runtime conversion (``--runtime mount``/``--runtime image``)
+Apps (``fm apps add``), admin tools (``fm tools enable``/``disable``), alias domains
+(``fm domain add``/``remove``) and APM telemetry (``fm telemetry enable``/``disable``) used to live
+here as flags on this command; they now have their own contract files (``test_apps_contract.py``,
+``test_tools_contract.py``, ``test_domain_contract.py``, ``test_telemetry_contract.py``) and are not
+re-pinned in this one. The runtime conversion (``--runtime mount``/``--runtime image``)
 is still a flag on this command; its own decision table lives in
 ``test_update_runtime_demotion.py`` and is not re-pinned in this one either.
 
@@ -49,7 +48,7 @@ from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.site_manager.bench_config import (
     BenchRuntime,
     FMBenchEnvType,
-    MonitoringConfig,
+    TelemetryConfig,
     NewRelicConfig,
     RestartPolicyEnum,
 )
@@ -102,10 +101,10 @@ class UpdateWorld:
         # None so the update() no-drain warning falls back to WorkersConfig()'s default
         # kill_timeout (15s) instead of an unpredictable MagicMock repr.
         cfg.workers = None
-        cfg.monitoring = None
-        # The command reads monitoring through the helper and writes it back through the
+        cfg.telemetry = None
+        # The command reads telemetry through the helper and writes it back through the
         # attribute, so the double has to keep the two consistent.
-        cfg.get_newrelic_config.side_effect = lambda: cfg.monitoring.newrelic if cfg.monitoring else None
+        cfg.get_telemetry_config.side_effect = lambda provider="newrelic": getattr(cfg.telemetry, provider, None) if cfg.telemetry else None
         cfg.github_token = MagicMock(name="github_token")
         cfg.use_uv = True
         cfg.registry = SimpleNamespace(distribution="registry")
@@ -219,7 +218,8 @@ IMMUTABLE_REFUSAL = (
     f"{BENCH} is image runtime; code, apps, Python/Node and developer mode are immutable -- "
     "ship changes with 'fm bake' then 'fm switch', install apps with 'fm apps add', or demote to "
     f"an editable workspace first with 'fm update {BENCH} --runtime mount'. "
-    "'fm update' on an image bench still changes environment, restart policy, NewRelic and the database CA."
+    "'fm update' on an image bench still changes environment, restart policy and the database CA, "
+    "and APM is 'fm telemetry enable'."
 )
 
 
@@ -541,65 +541,6 @@ class TestUploadLimit:
         assert world.saves == 0
         assert world.compose_up_calls == []
 
-
-class TestNewRelic:
-    def test_enabling_without_any_license_key_is_rejected(self, world):
-        with pytest.raises(typer.BadParameter) as exc:
-            world.run(newrelic=True)
-
-        assert exc.value.message == "--newrelic-license-key is required when enabling NewRelic."
-        world.bench.supervisor.setup_newrelic.assert_not_called()
-
-    def test_a_missing_license_key_is_rejected_before_any_flag_is_applied(self, world):
-        """The check used to sit in the middle of the decision table: ``-e prod`` had already rewritten
-        the compose file and force-recreated the frappe container by the time the usage error aborted the
-        pending save, so FRAPPE_ENV=prod ran in the container while bench_config.toml still said dev."""
-        with pytest.raises(typer.BadParameter):
-            world.run(environment=FMBenchEnvType.prod, newrelic=True)
-
-        assert world.config.environment_type == FMBenchEnvType.dev
-        world.bench.generate_compose.assert_not_called()
-        assert world.compose_up_calls == []
-        assert world.saves == 0
-
-    def test_enabling_accepts_a_key_already_stored_in_the_bench_config(self, world):
-        world.config.monitoring = MonitoringConfig(newrelic=NewRelicConfig(license_key="stored-key"))
-
-        world.run(newrelic=True)
-
-        assert world.config.monitoring.newrelic.enabled is True
-        world.bench.supervisor.setup_newrelic.assert_called_once_with(world.bench_path)
-
-    def test_disabling_needs_no_license_key(self, world):
-        world.run(newrelic=False)
-
-        assert world.config.monitoring.newrelic.enabled is False
-        world.bench.supervisor.setup_newrelic.assert_called_once_with(world.bench_path)
-
-    def test_a_license_key_alone_enters_the_block_and_restarts_frappe(self, world):
-        world.run(newrelic_license_key="ingest-key")
-
-        assert world.config.monitoring.newrelic.license_key == "ingest-key"
-        world.bench.generate_compose.assert_called_once()
-        world.bench.supervisor.setup_newrelic.assert_called_once_with(world.bench_path)
-        assert world.compose_up_calls[0].kwargs == {"services": ["frappe"], "detach": True, "force_recreate": True}
-        assert "NewRelic configuration updated" in world.prints
-
-    def test_the_block_saves_once_and_clears_pending_saves(self, world, tmp_path):
-        """NewRelic folds into the one terminal save at the bottom like every other flag now, so a
-        --db-ca in the same run still saves exactly once."""
-        ca = tmp_path / "ca.pem"
-        ca.write_text("ca")
-
-        world.run(db_ca=ca, newrelic_license_key="ingest-key")
-
-        assert world.saves == 1
-        assert world.database_config.ca == str(ca.absolute())
-
-    def test_neither_option_skips_the_block_entirely(self, world):
-        world.run(upload_limit="100M")
-
-        world.bench.supervisor.setup_newrelic.assert_not_called()
 
 
 class TestPythonAndNodeVersions:

@@ -182,8 +182,6 @@ _PROBES: dict[str, tuple[object, object]] = {
     "developer_mode": (False, True),
     "environment": (FMBenchEnvType.dev, FMBenchEnvType.prod),
     "github_token": ("ghp_one", "ghp_two"),
-    "newrelic": (False, True),
-    "newrelic_license_key": ("nr-one", "nr-two"),
     "node_version": ("18", "20"),
     "python_version": ("3.12", "3.13"),
     "restart_policy": (RestartPolicyEnum.no, RestartPolicyEnum.always),

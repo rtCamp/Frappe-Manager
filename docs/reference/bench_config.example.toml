@@ -245,13 +245,13 @@
 # Redis URL for the queue and realtime (e.g. 'redis://r.example:6379/1'). [required]
 # queue = ...
 
-# ---- [monitoring] --------------------------------------------------------------------------
+# ---- [telemetry] ---------------------------------------------------------------------------
 
-# Observability integrations ([monitoring]).
-# [monitoring]
+# Telemetry backends ([telemetry]).
+# [telemetry]
 #
-# NewRelic APM settings (`[monitoring.newrelic]`).
-# [monitoring.newrelic]
+# NewRelic APM settings (`[telemetry.newrelic]`).
+# [telemetry.newrelic]
 # Enable NewRelic APM monitoring for the web process. [default: False]
 # enabled = ...
 # NewRelic ingest license key. [optional, unset by default]

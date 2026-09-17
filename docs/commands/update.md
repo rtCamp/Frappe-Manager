@@ -2,7 +2,7 @@
 
 Change a bench's settings.
 
-Not bench update: app code ships with fm bake then fm switch. Apps are managed with fm apps add, alias domains with fm domain, admin tools with fm tools. --runtime mount demotes an image bench to an editable workspace, extracted from the currently deployed image; converting the other direction runs through fm switch instead.
+Not bench update: app code ships with fm bake then fm switch. Apps are managed with fm apps add, alias domains with fm domain, admin tools with fm tools, APM with fm telemetry. --runtime mount demotes an image bench to an editable workspace, extracted from the currently deployed image; converting the other direction runs through fm switch instead.
 
 Most options change the whole bench. --db-ca is the one Site Option below, and a plain fm update BENCH applies it to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one.
 
@@ -23,8 +23,6 @@ $ fm update BENCH(/SITE) [OPTIONS]
 * `--developer-mode`: Toggle frappe developer mode, so DocType edits write to app files.
 * `--upload-limit`: Set the maximum file upload size, e.g. 100M or 1G.
 * `--restart-policy`: Update Docker restart policy for all bench services.
-* `--newrelic/--no-newrelic`: Enable or disable NewRelic APM monitoring for the web process.
-* `--newrelic-license-key`: NewRelic ingest license key. Required the first time you enable NewRelic.
 * `--python`: Update the Python version (e.g. '3.11', '>=3.11,<3.14'); recreates the venv and reinstalls apps.
 * `--node`: Update the Node version (e.g. '20', '>=18') and set it as the bench default.
 * `--skip-version-check`: Accept a Python/Node version that does not satisfy frappe's requirement.

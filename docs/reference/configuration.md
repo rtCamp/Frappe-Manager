@@ -794,8 +794,10 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm switch`, `fm prun
 !!! info "There is no `[registry]` table"
     Registry authentication is docker's. Run `docker login` once on each machine that pushes or pulls, or add a login step in CI: `~/.docker/config.json` stores credentials per registry and supports credential helpers (osxkeychain, `pass`, `ecr-login`) that fm cannot reach. The registry host is already part of the [`image`](#images) ref. The table existed until 0.20.0 and did nothing but run `docker login` for you; a bench that still carries it loads fine, and the 0.20.0 migration strips it.
 
-!!! warning "An unknown key is a hard error"
-    `[switch]`, `[build]`, `[workers]`, `[auth]`, `[monitoring]`, `[database]`, `[redis]` and `[ssl]` reject keys they do not define. A misspelled key is not ignored: every `fm` command that loads the bench fails with a validation error until you remove it.
+!!! warning "An unknown key is reported, not obeyed"
+    `[switch]`, `[build]`, `[workers]`, `[telemetry]`, `[database]`, `[redis]` and the nested provider tables accept keys they do not define and keep them in the file, then name them on load: `Bench '<name>': bench_config.toml has unrecognised key(s) <keys>; check for a typo, since fm will not use them.` A misspelled key is therefore never silently dropped, but it is also never interpreted, so the setting you meant to change stays at its default until you fix the spelling. A bench that is behind on migrations is warned about nothing, because `fm migrate` is about to relocate or strip those keys itself.
+
+    This is deliberate, and it is a safety property rather than laxity. Rejecting an unrecognised key would mean a bench fm refuses to load, and `fm list`, `fm bake` and `fm switch` skip the migration gate: one file carrying a key from a newer fm, or a table a migration has not reached yet, would take `fm list` down for every bench on the host.
 
     `[ssl]` carries one deliberately narrow exception. Keys fm itself used to write into a `[[ssl.certificates]]` entry (`api_token`, `api_key`, `email`, `preferred_challenge`, `status`, `cert_path`, `key_path`, `issued_date`, `last_renewal_attempt`, `toml_exclude`) are dropped on read instead of rejected, and the 0.20.0 migration removes them from the file. They are ignored, never interpreted, so a retired key cannot change what fm does. Rejecting them would mean a bench fm cannot load until it is migrated, and `fm list`, `fm bake` and `fm switch` skip the migration gate: one un-migrated file would take `fm list` down for every bench on the host.
 
@@ -956,10 +958,10 @@ last_migration_date = "2026-04-12T14:30:45"
 
 ---
 
-### `[monitoring.newrelic]` {#monitoring-newrelic}
+### `[telemetry.newrelic]` {#telemetry-newrelic}
 
 **Default:** (absent, NewRelic off)  
-**File key:** `[monitoring.newrelic]`
+**File key:** `[telemetry.newrelic]`
 
 NewRelic APM for the web process. The agent is wired into the generated Gunicorn wrapper, `config/fm-web-server.sh`, so it is the `prod` web process that reports; a `dev` bench serves through `bench serve` and never loads it.
 
@@ -969,19 +971,23 @@ NewRelic APM for the web process. The agent is wired into the generated Gunicorn
 | `license_key` | (none) | NewRelic ingest license key; required whenever `enabled` is `true` |
 
 ```toml
-[monitoring.newrelic]
+[telemetry.newrelic]
 enabled = true
 license_key = "eu01xx..."
 ```
 
-`[monitoring]` defines `newrelic` and nothing else, so any other sub-table under it is a validation error.
+`[telemetry]` declares `newrelic` and is the umbrella for future backends, so an unrecognised sub-table under it is accepted, retained and reported as an unknown key, not rejected. The table was named `[monitoring]` in the 0.20/0.21 development line and, before that, two flat top-level keys (`newrelic_enabled`, `newrelic_license_key`); the 0.21.0 migration moves either shape into `[telemetry.newrelic]` and deletes the old keys.
 
-With both keys set, FM writes `workspace/frappe-bench/config/newrelic.ini` (app name `Frappe - <bench>`, SQL recorded obfuscated, `Authorization` and `Cookie` request headers excluded) and adds `NEWRELIC_ENABLED` and `NEWRELIC_LICENSE_KEY` to the `frappe` service's compose environment. The wrapper installs the `newrelic` package into the bench venv on first start when it is missing, then execs Gunicorn under `newrelic-admin`. If the env vars are set but `newrelic.ini` is gone, the web process refuses to start; run `fm update` to regenerate it.
+With both keys set, FM seeds `workspace/frappe-bench/config/newrelic.ini` (app name `Frappe - <bench>`, SQL recorded obfuscated, `Authorization` and `Cookie` request headers excluded) and adds `NEWRELIC_ENABLED` and `NEWRELIC_LICENSE_KEY` to the `frappe` service's compose environment. The wrapper installs the `newrelic` package into the bench venv on first start when it is missing, exports the key as the agent's own `NEW_RELIC_LICENSE_KEY`, then execs Gunicorn under `newrelic-admin`. If the env vars are set but `newrelic.ini` is gone, the web process refuses to start; re-seed it with `fm telemetry enable BENCH newrelic --force-config`.
+
+The ini deliberately carries no `license_key`: the credential lives only in the container environment, so rotating it is one command and no stale copy on disk can outrank the new value. The file is seeded once and then belongs to you, which is why a disable/enable cycle preserves local tuning and only `--force-config` restores the generated version.
+
+When `enabled` is `false`, `NEWRELIC_ENABLED` is written as an explicit `false` and the license key is removed from the compose file. The explicit value matters: compose environments are merged on every regeneration, so an omitted key would be a retained key, and the disable would not survive the container recreate.
 
 !!! warning "Enabling without a license key is refused"
-    `fm create --newrelic` and `fm update --newrelic` both fail with a parameter error when no key is passed and none is already stored. There is no half-enabled state: the compose env vars and `newrelic.ini` are written only when `enabled` and `license_key` are both set, and the wrapper falls back to plain Gunicorn otherwise.
+    `fm telemetry enable` fails with a parameter error when no key is passed and none is already stored, and `fm create` refuses a `--config` whose `[telemetry.newrelic]` enables monitoring without a `license_key`. There is no half-enabled state: the compose env vars and `newrelic.ini` are written only when `enabled` and `license_key` are both set, and the wrapper falls back to plain Gunicorn otherwise. `fm telemetry status` reports such a bench as not reporting.
 
-**Set via:** `fm create BENCH --newrelic --newrelic-license-key KEY`; `fm update BENCH --newrelic --newrelic-license-key KEY` / `--no-newrelic`. `fm update` force-recreates the frappe container to apply the change.
+**Set via:** `fm telemetry enable BENCH newrelic --license-key KEY` / `fm telemetry disable BENCH newrelic`, which recreate the frappe container to apply the change. At create time the table can be supplied through `fm create --config`; there are no monitoring flags on `fm create`.
 
 **See also:** [Monitoring (New Relic)](../guides/environments.md#monitoring-new-relic)
 

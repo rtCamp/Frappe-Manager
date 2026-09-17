@@ -12,8 +12,6 @@ from frappe_manager.site_manager.bench_config import (
     AppConfig,
     BenchRuntime,
     FMBenchEnvType,
-    MonitoringConfig,
-    NewRelicConfig,
     RestartPolicyEnum,
     WorkersConfig,
     extract_node_version_requirement,
@@ -38,7 +36,6 @@ from frappe_manager.utils.process_lock import bench_lock
 _PANEL_BENCH = "Bench Options"
 _PANEL_RUNTIME = "Bench Options: Runtime"
 _PANEL_MOUNT = "Bench Options: Workspace (mount runtime only)"
-_PANEL_MONITORING = "Bench Options: Monitoring"
 _PANEL_SITE = "Site Options (BENCH alone means its primary site)"
 
 
@@ -190,24 +187,6 @@ def update(
             rich_help_panel=_PANEL_BENCH,
         ),
     ] = None,
-    newrelic: Annotated[
-        bool | None,
-        typer.Option(
-            "--newrelic/--no-newrelic",
-            help="Enable or disable NewRelic APM monitoring for the web process.",
-            show_default=False,
-            rich_help_panel=_PANEL_MONITORING,
-        ),
-    ] = None,
-    newrelic_license_key: Annotated[
-        str | None,
-        typer.Option(
-            "--newrelic-license-key",
-            help="NewRelic ingest license key. Required the first time you enable NewRelic.",
-            show_default=False,
-            rich_help_panel=_PANEL_MONITORING,
-        ),
-    ] = None,
     python_version: Annotated[
         str | None,
         typer.Option(
@@ -260,7 +239,7 @@ def update(
     """
     Change a bench's settings.
 
-    Not bench update: app code ships with fm bake then fm switch. Apps are managed with fm apps add, alias domains with fm domain, admin tools with fm tools. --runtime mount demotes an image bench to an editable workspace, extracted from the currently deployed image; converting the other direction runs through fm switch instead.
+    Not bench update: app code ships with fm bake then fm switch. Apps are managed with fm apps add, alias domains with fm domain, admin tools with fm tools, APM with fm telemetry. --runtime mount demotes an image bench to an editable workspace, extracted from the currently deployed image; converting the other direction runs through fm switch instead.
 
     Most options change the whole bench. --db-ca is the one Site Option below, and a plain fm update BENCH applies it to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one.
     """
@@ -285,7 +264,8 @@ def update(
                 f"{bench.name} is image runtime; code, apps, Python/Node and developer mode are immutable -- "
                 "ship changes with 'fm bake' then 'fm switch', install apps with 'fm apps add', or demote to "
                 f"an editable workspace first with 'fm update {bench.name} --runtime mount'. "
-                "'fm update' on an image bench still changes environment, restart policy, NewRelic and the database CA.",
+                "'fm update' on an image bench still changes environment, restart policy and the database CA, "
+                "and APM is 'fm telemetry enable'.",
             )
         raise typer.Exit(1)
 
@@ -296,19 +276,10 @@ def update(
         )
         raise typer.Exit(1)
 
-    # Validated up front, beside the image-runtime gate: this check used to sit in the middle of the
-    # decision table, so an --environment change of the same invocation had already been rendered and
-    # force-recreated on the running containers when the usage error aborted the command -- and the
-    # pending bench_config.toml save with it, leaving disk and containers disagreeing.
-    current_newrelic = bench.bench_config.get_newrelic_config()
-    if newrelic is True and not (newrelic_license_key or (current_newrelic and current_newrelic.license_key)):
-        raise typer.BadParameter("--newrelic-license-key is required when enabling NewRelic.")
-
-    # Every refusal below runs BEFORE the mutating blocks, for the same reason the NewRelic check
-    # above was hoisted: a refusal that lands mid-table has already re-rendered compose files and
-    # force-recreated containers by the time it fires, and it exits before the terminal
-    # save_bench_config(), leaving bench_config.toml and the running containers permanently
-    # disagreeing. A refused `fm update` must change nothing.
+    # Every refusal below runs BEFORE the mutating blocks: a refusal that lands mid-table has
+    # already re-rendered compose files and force-recreated containers by the time it fires, and it
+    # exits before the terminal save_bench_config(), leaving bench_config.toml and the running
+    # containers permanently disagreeing. A refused `fm update` must change nothing.
     database_config = None
     if db_ca is not None:
         database_config = bench.bench_config.get_database_config()
@@ -487,32 +458,6 @@ def update(
         if upload_limit:
             output.change_head(f"Updating upload size limit to {upload_limit}")
             bench.update_upload_limit(upload_limit)
-
-        if newrelic is not None or newrelic_license_key is not None:
-            monitoring = bench.bench_config.monitoring or MonitoringConfig()
-            newrelic_config = monitoring.newrelic or NewRelicConfig()
-
-            if newrelic is not None:
-                newrelic_config.enabled = newrelic
-
-            if newrelic_license_key is not None:
-                newrelic_config.license_key = newrelic_license_key
-
-            monitoring.newrelic = newrelic_config
-            bench.bench_config.monitoring = monitoring
-
-            bench.generate_compose(bench.bench_config.export_to_compose_inputs())
-
-            # No eager save here (unlike the python/node block below): python/node were already
-            # validated up front before the spinner even started, so nothing left in this command
-            # can refuse. This folds into the one terminal save at the bottom like every other flag.
-            bench_config_save = True
-
-            bench.supervisor.setup_newrelic(bench.path)
-
-            output.change_head("Restarting frappe container to apply NewRelic changes")
-            bench.docker_client.compose.up(services=["frappe"], detach=True, force_recreate=True)
-            output.print("NewRelic configuration updated")
 
         if python_version or node_version:
             if python_version:

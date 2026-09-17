@@ -103,3 +103,15 @@ STACK_AUTOSTART_EXEMPT_PREFIXES: frozenset[str] = frozenset({"services", "self",
 class EnableDisableOptionsEnum(str, Enum):
     enable = "enable"
     disable = "disable"
+
+
+class TelemetryProviderEnum(str, Enum):
+    """APM backends `fm telemetry` can act on.
+
+    One value today, but it is the command's positional argument rather than a flag so a
+    second backend is a new member here and nothing else: `fm telemetry enable BENCH otel`.
+    Encoding the provider in the flag name instead (the retired `fm update --newrelic`) meant
+    every backend added its own pair of booleans to a command that already carried twelve.
+    """
+
+    newrelic = "newrelic"
