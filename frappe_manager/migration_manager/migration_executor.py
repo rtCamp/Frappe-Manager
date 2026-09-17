@@ -155,7 +155,10 @@ class MigrationExecutor:
             floor = Version(f"{parts[0]}.{int(parts[1]) - 1}.9999")
             effective_prev_version = min(effective_prev_version, floor)
 
-        if effective_prev_version != Version("0.0.0") and effective_prev_version < MINIMUM_SUPPORTED_VERSION:
+        # 0.0.0 (unknown) refuses exactly like below-minimum does: the validator prints the
+        # message that names what to fix. It is checked HERE, before discovery, because
+        # discovery from 0.0.0 selects every migration ever shipped.
+        if effective_prev_version == Version("0.0.0") or effective_prev_version < MINIMUM_SUPPORTED_VERSION:
             self.validator.validate_version_support(effective_prev_version)
             return False
 

@@ -105,14 +105,53 @@ class MigrationValidator:
 
         return False
 
+    def _unknown_version_targets(self) -> list[str]:
+        """Name every target whose version reads as unknown (0.0.0), so the refusal points
+        at the actual file to fix instead of printing a bare v0.0.0 -- one damaged bench in
+        an `fm migrate all` drags the whole effective version down, and without the name the
+        operator has no idea which of their benches is the broken one."""
+        culprits: list[str] = []
+
+        if self.prev_version == Version("0.0.0"):
+            from frappe_manager import CLI_FM_CONFIG_PATH
+
+            culprits.append(f"fm's global services & configuration: {CLI_FM_CONFIG_PATH}")
+
+        if self.bench_filter.target_benches is not None:
+            all_benches = MigrationBenches(CLI_BENCHES_DIRECTORY).get_all_benches()
+            for bench_name, bench_path in all_benches.items():
+                if not self.bench_filter.should_process_bench(bench_name):
+                    continue
+                if get_bench_migration_version(bench_path.parent) == Version("0.0.0"):
+                    culprits.append(f"bench '{bench_name}': {bench_path.parent / 'bench_config.toml'}")
+
+        return culprits
+
     def validate_version_support(self, effective_prev_version: Version) -> bool:
         """
         Check if migration from effective_prev_version is supported.
 
-        Returns False and displays error if version is too old.
+        Returns False and displays an error when the version is too old -- or UNKNOWN.
+        0.0.0 means fm could not read a version at all (no `[migration_state]`, or an
+        unparseable `migrated_to`). It used to be exempted here as the fresh-install state;
+        a fresh install now stamps its ledger immediately, so every remaining 0.0.0 is a
+        damaged or hand-edited state, and "run every migration ever shipped against it" is
+        the most destructive possible guess. fm refuses and names what to fix instead.
         """
         if effective_prev_version == Version("0.0.0"):
-            return True
+            self.output.display_error(
+                "Cannot migrate: fm could not determine what the following are migrated to, "
+                "and will not guess -- migrating from an unknown state would re-run every "
+                "migration against a system that may already be current.",
+            )
+            for culprit in self._unknown_version_targets():
+                self.output.display_error(f"  • {culprit}")
+            self.output.display_error(
+                "\nInspect the file's \\[migration_state] table: `migrated_to` is missing or "
+                "not a version. If you know the real version, write it back by hand "
+                '(migrated_to = "0.20.0") and re-run.',
+            )
+            return False
 
         if effective_prev_version < MINIMUM_SUPPORTED_VERSION:
             self.output.display_error(

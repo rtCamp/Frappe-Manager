@@ -14,6 +14,10 @@ Contracts defended here:
 3. ``validate_version_support`` must REFUSE (return False) for a version below
    MINIMUM_SUPPORTED_VERSION, with the exact boundary being inclusive: the minimum
    supported version itself is accepted.
+4. 0.0.0 means UNKNOWN, not "fresh install": a fresh install stamps its ledger
+   immediately, so every remaining 0.0.0 is a damaged or hand-edited state. It must be
+   REFUSED, naming the file(s) whose version could not be read -- never treated as
+   ancient, which would select every migration ever shipped.
 """
 
 from pathlib import Path
@@ -201,11 +205,31 @@ class TestValidateVersionSupport:
         assert result is True
         validator.output.display_error.assert_not_called()
 
-    def test_fresh_install_sentinel_is_accepted(self):
-        """0.0.0 means "no previous install" and must bypass the minimum check."""
-        validator = make_validator(target_benches=None)
+    def test_unknown_version_is_refused_not_treated_as_ancient(self):
+        """0.0.0 used to bypass the minimum check as the fresh-install sentinel; a fresh
+        install now stamps its ledger before any gate runs, so 0.0.0 only ever means fm
+        could not read a version -- and migrating from it would re-run every migration."""
+        validator = make_validator(target_benches=None, prev="0.0.0")
 
         result = validator.validate_version_support(Version("0.0.0"))
 
-        assert result is True
-        validator.output.display_error.assert_not_called()
+        assert result is False
+        messages = " ".join(str(call.args[0]) for call in validator.output.display_error.call_args_list)
+        assert "will not guess" in messages
+        assert "fm_config.toml" in messages  # the host ledger is named as the culprit
+
+    def test_unknown_bench_is_named_in_the_refusal(self):
+        """One damaged bench in `fm migrate all` drags the effective version to 0.0.0; the
+        refusal must say WHICH bench, and point at its bench_config.toml -- a bare v0.0.0
+        leaves the operator guessing across every bench on the host."""
+        validator = make_validator(target_benches=["bench-a", "bench-b"], prev="0.20.0")
+        benches_patch, version_patch, _, _ = patch_benches({"bench-a": "0.20.0", "bench-b": "0.0.0"})
+
+        with benches_patch, version_patch:
+            result = validator.validate_version_support(Version("0.0.0"))
+
+        messages = " ".join(str(call.args[0]) for call in validator.output.display_error.call_args_list)
+        assert result is False
+        assert "bench-b" in messages
+        assert "bench-a" not in messages  # healthy bench not blamed
+        assert "bench_config.toml" in messages

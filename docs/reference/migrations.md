@@ -62,7 +62,14 @@ migrated_to = "0.20.0"
 last_migration_date = "2026-04-12T14:30:45.123456"
 ```
 
-A bench with no `[migration_state]` reads as version `0.0.0`.
+### Unknown versions refuse {#unknown-version}
+
+A missing `[migration_state]` or an unparseable `migrated_to` reads as *unknown* (`0.0.0`). Observation commands still work on such a bench, but **migrating it is refused**, naming the file: fm will not guess what a system is migrated to, because guessing wrong means re-running every migration against a state that may already be current. If you know the real version (say, a bench restored from a partial backup), write it back by hand and re-run:
+
+```toml
+[migration_state]
+migrated_to = "0.20.0"
+```
 
 ### Minimum supported version {#minimum-supported-version}
 

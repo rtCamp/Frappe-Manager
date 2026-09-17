@@ -407,6 +407,30 @@ class TestMigrationExecutorUserPrompt:
             assert any("Migration aborted" in call for call in print_calls)
 
 
+class TestUnknownVersionRefusal:
+    @pytest.mark.timeout(15)
+    def test_an_unknown_host_ledger_refuses_instead_of_running_everything(self, mock_fm_config):
+        """0.0.0 (fm could not read a version) used to bypass the minimum-version check as
+        the fresh-install sentinel and let discovery select EVERY migration. It now refuses
+        before discovery runs."""
+        mock_fm_config.get_system_migration_version.return_value = Version("0.0.0")
+        mock_output = Mock()
+
+        with (
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.21.0"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
+        ):
+            executor = MigrationExecutor(mock_fm_config, migrate_global_services=True, output_handler=mock_output)
+
+            with patch.object(executor.discovery, "discover_migrations") as discover:
+                result = executor.execute()
+
+        assert result is False
+        discover.assert_not_called()
+        messages = " ".join(str(call.args[0]) for call in mock_output.display_error.call_args_list)
+        assert "will not guess" in messages
+
+
 class TestExecutorIsTheSoleLedgerStamper:
     """P2: finalize_success/rollback are the ONLY writers of the services-tier ledger, and
     only when the services tier was actually part of the run -- a bench-only `fm migrate`
