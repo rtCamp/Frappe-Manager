@@ -10,7 +10,7 @@ Four rules hold across every fm command, so a flag means the same thing everywhe
 - **`--yes` / `-y`** answers any confirmation prompt: "do the thing I typed, don't ask." It never expands what a command does. Every prompt defaults to **No**: a bare Enter aborts. Under `--non-interactive`, an unanswered prompt refuses and names `--yes`.
 - **Dangerous behaviors are their own named flags** (`--restore-db`, `--delete-backups`, `--skip-db-backup`, `--on-failure`). A decision that changes *what* happens is never buried in a prompt only: the flag names it, and `--yes` never answers it for you.
 - **`--force` selects a stronger action** (recreate containers, interrupt jobs, renew early). It never skips a question.
-- **`--dry-run` prints the plan and changes nothing**: exit 0, never prompts. Available on the plan-first commands (`prune`, `services prune`, `migrate`, `services migrate`, `delete`); it is the scriptable way to see a plan, since non-interactive runs without `--yes` refuse instead.
+- **`--dry-run` prints the plan and changes nothing**: exit 0, never prompts. Available on the plan-first commands (`prune`, `services prune`, `migrate`, `services migrate`, `delete`, `update`); it is the scriptable way to see a plan, since non-interactive runs without `--yes` refuse instead.
 
 ---
 
@@ -195,7 +195,10 @@ Modify bench settings and infrastructure.
 
 Change environment type, Python/Node versions, restart policy, and convert between mount and image runtimes. Apps, alias domains, admin tools and APM monitoring now have their own commands: `fm apps`, `fm domain`, `fm tools` and `fm telemetry` below.
 
+Plan-first: the whole change is decided before any of it is applied, so an invalid flag changes nothing and a value that already matches is reported rather than reapplied. `--dry-run` prints that plan and exits.
+
 ```bash
+fm update mybench -e prod --dry-run
 fm update mybench -e prod
 fm update mybench --python 3.11 --node 20
 fm update mybench --runtime mount

@@ -227,6 +227,15 @@ class BenchDockerOps:
             ):
                 self.compose_file_manager.set_envs("frappe", frappe_envs, append=False)
 
+            # CLIENT_MAX_BODY_SIZE is retired (see the exporter): nothing ever read it, and a
+            # stale copy of the upload limit sitting in the nginx service read like the enforcing
+            # layer. The exporter no longer emits it, and the merge above would therefore KEEP it
+            # forever on every bench that already has one, so it is popped here -- once, on the
+            # next regen of each bench.
+            nginx_envs = dict(self.compose_file_manager.get_envs("nginx") or {})
+            if nginx_envs.pop("CLIENT_MAX_BODY_SIZE", None) is not None:
+                self.compose_file_manager.set_envs("nginx", nginx_envs, append=False)
+
             # `docker-compose.tmpl` bakes this alias into the nginx service, same as `frappe-site` and
             # `socketio-site` -- but ONLY a bench built fresh from the template gets it that way. This
             # compose file is loaded from disk and mutated in place on every later regen (see the CA

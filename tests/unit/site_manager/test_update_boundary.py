@@ -1,7 +1,7 @@
 """Unit tests for the image-mode update boundary predicate."""
 
 from frappe_manager import EnableDisableOptionsEnum
-from frappe_manager.commands.update import is_immutable_update_request
+from frappe_manager.commands.update_plan import is_immutable_update_request
 
 
 def test_no_runtime_change_is_allowed():

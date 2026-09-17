@@ -2510,7 +2510,15 @@ class BenchConfig(BaseModel):
                 "VIRTUAL_PORT": 80,
                 "HTTPS_METHOD": "noredirect",
                 "HSTS": self.get_primary_certificate().hsts,
-                "CLIENT_MAX_BODY_SIZE": self.upload_limit.lower(),
+                # No CLIENT_MAX_BODY_SIZE. It was carried here for years and consumed by NOTHING:
+                # `/app/nginx.tmpl` in the pinned jwilder/nginx-proxy:1.11 has no
+                # `client_max_body_size`, and no fm template reads the variable either. The upload
+                # limit is enforced by the three files `Bench.update_upload_limit` writes -- the
+                # proxy's `vhost.d/<domain>` directive, the bench's own `custom/upload-limit.conf`,
+                # and `max_file_size` in site_config. Keeping a fourth, unread copy meant a value
+                # that drifted the moment the limit changed (that method does not re-render
+                # compose), and it read like the enforcing layer, which is how the docs came to
+                # claim the proxy reads it.
             },
             "worker": {
                 "USERID": self.userid,

@@ -160,7 +160,7 @@ class TestAlreadyMountIsANoOp:
 
         world.run(runtime=BenchRuntime.mount)
 
-        assert world.prints == ["Bench runtime is already 'mount'"]
+        assert world.prints == ["mybench.localhost: nothing to do (runtime is already 'mount')"]
         world.fetch_image.assert_not_called()
         world.bench.generate_compose.assert_not_called()
         assert world.saves == 0
@@ -170,7 +170,7 @@ class TestAlreadyImageIsANoOp:
     def test_runtime_image_on_an_image_bench_is_a_no_op(self, world):
         world.run(runtime=BenchRuntime.image)
 
-        assert world.prints == ["Bench runtime is already 'image'"]
+        assert world.prints == ["mybench.localhost: nothing to do (runtime is already 'image')"]
         world.fetch_image.assert_not_called()
         assert world.saves == 0
 

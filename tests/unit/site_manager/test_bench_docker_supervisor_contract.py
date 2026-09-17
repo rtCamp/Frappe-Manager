@@ -814,7 +814,7 @@ class TestNginxSiteAliasRollout:
             "  frappe:\n    image: frappe:pinned\n    volumes: []\n    environment: {}\n"
             "  socketio:\n    image: frappe:pinned\n    volumes: []\n    environment: {}\n"
             "  schedule:\n    image: frappe:pinned\n    volumes: []\n    environment: {}\n"
-            "  nginx:\n    image: nginx:pinned\n    networks:\n" + nginx_networks + "\n"
+            "  nginx:\n    image: nginx:pinned\n    environment:\n      CLIENT_MAX_BODY_SIZE: 50m\n    networks:\n" + nginx_networks + "\n"
             "volumes: {}\nnetworks:\n  site-network: {}\n  global-frontend-network: {}\n"
         )
         ops = object.__new__(BenchDockerOps)
@@ -847,6 +847,21 @@ class TestNginxSiteAliasRollout:
         networks = ops.compose_file_manager.yml["services"][service].get("networks") or {}
         entry = networks.get(network)
         return entry.get("aliases") if isinstance(entry, dict) else None
+
+    @pytest.mark.timeout(15)
+    def test_the_retired_upload_limit_variable_is_stripped_on_regen(self, tmp_path, monkeypatch):
+        """`CLIENT_MAX_BODY_SIZE` was read by nothing -- no fm template, and no
+        `client_max_body_size` in the pinned nginx-proxy's `/app/nginx.tmpl` -- while looking like
+        the layer that enforced the limit, and it went stale the moment the limit changed because
+        `update_upload_limit` does not re-render compose. The exporter stopped emitting it, but
+        env writes MERGE, so an existing bench would keep it forever unless it is popped."""
+        ops = self._real_ops_with_nginx(tmp_path, pre_existing_alias=False)
+        self._patch_shape(monkeypatch)
+        assert ops.compose_file_manager.get_envs("nginx")["CLIENT_MAX_BODY_SIZE"] == "50m"
+
+        ops.generate_compose({})
+
+        assert "CLIENT_MAX_BODY_SIZE" not in (ops.compose_file_manager.get_envs("nginx") or {})
 
     @pytest.mark.timeout(15)
     def test_a_bench_that_predates_the_alias_gets_it_retrofitted_on_the_next_regen(self, tmp_path, monkeypatch):

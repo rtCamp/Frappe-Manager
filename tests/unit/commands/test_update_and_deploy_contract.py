@@ -34,7 +34,7 @@ turned out to be a real defect and its pin is now inverted:
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 import typer
@@ -48,12 +48,10 @@ from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.site_manager.bench_config import (
     BenchRuntime,
     FMBenchEnvType,
-    TelemetryConfig,
-    NewRelicConfig,
     RestartPolicyEnum,
 )
 from frappe_manager.site_manager.exceptions import BenchNotRunning
-from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError
+from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError, DrainUnavailable
 
 pytestmark = pytest.mark.timeout(15)
 
@@ -140,18 +138,27 @@ class UpdateWorld:
             name=data["app"], branch=data["branch"], token=github_token
         )
 
+        # Drain is a real collaborator now (`fm update` gates on it like `fm restart` and
+        # `fm apps add`), so the harness owns it: drained by default, per-test overridable.
+        self.orchestrator = MagicMock(name="DeployOrchestrator")
+        self.orchestrator.drain_workers.return_value = True
+        self.orchestrator.workers_config.drain_timeout = 300
+
         p = stack.enter_context
+        p(patch("frappe_manager.commands.update.DeployOrchestrator", return_value=self.orchestrator))
         p(patch("frappe_manager.commands.update.Bench", bench_cls))
         p(patch("frappe_manager.commands.update.spinner", _null_spinner))
         p(patch("frappe_manager.commands.update.AppConfig", self.app_config_cls))
-        p(patch("frappe_manager.commands.update.extract_python_version_requirement", self.extract_python_req))
-        p(patch("frappe_manager.commands.update.extract_node_version_requirement", self.extract_node_req))
-        p(patch("frappe_manager.commands.update.validate_python_version_compatibility", self.python_compat))
-        p(patch("frappe_manager.commands.update.validate_node_version_compatibility", self.node_compat))
-        p(patch("frappe_manager.commands.update.parse_python_version_for_runtime", self.parse_python))
-        p(patch("frappe_manager.commands.update.parse_node_version_for_runtime", self.parse_node))
         p(patch("frappe_manager.commands.update.check_bench_migration_required", self.check_migration))
         p(patch("frappe_manager.site_manager.modules.db_tls.install_site_ca", self.install_site_ca))
+        # Version probing and validation live in the PLANNING module now: `fm update` decides the
+        # whole change before applying any of it, so these seams moved with the decisions.
+        p(patch("frappe_manager.commands.update_plan.extract_python_version_requirement", self.extract_python_req))
+        p(patch("frappe_manager.commands.update_plan.extract_node_version_requirement", self.extract_node_req))
+        p(patch("frappe_manager.commands.update_plan.validate_python_version_compatibility", self.python_compat))
+        p(patch("frappe_manager.commands.update_plan.validate_node_version_compatibility", self.node_compat))
+        p(patch("frappe_manager.commands.update_plan.parse_python_version_for_runtime", self.parse_python))
+        p(patch("frappe_manager.commands.update_plan.parse_node_version_for_runtime", self.parse_node))
 
     # -- knobs -------------------------------------------------------------
 
@@ -336,10 +343,13 @@ class TestExternalDatabaseCaRefresh:
 
         world.run(db_ca=ca)
 
-        assert world.prints == [
-            "Installed CA at /workspace/config/tls/db-ca.pem and rebuilt the bench ca-bundle.pem",
-            "Running containers read the new CA on their next database connection; no restart needed.",
-        ]
+        assert (
+            "Installed CA at /workspace/config/tls/db-ca.pem and rebuilt the bench ca-bundle.pem" in world.prints
+        )
+        assert (
+            "Running containers read the new CA on their next database connection; no restart needed."
+            in world.prints
+        )
         assert world.compose_up_calls == []
         world.bench.restart_web_containers_services.assert_not_called()
 
@@ -435,9 +445,10 @@ class TestEnvironmentSwitch:
 
 class TestRestartPolicy:
     def test_unchanged_policy_touches_nothing(self, world):
+        """An already-satisfied request is reported as nothing to do, not reapplied."""
         world.run(restart_policy=RestartPolicyEnum.always)
 
-        assert world.prints == ["Restart policy is already set to 'always'"]
+        assert world.prints == ["mybench.localhost: nothing to do (restart policy is already 'always')"]
         world.bench.generate_compose.assert_not_called()
         assert world.compose_up_calls == []
         assert world.saves == 0
@@ -462,14 +473,15 @@ class TestRestartPolicy:
         world.bench.workers.generate_compose.assert_not_called()
         world.bench.admin_tools.generate_compose.assert_not_called()
 
-    def test_no_restart_on_production_warns_twice(self, world):
+    def test_no_restart_on_production_warns_before_it_is_applied(self, world):
+        """The warning is part of the PLAN, so `--dry-run` shows it before anything changes."""
         world.config.environment_type = FMBenchEnvType.prod
 
         world.run(restart_policy=RestartPolicyEnum.no)
 
         assert world.warnings == [
-            "Setting restart policy to 'no' on production bench",
-            "Containers will not auto-recover from failures or system reboots",
+            "restart policy 'no' on a production bench: containers will not auto-recover "
+            "from failures or system reboots",
         ]
         assert world.config.restart_policy == RestartPolicyEnum.no
 
@@ -535,11 +547,37 @@ class TestMigrationGate:
 
 class TestUploadLimit:
     def test_delegates_to_the_bench_and_saves_nothing(self, world):
+        """`update_upload_limit` owns its own save, so apply must not write the file a second time."""
         world.run(upload_limit="500M")
 
         world.bench.update_upload_limit.assert_called_once_with("500M")
         assert world.saves == 0
         assert world.compose_up_calls == []
+
+    def test_an_unchanged_limit_is_not_reapplied(self, world):
+        """Reapplying rewrote the nginx confs and reloaded the proxy to arrive at the same value."""
+        world.config.upload_limit = "500M"
+
+        world.run(upload_limit="500m")
+
+        world.bench.update_upload_limit.assert_not_called()
+        assert world.saves == 0
+
+    def test_a_malformed_limit_is_refused_before_any_flag_is_applied(self, world):
+        """THE bug this split fixes. The format check used to live inside `update_upload_limit`,
+        so it fired mid-table: `-e prod --upload-limit BOGUS` exited 1 having already recreated
+        the frappe container as prod, while bench_config.toml still said dev and `fm info` still
+        reported dev -- and `republish_site_map` re-injects FRAPPE_ENV from that file, so a later
+        unrelated command silently flipped serving back."""
+        with pytest.raises(typer.BadParameter) as exc:
+            world.run(environment=FMBenchEnvType.prod, upload_limit="BOGUS")
+
+        assert "Invalid upload limit format" in exc.value.message
+        assert world.config.environment_type == FMBenchEnvType.dev
+        world.bench.generate_compose.assert_not_called()
+        world.bench.update_upload_limit.assert_not_called()
+        assert world.compose_up_calls == []
+        assert world.saves == 0
 
 
 
@@ -591,21 +629,39 @@ class TestPythonAndNodeVersions:
 
         world.run(python_version="3.9", skip_version_check=True)
 
+        # Warned in the PLAN, so `--dry-run` shows the incompatibility before the venv is rebuilt.
         assert world.warnings == [
-            " Python 3.9 is incompatible with Frappe requirement",
-            " Consider using --python 3.12 instead",
-            "Restarting workers WITHOUT draining: in-flight jobs are interrupted (SIGUSR1, force-stop after 15s)",
+            "Python 3.9 is incompatible with frappe's requirement >=3.11,<3.13",
+            "consider --python 3.12 instead",
         ]
         assert world.config.python_version == "3.9"
         world.bench.app_manager.setup_python_and_node_environments.assert_called_once()
 
-    def test_missing_current_version_is_reported_as_not_set(self, world):
-        world.bench.app_manager.get_current_runtime_versions.return_value = {}
+    def test_an_unrecorded_version_is_reported_as_not_set(self, world):
+        """The plan names the RECORDED value it is changing, and renders its absence readably."""
+        world.config.python_version = None
 
         world.run(python_version="3.12")
 
+        assert "  python  not set -> 3.12" in world.prints
+
+    def test_the_installed_runtime_is_probed_once_for_validation(self, world):
+        world.run(python_version="3.12")
+
         world.bench.app_manager.get_current_runtime_versions.assert_called_once_with(use_run=True)
-        assert "Python: not set -> 3.12" in world.prints
+
+    def test_an_unchanged_version_does_no_work_at_all(self, world):
+        """Measured at 116s on a real bench, ending in an UNDRAINED worker restart, to arrive
+        where the bench already was: fm itself reported "already satisfies ... skipping
+        installation" and then restarted frappe, socketio, schedule and both workers."""
+        world.config.python_version = "3.11"
+
+        world.run(python_version="3.11")
+
+        world.bench.app_manager.setup_python_and_node_environments.assert_not_called()
+        world.bench.restart_web_containers_services.assert_not_called()
+        world.bench.restart_workers_containers_services.assert_not_called()
+        assert world.saves == 0
 
     def test_incompatible_node_is_refused_with_a_hint(self, world):
         world.make_frappe_app_dir()
@@ -648,9 +704,8 @@ class TestPythonAndNodeVersions:
         world.run(node_version="16", skip_version_check=True)
 
         assert world.warnings == [
-            " Node 16 is incompatible with Frappe requirement",
-            " Consider using --node 20 instead",
-            "Restarting workers WITHOUT draining: in-flight jobs are interrupted (SIGUSR1, force-stop after 15s)",
+            "Node 16 is incompatible with frappe's requirement >=18",
+            "consider --node 20 instead",
         ]
         assert world.config.node_version == "16"
         world.bench.app_manager.setup_python_and_node_environments.assert_called_once()
@@ -690,10 +745,7 @@ class TestPythonAndNodeVersions:
 
         world.run(python_version="3.12")
 
-        assert world.warnings == [
-            "No apps.txt found, skipping app reinstallation",
-            "Restarting workers WITHOUT draining: in-flight jobs are interrupted (SIGUSR1, force-stop after 15s)",
-        ]
+        assert world.warnings == ["No apps.txt found, skipping app reinstallation"]
         world.bench.app_manager.install_apps.assert_not_called()
 
     def test_apps_are_not_reinstalled_when_the_venv_was_kept(self, world):
@@ -1132,3 +1184,262 @@ class TestKeepFloor:
         ship.prune(keep_releases=1)
 
         ship.orchestrator.prune_releases.assert_called_once_with(keep=1, dry_run=True)
+
+
+class TestPlanningIsSeparateFromApplying:
+    """The structural guarantees the plan/apply split exists to provide.
+
+    These are not per-flag behaviours; they are properties of the shape. Each one replaces a
+    defect that came from deciding and acting in the same pass, measured on a live bench.
+    """
+
+    def test_one_invocation_recreates_a_container_once(self, world):
+        """Three arms each called `compose.up(force_recreate=True)`, so a multi-flag run destroyed
+        and recreated `frappe` three times -- counted from the docker event stream, not inferred.
+        The plan accumulates a SET of services and applies it once."""
+        world.run(environment=FMBenchEnvType.prod, developer_mode=EnableDisableOptionsEnum.enable)
+
+        assert len(world.compose_up_calls) == 1
+        assert world.compose_up_calls[0].kwargs == {
+            "services": ["frappe"],
+            "detach": True,
+            "force_recreate": True,
+        }
+
+    def test_a_full_recreate_absorbs_the_runtime_restarts(self, world):
+        """A restart-policy change recreates every container, so restarting the same processes
+        again for the runtime change would bounce containers that came up seconds earlier."""
+        world.run(restart_policy=RestartPolicyEnum.unless_stopped, python_version="3.12")
+
+        world.bench.restart_web_containers_services.assert_not_called()
+        world.bench.restart_workers_containers_services.assert_not_called()
+        assert world.compose_up_calls[0].kwargs == {"detach": True, "force_recreate": True}
+
+    def test_compose_is_rendered_once_for_several_flags(self, world):
+        world.run(environment=FMBenchEnvType.prod, restart_policy=RestartPolicyEnum.unless_stopped)
+
+        world.bench.generate_compose.assert_called_once()
+
+    def test_the_config_is_saved_once_for_several_flags(self, world):
+        world.run(
+            environment=FMBenchEnvType.prod,
+            restart_policy=RestartPolicyEnum.unless_stopped,
+            developer_mode=EnableDisableOptionsEnum.enable,
+        )
+
+        assert world.saves == 1
+
+    def test_the_config_is_saved_before_any_container_is_touched(self, world):
+        """Ordering, not bookkeeping. A failure in the container half must leave the file AHEAD of
+        the containers: fm's own regeneration paths push config onto containers, so "config ahead"
+        self-heals, while "containers ahead" is what let a prod bench serve prod while every fm
+        surface reported dev."""
+        world.bench.docker_client.compose.up.side_effect = RuntimeError("daemon gone")
+
+        with pytest.raises(RuntimeError):
+            world.run(environment=FMBenchEnvType.prod)
+
+        assert world.saves == 1
+
+    def test_a_flagless_update_does_nothing_and_says_so(self, world):
+        world.run()
+
+        assert world.prints == ["mybench.localhost: nothing to do"]
+        world.bench.generate_compose.assert_not_called()
+        assert world.compose_up_calls == []
+        assert world.saves == 0
+
+    def test_an_environment_already_set_is_not_reapplied(self, world):
+        """`-e prod` on a prod bench recreated the web container on every invocation, because
+        only `--restart-policy` had an equality check."""
+        world.config.environment_type = FMBenchEnvType.prod
+
+        world.run(environment=FMBenchEnvType.prod)
+
+        assert world.prints == ["mybench.localhost: nothing to do (environment is already 'prod')"]
+        assert world.compose_up_calls == []
+        assert world.saves == 0
+
+    def test_developer_mode_already_set_is_not_reapplied(self, world):
+        world.config.developer_mode = True
+
+        world.run(developer_mode=EnableDisableOptionsEnum.enable)
+
+        world.bench.set_common_bench_config.assert_not_called()
+        assert world.saves == 0
+
+
+class TestDryRun:
+    """`--dry-run` prints the plan and changes nothing, per the flag vocabulary."""
+
+    def test_it_reports_the_change_without_making_it(self, world):
+        world.run(environment=FMBenchEnvType.prod, dry_run=True)
+
+        assert "  environment  dev -> prod" in world.prints
+        assert world.config.environment_type == FMBenchEnvType.dev
+        world.bench.generate_compose.assert_not_called()
+        assert world.compose_up_calls == []
+        assert world.saves == 0
+
+    def test_it_names_the_containers_it_would_touch(self, world):
+        world.run(restart_policy=RestartPolicyEnum.unless_stopped, dry_run=True)
+
+        assert any("recreate all bench services, workers and admin tools" in line for line in world.prints)
+        assert world.compose_up_calls == []
+
+    def test_it_prints_a_line_even_when_there_is_nothing_to_do(self, world):
+        """`fm migrate --dry-run` prints NOTHING when nothing is pending, and its own docs have to
+        warn scripts not to trust the exit code alone. One unconditional line is cheaper."""
+        world.run(dry_run=True)
+
+        assert world.prints == ["mybench.localhost: nothing to do"]
+
+    def test_it_still_refuses_an_invalid_flag(self, world):
+        """Planning is where refusals live, and --dry-run runs the real planner, not a copy."""
+        with pytest.raises(typer.BadParameter):
+            world.run(upload_limit="BOGUS", dry_run=True)
+
+    def test_it_says_how_the_workers_will_be_treated(self, world):
+        """Which it is -- waited for, or killed -- must be visible BEFORE committing to the run."""
+        world.run(python_version="3.12", dry_run=True)
+
+        assert "  workers: drain first (wait up to 300s for in-flight jobs, abort if still busy)" in world.prints
+        world.bench.app_manager.setup_python_and_node_environments.assert_not_called()
+
+    def test_no_drain_is_reported_as_an_interruption(self, world):
+        world.run(python_version="3.12", drain=False, dry_run=True)
+
+        assert "  workers: interrupt in-flight jobs (SIGUSR1, force-stop after 15s)" in world.prints
+
+
+class TestStandaloneVenvRebuild:
+    """`--recreate-python-env` with no version change is the explicit venv rebuild.
+
+    It was previously reachable only as a side effect of re-passing the version the bench already
+    had, which cost ~2 minutes and an undrained worker restart to find out. Now that an unchanged
+    version is a no-op, the rebuild needs a name -- and this flag already meant "rebuild the venv".
+    """
+
+    def test_it_rebuilds_without_any_version_change(self, world):
+        world.run(recreate_python_env=True)
+
+        world.bench.app_manager.setup_python_and_node_environments.assert_called_once_with(
+            use_run=True, recreate_python_env=True
+        )
+        assert world.config.python_version == "3.11"
+
+    def test_it_reports_the_recorded_versions_it_will_rebuild_at(self, world):
+        world.run(recreate_python_env=True, dry_run=True)
+
+        assert any("rebuild the venv at the recorded python 3.11 / node 18" in line for line in world.prints)
+        world.bench.app_manager.setup_python_and_node_environments.assert_not_called()
+
+    def test_it_still_defaults_to_recreating_alongside_a_version_change(self, world):
+        """Unset must keep meaning "yes" when --python moves the interpreter: a new interpreter
+        needs a fresh venv."""
+        world.run(python_version="3.12")
+
+        world.bench.app_manager.setup_python_and_node_environments.assert_called_once_with(
+            use_run=True, recreate_python_env=True
+        )
+
+    def test_no_recreate_alongside_a_version_change_keeps_the_venv(self, world):
+        world.run(python_version="3.12", recreate_python_env=False)
+
+        world.bench.app_manager.setup_python_and_node_environments.assert_called_once_with(
+            use_run=True, recreate_python_env=False
+        )
+
+    def test_no_recreate_on_its_own_is_nothing_to_do(self, world):
+        """"Do not rebuild the venv" with nothing else asked for is a request for no work."""
+        world.run(recreate_python_env=False)
+
+        world.bench.app_manager.setup_python_and_node_environments.assert_not_called()
+        assert world.prints == ["mybench.localhost: nothing to do"]
+
+
+class TestContainerFailureIsExplained:
+    def test_a_failed_recreate_says_the_settings_are_already_recorded(self, world):
+        """The config is saved first by design, so the user must be told a retry is safe and that
+        nothing was lost -- otherwise a failed command looks like it left an unknown state."""
+        world.bench.docker_client.compose.up.side_effect = RuntimeError("daemon gone")
+
+        with pytest.raises(RuntimeError):
+            world.run(environment=FMBenchEnvType.prod)
+
+        assert any("already recorded in bench_config.toml" in w for w in world.warnings)
+        assert any("fm restart" in w for w in world.warnings)
+
+
+class TestWorkerDrainGate:
+    """`fm update` drains RQ workers before disturbing them, like `fm restart` and `fm apps add`.
+
+    It was the one worker-touching command without this. Two paths interrupt jobs: the runtime
+    restart (SIGUSR1 then a force-stop) and a `--restart-policy` change, which RECREATES the
+    workers project and so killed in-flight jobs with no warning at all.
+
+    The gate runs before the first write, so a timeout aborts an update that changed nothing --
+    a promise only the plan/apply split makes true.
+    """
+
+    def test_the_runtime_path_drains_first(self, world):
+        world.run(python_version="3.12")
+
+        world.orchestrator.drain_workers.assert_called_once_with()
+        world.orchestrator.resume_workers.assert_called_once_with()
+
+    def test_a_restart_policy_change_drains_too(self, world):
+        """The path that used to kill jobs silently: recreating the workers project never gives
+        RQ the SIGUSR1 courtesy at all."""
+        world.run(restart_policy=RestartPolicyEnum.unless_stopped)
+
+        world.orchestrator.drain_workers.assert_called_once_with()
+
+    def test_a_plan_that_leaves_workers_alone_does_not_drain(self, world):
+        world.run(environment=FMBenchEnvType.prod)
+
+        world.orchestrator.drain_workers.assert_not_called()
+
+    def test_a_timeout_aborts_before_anything_is_written(self, world):
+        """"Nothing was changed" has to be literally true, and the workers must be resumed: the
+        RQ suspend flag lives in redis and would outlive this command."""
+        world.orchestrator.drain_workers.return_value = False
+
+        with pytest.raises(typer.Exit) as exc:
+            world.run(python_version="3.12")
+
+        assert exc.value.exit_code == 1
+        world.orchestrator.resume_workers.assert_called_once_with()
+        assert world.saves == 0
+        assert world.config.python_version == "3.11"
+        world.bench.app_manager.setup_python_and_node_environments.assert_not_called()
+        assert any("Nothing was changed" in e for e in world.errors)
+
+    def test_no_drain_skips_the_gate_and_says_it_is_interrupting(self, world):
+        world.run(python_version="3.12", drain=False)
+
+        world.orchestrator.drain_workers.assert_not_called()
+        world.orchestrator.resume_workers.assert_not_called()
+        assert any("WITHOUT draining" in w for w in world.warnings)
+        world.bench.app_manager.setup_python_and_node_environments.assert_called_once()
+
+    def test_an_image_that_cannot_drain_warns_and_continues(self, world):
+        """DrainUnavailable is not a timeout -- no drain_timeout can fix an image without fmx --
+        so it must not abort the update."""
+        world.orchestrator.drain_workers.side_effect = DrainUnavailable("no fmx in this image.")
+
+        world.run(python_version="3.12")
+
+        assert any("Continuing without a drain" in w for w in world.warnings)
+        world.bench.app_manager.setup_python_and_node_environments.assert_called_once()
+        world.orchestrator.resume_workers.assert_not_called()
+
+    def test_workers_are_resumed_even_when_the_apply_fails(self, world):
+        """Suspended workers outliving a failed command is a silent outage: nothing processes
+        the queue until someone resumes them by hand."""
+        world.bench.app_manager.setup_python_and_node_environments.side_effect = RuntimeError("boom")
+
+        with pytest.raises(RuntimeError):
+            world.run(python_version="3.12")
+
+        world.orchestrator.resume_workers.assert_called_once_with()

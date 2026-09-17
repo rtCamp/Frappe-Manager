@@ -60,6 +60,12 @@ from frappe_manager.utils.helpers import (
 )
 from frappe_manager.utils.site import domain_level, host_bench_dir
 
+# One pattern, two call sites. `update_upload_limit` guards itself because it has callers of its
+# own, and `fm update`'s planning phase validates with the SAME regex up front: a format error
+# raised from inside the method lands mid-decision-table, after an --environment change in the
+# same invocation has already recreated the frappe container, and exits before the terminal save.
+UPLOAD_LIMIT_RE = re.compile(r"^\d+[MG]$", re.IGNORECASE)
+
 
 @dataclass(frozen=True)
 class SiteSchema:
@@ -1969,9 +1975,7 @@ class Bench:
         Raises:
             BenchException: If format is invalid or operation fails
         """
-        import re
-
-        if not re.match(r"^\d+[MG]$", upload_limit, re.IGNORECASE):
+        if not UPLOAD_LIMIT_RE.match(upload_limit):
             raise BenchException(
                 self.name,
                 message=f"Invalid upload limit format: '{upload_limit}'. Use format like '50M' or '1G'",
@@ -1981,8 +1985,13 @@ class Bench:
         self.save_bench_config()
 
         # Writes conf/custom/upload-limit.conf from the config just saved, and reloads bench nginx
-        # once if it changed. Compose is deliberately NOT regenerated: `upload_limit` reaches no
-        # compose input and no template, so the old regeneration step here did nothing.
+        # once if it changed. Compose is deliberately NOT regenerated, though `upload_limit` DOES
+        # reach one compose input (`export_to_compose_inputs` puts it in the nginx service's
+        # CLIENT_MAX_BODY_SIZE): nothing consumes that variable. Enforcement is the three writes
+        # below -- the proxy's `vhost.d/<domain>` directive (UploadLimitManager), the bench's own
+        # `custom/upload-limit.conf`, and `max_file_size` in site_config -- so regenerating compose
+        # to refresh a variable no template reads would only mark nginx dirty for the next
+        # `compose up`, buying a container recreate for nothing.
         self.ensure_fm_nginx_confs()
         self.apply_upload_limit()
 
