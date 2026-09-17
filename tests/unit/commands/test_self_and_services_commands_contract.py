@@ -825,6 +825,11 @@ def test_services_prune_trims_sessions_and_legacy_dirs_and_rotates_logs(tmp_path
     assert len(list(r.logs.glob("error.log.*.gz"))) == 1
     prints = " ".join(c.args[0] for c in out.print.call_args_list if c.args)
     assert "removed" in prints and "rotated" in prints and "Total" in prints
+    # Every touched path is named, one row each.
+    assert str(r.sessions / "s0") in prints
+    assert str(r.sessions / "s1") in prints
+    assert str(r.backups / "services_2026-01-01_00-00-00") in prints
+    assert str(error_log) in prints
 
 
 def test_services_prune_dry_run_reports_and_touches_nothing(tmp_path, out):
@@ -836,6 +841,9 @@ def test_services_prune_dry_run_reports_and_touches_nothing(tmp_path, out):
     assert not list(r.logs.glob("*.gz"))
     prints = " ".join(c.args[0] for c in out.print.call_args_list if c.args)
     assert "would remove" in prints and "would rotate" in prints
+    # Dry run names the same paths it would touch.
+    assert str(r.sessions / "s0") in prints
+    assert str(r.logs / "error.log") in prints
 
 
 def test_services_prune_only_logs_leaves_backups_alone(tmp_path, out):

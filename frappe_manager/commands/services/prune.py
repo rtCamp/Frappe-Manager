@@ -124,6 +124,10 @@ def prune_services(
             total += legacy_size
         if parts:
             output.print(f"Backups  : {verb} " + " · ".join(parts), emoji_code="")
+            for stale in plan.stale:
+                output.print(f"session     {stale}", emoji_code="", prefix="  ")
+            for stale in legacy:
+                output.print(f"session     {stale}", emoji_code="", prefix="  ")
         else:
             output.print("Backups  : nothing beyond retention", emoji_code="")
         if not dry_run:

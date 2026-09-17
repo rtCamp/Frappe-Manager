@@ -77,7 +77,9 @@ def resolve_prune_settings(
 
 
 def report_session_plans(output, plans: list[SessionPrune], dry_run: bool) -> int:
-    """One `Backups :` line naming each root's stale/kept counts and size. Returns bytes."""
+    """One `Backups :` line naming each root's stale/kept counts and size, then every
+    session directory that goes, one row each -- same shape the releases category has
+    always used for its backup dirs. Deletions are never anonymous. Returns bytes."""
     parts = []
     total = 0
     for plan in plans:
@@ -88,13 +90,18 @@ def report_session_plans(output, plans: list[SessionPrune], dry_run: bool) -> in
     verb = "would remove" if dry_run else "removed"
     if parts:
         output.print(f"Backups  : {verb} " + " · ".join(parts), emoji_code="")
+        for plan in plans:
+            for stale in plan.stale:
+                output.print(f"session     {stale}", emoji_code="", prefix="  ")
     else:
         output.print("Backups  : nothing beyond retention", emoji_code="")
     return total
 
 
 def report_log_plan(output, plan: LogPrune, dry_run: bool) -> int:
-    """One `Logs :` line: files rotated (with sizes) and archives dropped. Returns bytes."""
+    """One `Logs :` line (files rotated with sizes, archives dropped), then one row per
+    touched path: `rotate` for a live file about to be archived+truncated, `drop` for an
+    old archive leaving the disk. Returns bytes."""
     verb = "would rotate" if dry_run else "rotated"
     if not plan.rotations and not plan.drop_count:
         output.print("Logs     : nothing over the rotation threshold", emoji_code="")
@@ -106,6 +113,12 @@ def report_log_plan(output, plan: LogPrune, dry_run: bool) -> int:
     if plan.drop_count:
         parts.append(f"{'would drop' if dry_run else 'dropped'} {plan.drop_count} old archive(s)")
     output.print("Logs     : " + " · ".join(parts), emoji_code="")
+    for rotation in plan.rotations:
+        output.print(f"rotate      {rotation.path}", emoji_code="", prefix="  ")
+        for old in rotation.archives_to_drop:
+            output.print(f"drop        {old}", emoji_code="", prefix="  ")
+    for old in plan.archives_to_drop:
+        output.print(f"drop        {old}", emoji_code="", prefix="  ")
     return plan.rotate_size
 
 
