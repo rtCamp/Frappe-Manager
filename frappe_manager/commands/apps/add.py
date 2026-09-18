@@ -1,5 +1,6 @@
 """Add apps to a bench command."""
 
+import contextlib
 from typing import Annotated, cast
 
 import typer
@@ -11,7 +12,7 @@ from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.bench_config import AppConfig, BenchRuntime, WorkersConfig
 from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployOrchestrator
-from frappe_manager.site_manager.modules.worker_drain import drain_gate
+from frappe_manager.site_manager.modules.worker_drain import rq_suspended
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, apps_list_validation_callback
 
@@ -103,47 +104,44 @@ def add_apps(
 
     orchestrator = DeployOrchestrator(bench, output_handler=output)
 
-    drained = False
-    if drain:
-        drained = drain_gate(orchestrator, output, action="app install")
-    else:
+    if not drain:
         kill_timeout = (bench.bench_config.workers or WorkersConfig()).kill_timeout
         output.warning(
             f"Installing apps WITHOUT draining: in-flight jobs are interrupted "
             f"(SIGUSR1, force-stop after {kill_timeout}s)"
         )
 
-    try:
-        with spinner(output, f"Adding apps to {bench.name}"):
-            added, apps_stash = bench.app_manager.graft_apps(apps_overrides, stash=True, use_run=False)
-            if apps_stash:
-                output.warning(f"Replaced app code moved to {apps_stash} -- review and delete it.")
+    # `rq_suspended` owns the resume, including when a signal ends the run: `rq:suspended` is a
+    # redis key that outlives this process, so a leaked one leaves workers alive and consuming
+    # nothing. `nullcontext` for --no-drain, so the body below has one shape.
+    suspend = rq_suspended(orchestrator, output, action="app install") if drain else contextlib.nullcontext()
+    with suspend, spinner(output, f"Adding apps to {bench.name}"):
+        added, apps_stash = bench.app_manager.graft_apps(apps_overrides, stash=True, use_run=False)
+        if apps_stash:
+            output.warning(f"Replaced app code moved to {apps_stash} -- review and delete it.")
 
-            failed: list[str] = []
-            for site in targets:
-                try:
-                    for app_name in added:
-                        output.change_head(f"Installing {app_name} into {site}")
-                        bench.app_manager.install_app_to_site(app_name, site_name=site)
-                    output.change_head(f"Running bench migrate on {site}")
-                    migrate_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", site, "migrate"])
-                    bench.app_manager._container_run(migrate_cmd)
-                except Exception as e:
-                    # Report and continue, like `fm ssl renew all`: stopping here would leave the
-                    # sites already migrated on the new code and the rest on the old, with no
-                    # record of which is which.
-                    output.warning(f"{site}: {e}")
-                    failed.append(site)
+        failed: list[str] = []
+        for site in targets:
+            try:
+                for app_name in added:
+                    output.change_head(f"Installing {app_name} into {site}")
+                    bench.app_manager.install_app_to_site(app_name, site_name=site)
+                output.change_head(f"Running bench migrate on {site}")
+                migrate_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", site, "migrate"])
+                bench.app_manager._container_run(migrate_cmd)
+            except Exception as e:
+                # Report and continue, like `fm ssl renew all`: stopping here would leave the
+                # sites already migrated on the new code and the rest on the old, with no
+                # record of which is which.
+                output.warning(f"{site}: {e}")
+                failed.append(site)
 
-            # Bare-BENCH fetches code only, installs it into nothing: nothing new is running, so
-            # nothing needs a restart. A restart here used to be unconditional.
-            if targets:
-                output.change_head("Restarting services to load grafted apps")
-                bench.restart_web_containers_services(use_container_restart=False)
-                bench.restart_workers_containers_services(use_container_restart=False)
-    finally:
-        if drained:
-            orchestrator.resume_workers()
+        # Bare-BENCH fetches code only, installs it into nothing: nothing new is running, so
+        # nothing needs a restart. A restart here used to be unconditional.
+        if targets:
+            output.change_head("Restarting services to load grafted apps")
+            bench.restart_web_containers_services(use_container_restart=False)
+            bench.restart_workers_containers_services(use_container_restart=False)
 
     if failed:
         output.display_error(f"Apps grafted, but these sites failed: {', '.join(failed)}")

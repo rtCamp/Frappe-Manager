@@ -7,7 +7,7 @@ from frappe_manager.commands.arguments import BenchNameArgument
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.bench_config import WorkersConfig
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployOrchestrator
-from frappe_manager.site_manager.modules.worker_drain import drain_gate
+from frappe_manager.site_manager.modules.worker_drain import rq_suspended
 from frappe_manager.site_manager.site import Bench
 
 
@@ -50,27 +50,27 @@ def stop(
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     orchestrator = DeployOrchestrator(bench, output_handler=output)
-    drained = False
     if drain:
         # A timeout aborts, same as every other drain call site: the workers are resumed first, so
         # the bench is left exactly as it was found -- up, processing -- and the stop can be
         # retried or forced with --no-drain. Stopping anyway would have been the one place where a
         # refused command still did the thing.
-        drained = drain_gate(orchestrator, output, action="stop")
+        #
+        # The window is deliberately EMPTY. Every other caller does its work inside the suspend;
+        # here the drain buys the in-flight jobs their finish and the flag must be cleared BEFORE
+        # the containers go down, because `rq:suspended` is a redis key and the bench's
+        # redis-queue persists it (RDB `save` on a `/data` volume): a flag left set survives the
+        # stop and comes back with the bench, so `fm start` would bring up workers that quietly
+        # process nothing. Wrapping it still earns the signal safety, and the drain wait is the
+        # long part where a Ctrl-C or a dropped SSH actually lands.
+        with rq_suspended(orchestrator, output, action="stop"):
+            pass
     else:
         kill_timeout = (bench.bench_config.workers or WorkersConfig()).kill_timeout
         output.warning(
             f"Stopping WITHOUT draining: in-flight jobs are interrupted "
             f"(container stop grace is 10s, force-stop after {kill_timeout}s)",
         )
-
-    if drained:
-        # Resumed BEFORE the containers go down, unlike every other caller, which resumes after
-        # its work. `rq:suspended` is a redis key and the bench's redis-queue persists it (RDB
-        # `save` on a `/data` volume), so a flag left set survives the stop and comes back with
-        # the bench: `fm start` would bring up workers that quietly process nothing. The drain
-        # bought the in-flight jobs their finish, not a permanently paused queue.
-        orchestrator.resume_workers()
 
     with spinner(output, f"Stopping {bench.name}"):
         bench.stop()

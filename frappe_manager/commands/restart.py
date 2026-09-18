@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from typing import Annotated
 
 import typer
@@ -207,7 +208,7 @@ def restart(
         DeployError,
         DeployOrchestrator,
     )
-    from frappe_manager.site_manager.modules.worker_drain import drain_gate
+    from frappe_manager.site_manager.modules.worker_drain import rq_suspended
 
     orchestrator = DeployOrchestrator(bench, output_handler=output)
 
@@ -282,10 +283,10 @@ def restart(
                 "--rolling needs an image bench (mount benches restart web via supervisor, which is already fast)",
                 exception=typer.Exit(code=1),
             )
-        drained = False
-        if workers and drain:
-            drained = drain_gate(orchestrator, output, action="restart")
-        try:
+        # `rq_suspended` owns the resume, signals included: `rq:suspended` is a redis key that
+        # outlives this process, so a leaked one leaves workers alive and consuming nothing.
+        suspend = rq_suspended(orchestrator, output, action="restart") if (workers and drain) else nullcontext()
+        with suspend:
             try:
                 orchestrator.rolling_restart()
             except DeployError as e:
@@ -294,9 +295,6 @@ def restart(
             if workers:
                 with spinner(output, f"Restarting workers for {benchname}"):
                     _restart_workers(use_container_restart=False)
-        finally:
-            if drained:
-                orchestrator.resume_workers()
         return
 
     use_container_restart = container
@@ -304,10 +302,8 @@ def restart(
     with spinner(output, f"Restarting {benchname}"):
         # Gate first: on drain timeout the restart aborts before ANY leg
         # (web included) is touched.
-        drained = False
-        if workers and drain:
-            drained = drain_gate(orchestrator, output, action="restart")
-        try:
+        suspend = rq_suspended(orchestrator, output, action="restart") if (workers and drain) else nullcontext()
+        with suspend:
             if web:
                 bench.restart_web_containers_services(use_container_restart=use_container_restart, force=force)
 
@@ -319,9 +315,6 @@ def restart(
 
             if workers:
                 _restart_workers(use_container_restart=use_container_restart)
-        finally:
-            if drained:
-                orchestrator.resume_workers()
 
         if nginx:
             bench.restart_nginx_service(force=force)

@@ -1743,3 +1743,31 @@ class TestExternalRedis:
 
         assert world.config.redis.queue == self.QUEUE
         assert world.orchestrator.set_maintenance_mode.call_args_list[-1].args == (0,)
+
+    def test_workers_resume_before_maintenance_clears(self, world):
+        """THE ordering rule, now structural rather than remembered: `frappe_maintenance_mode`
+        wraps `rq_suspended`, so the inner one exits first. Reversed, producers come back to a
+        queue nothing is consuming -- the worst of both states."""
+        order: list[str] = []
+        world.orchestrator.resume_workers.side_effect = lambda: order.append("resume_workers")
+        world.orchestrator.set_maintenance_mode.side_effect = lambda value: order.append(f"maintenance={value}")
+        world.queue_depth = [(3, 0), (0, 0)]
+        world.config.workers = WorkersConfig(drain_poll=0)
+
+        world.run(redis_queue=self.QUEUE)
+
+        assert order == ["maintenance=1", "resume_workers", "maintenance=0"]
+
+    def test_an_interrupt_mid_apply_unwinds_in_the_same_order(self, world):
+        # A backlog, so there IS a maintenance window to unwind: an empty queue needs none.
+        world.queue_depth = [(3, 0), (0, 0)]
+        world.config.workers = WorkersConfig(drain_poll=0)
+        order: list[str] = []
+        world.orchestrator.resume_workers.side_effect = lambda: order.append("resume_workers")
+        world.orchestrator.set_maintenance_mode.side_effect = lambda value: order.append(f"maintenance={value}")
+        world.bench.docker_client.compose.up.side_effect = KeyboardInterrupt
+
+        with pytest.raises(KeyboardInterrupt):
+            world.run(redis_queue=self.QUEUE)
+
+        assert order == ["maintenance=1", "resume_workers", "maintenance=0"]
