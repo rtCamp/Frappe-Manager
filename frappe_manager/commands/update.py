@@ -1,4 +1,5 @@
 import time
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from typing import Annotated
 
@@ -20,7 +21,7 @@ from frappe_manager.site_manager.bench_config import (
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.modules.compose_shape import redis_queue_depth
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployOrchestrator
-from frappe_manager.site_manager.modules.worker_drain import drain_gate
+from frappe_manager.site_manager.modules.worker_drain import frappe_maintenance_mode, rq_suspended
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.process_lock import bench_lock
 from frappe_manager.utils.site import host_bench_dir
@@ -361,34 +362,36 @@ def apply_update(bench: Bench, plan: UpdatePlan, output, *, orchestrator=None, d
     fm's own regeneration paths (`republish_site_map`) push config onto containers, so "config
     ahead" self-heals while "containers ahead" silently flips serving later. Compose is rendered
     once, and the accumulated container set is acted on once.
+
+    The two pieces of state this holds outside the process are NESTED rather than unwound by
+    hand, and the nesting IS the ordering rule: `frappe_maintenance_mode` outside,
+    `rq_suspended` inside, so the workers resume BEFORE maintenance clears. Reversed, producers
+    come back to a queue nothing is consuming -- the worst of both states -- and as two
+    hand-written cleanups that ordering was a comment someone had to remember.
     """
+    if orchestrator is None:
+        _apply_plan(bench, plan, output)
+        return
+
     # Before ANY write: the backlog lives on the endpoint the bench is leaving, and
     # `_current_queue_url` reads the recorded config, which the save below replaces.
-    if plan.quiesce_producers and orchestrator is not None:
-        _quiesce_producers(bench, plan, output, orchestrator)
+    maintenance = frappe_maintenance_mode(orchestrator, output) if plan.quiesce_producers else nullcontext()
+    with maintenance:
+        if plan.quiesce_producers:
+            _wait_for_empty_queue(bench, plan, output, orchestrator)
 
-    drained = False
-    if plan.touches_workers and orchestrator is not None:
-        if drain:
-            drained = drain_gate(orchestrator, output, action="update")
-        else:
-            output.warning(
-                f"Restarting workers WITHOUT draining: in-flight jobs are interrupted "
-                f"(SIGUSR1, force-stop after {plan.kill_timeout}s)",
-            )
+        suspend: AbstractContextManager = nullcontext()
+        if plan.touches_workers:
+            if drain:
+                suspend = rq_suspended(orchestrator, output, action="update")
+            else:
+                output.warning(
+                    f"Restarting workers WITHOUT draining: in-flight jobs are interrupted "
+                    f"(SIGUSR1, force-stop after {plan.kill_timeout}s)",
+                )
 
-    try:
-        _apply_plan(bench, plan, output)
-    finally:
-        # The RQ suspend flag lives in redis, so it outlives this command: workers left suspended
-        # by an aborted apply would stay idle until something resumed them.
-        if drained and orchestrator is not None:
-            orchestrator.resume_workers()
-        # Same reasoning for `maintenance_mode`, which lives in site_config: a failed apply that
-        # left it set would keep the site serving 503 and the scheduler inactive indefinitely.
-        if plan.quiesce_producers and orchestrator is not None:
-            output.change_head("Resuming producers")
-            orchestrator.set_maintenance_mode(0)
+        with suspend:
+            _apply_plan(bench, plan, output)
 
 
 def _apply_plan(bench: Bench, plan: UpdatePlan, output) -> None:
@@ -450,49 +453,39 @@ def _apply_plan(bench: Bench, plan: UpdatePlan, output) -> None:
         raise
 
 
-def _quiesce_producers(bench: Bench, plan: UpdatePlan, output, orchestrator) -> None:
-    """Pause what enqueues, then wait for the backlog to reach zero.
+def _wait_for_empty_queue(bench: Bench, plan: UpdatePlan, output, orchestrator) -> None:
+    """Wait for the backlog to reach zero. The caller holds `maintenance_mode` around this.
 
-    This is the OPPOSITE of the drain gate, and both are needed for different reasons. A drain
-    suspends the workers so in-flight jobs finish before containers die; RQ's suspend stops
-    workers PICKING UP work, so it deliberately freezes a backlog and could never empty one.
-    Emptying means stopping the producers instead and letting the workers eat: frappe's
-    `maintenance_mode` makes `is_scheduler_inactive` true, so the scheduler stops enqueuing, and
-    the 503 stops the web tier doing it.
+    Pausing producers is the OPPOSITE of the drain gate, and both are needed for different
+    reasons. A drain suspends the workers so in-flight jobs finish before containers die; RQ's
+    suspend stops workers PICKING UP work, so it deliberately freezes a backlog and could never
+    empty one. Emptying means stopping the producers instead and letting the workers eat:
+    frappe's `maintenance_mode` makes `is_scheduler_inactive` true, so the scheduler stops
+    enqueuing, and the 503 stops the web tier doing it.
 
     Why bother: queued jobs are the only redis data that cannot be regenerated, and they do not
     move with the endpoint. Copying redis instead would import the old server's worker-registry
     keys (phantom workers, jobs started by processes that no longer exist), and the transports
     that could copy it -- SYNC, MIGRATE, DEBUG -- are exactly what managed providers block.
+
+    Unbounded on purpose. The wait's scale is the QUEUE, not a job, so any timeout default would
+    be as arbitrary as the job-sized 300 briefly reused here, and a bound whose only action is
+    "revert, try again" tells the operator nothing the plan did not already print before they
+    committed to the run. So it waits, reporting the remaining count every poll, and a signal is
+    the way out -- `frappe_maintenance_mode` restores producers on the way past.
     """
     config = bench.bench_config.workers or WorkersConfig()
     current_queue = _current_queue_url(bench)
+    output.change_head(f"Producers paused, {plan.queued_jobs} job(s) still queued")
 
-    output.change_head(f"Pausing producers, {plan.queued_jobs} job(s) still queued")
-    orchestrator.set_maintenance_mode(1)
-
-    # Unbounded on purpose. The wait's scale is the QUEUE, not a job, so any timeout default
-    # would be as arbitrary as the job-sized 300 briefly reused here -- and a bound whose only
-    # action is "revert, try again" tells the operator nothing the plan did not already print
-    # before they committed to the run. So it waits, reporting the remaining count every poll,
-    # and Ctrl-C is the way out. `--abandon-queued` is the way to skip the wait entirely.
-    #
-    # Producers are resumed on EVERY way out, Ctrl-C included. This runs ahead of apply_update's
-    # try/finally, so an interrupt here would otherwise leave `maintenance_mode` set: the site
-    # stuck serving 503 with its scheduler off, by a run that changed nothing else.
-    try:
-        while True:
-            depth = redis_queue_depth(current_queue, orchestrator.container_command_runner())
-            if depth is not None and sum(depth) == 0:
-                output.print("Queue is empty; nothing will be left behind by the switch")
-                return
-            remaining = sum(depth) if depth else "an unknown number of"
-            output.change_head(f"Waiting for the queue to drain, {remaining} job(s) left (Ctrl-C to abort)")
-            time.sleep(config.drain_poll)
-    except BaseException:
-        orchestrator.set_maintenance_mode(0)
-        output.warning("Producers resumed; nothing was changed.")
-        raise
+    while True:
+        depth = redis_queue_depth(current_queue, orchestrator.container_command_runner())
+        if depth is not None and sum(depth) == 0:
+            output.print("Queue is empty; nothing will be left behind by the switch")
+            return
+        remaining = sum(depth) if depth else "an unknown number of"
+        output.change_head(f"Waiting for the queue to drain, {remaining} job(s) left (Ctrl-C to abort)")
+        time.sleep(config.drain_poll)
 
 
 def _current_queue_url(bench: Bench) -> str:

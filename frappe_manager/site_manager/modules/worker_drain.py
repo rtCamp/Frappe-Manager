@@ -21,6 +21,12 @@ whether the caller owes a resume rather than resuming itself:
   stop and comes back with the bench, so `fm start` would bring up workers that process nothing.
 """
 
+import contextlib
+import os
+import signal
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+
 import typer
 
 from frappe_manager.site_manager.modules.deploy_orchestrator import DrainUnavailable
@@ -65,3 +71,94 @@ def drain_gate(orchestrator, output, *, action: str) -> bool:
         "to interrupt them."
     )
     raise typer.Exit(1)
+
+
+@contextmanager
+def _signal_scoped(output, undo: Callable[[], None], what: str) -> Iterator[None]:
+    """Run ``undo`` if the block is left for ANY reason, signals included, then re-raise.
+
+    SCOPED, never process-wide, and the difference matters. A global signal-to-exception handler
+    would make every long destructive command unwind instead of dying, and two of those unwinds
+    are worse than death: `fm migrate` defaults to `--on-failure=prompt`, which would prompt into
+    the terminal SIGHUP has just taken away, and `fm switch` would begin a rollback measured in
+    minutes. SIGTERM is normally followed by SIGKILL after a grace period (docker stop gives ten
+    seconds), so a long unwind is truncated -- a partially rolled-back bench is worse than a
+    merely half-finished one. The undos here are a single container exec each, fast enough to
+    finish inside any grace period.
+
+    Without this, the state a wait holds simply leaks: fm installs no SIGINT/SIGTERM/SIGHUP
+    handlers (`main.py` touches only SIGPIPE), `atexit` does not run on signal death, so neither
+    `finally` nor the registered cleanup gets a turn. Locks are the exception and need no help --
+    they are BSD `flock`, which the kernel releases when the process dies.
+    """
+    fired = False
+
+    def handler(signum, _frame):
+        nonlocal fired
+        if fired:
+            # A second signal is an escape hatch, not a second cleanup: someone is pressing
+            # Ctrl-C again because the undo itself is stuck. Restore the default disposition and
+            # deliver the signal to ourselves, so it kills us the way it would have originally.
+            signal.signal(signum, signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
+        fired = True
+        # KeyboardInterrupt, not a bespoke class: it is what Ctrl-C already raises, so SIGTERM and
+        # SIGHUP take the identical path through every caller, and it is a BaseException -- fm's
+        # `except Exception` arms must not swallow an operator's interrupt as an unexpected error.
+        raise KeyboardInterrupt(f"signal {signum}")
+
+    previous: dict = {}
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        # ValueError off the main thread, OSError for a signal the platform lacks. A no-op install
+        # is survivable (the `finally` paths still run for exceptions); a crash here would not be.
+        with contextlib.suppress(ValueError, OSError):
+            previous[sig] = signal.signal(sig, handler)
+
+    try:
+        yield
+    except BaseException:
+        output.warning(f"Interrupted: {what}")
+        undo()
+        raise
+    finally:
+        for sig, old in previous.items():
+            with contextlib.suppress(ValueError, OSError):
+                signal.signal(sig, old)
+
+
+@contextmanager
+def frappe_maintenance_mode(orchestrator, output) -> Iterator[None]:
+    """Hold frappe's own ``maintenance_mode`` for the block, and always clear it.
+
+    Named for the mechanism, not the effect, because fm has a second unrelated thing called
+    maintenance: `fm maintenance` writes an nginx 503 block and does NOT touch this flag. This one
+    is `bench set-config maintenance_mode`, which also makes `is_scheduler_inactive` true
+    (frappe/utils/scheduler.py) -- that is why it stops the scheduler enqueuing, and why it is the
+    lever for emptying a queue rather than merely freezing it.
+    """
+    orchestrator.set_maintenance_mode(1)
+    with _signal_scoped(output, lambda: orchestrator.set_maintenance_mode(0), "resuming producers"):
+        yield
+    orchestrator.set_maintenance_mode(0)
+
+
+@contextmanager
+def rq_suspended(orchestrator, output, *, action: str) -> Iterator[None]:
+    """Hold RQ's suspend flag for the block, and always clear it if we set it.
+
+    Named after the flag itself (`rq:suspended`, a redis key) rather than a vague worker state,
+    because the key outliving the process is the whole hazard: workers alive and consuming
+    nothing is a silent outage, and it survives a restart of the bench.
+
+    Replaces the hand-written `drained = drain_gate(...)` plus `try/finally: resume` pair each
+    caller carried, so a new caller cannot forget the resume.
+    """
+    drained = drain_gate(orchestrator, output, action=action)
+
+    def undo() -> None:
+        if drained:
+            orchestrator.resume_workers()
+
+    with _signal_scoped(output, undo, "resuming RQ workers"):
+        yield
+    undo()
