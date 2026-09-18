@@ -1690,20 +1690,6 @@ class TestExternalRedis:
         assert world.saves == 0
         world.orchestrator.set_maintenance_mode.assert_not_called()
 
-    def test_a_backlog_that_never_drains_changes_nothing(self, world):
-        """Producers are resumed on the way out, so the bench is left exactly as it was found."""
-        world.queue_depth = (41, 2)
-        world.config.workers = WorkersConfig(queue_drain_timeout=1, drain_poll=0)
-
-        with pytest.raises(typer.Exit) as exc:
-            world.run(redis_queue=self.QUEUE)
-
-        assert exc.value.exit_code == 1
-        assert world.saves == 0
-        assert world.compose_up_calls == []
-        assert world.orchestrator.set_maintenance_mode.call_args_list[-1].args == (0,)
-        assert any("--abandon-queued" in e for e in world.errors)
-
     def test_abandon_queued_switches_without_pausing_anything(self, world):
         world.queue_depth = (41, 2)
 
@@ -1731,34 +1717,11 @@ class TestExternalRedis:
         world.orchestrator.set_maintenance_mode.assert_not_called()
         assert world.config.redis.cache == self.CACHE
 
-    def test_the_backlog_wait_has_its_own_timeout(self, world):
-        """`drain_timeout` bounds ONE in-flight job (300s is generous for that); emptying a
-        backlog scales with the queue, so borrowing the job-sized number made a legitimate
-        endpoint move impossible to finish."""
-        world.queue_depth = (41, 2)
-        world.config.workers = WorkersConfig(drain_timeout=300, queue_drain_timeout=1, drain_poll=0)
-
-        with pytest.raises(typer.Exit):
-            world.run(redis_queue=self.QUEUE)
-
-        assert any("queue_drain_timeout" in e for e in world.errors)
-        assert not any("after 300s" in e for e in world.errors)
-
-    def test_zero_means_wait_as_long_as_it_takes(self, world):
-        """The site is already behind the maintenance page and the operator is watching progress,
-        so "no limit" is usually what a real migration wants."""
-        world.queue_depth = [(41, 2), (12, 0), (0, 0)]
-        world.config.workers = WorkersConfig(queue_drain_timeout=0, drain_poll=0)
-
-        world.run(redis_queue=self.QUEUE)
-
-        assert world.config.redis.queue == self.QUEUE
-
     def test_an_interrupt_mid_wait_resumes_producers(self, world):
         """fm installs no SIGINT handler and this wait runs ahead of apply's try/finally, so a
         Ctrl-C here would otherwise leave the site serving 503 with its scheduler off."""
         world.queue_depth = (41, 2)
-        world.config.workers = WorkersConfig(queue_drain_timeout=0, drain_poll=0)
+        world.config.workers = WorkersConfig(drain_poll=0)
         world.interrupt_after_polls = 2
 
         with pytest.raises(KeyboardInterrupt):
@@ -1767,3 +1730,16 @@ class TestExternalRedis:
         assert world.orchestrator.set_maintenance_mode.call_args_list[-1].args == (0,)
         assert world.saves == 0
         assert world.compose_up_calls == []
+
+    def test_the_backlog_wait_is_unbounded(self, world):
+        """No timeout by design: the wait's scale is the QUEUE, so any default would be as
+        arbitrary as the job-sized 300 briefly reused here, and a bound whose only action is
+        "revert, try again" tells the operator nothing the plan did not already print. It waits
+        through an arbitrarily long backlog rather than giving up on one."""
+        world.queue_depth = [(9000, 1), (4000, 1), (900, 0), (12, 0), (0, 0)]
+        world.config.workers = WorkersConfig(drain_timeout=1, drain_poll=0)
+
+        world.run(redis_queue=self.QUEUE)
+
+        assert world.config.redis.queue == self.QUEUE
+        assert world.orchestrator.set_maintenance_mode.call_args_list[-1].args == (0,)
