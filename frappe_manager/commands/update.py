@@ -466,45 +466,33 @@ def _quiesce_producers(bench: Bench, plan: UpdatePlan, output, orchestrator) -> 
     that could copy it -- SYNC, MIGRATE, DEBUG -- are exactly what managed providers block.
     """
     config = bench.bench_config.workers or WorkersConfig()
-    # `queue_drain_timeout`, NOT `drain_timeout`: that one is job-sized (how long ONE in-flight
-    # job may take before a restart gives up), this one is backlog-sized. Ten thousand queued
-    # jobs cannot finish in five minutes, and borrowing the job number made a legitimate endpoint
-    # move impossible to complete. 0 means wait as long as it takes, which is usually right here:
-    # the site is already behind the maintenance page and the operator is watching the countdown.
-    timeout = config.queue_drain_timeout
     current_queue = _current_queue_url(bench)
 
     output.change_head(f"Pausing producers, {plan.queued_jobs} job(s) still queued")
     orchestrator.set_maintenance_mode(1)
 
-    # Producers are resumed on EVERY way out of this wait, Ctrl-C included. fm installs no SIGINT
-    # handler and this runs ahead of apply_update's try/finally, so an interrupt here would
-    # otherwise leave `maintenance_mode` set: the site stuck serving 503 with its scheduler off,
-    # by a command that changed nothing else and said nothing about it.
+    # Unbounded on purpose. The wait's scale is the QUEUE, not a job, so any timeout default
+    # would be as arbitrary as the job-sized 300 briefly reused here -- and a bound whose only
+    # action is "revert, try again" tells the operator nothing the plan did not already print
+    # before they committed to the run. So it waits, reporting the remaining count every poll,
+    # and Ctrl-C is the way out. `--abandon-queued` is the way to skip the wait entirely.
+    #
+    # Producers are resumed on EVERY way out, Ctrl-C included. This runs ahead of apply_update's
+    # try/finally, so an interrupt here would otherwise leave `maintenance_mode` set: the site
+    # stuck serving 503 with its scheduler off, by a run that changed nothing else.
     try:
-        deadline = None if timeout <= 0 else time.monotonic() + timeout
         while True:
             depth = redis_queue_depth(current_queue, orchestrator.container_command_runner())
             if depth is not None and sum(depth) == 0:
                 output.print("Queue is empty; nothing will be left behind by the switch")
                 return
-            if deadline is not None and time.monotonic() >= deadline:
-                break
             remaining = sum(depth) if depth else "an unknown number of"
-            output.change_head(f"Waiting for the queue to drain, {remaining} job(s) left")
+            output.change_head(f"Waiting for the queue to drain, {remaining} job(s) left (Ctrl-C to abort)")
             time.sleep(config.drain_poll)
     except BaseException:
         orchestrator.set_maintenance_mode(0)
         output.warning("Producers resumed; nothing was changed.")
         raise
-
-    orchestrator.set_maintenance_mode(0)
-    output.display_error(
-        f"The queue still has work after {timeout}s. Nothing was changed. Wait for it to clear, raise "
-        r"\[workers].queue_drain_timeout (or set it to 0 to wait as long as it takes), or re-run with "
-        "--abandon-queued to switch and leave those jobs on the old redis.",
-    )
-    raise typer.Exit(1)
 
 
 def _current_queue_url(bench: Bench) -> str:
