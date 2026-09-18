@@ -118,6 +118,27 @@ class TestScopedSignalCleanup:
     follow-up SIGKILL truncates halfway.
     """
 
+    def test_both_scheduler_flags_are_set_and_cleared_together(self):
+        """`maintenance_mode` alone already satisfies `is_scheduler_inactive`, but
+        `pause_scheduler` names what fm wants -- and setting both survives an operator clearing
+        one by hand mid-operation, which would otherwise let the scheduler refill the queue."""
+        orchestrator = _orchestrator()
+
+        with frappe_maintenance_mode(orchestrator, MagicMock()):
+            pass
+
+        assert [c.args for c in orchestrator.set_maintenance_mode.call_args_list] == [(1,), (0,)]
+        assert [c.args for c in orchestrator.set_scheduler_paused.call_args_list] == [(1,), (0,)]
+
+    def test_a_signal_clears_both_flags(self):
+        orchestrator = _orchestrator()
+
+        with pytest.raises(KeyboardInterrupt):
+            _signal_during(frappe_maintenance_mode(orchestrator, MagicMock()), signal.SIGHUP)
+
+        assert orchestrator.set_maintenance_mode.call_args_list[-1].args == (0,)
+        assert orchestrator.set_scheduler_paused.call_args_list[-1].args == (0,)
+
     @pytest.mark.parametrize("sig", [signal.SIGINT, signal.SIGTERM, signal.SIGHUP])
     def test_a_signal_mid_wait_clears_the_maintenance_flag(self, sig):
         orchestrator = _orchestrator()

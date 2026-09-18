@@ -135,11 +135,22 @@ def frappe_maintenance_mode(orchestrator, output) -> Iterator[None]:
     is `bench set-config maintenance_mode`, which also makes `is_scheduler_inactive` true
     (frappe/utils/scheduler.py) -- that is why it stops the scheduler enqueuing, and why it is the
     lever for emptying a queue rather than merely freezing it.
+
+    `pause_scheduler` is set with it, and cleared with it. See `pause` below for why both.
     """
-    orchestrator.set_maintenance_mode(1)
-    with _signal_scoped(output, lambda: orchestrator.set_maintenance_mode(0), "resuming producers"):
+    def pause(value: int) -> None:
+        # BOTH keys, always together. `maintenance_mode` alone already makes
+        # `is_scheduler_inactive` true, but `pause_scheduler` is the one that names what fm
+        # actually wants (the scheduler stops enqueuing); the 503 is a side effect it tolerates.
+        # Setting both also survives an operator clearing one by hand mid-operation, which would
+        # otherwise silently let the scheduler refill a queue fm is trying to empty.
+        orchestrator.set_maintenance_mode(value)
+        orchestrator.set_scheduler_paused(value)
+
+    pause(1)
+    with _signal_scoped(output, lambda: pause(0), "resuming producers"):
         yield
-    orchestrator.set_maintenance_mode(0)
+    pause(0)
 
 
 @contextmanager

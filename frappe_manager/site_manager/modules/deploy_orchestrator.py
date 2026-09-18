@@ -365,6 +365,22 @@ class DeployOrchestrator:
         """
         self._exec_frappe(f"{BENCH_BIN} --site {self.site} set-config -g maintenance_mode {value}")
 
+    def set_scheduler_paused(self, value: int) -> None:
+        """Frappe's `pause_scheduler`, the other half of `is_scheduler_inactive`.
+
+        Set alongside `maintenance_mode` wherever fm needs the scheduler to stop enqueuing.
+        `maintenance_mode` alone already satisfies that predicate
+        (frappe/utils/scheduler.py), so this is belt AND a statement of intent: pausing the
+        scheduler is the part fm actually wants, while the 503 is a side effect it tolerates.
+        It also survives an operator clearing `maintenance_mode` by hand mid-operation, which
+        would otherwise silently let the scheduler refill a queue fm is trying to empty.
+
+        Cleared the same way it is set. Note frappe REFUSES to re-enable the scheduler through
+        `enable_scheduler` while maintenance_mode is on, but `pause_scheduler` is a plain config
+        key, so writing 0 is always safe regardless of the order the two are cleared in.
+        """
+        self._exec_frappe(f"{BENCH_BIN} --site {self.site} set-config -g pause_scheduler {value}")
+
     def _fetch_image(self, image: str) -> None:
         """Ensure ``image`` (+ its derived nginx image) is present on the target daemon.
 
