@@ -1024,6 +1024,16 @@ class WorkersConfig(BaseModel):
         300, description="Seconds to wait for in-flight jobs; restart and switch abort when exceeded."
     )
     drain_poll: int = Field(5, description="Poll interval in seconds while draining.")
+    # A DIFFERENT quantity from `drain_timeout`, which is why it is a different key. That one
+    # bounds how long ONE in-flight job may take before a restart gives up -- job-sized, so 300s
+    # is generous. This one bounds emptying a whole BACKLOG before the redis queue endpoint
+    # moves, which scales with the queue: ten thousand jobs cannot finish in five minutes, and
+    # borrowing the job-sized number made a legitimate migration impossible to complete. `0`
+    # means no limit: the site is already behind the maintenance page and an operator is watching
+    # progress, so waiting is usually what they want, and Ctrl-C resumes producers cleanly.
+    queue_drain_timeout: int = Field(
+        1800, description="Seconds to wait for the queue backlog to empty before a redis queue move; 0 = no limit."
+    )
     skip_stale: bool = Field(True, description="Skip idle workers that stop responding while draining.")
     stale_timeout: int = Field(15, description="Seconds an idle unresponsive worker may block the drain wait.")
     kill_timeout: int = Field(

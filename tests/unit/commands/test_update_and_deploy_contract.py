@@ -167,11 +167,17 @@ class UpdateWorld:
         # Queue depth the redis cutover probes. A tuple is a fixed answer, a list is a sequence of
         # answers (a backlog draining), None is "could not count" -- which is NOT zero.
         self.queue_depth: object = (0, 0)
+        # Polls before a simulated Ctrl-C, for the interrupt-safety test.
+        self.interrupt_after_polls: int | None = None
 
         p = stack.enter_context
         p(patch("frappe_manager.commands.update.DeployOrchestrator", return_value=self.orchestrator))
 
         def _depth(*_args, **_kwargs):
+            if self.interrupt_after_polls is not None:
+                self.interrupt_after_polls -= 1
+                if self.interrupt_after_polls <= 0:
+                    raise KeyboardInterrupt
             if isinstance(self.queue_depth, list):
                 return self.queue_depth.pop(0) if len(self.queue_depth) > 1 else self.queue_depth[0]
             return self.queue_depth
@@ -1687,7 +1693,7 @@ class TestExternalRedis:
     def test_a_backlog_that_never_drains_changes_nothing(self, world):
         """Producers are resumed on the way out, so the bench is left exactly as it was found."""
         world.queue_depth = (41, 2)
-        world.config.workers = WorkersConfig(drain_timeout=0, drain_poll=0)
+        world.config.workers = WorkersConfig(queue_drain_timeout=1, drain_poll=0)
 
         with pytest.raises(typer.Exit) as exc:
             world.run(redis_queue=self.QUEUE)
@@ -1724,3 +1730,40 @@ class TestExternalRedis:
 
         world.orchestrator.set_maintenance_mode.assert_not_called()
         assert world.config.redis.cache == self.CACHE
+
+    def test_the_backlog_wait_has_its_own_timeout(self, world):
+        """`drain_timeout` bounds ONE in-flight job (300s is generous for that); emptying a
+        backlog scales with the queue, so borrowing the job-sized number made a legitimate
+        endpoint move impossible to finish."""
+        world.queue_depth = (41, 2)
+        world.config.workers = WorkersConfig(drain_timeout=300, queue_drain_timeout=1, drain_poll=0)
+
+        with pytest.raises(typer.Exit):
+            world.run(redis_queue=self.QUEUE)
+
+        assert any("queue_drain_timeout" in e for e in world.errors)
+        assert not any("after 300s" in e for e in world.errors)
+
+    def test_zero_means_wait_as_long_as_it_takes(self, world):
+        """The site is already behind the maintenance page and the operator is watching progress,
+        so "no limit" is usually what a real migration wants."""
+        world.queue_depth = [(41, 2), (12, 0), (0, 0)]
+        world.config.workers = WorkersConfig(queue_drain_timeout=0, drain_poll=0)
+
+        world.run(redis_queue=self.QUEUE)
+
+        assert world.config.redis.queue == self.QUEUE
+
+    def test_an_interrupt_mid_wait_resumes_producers(self, world):
+        """fm installs no SIGINT handler and this wait runs ahead of apply's try/finally, so a
+        Ctrl-C here would otherwise leave the site serving 503 with its scheduler off."""
+        world.queue_depth = (41, 2)
+        world.config.workers = WorkersConfig(queue_drain_timeout=0, drain_poll=0)
+        world.interrupt_after_polls = 2
+
+        with pytest.raises(KeyboardInterrupt):
+            world.run(redis_queue=self.QUEUE)
+
+        assert world.orchestrator.set_maintenance_mode.call_args_list[-1].args == (0,)
+        assert world.saves == 0
+        assert world.compose_up_calls == []
