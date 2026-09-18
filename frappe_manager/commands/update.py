@@ -466,30 +466,43 @@ def _quiesce_producers(bench: Bench, plan: UpdatePlan, output, orchestrator) -> 
     that could copy it -- SYNC, MIGRATE, DEBUG -- are exactly what managed providers block.
     """
     config = bench.bench_config.workers or WorkersConfig()
+    # `queue_drain_timeout`, NOT `drain_timeout`: that one is job-sized (how long ONE in-flight
+    # job may take before a restart gives up), this one is backlog-sized. Ten thousand queued
+    # jobs cannot finish in five minutes, and borrowing the job number made a legitimate endpoint
+    # move impossible to complete. 0 means wait as long as it takes, which is usually right here:
+    # the site is already behind the maintenance page and the operator is watching the countdown.
+    timeout = config.queue_drain_timeout
+    current_queue = _current_queue_url(bench)
+
     output.change_head(f"Pausing producers, {plan.queued_jobs} job(s) still queued")
     orchestrator.set_maintenance_mode(1)
 
-    deadline = time.monotonic() + config.drain_timeout
-    current_queue = _current_queue_url(bench)
-    while True:
-        depth = redis_queue_depth(current_queue, orchestrator.container_command_runner())
-        if depth is not None and sum(depth) == 0:
-            output.print("Queue is empty; nothing will be left behind by the switch")
-            return
-        if time.monotonic() >= deadline:
-            break
-        remaining = sum(depth) if depth else "an unknown number of"
-        output.change_head(f"Waiting for the queue to drain, {remaining} job(s) left")
-        time.sleep(config.drain_poll)
+    # Producers are resumed on EVERY way out of this wait, Ctrl-C included. fm installs no SIGINT
+    # handler and this runs ahead of apply_update's try/finally, so an interrupt here would
+    # otherwise leave `maintenance_mode` set: the site stuck serving 503 with its scheduler off,
+    # by a command that changed nothing else and said nothing about it.
+    try:
+        deadline = None if timeout <= 0 else time.monotonic() + timeout
+        while True:
+            depth = redis_queue_depth(current_queue, orchestrator.container_command_runner())
+            if depth is not None and sum(depth) == 0:
+                output.print("Queue is empty; nothing will be left behind by the switch")
+                return
+            if deadline is not None and time.monotonic() >= deadline:
+                break
+            remaining = sum(depth) if depth else "an unknown number of"
+            output.change_head(f"Waiting for the queue to drain, {remaining} job(s) left")
+            time.sleep(config.drain_poll)
+    except BaseException:
+        orchestrator.set_maintenance_mode(0)
+        output.warning("Producers resumed; nothing was changed.")
+        raise
 
-    # Resumed BEFORE the refusal, the same way `drain_gate` resumes before aborting: this runs
-    # ahead of apply_update's try/finally, so leaving it set here would keep the site serving 503
-    # and the scheduler inactive after a command that changed nothing else.
     orchestrator.set_maintenance_mode(0)
     output.display_error(
-        f"The queue still has work after {config.drain_timeout}s. Nothing was changed. Wait for it to "
-        r"clear, raise \[workers].drain_timeout, or re-run with --abandon-queued to switch and leave "
-        "those jobs on the old redis.",
+        f"The queue still has work after {timeout}s. Nothing was changed. Wait for it to clear, raise "
+        r"\[workers].queue_drain_timeout (or set it to 0 to wait as long as it takes), or re-run with "
+        "--abandon-queued to switch and leave those jobs on the old redis.",
     )
     raise typer.Exit(1)
 
