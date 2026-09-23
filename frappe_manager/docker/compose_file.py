@@ -22,7 +22,6 @@ from frappe_manager.utils.site import parse_docker_volume
 yaml = YAML(typ="rt")
 yaml.representer.ignore_aliases = lambda *args: True
 
-# Set the default flow style to None to preserve the null representation
 yaml.default_flow_style = False
 yaml.default_style = None
 
@@ -62,7 +61,6 @@ class ComposeFile:
         if template_dir:
             self.template_dir = template_dir
 
-        # New: Transaction support
         self._pending_changes: list[tuple[str, Any]] = []
         self._snapshot: dict | None = None
         self._pending_snapshot: list[tuple[str, Any]] = []
@@ -110,12 +108,10 @@ class ComposeFile:
         """
         template_path: Path = get_template_path(self.template_name, self.template_dir)
 
-        # Render Jinja2 template with dynamic image tags
         template = Template(template_path.read_text())
         image_tag = get_docker_image_tag()
         rendered_template = template.render(frappe_image_tag=image_tag, nginx_image_tag=image_tag)
 
-        # Parse rendered YAML
         yml = yaml.load(rendered_template)
         return yml
 
@@ -365,7 +361,6 @@ class ComposeFile:
         Writes the Docker Compose file to the specified path.
         """
         try:
-            # saving the docker compose to the directory
             with open(self.compose_path, "w") as f:
                 yaml.dump(self.yml, f, transform=represent_null_empty)
         except Exception as e:
@@ -416,7 +411,6 @@ class ComposeFile:
         Set specific service volume mounts.
         """
         try:
-            # Convert DockerVolumeMount objects to strings
             volumes_list = [str(volume) for volume in volumes]
 
             self.yml["services"][service]["volumes"] = volumes_list
@@ -538,7 +532,6 @@ class ComposeFile:
         for service in services:
             self.set_service_restart(service, restart_policy)
 
-    # ==================== NEW: Transaction Support ====================
 
     def _apply_change(self, change: tuple[str, Any]):
         """
@@ -599,7 +592,6 @@ class ComposeFile:
         self._pending_changes.clear()
         return self
 
-    # ==================== NEW: Builder/Fluent Interface ====================
 
     def with_envs(self, envs: dict, append: bool = True) -> "ComposeFile":
         """
@@ -678,7 +670,6 @@ class ComposeFile:
         self._pending_changes.append(("restart", restart_policy))
         return self
 
-    # ==================== NEW: Atomic Configuration Methods ====================
 
     def configure_bench(
         self,
@@ -710,8 +701,6 @@ class ComposeFile:
         if labels:
             self.set_all_labels(labels)
         if users:
-            # Convert tuple format to dict format if needed
-            # Supports both {'service': (uid, gid)} and {'service': {'uid': uid, 'gid': gid}}
             converted_users = {}
             for service, user_data in users.items():
                 if isinstance(user_data, tuple):
@@ -772,7 +761,6 @@ class ComposeFile:
 
         return self
 
-    # ==================== NEW: Context Manager Support ====================
 
     def __enter__(self) -> "ComposeFile":
         """Enter context: snapshot current state (the yml AND the pending-change queue)."""
@@ -789,7 +777,6 @@ class ComposeFile:
         purpose -- an empty-but-snapshotted yml is still the state to restore.
         """
         if exc_type is None:
-            # Success: save changes
             self.write_to_file()
         else:
             if self._snapshot is not None:

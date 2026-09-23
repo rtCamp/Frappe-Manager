@@ -55,7 +55,6 @@ class ProxyStoragePaths:
         dirs = {}
         for volume in all_volumes:
             if volume.type == DockerVolumeType.bind:
-                # Ensure host is a Path object to access .name property
                 host_path = Path(volume.host) if not isinstance(volume.host, Path) else volume.host
                 name = str(host_path.name)
                 dirs[name] = volume

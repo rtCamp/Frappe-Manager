@@ -59,7 +59,6 @@ class ExternalDomainConfig(BaseModel):
     domain: str = Field(description='The domain name (e.g., "myapp.example.com")')
     ssl_type: str = Field(description='Certificate type (always "letsencrypt" for now)')
     added_at: str = Field(description="ISO 8601 timestamp when certificate was added")
-    # Changed from preferred_challenge to challenge_type
     challenge_type: str = Field(description='Challenge type ("http01" or "dns01")')
     delegation_cname: str | None = Field(default=None, description="Optional CNAME for DNS-01 delegation")
     acme_client: str = Field(default="acme.sh", description='ACME client to use (currently only "acme.sh" is supported)')
@@ -92,7 +91,6 @@ class ExternalDomainConfigManager:
         self.config_path = config_path
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Create empty config if doesn't exist
         if not self.config_path.exists():
             self._save({})
 
@@ -115,7 +113,6 @@ class ExternalDomainConfigManager:
         try:
             data = tomlkit.parse(self.config_path.read_text())
         except Exception:
-            # If file is corrupted or empty, return empty dict
             return {}, {}
 
         domains: dict[str, ExternalDomainConfig] = {}
@@ -171,7 +168,6 @@ class ExternalDomainConfigManager:
         domains_table = tomlkit.table()
 
         for domain, config in domains.items():
-            # Normalize domain to valid TOML key (replace dots/hyphens with underscores)
             safe_key = domain.replace(".", "_").replace("-", "_")
 
             domain_table = tomlkit.table()
@@ -296,7 +292,6 @@ class ExternalDomainConfigManager:
         if not config:
             return None
 
-        # Parse challenge type
         if config.challenge_type == "dns01":
             challenge_type = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
         else:

@@ -79,7 +79,6 @@ class ServicesManager:
                     f"Not able to create global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
                 ) from e
 
-            # Pull images
             output = self.docker_client.compose.pull(stream=False)
 
             self.output.print(
@@ -146,8 +145,6 @@ class ServicesManager:
         )
 
     def init(self):
-        # check if the global services exits if not then create
-        # TODO this should be done by factory
         current_system = platform.system()
 
         template_name = "docker-compose.services.tmpl"
@@ -170,8 +167,6 @@ class ServicesManager:
         self.proxy_storage = ProxyStoragePaths(proxy_service, self.compose_file_manager)
         self.nginx_controller = NginxController(proxy_service, self.compose_file_manager, self.docker_client)
 
-        # For backward compatibility
-        # TODO: Remove this when all code is updated
         self.proxy_manager = type(
             "ProxyManager",
             (),
@@ -235,7 +230,6 @@ class ServicesManager:
 
         self.path.mkdir(parents=True, exist_ok=True)
 
-        # create required directories
         dirs_to_create = [
             "mariadb/conf",
             "mariadb/logs",
@@ -252,7 +246,6 @@ class ServicesManager:
             "secrets",
         ]
 
-        # set secrets in compose
         self.generate_compose(inputs)
 
         # Ensure network configuration (subnet + proxy IP) is set. Only the
@@ -260,7 +253,6 @@ class ServicesManager:
         # backend network keeps its fixed subnet from the template.
         fm_config = FMConfigManager.import_from_toml()
         if not fm_config.network.configured:
-            # Reuse the network if it's already running (e.g. from a previous setup)
             running = detect_running_network("fm-frontend-network", docker=self.docker_client)
             if running:
                 subnet_cidr = running["subnet_cidr"]
@@ -281,7 +273,6 @@ class ServicesManager:
                 fm_config.export_to_toml()
                 self.output.print(f"Assigned subnet {net_config['subnet_cidr']}, proxy IP {net_config['proxy_ip']}")
 
-        # Set the subnet in the compose YAML
         if fm_config.network.subnet_cidr:
             try:
                 self.compose_file_manager.yml["networks"]["frontend-network"]["ipam"]["config"][0]["subnet"] = (
@@ -314,7 +305,6 @@ class ServicesManager:
         else:
             dirs_to_create.append("mariadb/data")
 
-        # create dirs
         for folder in dirs_to_create:
             temp_dir = self.path / folder
             try:
@@ -324,14 +314,12 @@ class ServicesManager:
                     f"Failed to create global services required dir {temp_dir.absolute()}: {e}"
                 ) from e
 
-        # populate secrets for db
         db_password_path = self.path / "secrets" / "db_password.txt"
         db_root_password_path = self.path / "secrets" / "db_root_password.txt"
 
         db_password_path.write_text(random_password_generate(password_length=16, symbols=True))
         db_root_password_path.write_text(random_password_generate(password_length=24, symbols=True))
 
-        # populate mariadb config
         mariadb_conf = self.path / "mariadb/conf"
         mariadb_conf = str(mariadb_conf.absolute())
         host_run_cp(
@@ -348,16 +336,13 @@ class ServicesManager:
         self.compose_file_manager.write_to_file()
 
         if clean_install:
-            # remove previous contaniners and volumes
             self.docker_client.compose.down(remove_orphans=True, timeout=10, volumes=True, stream=False)
 
     def exists(self):
         return (self.path / "docker-compose.yml").exists()
 
     def generate_compose(self, inputs: dict):
-        # TODO do something about this function
         try:
-            # Extract inputs
             environments = inputs.get("environment")
             labels = inputs.get("labels")
             users = None
@@ -367,7 +352,6 @@ class ServicesManager:
                 for container_name, user_data in inputs["user"].items():
                     users[container_name] = (user_data["uid"], user_data["gid"])
 
-            # Use fluent interface to set all configurations atomically
             cf = self.compose_file_manager
             if environments:
                 cf.with_envs(environments)
@@ -376,7 +360,6 @@ class ServicesManager:
             if users:
                 cf.with_users(users)
 
-            # Commit changes if any were made
             if environments or labels or users:
                 cf.commit()
 

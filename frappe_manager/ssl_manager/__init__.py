@@ -17,6 +17,3 @@ class DNS_PROVIDER(str, Enum):
     """Supported DNS providers for DNS-01 challenge."""
 
     cloudflare = "cloudflare"
-    # route53 = "route53"        # AWS Route53 (future)
-    # digitalocean = "digitalocean"  # DigitalOcean (future)
-    # google = "google"          # Google Cloud DNS (future)

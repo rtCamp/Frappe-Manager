@@ -156,7 +156,6 @@ class BackupManager:
             return None
 
         if not backup_data.real_dest.exists():
-            # print(f"No backup found at {backup_data.real_dest}")
             return None
 
         if force:
@@ -172,20 +171,17 @@ class BackupManager:
         backup_data.is_restored = True
 
         return dest
-        # print(f"Restored {backup_data.src} from backup")
 
     def delete(self, backup_data):
         """
         Delete a specific backup.
         """
         if not backup_data.real_dest.exists():
-            # print(f"No backup found at {backup_data.real_dest}")
             return
 
         shutil.rmtree(backup_data.real_dest)
 
         self.backups.remove(backup_data)
-        # print(f"Deleted backup at {backup_data.real_dest}")
 
     def track_new_file(self, filepath: Path):
         """

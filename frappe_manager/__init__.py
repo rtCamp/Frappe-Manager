@@ -2,8 +2,6 @@ import os
 from enum import Enum
 from pathlib import Path
 
-# Examples are now provided using typer-examples decorators and installed per Typer app.
-
 _home_env = os.environ.get("FRAPPE_MANAGER_HOME", "")
 CLI_DIR = Path(_home_env) if _home_env else Path.home() / "frappe"
 CLI_FM_CONFIG_PATH = CLI_DIR / "fm_config.toml"

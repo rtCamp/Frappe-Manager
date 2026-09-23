@@ -9,7 +9,6 @@ from frappe_manager.commands.self.upgrade import upgrade
 
 self_app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 
-# Activate typer-examples for this Typer app
 install(self_app)
 
 self_app.command()(upgrade)

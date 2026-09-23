@@ -123,14 +123,12 @@ def _add_external_certificate(
         if cname:
             output.print(f"Using CNAME delegation: {cname}", emoji_code=":information:")
 
-            # Validate CNAME before proceeding (unless skipped)
             if not skip_dns_check:
                 from frappe_manager.ssl_manager.dns_validator import DNSValidator
 
                 output.change_head(f"Validating DNS configuration for {domain}")
                 validator = DNSValidator(output_handler=output)
 
-                # If wait_for_dns is True, poll for propagation
                 if wait_for_dns:
                     propagation = validator.wait_for_cname_propagation(
                         domain=domain,
@@ -151,7 +149,6 @@ def _add_external_certificate(
 
                     output.print(f"{propagation.message}", emoji_code=":white_check_mark:")
                 else:
-                    # Single validation check (no waiting)
                     validation = validator.validate_cname_for_acme(domain, cname)
 
                     if not validation.valid:
@@ -198,25 +195,21 @@ def _add_external_certificate(
         nginx_controller = services_manager.nginx_controller
         standalone_nginx = _build_standalone_nginx(services_manager)
 
-        # Step 1: Create HTTP-only nginx config (for ACME challenge)
         output.change_head(f"Setting up nginx configuration for {domain}")
         standalone_nginx.create_http_config(domain)
         output.print("Created HTTP configuration for ACME challenge", emoji_code=":white_check_mark:")
 
-        # Step 2: Reload nginx to apply the config
         output.change_head("Reloading nginx to apply configuration")
         nginx_controller.reload()
         output.print("Nginx reloaded successfully", emoji_code=":white_check_mark:")
 
-        # Start with an empty list; the cert is handed to add_certificate() next
+        # Empty cert list: this cert is registered via add_certificate() below.
         cert_manager = _build_certificate_manager([], storage_config, link_manager, nginx_controller, output)
 
-        # Step 3: Generate certificate (HTTP-01 challenge will now work)
         try:
             with spinner(output, f"Generating SSL certificate for {domain}"):
                 cert_manager.add_certificate(cert, test_ca=test_ca)
         except Exception as cert_error:
-            # Certificate generation failed - clean up nginx config
             output.change_head("Cleaning up after certificate generation failure")
             try:
                 standalone_nginx.remove_config(domain)
@@ -224,7 +217,6 @@ def _add_external_certificate(
                 output.print("Cleaned up nginx configuration", emoji_code=":white_check_mark:")
             except Exception as cleanup_error:
                 output.debug(f"Failed to clean up nginx config: {cleanup_error}")
-            # Re-raise the original certificate error
             raise cert_error
 
         # Steps 4 and 5 mutate the SHARED nginx-proxy conf.d, so they are test-CA-rehearsal guarded the
@@ -232,13 +224,11 @@ def _add_external_certificate(
         # a certificate, and an HTTPS vhost pointing at absent cert files is a fatal nginx config
         # error that breaks reloads and startup for every bench the global proxy fronts.
         if not test_ca:
-            # Step 4: Update nginx config to enable HTTPS
             output.change_head(f"Enabling HTTPS for {domain}")
             try:
                 standalone_nginx.create_https_config(domain)
                 output.print("Created HTTPS configuration", emoji_code=":white_check_mark:")
 
-                # Step 5: Reload nginx again to enable HTTPS
                 nginx_controller.reload()
                 output.print("Nginx reloaded with HTTPS enabled", emoji_code=":white_check_mark:")
             except Exception as post_cert_error:
@@ -405,9 +395,8 @@ def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
         if result.returncode != 0:
             return []
 
-        # Parse upstream blocks to find domains
-        # Format: "# domain.com/"
-        # Followed by: "upstream domain.com {"
+        # docker-gen output marks each upstream with a '# domain.com/' comment line just before
+        # its 'upstream domain.com {' block; the domains are parsed from those marker lines.
         domain_pattern = r"^# (.+?)/$"
 
         detected_domains = set()

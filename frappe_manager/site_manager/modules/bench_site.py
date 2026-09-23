@@ -3,9 +3,6 @@ BenchSiteManager - Frappe Site Lifecycle Management Module
 
 This module handles all Frappe site-related operations within a bench including
 site creation, deletion, migration, reset, and status checking.
-
-Extracted from the monolithic Bench class and BenchOperations for better
-separation of concerns.
 """
 
 import json
@@ -322,7 +319,6 @@ class BenchSiteManager:
         database_config = self.bench_config.get_database_config(site)
         site_env = self._site_env(site)
 
-        # Build new-site command
         new_site_command = self.bench_cli_cmd + ["new-site"]
         if database_config:
             # External server. --db-root-password is deliberately absent: the mariadb root
@@ -375,7 +371,6 @@ class BenchSiteManager:
 
         new_site_command = " ".join(new_site_command)
 
-        # Create the site
         self._container_run(
             new_site_command,
             on_failure=lambda: BenchOperationBenchSiteCreateFailed(self.bench_name),

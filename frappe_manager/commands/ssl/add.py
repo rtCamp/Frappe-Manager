@@ -258,11 +258,9 @@ def add_certificate(
         raise typer.Exit(1)
 
     # The mode's whole point is a locally trusted certificate on the origin's own :443 (so internal
-    # self-calls, PDF/print, OAuth, get_url fetches keep working); which method issues that
-    # certificate is not a default fm can guess, since it also determines what the external edge's
-    # own TLS mode needs to be. --dev/--custom are unambiguous booleans; --challenge always defaults
-    # to http01 (LETSENCRYPT_PREFERRED_CHALLENGE.http01), so only the parameter source tells apart
-    # "the operator asked for this challenge" from "nothing was passed" -- same idiom as --custom above.
+    # self-calls, PDF/print, OAuth, get_url fetches keep working); which method issues it also
+    # determines the external edge's TLS mode, so fm cannot guess a default. --challenge's http01
+    # default makes `is None` useless: parameter source only -- same idiom as --custom above.
     if (
         behind_proxy
         and not dev

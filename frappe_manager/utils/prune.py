@@ -63,8 +63,6 @@ def dir_size(path: Path) -> int:
     return total
 
 
-# ------------------------------------------------------------- backup sessions
-
 
 @dataclass
 class SessionPrune:
@@ -104,8 +102,6 @@ def execute_session_prune(plan: SessionPrune) -> None:
     for stale in plan.stale:
         shutil.rmtree(stale, ignore_errors=True)
 
-
-# ------------------------------------------------------------------- log files
 
 
 @dataclass
@@ -180,8 +176,6 @@ def execute_log_prune(plan: LogPrune) -> None:
     for old in plan.archives_to_drop:
         old.unlink(missing_ok=True)
 
-
-# ------------------------------------------------------------------ status row
 
 
 def host_prune_settings():

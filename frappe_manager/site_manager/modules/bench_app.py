@@ -3,9 +3,6 @@ BenchAppManager - Frappe App Management Module
 
 This module handles all Frappe app-related operations within a bench including
 app installation, removal, building, and branch management.
-
-Extracted from the monolithic Bench class and BenchOperations for better
-separation of concerns.
 """
 
 import os

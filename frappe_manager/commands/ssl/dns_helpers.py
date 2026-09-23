@@ -58,9 +58,8 @@ def _show_dns_credentials(
             )
             output.print("[fm.muted]Falling back to global configuration (if any)[/fm.muted]", emoji_code="")
 
-    # Global scope is now structurally identical to bench scope: the default account is the set
-    # labelled 'cloudflare', not a separate `[cloudflare]` table, so there is one mechanism instead
-    # of two. The migration relocates the old table into that label.
+    # Default account = the set labelled 'cloudflare' at BOTH scopes (the migration folded the old
+    # global `[cloudflare]` table into that label); one mechanism, not two.
     fm_config = FMConfigManager.import_from_toml()
     output = get_global_output_handler()
     output.print("\n[fm.accent]Global DNS Credentials:[/fm.accent]", emoji_code="")
@@ -127,8 +126,6 @@ def _remove_dns_credentials(
         )
         return
 
-    # Global scope mirrors bench scope exactly now that the `[cloudflare]` table is gone, so the
-    # ambiguity special-case it used to need is gone with it.
     fm_config = FMConfigManager.import_from_toml()
     output = get_global_output_handler()
     entries = fm_config.dns_providers or {}
@@ -191,9 +188,8 @@ def _configure_dns_credentials(
     label: str | None = None,
 ):
     """Configure DNS credentials for a provider. The label picks the table, the benchname the file."""
-    # A label-less write targets the default label at BOTH scopes now. Globally that used to mean the
-    # separate `[cloudflare]` table; folding it into a label leaves one mechanism, and the migration
-    # moves any existing table into exactly this entry.
+    # A label-less write targets the default label at both scopes; the migration moved the old
+    # global `[cloudflare]` table into exactly this entry.
     label = label or DNS_PROVIDER.cloudflare.value
 
     if benchname:
@@ -210,7 +206,6 @@ def _configure_dns_credentials(
             bench.bench_config.dns_providers, label, email=email, api_token=api_token, api_key=api_key
         )
 
-        # Save bench config
         bench.bench_config.export_to_toml(bench.bench_config.root_path)
 
         output.print(

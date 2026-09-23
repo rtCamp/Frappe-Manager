@@ -119,20 +119,16 @@ def stream_command_output(
     logger.debug("- -" * 10)
     logger.debug(f"COMMAND: {' '.join(cmd)}")
 
-    # Prepare environment
     if env is not None:
         subprocess_env = dict(os.environ)
         subprocess_env.update(env)
     else:
         subprocess_env = None
 
-    # Convert all elements to strings
     cmd = list(map(str, cmd))
 
-    # Start process with pipes
     process = Popen(cmd, stdout=PIPE, stderr=PIPE, env=subprocess_env, cwd=cwd)
 
-    # Setup queue and reader threads
     q = Queue()
 
     # Use daemon threads to avoid hanging on ctrl+c
@@ -184,7 +180,6 @@ def stream_command_output(
         source, line = item
         yield source, line
 
-    # Wait for process to complete and yield exit code
     exit_code = process.wait()
 
     logger.debug(f"RETURN CODE: {exit_code}")

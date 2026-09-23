@@ -66,7 +66,6 @@ class MigrationOrchestrator:
                 captured_output = capture_and_format_exception(traceback_max_frames=0)
                 self.logger.error(f"[{migration.version}] : Migration Failed\n{captured_output}")
 
-                # If this isn't the last migration, mark exception but continue
                 if migration.version < self.executor.migrations[-1].version:
                     self.exception_in_bench_occurred = True
                     continue
@@ -77,7 +76,6 @@ class MigrationOrchestrator:
                 self.logger.error(f"[{migration.version}] : Migration Failed\n{captured_output}")
                 raise e
 
-        # If any bench exceptions occurred during migration loop, raise now
         if self.exception_in_bench_occurred:
             raise MigrationExceptionInBench("")
 

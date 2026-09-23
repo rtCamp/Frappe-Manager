@@ -54,7 +54,6 @@ def acmesh_passthrough(
 
     cmd = [str(acmesh_bin), "--home", str(acmesh_home)]
 
-    # If no args provided, show help
     if not args:
         cmd.append("--help")
     else:
@@ -68,7 +67,6 @@ def acmesh_passthrough(
     output.info(f"Home: {acmesh_home}")
     output.print("")
 
-    # Stream output directly to user
     exit_code_holder = [0]
 
     def stream_with_exit_tracking():
@@ -78,14 +76,11 @@ def acmesh_passthrough(
                 exit_code_holder[0] = int(line.decode())
             yield source, line
 
-    # Display all output (print directly for raw acme.sh output)
     for source, line in stream_with_exit_tracking():
         if source in ("stdout", "stderr"):
-            # Print directly without prefix for raw acme.sh output
             decoded = line.decode()
             print(decoded, flush=True)
 
-    # Exit with acme.sh's exit code
     if exit_code_holder[0] != 0:
         output.print("")
         output.display_error(f"acme.sh exited with code {exit_code_holder[0]}")

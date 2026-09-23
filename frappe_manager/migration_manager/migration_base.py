@@ -106,16 +106,13 @@ class MigrationBase(ABC):
         self.output.change_head(f"Working on v{self.version!s} rollback")
         self.logger.info("-" * 40)
 
-        # undo each bench
         for bench_name, bench_data in self.migration_executor.migrate_benches.items():
             if not bench_data["exception"]:
                 self.undo_bench_migrate(bench_data["object"])
 
         for backup in self.backup_manager.backups:
             self.backup_manager.restore(backup, force=True)
-            # self.output.print(f'Restored {backup.bench}'s {backup.src.name}.')
 
-        # Clean up newly created files that didn't exist before migration
         self.backup_manager.cleanup_new_files()
 
         self.undo_services_migrate()
@@ -141,7 +138,6 @@ class MigrationBase(ABC):
 
         all_benches = self.benches_manager.get_all_benches()
 
-        # migrate each bench
         for bench_name, bench_path in all_benches.items():
             is_infrastructure_only_migration = self.migration_executor.target_benches is None
             if is_infrastructure_only_migration:
@@ -159,8 +155,6 @@ class MigrationBase(ABC):
 
             bench_version = get_bench_migration_version(bench.path)
 
-            # Check if bench is already at or above this migration version.
-            # --rerun overrides this so the migration runs regardless.
             if not self.migration_executor.rerun and bench_version >= self.version:
                 self.output.print(
                     f"Bench {bench_name} already at v{bench_version}, skipping migration to v{self.version}",
@@ -185,7 +179,6 @@ class MigrationBase(ABC):
                 main_error = True
                 self.migration_executor.set_bench_data(bench, e, self.version)
 
-                # restore all backup files
                 for backup in self.backup_manager.backups:
                     if backup.bench == bench.name:
                         self.backup_manager.restore(backup, force=True)
@@ -425,7 +418,6 @@ class MigrationBase(ABC):
         import gzip
         import shutil
 
-        # Compress the file using gzip
         with open(host_db_sql_file_path, "rb") as f_in:
             with gzip.open(backup_gz_file_backup_data_path, "wb") as f_out:
                 shutil.copyfileobj(f_in, f_out)

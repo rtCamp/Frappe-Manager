@@ -123,7 +123,6 @@ def detect_running_network(
     if not subnet_cidr:
         return None
 
-    # Get the proxy container's live IP on this network
     proxy_ip = get_proxy_ip_on_frontend(network_name, proxy_container, docker=docker)
 
     return {"subnet_cidr": subnet_cidr, "proxy_ip": proxy_ip}

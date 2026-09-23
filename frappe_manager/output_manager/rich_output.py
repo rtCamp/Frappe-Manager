@@ -25,7 +25,6 @@ from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.output_manager.console_singleton import get_stderr_console, get_stdout_console
 from frappe_manager.output_manager.flags import OutputRefactoringFlags
 
-# Emoji constants for consistent output
 EMOJI_WORKING = "⚙️"
 EMOJI_WARNING = "⚠️"
 

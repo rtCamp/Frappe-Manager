@@ -93,17 +93,14 @@ def dns_config_cloudflare(
     """
     provider_name = DNS_PROVIDER.cloudflare.value
 
-    # Show configuration
     if show:
         _show_dns_credentials(ctx, provider_name, benchname, name)
         return
 
-    # Remove configuration
     if remove:
         _remove_dns_credentials(ctx, provider_name, benchname, name)
         return
 
-    # Validate Cloudflare-specific credentials
     if not api_token and not api_key:
         output = get_global_output_handler()
         output.display_error("Either [bold]--api-token[/bold] or [bold]--api-key[/bold] must be provided")
@@ -119,5 +116,4 @@ def dns_config_cloudflare(
         output.print("[fm.ok]Better option:[/fm.ok] Use --api-token instead (doesn't require email)")
         raise typer.Exit(1)
 
-    # Configure credentials
     _configure_dns_credentials(ctx, provider_name, benchname, api_token, api_key, email, name)

@@ -2,7 +2,6 @@
 BenchDockerOps - Docker and Compose Operations Module
 
 This module handles all Docker and docker-compose operations for a bench.
-Extracted from the monolithic Bench class for better separation of concerns.
 """
 
 import os
@@ -114,7 +113,6 @@ class BenchDockerOps:
             inputs: Dictionary containing environment, labels, users, etc.
         """
         with self.compose_file_manager:
-            # Extract inputs
             environments = inputs.get("environment")
             labels = inputs.get("labels")
             users = None
@@ -371,7 +369,6 @@ class BenchDockerOps:
         configs_path = self.path / "configs"
         configs_path.mkdir(parents=True, exist_ok=True)
 
-        # create nginx dirs
         nginx_dir = configs_path / "nginx"
         nginx_dir.mkdir(parents=True, exist_ok=True)
 
@@ -400,7 +397,6 @@ class BenchDockerOps:
         if copy_runtimes:
             frappe_image = self.compose_file_manager.yml["services"]["frappe"]["image"]
 
-            # Copy prebaked UV Python installations
             uv_dir = workspace_path / "frappe-bench" / ".uv"
             if not uv_dir.exists():
                 uv_dir_abs = str(uv_dir.absolute())
@@ -411,7 +407,6 @@ class BenchDockerOps:
                     docker=self.docker_client,
                 )
 
-            # Copy prebaked FNM Node installations
             fnm_dir = workspace_path / "frappe-bench" / ".fnm"
             if not fnm_dir.exists():
                 fnm_dir_abs = str(fnm_dir.absolute())

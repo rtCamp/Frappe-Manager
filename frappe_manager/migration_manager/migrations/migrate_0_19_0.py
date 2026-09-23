@@ -144,7 +144,6 @@ class MigrationV0190(MigrationBase):
             self.output.print("Restoring env/ from env.backup.migration")
             shutil.move(str(env_backup_path), str(env_dir))
 
-        # Restore .bashrc if it was backed up via BackupManager
         bm = getattr(self, "backup_manager", None)
         if bm is not None:
             for backup in bm.backups:
@@ -153,7 +152,6 @@ class MigrationV0190(MigrationBase):
                     self.output.print("Restored .bashrc from backup")
                     break
 
-        # Restore nginx default.conf if it was backed up
         nginx_default_conf = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
         nginx_default_backup = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf.migration.bak"
         if nginx_default_backup.exists():
@@ -403,7 +401,6 @@ class MigrationV0190(MigrationBase):
         2. upload_limit from bench_config.toml
         3. Default "50M"
         """
-        # 1. Check site_config.json for existing max_file_size
         site_config_path = bench.path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
         if site_config_path.exists():
             try:
@@ -425,7 +422,6 @@ class MigrationV0190(MigrationBase):
             except Exception:
                 pass
 
-        # 2. Fall back to bench_config.toml
         bench_config_path = bench.path / "bench_config.toml"
         if bench_config_path.exists():
             config = tomlkit.parse(bench_config_path.read_text())
@@ -434,7 +430,6 @@ class MigrationV0190(MigrationBase):
                 self.output.print(f"Using bench_config.toml upload_limit: {upload_limit}")
                 return upload_limit
 
-        # 3. Default
         self.output.print("Using default upload_limit: 50M")
         return "50M"
 

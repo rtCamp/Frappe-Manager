@@ -46,9 +46,6 @@ class DevCertificateService:
         self.root_dir.mkdir(parents=True, exist_ok=True)
         self.ca_dir.mkdir(parents=True, exist_ok=True)
 
-    # ------------------------------------------------------------------
-    # CA management
-    # ------------------------------------------------------------------
 
     def _load_ca(self) -> tuple[ec.EllipticCurvePrivateKey, x509.Certificate]:
         """Load existing CA key and certificate from disk."""
@@ -98,7 +95,6 @@ class DevCertificateService:
             .sign(ca_key, hashes.SHA256())
         )
 
-        # Persist CA key (restricted permissions) and cert
         self.ca_key_path.write_bytes(
             ca_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
@@ -140,9 +136,6 @@ class DevCertificateService:
             self.ca_sentinel_path.touch()
             self.output.print("Dev CA installed — browsers will now trust local dev certificates")
 
-    # ------------------------------------------------------------------
-    # SSLCertificateService Protocol implementation
-    # ------------------------------------------------------------------
 
     def generate_certificate(self, certificate: SSLCertificate, test_ca: bool = False) -> tuple[Path, Path]:
         """

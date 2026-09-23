@@ -293,10 +293,8 @@ class LoggingOutputHandler(OutputHandler):
         Args:
             non_interactive_flag: True to disable interactive features (spinners, prompts)
         """
-        # Set on wrapper itself
         super().set_interactive_mode(non_interactive_flag)
 
-        # Forward to delegate so it respects the flag too
         if hasattr(self.delegate, "set_interactive_mode"):
             self.delegate.set_interactive_mode(non_interactive_flag)
 

@@ -117,7 +117,6 @@ class MigrationErrorHandler:
         """Report which benches passed and which failed migration."""
         passed_print_head = True
 
-        # Report passed benches
         for bench, bench_status in self.executor.migrate_benches.items():
             if not bench_status["exception"]:
                 if passed_print_head:
@@ -127,7 +126,6 @@ class MigrationErrorHandler:
 
         failed_print_head = True
 
-        # Report failed benches
         for bench, bench_status in self.executor.migrate_benches.items():
             if bench_status["exception"]:
                 if failed_print_head:
@@ -147,7 +145,6 @@ class MigrationErrorHandler:
 
         self.executor.output.print(f"For error specifics, refer to {CLI_DIR}/logs/fm.log", emoji_code="")
 
-        # Print separator
         if not failed_print_head or not passed_print_head:
             self.executor.output.print("=" * 60, emoji_code="")
 

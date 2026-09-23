@@ -56,8 +56,6 @@ class DockerVolumeMount:
         return f"{mount}:ro" if self.read_only else mount
 
 
-# For convenient imports: from frappe_manager.docker import ComposeFile, DockerClient, etc.
-# These use lazy imports to avoid circular dependency issues
 def __getattr__(name):
     """Lazy import to avoid circular dependencies."""
     if name == "ComposeFile":
@@ -92,16 +90,13 @@ def __getattr__(name):
 
 
 __all__ = [
-    # Compose file management
     "ComposeFile",
     "ComposeSecretNotFoundError",
     "ComposeServiceNotFound",
-    # Docker wrappers
     "DockerClient",
     "DockerComposeWrapper",
     "DockerException",
     "SubprocessOutput",
-    # Volume utilities
     "DockerVolumeMount",
     "DockerVolumeType",
 ]

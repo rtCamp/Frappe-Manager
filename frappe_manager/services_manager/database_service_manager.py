@@ -27,7 +27,6 @@ from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.utils.site import host_bench_dir
 
 
-# TODO this class will be used for validation for main config
 class DatabaseServerServiceInfo(BaseModel):
     host: str
     user: str
@@ -56,8 +55,6 @@ class DatabaseServerServiceInfo(BaseModel):
         info["host"] = compose_service_name
         info["port"] = 3306
 
-        # TODO use fm main config here
-        # secrets or password ?
         if "MYSQL_ROOT_PASSWORD_FILE" in compose_service_envs:
             password_path: Path = compose_file_manager.get_secret_file_path("db_root_password")
             info["password"] = password_path.read_text()
@@ -233,7 +230,6 @@ class MariaDBManager(DatabaseServiceManager):
             )
         return self.docker_client.compose.run(
             self.run_on_compose_service,
-            # command=command,
             stream=stream,
             user=user,
             rm=rm,

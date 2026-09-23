@@ -173,7 +173,6 @@ class Bench:
         self.compose_file_manager = compose_file_manager
         self.docker_client = docker_client
 
-        # Initialize specialized modules
         self.docker_ops = BenchDockerOps(
             docker_client=docker_client,
             compose_file_manager=compose_file_manager,
@@ -188,12 +187,9 @@ class Bench:
             output_handler=self.output,
         )
 
-        # Initialize local nginx proxy components
         self.bench_proxy_storage = ProxyStoragePaths("nginx", self.compose_file_manager)
         self.bench_nginx_controller = NginxController("nginx", self.compose_file_manager, self.docker_client)
 
-        # For backward compatibility with admin_tools
-        # Create a simple proxy manager object with required attributes
         self.proxy_manager = type(
             "ProxyManager",
             (),
@@ -206,7 +202,6 @@ class Bench:
 
         self.admin_tools = BenchAdminTools(self, self.proxy_manager, verbose=verbose, output_handler=self.output)
 
-        # Get global nginx-proxy storage config from services
         global_proxy_storage = services.proxy_storage
         webroot_dir = self.bench_proxy_storage.dirs.html.host
 
@@ -309,7 +304,6 @@ class Bench:
             output_handler=self.output,
         )
 
-        # For complex workflows
         self.orchestrator = BenchOrchestrator(bench=self, output_handler=self.output)
 
         if workers_check:
@@ -454,10 +448,8 @@ class Bench:
         extra = {"operation": "config_sync_bench_config", "bench_name": self.name}
         self.logger.debug(f"Syncing bench config configuration: {self.name}", extra_fields=extra)
         try:
-            # set developer_mode based on config
             self.set_common_bench_config({"developer_mode": self.bench_config.developer_mode})
 
-            # ssl
             certificate_updated = self.update_certificate(
                 self.bench_config.get_primary_certificate(),
                 raise_error=False,
@@ -465,7 +457,6 @@ class Bench:
             if certificate_updated:
                 self.output.print("Certificate Updated")
 
-            # admin tools
             if self.bench_config.admin_tools:
                 if not self.admin_tools.compose_file_manager.compose_path.exists():
                     self.sync_admin_tools_compose()
@@ -816,7 +807,6 @@ class Bench:
         again. The next `fm create` of the same name adopted them, with every bind mount pointing
         into a directory that no longer existed, and failed on an nginx with no configuration.
         """
-        # TODO handle low level errors like read only, write only, etc.
         if self.compose_file_manager.exists():
             self.output.change_head("Removing bench containers")
             self.docker_ops.remove_containers(remove_volumes=True, timeout=5)
@@ -941,7 +931,6 @@ class Bench:
     def get_bench_apps(self):
         return self.info_display.get_bench_apps()
 
-    # this can be plugable
     def get_db_connection_info(self, site: str | None = None):
         """One site's database credentials. None means the bench's own.
 
@@ -2334,9 +2323,9 @@ class Bench:
         unit = match.group(2).upper()
 
         if unit == "M":
-            return value * 1024 * 1024  # Convert MB to bytes
+            return value * 1024 * 1024
         if unit == "G":
-            return value * 1024 * 1024 * 1024  # Convert GB to bytes
+            return value * 1024 * 1024 * 1024
 
         # Should never reach here due to regex validation
         raise BenchException(self.name, message=f"Unsupported unit: {unit}")
@@ -2355,16 +2344,13 @@ class Bench:
         """
         services = []
 
-        # Get services from main compose file
         if self.compose_file_manager.compose_path.exists():
             services.extend(self.compose_file_manager.get_services_list())
 
-        # Get services from workers compose file
         workers_compose_path = self.path / "docker-compose.workers.yml"
         if workers_compose_path.exists():
             services.extend(self.workers.compose_file_manager.get_services_list())
 
-        # Get services from admin tools compose file
         admin_tools_compose_path = self.path / "docker-compose.admin-tools.yml"
         if admin_tools_compose_path.exists():
             services.extend(self.admin_tools.compose_file_manager.get_services_list())

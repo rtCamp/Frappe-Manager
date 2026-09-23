@@ -48,26 +48,13 @@ from frappe_manager.utils.helpers import ImageRef
 from frappe_manager.utils.site import validate_sitename
 from frappe_manager.utils.process_lock import bench_lock
 
-# Rich help panels for `fm create --help`. The FIRST word of every title is the segment of the
-# `BENCH/SITE` address the flag acts on, because that is the question the address form raises and
-# the help could not answer: `--redis-cache` serves every site the bench holds, `--db-name` names
-# the schema of one. They used to share a box called "External Database and Redis Options".
-#
-# Scope is decided by where the value LANDS, not by how the help text reads: a top-level
-# `BenchConfig` field is bench-scoped, an entry under `[sites."<site>"]` is site-scoped (see
-# `_FLAG_TO_CONFIG` below and :func:`record_site`). Flags in the default "Options" box belong to
-# neither: they decide whether the site half happens at all.
-#
-# A parenthetical after a title may only IDENTIFY THE CATEGORY: which flags are in the box, or
-# what scope they act at (`(mount runtime only)`, `(every site)`). It must not WARN ABOUT A
-# CONSEQUENCE THAT ONLY HOLDS IN ANOTHER MODE: that reads as boilerplate to every operator not in
-# that mode, and worse if two adjacent titles say the same warning twice. A consequence belongs on
-# the flag that causes it, stated once, not repeated across every panel it affects. The boundary is
-# not perfectly sharp -- `(mount runtime only)` already leans toward "when this applies" -- but
-# "identifies what's in the box" versus "warns what happens elsewhere" is the question to ask.
-#
-# Rich renders panels in order of first appearance in the signature, so every bench-scoped
-# parameter is declared before the first site-scoped one. Moving one changes the help layout.
+# Help-panel rules for `fm create --help`:
+# 1. A title's FIRST word names the `BENCH/SITE` address segment the flags act on; scope is where
+#    the value LANDS (`_FLAG_TO_CONFIG` / :func:`record_site`), never how the help text reads.
+# 2. A parenthetical after a title only IDENTIFIES the category (`(mount runtime only)`); a
+#    consequence belongs on the flag that causes it, stated once, never warned across panels.
+# 3. Rich renders panels in signature order, so bench-scoped parameters are declared before the
+#    first site-scoped one; moving a parameter reorders --help.
 _PANEL_BENCH = "Bench Options"
 _PANEL_RUNTIME = "Bench Options: Runtime"
 _PANEL_MOUNT = "Bench Options: Workspace (mount runtime only)"

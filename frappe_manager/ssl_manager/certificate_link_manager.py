@@ -38,7 +38,6 @@ class CertificateLinkManager:
             ValueError: If storage_config paths are invalid
         """
         self.storage_config = storage_config
-        # Validate that required directories exist
         self._validate_prerequisites()
 
     def _validate_prerequisites(self):
@@ -82,7 +81,6 @@ class CertificateLinkManager:
             fullchain_path: Path to the full chain certificate file (host path)
             alias_domains: Optional list of alias domains that should also point to this cert
         """
-        # Convert host paths to container paths for symlink targets
         container_privkey_path = self._host_to_container_path(privkey_path, cert_type)
         container_fullchain_path = self._host_to_container_path(fullchain_path, cert_type)
 
@@ -114,7 +112,6 @@ class CertificateLinkManager:
         self._safe_unlink(primary_privkey_link)
         self._safe_unlink(primary_fullchain_link)
 
-        # Remove alias domain symlinks
         if alias_domains:
             for alias_domain in alias_domains:
                 alias_privkey_link = self.storage_config.certs_dir / f"{alias_domain}.key"
@@ -142,11 +139,9 @@ class CertificateLinkManager:
         privkey_link = self.storage_config.certs_dir / f"{domain}.key"
         fullchain_link = self.storage_config.certs_dir / f"{domain}.crt"
 
-        # Resolve symlinks to get container paths
         container_privkey_path = privkey_link.readlink()
         container_fullchain_path = fullchain_link.readlink()
 
-        # Convert container paths back to host paths
         privkey_path = self._container_to_host_path(container_privkey_path)
         fullchain_path = self._container_to_host_path(container_fullchain_path)
 
@@ -163,11 +158,9 @@ class CertificateLinkManager:
         Returns:
             Equivalent path as seen from inside the container
         """
-        # Calculate relative path from the ssl type directory
         ssl_type_host_dir = self.storage_config.ssl_dir / cert_type
         relative_path = host_path.relative_to(ssl_type_host_dir)
 
-        # Build container path
         container_path = self.storage_config.ssl_dir_container / cert_type / relative_path
         return container_path
 
@@ -181,10 +174,8 @@ class CertificateLinkManager:
         Returns:
             Equivalent path on the host filesystem
         """
-        # Calculate relative path from the container ssl directory
         relative_path = container_path.relative_to(self.storage_config.ssl_dir_container)
 
-        # Build host path
         host_path = self.storage_config.ssl_dir / relative_path
         return host_path
 
@@ -198,5 +189,4 @@ class CertificateLinkManager:
         try:
             path.unlink()
         except (FileNotFoundError, OSError):
-            # Ignore errors - symlink might already be removed or never existed
             pass

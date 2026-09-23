@@ -1,4 +1,4 @@
-"""DeployOrchestrator - image-based switch/rollback pipeline (Phase 4 v1).
+"""DeployOrchestrator - image-based switch/rollback pipeline.
 
 Implements the decomposed image deploy (recreate-swap) that ``fmx restart
 --migrate`` cannot express in image mode:
@@ -269,7 +269,6 @@ class DeployOrchestrator:
         self.output = output_handler or RichOutputHandler()
         self.logger = get_logger(component="deploy")
 
-    # ------------------------------------------------------------------ helpers
 
     def _require_image_mode(self) -> None:
         if self.config.runtime != BenchRuntime.image:
@@ -426,7 +425,6 @@ class DeployOrchestrator:
             self.docker.compose.up(services=["nginx"], detach=True, pull="never", stream=False)
         time.sleep(3)
 
-    # ---------------------------------------------------------- rolling swap
 
     def _raw_compose(self, *args: str):
         """Run a raw ``docker compose`` subcommand against the bench compose.
@@ -674,7 +672,6 @@ class DeployOrchestrator:
         _cfm, dc, _svcs = info
         dc.compose.up(services=[], detach=True, pull="never", wait=True, stream=False)
 
-    # ---------------------------------------------------------------- pipeline
 
     def _snapshot_compose(self) -> dict[Path, bytes]:
         snaps: dict[Path, bytes] = {}
@@ -1306,7 +1303,6 @@ class DeployOrchestrator:
         self.config.deploy_state = state
         self.config.export_to_toml(self._config_path())
 
-    # ------------------------------------------------------------------ public
 
     def _warn_unmanaged_sites(self) -> None:
         """Name the site directories this deploy will NOT migrate, before it starts.
@@ -1614,7 +1610,6 @@ class DeployOrchestrator:
             self._ensure_nginx()
         self.output.print("New containers are healthy")
 
-        # 8. Finalize.
         self.output.change_head("Finalizing (resume workers, install new apps, clear cache, maintenance off)")
         self.resume_workers()
         self._install_new_apps()
@@ -1645,7 +1640,6 @@ class DeployOrchestrator:
         if maintenance:
             self.set_maintenance_mode(0)
 
-        # 9. Record.
         self._record(new_image, migrate_status, backups=db_dumps)
         self.output.print(f"Deployed {new_image}", emoji_code=":rocket:")
 
