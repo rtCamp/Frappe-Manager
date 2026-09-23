@@ -35,7 +35,6 @@ class Card:
         self._rows.append(("section", title, ""))
         return self
 
-    # ---------------------------------------------------------------- render
 
     def _headline(self) -> str:
         name_markup = f"[link={self.link}]{self.name}[/link]" if self.link else self.name

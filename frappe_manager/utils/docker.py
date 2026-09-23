@@ -42,11 +42,9 @@ def stream_stdout_and_stderr(
     """
     output = []
 
-    # Use generic subprocess streaming
     for source, line in stream_command_output(full_cmd, env=env, cwd=cwd):
         output.append((source, line))
 
-        # Check for exit code and raise DockerException if command failed
         if source == "exit_code":
             exit_code = int(line.decode())
             if exit_code != 0:
@@ -108,7 +106,6 @@ def parameters_to_options(param: dict, exclude: list = []) -> list:
     Returns:
         list: The list of options for the command.
     """
-    # remove the self parameter
     temp_param: dict = dict(param)
 
     temp_param.pop("self", None)
@@ -137,7 +134,6 @@ def parameters_to_options(param: dict, exclude: list = []) -> list:
 
         elif type(value) == list:
             if value:
-                # For each item in the list, add the key and value separately
                 for item in value:
                     params.append(key)
                     params.append(item)
@@ -216,9 +212,7 @@ def host_run_cp(image: str, source: str, destination: str, docker):
     output.change_head(f"Populating {dest_path.name} directory")
 
     try:
-        # Use context manager for automatic cleanup
         with docker.create_temp_container(image) as container:
-            # Copy from the container
             docker.cp(
                 source=source,
                 destination=destination,
@@ -226,14 +220,12 @@ def host_run_cp(image: str, source: str, destination: str, docker):
                 stream=False,
             )
 
-        # Check if the destination file exists
         if not Path(destination).exists():
             raise Exception(f"{destination} not found.")
 
         output.change_head(f"Populated {dest_path.name} directory")
 
     except DockerException as e:
-        # Clean up destination if copy failed
         if dest_path.exists():
             import shutil
 
@@ -277,7 +269,6 @@ def fix_host_path_ownership(
         tag = get_docker_image_tag()
         image = f"ghcr.io/rtcamp/frappe-manager-frappe:{tag}"
 
-    # Filter to only paths that need fixing (owned by root)
     needs_fix = []
     for path in paths:
         if path.exists() and (path.stat().st_uid == 0 or path.stat().st_gid == 0):
@@ -290,14 +281,13 @@ def fix_host_path_ownership(
         dirs_str = ", ".join(str(p.name) for p in needs_fix)
         output.print(f"Fixing ownership of {dirs_str} (Docker created as root)...")
 
-    # Build docker run command with volume mounts
-    # Each path gets its own -v mount at the same absolute path inside the container
+    # Mount each path at its identical absolute path so the chown command runs unmodified inside
+    # the container.
     cmd = ["docker", "run", "--rm", "--user", "root", "--entrypoint", ""]
     for path in needs_fix:
         abs_path = str(path.resolve())
         cmd.extend(["-v", f"{abs_path}:{abs_path}"])
 
-    # Use a lightweight image and chown as root
     chown_cmd = f"chown -R {uid}:{gid} {' '.join(shlex.quote(str(p.resolve())) for p in needs_fix)}"
     cmd.extend([image, "bash", "-c", chown_cmd])
 

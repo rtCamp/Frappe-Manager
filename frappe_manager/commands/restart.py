@@ -12,7 +12,6 @@ from frappe_manager.site_manager.bench_config import WorkersConfig
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.process_lock import bench_lock
 
-# Rich help panels for `fm restart --help`, grouped by concern.
 _PANEL_SCOPE = "Scope (which services)"
 _PANEL_CARE = "Care (what happens to in-flight work)"
 _PANEL_ADVANCED = "Advanced"

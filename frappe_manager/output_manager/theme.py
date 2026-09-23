@@ -26,23 +26,19 @@ import os
 from rich.style import Style
 from rich.theme import Theme
 
-# ---------------------------------------------------------------- tokens
 
 DEFAULT_TOKENS: dict[str, str] = {
-    # intents
     "fm.ok": "green",
     "fm.error": "red",
     "fm.warn": "yellow",
     "fm.info": "blue",
     "fm.accent": "bold blue",
     "fm.muted": "dim",
-    # identity / structure
     "fm.name": "bold",
     "fm.name.inactive": "bold dim",
     "fm.label": "dim",
     "fm.section": "bold dim",
     "fm.secret": "dim",
-    # domain states
     "fm.status.running": "green",
     "fm.status.stopped": "red",
     "fm.rail.active": "green",

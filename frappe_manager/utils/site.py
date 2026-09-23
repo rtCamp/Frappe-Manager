@@ -127,20 +127,14 @@ def is_fqdn(hostname: str) -> bool:
     if not 1 < len(hostname) < 253:
         return False
 
-    # Remove trailing dot
     if hostname[-1] == ".":
         hostname = hostname[0:-1]
 
-    #  Split hostname into list of DNS labels
     labels = hostname.split(".")
 
-    #  Define pattern of DNS label
-    #  Can begin and end with a number or letter only
-    #  Can contain hyphens, a-z, A-Z, 0-9
-    #  1 - 63 chars allowed
+    # DNS label: 1-63 chars, alnum at both ends, hyphens inside.
     fqdn = re.compile(r"^[a-z0-9]([a-z-0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
 
-    # Check that all labels match that pattern.
     return all(fqdn.match(label) for label in labels)
 
 
@@ -154,17 +148,14 @@ def is_wildcard_fqdn(hostname: str) -> bool:
     if not 1 < len(hostname) < 253:
         return False
 
-    # Remove trailing dot
     if hostname[-1] == ".":
         hostname = hostname[:-1]
 
-    # Split hostname into list of DNS labels
     labels = hostname.split(".")
 
-    # Define pattern for a standard DNS label
     fqdn_pattern = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
 
-    # Define pattern for a wildcard DNS label (only valid in the first label)
+    # Wildcard label: only legal as the FIRST label.
     wildcard_pattern = re.compile(r"^\*\.?$", re.IGNORECASE)
 
     status = (wildcard_pattern.match(labels[0])) and all(fqdn_pattern.match(label) for label in labels[1:])
@@ -172,15 +163,12 @@ def is_wildcard_fqdn(hostname: str) -> bool:
     if status == None:
         status = False
 
-    # Check the first label for wildcard pattern, then check all labels for standard pattern
     return status
 
 
 def domain_level(domain):
-    # Split the domain name into individual parts
     parts = domain.split(".")
 
-    # Return the number of parts minus 1 (excluding the TLD)
     return len(parts) - 1
 
 
@@ -271,7 +259,6 @@ def pull_docker_images() -> bool:
         image = f"{image_info['name']}:{image_info['tag']}"
         images_list.append(image)
 
-    # remove duplicates
     images_list = list(dict.fromkeys(images_list))
 
     no_error = True

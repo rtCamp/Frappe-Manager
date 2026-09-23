@@ -54,10 +54,6 @@ def apps_list_validation_callback(value: list[str] | None):
 
     if value:
         for app in value:
-            # Allow frappe app now - it can be specified via --apps
-            # No need to check and reject frappe anymore
-
-            # Handle HTTP/HTTPS URLs
             if "https://" in app or "http://" in app:
                 appx = app.split(":")
                 temp_appx = appx
@@ -65,13 +61,10 @@ def apps_list_validation_callback(value: list[str] | None):
 
                 if len(temp_appx) == 3 or len(temp_appx) > 3:
                     appx.append(temp_appx[2])
-            # Split on ':' for branch/ref (handle subdirectory '#' first)
-            # e.g., "frappe/payments:version-15#apps/payments"
+            # e.g. "frappe/payments:version-15#apps/payments" -- ':' = ref, '#' = subdirectory
             elif "#" in app:
-                # Has subdirectory - split carefully
                 app_part = app.split("#")[0]
                 appx = app_part.split(":")
-                # Reconstruct with subdirectory
                 if len(appx) == 2:
                     appx = [appx[0], app.split(":", 1)[1]]
                 else:
@@ -79,7 +72,6 @@ def apps_list_validation_callback(value: list[str] | None):
             else:
                 appx = app.split(":")
 
-            # Basic format validation
             if len(appx) > 2:
                 output = get_global_output_handler()
                 output.stop()

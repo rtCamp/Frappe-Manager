@@ -439,22 +439,11 @@ class FMConfigManager(BaseModel):
         fm_config_instance = cls(**input_data)
         fm_config_instance._raw_config = raw_config_data
 
-        # Every unknown key this walk can find, at every depth: `collect_unknown_keys` reaches the
-        # nested `extra="allow"` models above and `dns_providers` entries under `[ssl]` the same
-        # way `bench_config.py` does, AND the top-level strays, since `retained_top_level` above
-        # put those onto `fm_config_instance`'s OWN `model_extra` before this walk ever starts --
-        # the walk's root is that same instance, so a top-level stray surfaces with a bare, undotted
-        # path. A hand-built top-level list has nothing left to add for THOSE: unlike bench_config's
-        # `[ssl]`, which has no model of its own to hold a hand-read stray, every OTHER hand-read
-        # region in this file -- `[ssl].dns_providers.<label>` and the legacy `[cloudflare]` fold --
-        # lands inside a `DNSProviderConfig`, whose own `extra="allow"` this same walk already
-        # reaches.
-        # `[migration_state]` is the one hand-read region genuinely outside this walk's reach (kept
-        # as raw JSON in `_raw_config`, never a model field, so it has no `model_extra` of its own
-        # for the walk to find) -- the exact hole `[ssl]` would have had if bench_config.py had
-        # never grown `hand_read_unknown_keys()` for it. Fixed the same way here:
-        # `hand_read_unknown_keys`, built above, is unioned in below, so a stray in either family
-        # of table reports through the SAME message rather than a second warning call.
+        # `collect_unknown_keys` walks every `extra="allow"` model from this instance down,
+        # including top-level strays (`retained_top_level` put them on this instance's own
+        # `model_extra` before the walk). The one region outside its reach is `[migration_state]`
+        # -- raw JSON in `_raw_config`, no model, no `model_extra` -- so `hand_read_unknown_keys`
+        # is unioned in: strays from either family report through the SAME warning, never two.
         all_unknown_keys = sorted(set(collect_unknown_keys(fm_config_instance)) | set(hand_read_unknown_keys))
         if all_unknown_keys:
             from frappe_manager.output_manager import warn_or_log

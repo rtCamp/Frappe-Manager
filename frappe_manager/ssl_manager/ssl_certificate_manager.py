@@ -290,15 +290,12 @@ class SSLCertificateManager:
             }
 
             try:
-                # Check if certificate exists
                 privkey_path, fullchain_path = self.link_manager.get_certificate_paths(cert.domain)
                 info["exists"] = True
 
-                # Get expiry information
                 expiry_date = get_certificate_expiry_date(fullchain_path)
                 info["expiry_date"] = expiry_date
 
-                # Calculate renewal status
                 expiry_date_with_threshold = expiry_date - timedelta(days=SSL_RENEW_BEFORE_DAYS)
                 today_date = datetime.now()
                 if expiry_date_with_threshold.tzinfo:
@@ -306,7 +303,6 @@ class SSLCertificateManager:
 
                 info["needs_renewal"] = not expiry_date_with_threshold > today_date
 
-                # Calculate days until expiry
                 days_until_expiry = (expiry_date - today_date).days
                 info["days_until_expiry"] = days_until_expiry
 
@@ -420,27 +416,20 @@ class SSLCertificateManager:
         self.output_handler.change_head("Generating individual certificates for all domains")
 
         for certificate in self.certificates:
-            # Get service for this certificate
             service = self.services.get(certificate.domain)
             if not service:
                 raise RuntimeError(f"No service found for domain {certificate.domain}")
 
-            # Generate certificate for this domain ONLY (individual cert)
             self.output_handler.print(f"Generating certificate for {certificate.domain}")
             privkey_path, fullchain_path = service.generate_certificate(certificate)
 
-            # Determine actual cert_type from the returned path
-            # (e.g., letsencrypt service stores in "letsencrypt", acmesh stores in "acmesh")
             ssl_dir = self.storage_config.ssl_dir
             try:
-                # Path structure is: ssl_dir / cert_type / domain / file
                 relative_path = privkey_path.relative_to(ssl_dir)
-                actual_cert_type = relative_path.parts[0]  # First directory after ssl_dir
+                actual_cert_type = relative_path.parts[0]
             except (ValueError, IndexError):
-                # Fallback to certificate's ssl_type if path detection fails
                 actual_cert_type = certificate.ssl_type.value
 
-            # Create symlinks for nginx-proxy (no alias_domains)
             self.link_manager.link_certificate(
                 cert_type=actual_cert_type,
                 domain=certificate.domain,
@@ -449,11 +438,9 @@ class SSLCertificateManager:
                 alias_domains=None,
             )
 
-            # Enable HTTPS redirect for this domain
             self.vhost_manager.enable_https_redirect(certificate.domain, behind_proxy=certificate.behind_proxy)
             self.output_handler.print(f"Created vhost.d redirect config for {certificate.domain}")
 
-        # Restart nginx once after all certificates are generated
         self.nginx_controller.restart()
         self.output_handler.print("All individual certificates generated successfully")
 
@@ -486,12 +473,10 @@ class SSLCertificateManager:
                 self.get_certificate_expiry(certificate.domain),
             )
 
-        # Get service for this certificate
         service = self.services.get(certificate.domain)
         if not service:
             raise RuntimeError(f"No service found for domain {certificate.domain}")
 
-        # Renew the certificate
         self.output_handler.print(f"Renewing certificate for {certificate.domain}", emoji_code="🔄")
         renewal_success = service.renew_certificate(certificate, test_ca=test_ca)
 
@@ -661,7 +646,6 @@ class SSLCertificateManager:
                 raise ValueError("No primary certificate configured")
             certificate = primary
         else:
-            # Find certificate for this domain
             certificate = None
             for cert in self.certificates:
                 if cert.domain == domain:
@@ -670,21 +654,16 @@ class SSLCertificateManager:
             if not certificate:
                 raise SSLCertificateNotFoundError(domain)
 
-        # Get service for this certificate
         service = self.services.get(certificate.domain)
         if not service:
             raise RuntimeError(f"No service found for domain {certificate.domain}")
 
-        # Remove symlinks first
         self.link_manager.unlink_certificate(certificate.domain, None)
 
-        # Disable HTTPS redirect for this domain (remove vhost.d config)
         self.vhost_manager.disable_https_redirect(certificate.domain)
 
-        # Remove actual certificate files
         service.remove_certificate(certificate)
 
-        # Restart nginx to apply changes
         self.nginx_controller.restart()
 
     def remove_all_certificates(self):
@@ -706,29 +685,25 @@ class SSLCertificateManager:
         removed_count = 0
         failed_domains = []
 
-        for certificate in self.certificates[:]:  # Create a copy to iterate over
+        for certificate in self.certificates[:]:
             try:
                 self.output_handler.print(f"Removing certificate for {certificate.domain}")
 
-                # Get service for this certificate
                 service = self.services.get(certificate.domain)
                 if not service:
                     self.output_handler.warning(f"No service found for domain {certificate.domain}, skipping")
                     continue
 
-                # Remove symlinks
                 try:
                     self.link_manager.unlink_certificate(certificate.domain, None)
                 except Exception as e:
                     self.output_handler.warning(f"Failed to remove symlinks for {certificate.domain}: {e}")
 
-                # Disable HTTPS redirect for this domain (remove vhost.d config)
                 try:
                     self.vhost_manager.disable_https_redirect(certificate.domain)
                 except Exception as e:
                     self.output_handler.warning(f"Failed to remove vhost config for {certificate.domain}: {e}")
 
-                # Remove actual certificate files and acme.sh configuration
                 try:
                     service.remove_certificate(certificate)
                     removed_count += 1
@@ -740,13 +715,11 @@ class SSLCertificateManager:
                 self.output_handler.warning(f"Error removing certificate for {certificate.domain}: {e}")
                 failed_domains.append(certificate.domain)
 
-        # Restart nginx once after all removals
         try:
             self.nginx_controller.restart()
         except Exception as e:
             self.output_handler.warning(f"Failed to restart nginx: {e}")
 
-        # Report results
         if removed_count > 0:
             self.output_handler.print(f"Successfully removed {removed_count} certificate(s)")
         if failed_domains:

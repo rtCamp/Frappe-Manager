@@ -152,7 +152,6 @@ def container_transit_path(filename: str) -> tuple[Path, Path]:
     return Path("/workspace") / rel, rel
 
 
-# --------------------------------------------------------------------------- strategy
 
 
 class RuntimeShape(Protocol):
@@ -232,7 +231,6 @@ def runtime_shape(config, ctx: RenderContext = DEFAULT_CONTEXT) -> RuntimeShape 
     return MountShape(base_image=config.base_image)
 
 
-# --------------------------------------------------------------------------- factory
 
 
 def db_cli_env(config) -> tuple[tuple[str, str], ...]:
@@ -314,7 +312,6 @@ def worker_service_specs(
     )
 
 
-# --------------------------------------------------------------------------- renderer
 
 
 def bind_strings(spec: ServiceSpec) -> list[str]:
@@ -369,7 +366,6 @@ def apply_specs(compose_file_manager, specs: tuple[ServiceSpec, ...], sites: Seq
         compose_file_manager.set_all_images(images)
 
 
-# --------------------------------------------------------------------------- redis urls
 
 
 def validate_redis_endpoints(cache: str, queue: str) -> None:
@@ -534,7 +530,6 @@ def _tcp_database_index(url: str, parsed: ParseResult) -> int:
         ) from None
 
 
-# --------------------------------------------------------------------------- redis server identity
 
 
 class RedisIdentity(Enum):
@@ -699,7 +694,6 @@ def redis_server_identity(cache: str, queue: str, run: Runner) -> RedisIdentityR
     return RedisIdentityResult(RedisIdentity.DIFFERENT, "different server or different database index")
 
 
-# ------------------------------------------------------------------ queue depth
 
 # Same marker discipline as the identity probe: one JSON line, prefixed, so it survives a shell
 # profile banner or a driver warning landing on the same stream.

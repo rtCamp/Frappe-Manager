@@ -14,7 +14,6 @@ from frappe_manager.commands.services.stop import stop_services
 
 services_app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 
-# Activate typer-examples for this Typer app
 install(services_app)
 
 services_app.command(name="info")(info_services)

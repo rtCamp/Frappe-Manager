@@ -58,7 +58,6 @@ class LoggerContext:
             >>> child.correlation_id  # Inherited
             '550e8400-...'
         """
-        # Extract extra overrides if provided
         extra_overrides = overrides.pop("extra", {})
 
         return LoggerContext(
@@ -90,7 +89,6 @@ class LoggerContext:
         """
         parts = []
 
-        # Correlation ID comes first (shortened to 8 chars for readability)
         if self.correlation_id:
             short_corr = self.correlation_id[:8] if len(self.correlation_id) >= 8 else self.correlation_id
             parts.append(f"corr={short_corr}")
@@ -103,7 +101,7 @@ class LoggerContext:
             parts.append(f"component={self.component}")
 
         for key, value in self.extra.items():
-            if value is not None:  # Skip None values
+            if value is not None:
                 parts.append(f"{key}={value}")
 
         if parts:

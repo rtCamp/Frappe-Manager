@@ -3,18 +3,14 @@
 import typer
 from typer_examples import install
 
-# Create main domain app
 domain_app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 
-# Activate typer-examples for this Typer app
 install(domain_app)
 
-# Import commands to register them
 from .add import add_domain
 from .list import list_domains
 from .remove import remove_domain
 
-# Register top-level commands
 domain_app.command(name="add")(add_domain)
 domain_app.command(name="remove")(remove_domain)
 domain_app.command(name="list")(list_domains)

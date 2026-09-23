@@ -3,7 +3,6 @@
 from enum import Enum
 from pathlib import Path
 
-# Volume types
 class DockerVolumeType(str, Enum):
     volume: str
     bind: str
@@ -18,7 +17,6 @@ class DockerVolumeMount:
         self, host: str | Path, container: str, type: str, compose_path: Path, read_only: bool = ...
     ) -> None: ...
 
-# Import actual classes for type checking
 from frappe_manager.docker.compose_exceptions import (
     ComposeSecretNotFoundError as ComposeSecretNotFoundError,
 )
@@ -32,14 +30,11 @@ from frappe_manager.docker.docker_exceptions import DockerException as DockerExc
 from frappe_manager.docker.subprocess_output import SubprocessOutput as SubprocessOutput
 
 __all__ = [
-    # Volume types
     "DockerVolumeType",
     "DockerVolumeMount",
-    # Compose file management
     "ComposeFile",
     "ComposeSecretNotFoundError",
     "ComposeServiceNotFound",
-    # Docker wrappers
     "DockerClient",
     "DockerComposeWrapper",
     "DockerException",

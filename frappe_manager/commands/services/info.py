@@ -46,25 +46,21 @@ def info(ctx: typer.Context):
     abs_path = services_manager.path.absolute()
     card.fact("dir", f"[fm.muted][link=file://{abs_path}]{abs_path}[/link][/fm.muted]")
 
-    # ---- access
     card.section("access")
     card.fact(
         "root db",
         f"{db.user} [fm.muted]/[/fm.muted] [fm.secret]{db.password}[/fm.secret] [fm.muted]@[/fm.muted] {db.host}",
     )
 
-    # ---- proxy (the real-ip overlay fm services real-ip maintains)
     card.section("proxy")
     conf_path = Path(services_manager.proxy_storage.dirs.confd.host) / PROXY_CONF_FILENAME
     summary = summarize_proxy_realip_conf(conf_path.read_text()) if conf_path.exists() else None
     card.fact("real-ip", summary or "[fm.muted]not configured; see fm services real-ip[/fm.muted]")
 
-    # ---- services (live container state, same shape as the bench card's section)
     card.section("services")
     dots = "   ".join(f"{railcard.status_dot(state)} {svc}" for svc, state in sorted(statuses.items()))
     card.fact("global", dots)
 
-    # ---- disk (does the operator need fm services prune?)
     # CLI_MIGARATIONS_DIR read as a module attribute: the test suite repoints it away from
     # the developer's real ~/frappe/backups (see tests/conftest.py).
     from frappe_manager.migration_manager import backup_manager

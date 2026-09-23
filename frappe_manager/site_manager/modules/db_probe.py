@@ -186,7 +186,6 @@ class CredentialInputs:
     supports_db_user: bool = True  # False on a v15 bench, which has no db_user config key
 
 
-# --------------------------------------------------------------------------- text plumbing
 
 
 def redact(text: str, *secrets: str | None) -> str:
@@ -273,7 +272,6 @@ def _run(runner: Runner, command: str) -> _Reply:
     return _Reply(text, _ERROR_RE.search(text) is None)
 
 
-# --------------------------------------------------------------------------- command building
 
 
 def build_mysql_command(
@@ -351,7 +349,6 @@ def show_grants_sql(user: str, scope: str = "%") -> str:
     return f"SHOW GRANTS FOR '{_sql_literal(user)}'@'{_sql_literal(scope)}'"
 
 
-# --------------------------------------------------------------------------- advisory lock
 
 
 LOCK_NAME_PREFIX = "fm:create:"
@@ -380,7 +377,6 @@ def lock_refusal(schema: str) -> str:
     )
 
 
-# --------------------------------------------------------------------------- stage one
 
 
 def probe_stage_one(
@@ -988,7 +984,6 @@ def _app_parity_check(state: SchemaState, *, bench_apps: tuple[str, ...]) -> Pro
     )
 
 
-# --------------------------------------------------------------------------- stage two
 
 
 def stage_two_script(site: str, schema: str) -> str:
@@ -1166,7 +1161,6 @@ def _stage_two_payload(text: str) -> dict | None:
     return None
 
 
-# --------------------------------------------------------------------------- decision table
 
 
 def credential_refusal(credentials: CredentialInputs, *, attach: bool, schema_exists: bool) -> str | None:

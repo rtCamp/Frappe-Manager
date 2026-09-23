@@ -70,7 +70,6 @@ class MigrationExecutor:
         self.global_services_need_migration = False
         self.output = output_handler or RichOutputHandler()
 
-        # Initialize helper classes (composition)
         bench_filter = BenchFilter(target_benches=target_benches, exclude_benches=self.exclude_benches)
         self.validator = MigrationValidator(
             prev_version=self.prev_version,
@@ -164,7 +163,6 @@ class MigrationExecutor:
             self.validator.validate_version_support(effective_prev_version)
             return False
 
-        # Discovery: Load migration classes dynamically
         self.migrations = self.discovery.discover_migrations(effective_prev_version, self.current_version, self)
 
         if self.migrations:
@@ -267,8 +265,6 @@ class MigrationExecutor:
             self.output.print("Dry run: nothing migrated.", emoji_code="")
             return True
 
-        # Orchestration: Execute migrations with error handling.
-        #
         # The undo stack is synced BEFORE each error handler runs, not only on success: a
         # migration that FAILED is exactly the one whose `down()` must run, and it is on the
         # orchestrator's stack (appended before `up()`). Syncing only on the success path left

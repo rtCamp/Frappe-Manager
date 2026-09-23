@@ -37,7 +37,6 @@ class AcmeShCertificateService:
     Follows dependency injection pattern with OutputHandler for display operations.
     """
 
-    # Class variable to cache acme.sh installation status
     _acmesh_installed = False
 
     def __init__(
@@ -97,12 +96,9 @@ class AcmeShCertificateService:
             )
             result = subprocess.run(install_cmd, shell=True, check=True, capture_output=True, text=True)
 
-            # Enable logging in account.conf (commented out by default)
-            # This ensures all acme.sh operations are logged to acme.sh.log for debugging
             account_conf = self.acmesh_home / "account.conf"
             if account_conf.exists():
                 content = account_conf.read_text()
-                # Uncomment LOG_FILE and LOG_LEVEL if they are commented
                 content = content.replace("#LOG_FILE=", "LOG_FILE=")
                 content = content.replace("#LOG_LEVEL=", "LOG_LEVEL=")
                 account_conf.write_text(content)
@@ -139,12 +135,10 @@ class AcmeShCertificateService:
 
         if result.returncode != 0:
             self.output.debug(f"acme.sh failed: {result.stderr}")
-            # Also show stdout for debug mode
             if result.stdout:
                 self.output.debug(f"acme.sh stdout: {result.stdout}")
         else:
             self.output.debug("acme.sh succeeded")
-            # Show output in debug mode
             if result.stdout:
                 self.output.debug(f"acme.sh output: {result.stdout}")
 
@@ -178,7 +172,6 @@ class AcmeShCertificateService:
             return
 
         try:
-            # Read current configuration
             content = account_conf.read_text()
             lines = content.split("\n")
 
@@ -191,12 +184,10 @@ class AcmeShCertificateService:
                 "SAVED_CF_Zone_ID=",
             )
 
-            # Filter out credential lines, preserve everything else
             original_count = len(lines)
             filtered_lines = [line for line in lines if not line.startswith(stale_cred_prefixes)]
             removed_count = original_count - len(filtered_lines)
 
-            # Write back filtered configuration
             account_conf.write_text("\n".join(filtered_lines))
 
             if removed_count > 0:
@@ -234,7 +225,6 @@ class AcmeShCertificateService:
         cmd = [str(self.acmesh_bin)] + args
         self.output.debug(f"Running acme.sh with streaming: {' '.join(args)}")
 
-        # Build environment
         command_env = os.environ.copy()
         command_env["LE_WORKING_DIR"] = str(self.acmesh_home)
         if env:
@@ -251,10 +241,8 @@ class AcmeShCertificateService:
                         exit_code_holder[0] = int(line.decode())
                     yield source, line
 
-            # Display with rolling window (last 5 lines)
             self.output.live_lines(stream_with_exit_tracking(), padding=(0, 0, 0, 2), lines=5)
             return exit_code_holder[0]
-        # No output display - just run and return exit code
         exit_code = 0
         for source, line in stream_command_output(cmd, env=command_env, cwd=None):
             if source == "exit_code":
@@ -323,9 +311,6 @@ class AcmeShCertificateService:
                 self.output.display_error(f"Failed to get DNS credentials: {e}")
                 raise
 
-            # Was `isinstance(certificate, CustomDomainCertificate) and certificate.delegation_cname`.
-            # The class is gone and the field is what mattered: the isinstance never added a
-            # condition, since only a delegated certificate ever carried a truthy value here.
             delegation_cname = declared_field(certificate, "delegation_cname")
             if delegation_cname:
                 self.output.info(f"Using challenge alias: {delegation_cname}")
@@ -486,7 +471,6 @@ class AcmeShCertificateService:
 
         result = self._run_acmesh_command(args)
 
-        # Remove from service directory
         cert_dir = self.root_dir / certificate.domain
         if cert_dir.exists():
             try:

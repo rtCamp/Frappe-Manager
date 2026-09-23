@@ -2,7 +2,6 @@
 BenchSupervisor - Supervisor Process Management Module
 
 This module handles Supervisor process management for bench services.
-Extracted from the monolithic Bench class for better separation of concerns.
 """
 
 import json

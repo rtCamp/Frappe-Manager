@@ -86,25 +86,21 @@ class AppCloner:
 
         self.logger.info(f"Starting parallel clone of {len(apps)} apps")
 
-        # Group apps by monorepo (same repo+ref with subdirs)
         monorepo_groups = {}
         standalone_apps = []
 
         for app in apps:
             if app.subdir_path:
-                # This is a monorepo app - group by repo+ref
                 key = f"{app.repo}:{app.ref or 'default'}"
                 if key not in monorepo_groups:
                     monorepo_groups[key] = []
                 monorepo_groups[key].append(app)
             else:
-                # Standalone app
                 standalone_apps.append(app)
 
         cloned_apps = {}
         failed_apps = []
 
-        # Clone standalone apps in parallel
         if standalone_apps:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_app = {ctx_submit(executor, self._clone_app, app): app for app in standalone_apps}
@@ -132,7 +128,6 @@ class AppCloner:
                     failed_apps.append((app.name, str(e)))
                     self.logger.error(f"Failed to clone {app.name} from monorepo: {e}")
 
-        # Raise exception if any clones failed
         if failed_apps:
             error_msg = "Failed to clone apps:\n" + "\n".join(f"  - {name}: {error}" for name, error in failed_apps)
             raise AppClonerError(error_msg)
@@ -159,11 +154,9 @@ class AppCloner:
         if not apps:
             return {}
 
-        # Use the first app's config for cloning (they all share repo+ref)
         first_app = apps[0]
         repo_name = first_app.repo.replace("/", "_")
 
-        # Clone monorepo to a temporary shared location
         shared_clone_path = self.apps_dir / f".tmp_monorepo_{repo_name}"
 
         if shared_clone_path.exists():
@@ -171,7 +164,6 @@ class AppCloner:
 
         self.logger.info(f"Cloning shared monorepo {first_app.repo} to {shared_clone_path}")
 
-        # Get auth methods and clone
         auth_methods = self._get_auth_methods(first_app)
         cloned = False
 
@@ -191,12 +183,10 @@ class AppCloner:
         if not cloned:
             raise Exception(f"Failed to clone monorepo {first_app.repo}")
 
-        # Extract each app's subdirectory
         result = {}
 
         for app in apps:
             try:
-                # First, use the subdirectory name as temporary location
                 temp_app_path = self.apps_dir / app.name
 
                 if temp_app_path.exists():
@@ -212,14 +202,11 @@ class AppCloner:
                         f"Available: {[d.name for d in shared_clone_path.iterdir() if d.is_dir() and not d.name.startswith('.')]}",
                     )
 
-                # Copy subdirectory to temporary location
                 self.logger.info(f"Extracting {app.name} from {app.subdir_path}")
                 shutil.copytree(subdir_path, temp_app_path, symlinks=True)
 
-                # Extract actual Python module name from pyproject.toml or hooks.py
                 actual_app_name = extract_app_python_module_name(temp_app_path)
 
-                # If the actual app name differs from directory name, rename
                 if actual_app_name != app.name:
                     final_app_path = self.apps_dir / actual_app_name
                     if final_app_path.exists():
@@ -237,7 +224,6 @@ class AppCloner:
                 else:
                     final_app_path = temp_app_path
 
-                # Update the AppConfig with the correct name
                 app.name = actual_app_name
                 result[actual_app_name] = final_app_path
 
@@ -248,7 +234,6 @@ class AppCloner:
                 self.logger.error(f"Failed to extract {app.name}: {e}")
                 raise
 
-        # Clean up shared monorepo
         if shared_clone_path.exists():
             self.logger.debug(f"Cleaning up shared monorepo at {shared_clone_path}")
             shutil.rmtree(shared_clone_path)
@@ -282,14 +267,10 @@ class AppCloner:
 
         clone_path = self.apps_dir / app.name
 
-        # Skip if already cloned
         if clone_path.exists():
             self.logger.info(f"App {app.name} already exists at {clone_path}, skipping")
             return (app.name, clone_path)
 
-        # Get authentication methods to try
-        # If app.repo_url is set (by validation), it will be tried first
-        # Otherwise, tries HTTPS → Token → SSH in order
         auth_methods = self._get_auth_methods(app)
         last_error = None
 
@@ -299,10 +280,8 @@ class AppCloner:
                 self._git_clone(repo_url, clone_path, app)
                 self.logger.info(f"Successfully cloned {app.name} using {method_name}")
 
-                # Detect actual Python module name from pyproject.toml or hooks.py
                 actual_app_name = extract_app_python_module_name(clone_path)
 
-                # Rename directory if module name differs from initial name
                 if actual_app_name != app.name:
                     final_path = self.apps_dir / actual_app_name
                     if final_path.exists():
@@ -319,7 +298,6 @@ class AppCloner:
                         shutil.move(str(clone_path), str(final_path))
                         clone_path = final_path
 
-                # Update the AppConfig with correct name
                 app.name = actual_app_name
 
                 return (actual_app_name, clone_path)
@@ -327,14 +305,12 @@ class AppCloner:
             except (GitCommandError, Exception) as e:
                 last_error = e
                 self.logger.debug(f"{method_name} failed for {app.name}: {e}")
-                # Clean up failed clone attempt
                 if clone_path.exists():
                     import shutil
 
                     shutil.rmtree(clone_path)
                 continue
 
-        # All methods failed
         raise Exception(
             f"Failed to clone {app.name} from {app.repo}. Tried all authentication methods. Last error: {last_error}",
         )

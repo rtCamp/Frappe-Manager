@@ -14,7 +14,6 @@ from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.utils.callbacks import bench_site_autocompletion_callback, bench_site_callback
 
-# Rich help panels for `fm auth --help`, grouped by concern.
 _PANEL_SURFACES = "Surfaces (what asks for a password)"
 _PANEL_CREDENTIALS = "Credentials"
 _PANEL_EXEMPTIONS = "Exemptions (who skips the prompt)"
@@ -274,11 +273,8 @@ def auth(
     bench = Bench.get_object(address, services_manager, output_handler=output)
     site = ctx.obj.get("site")
 
-    # A site part cannot narrow the tools surface. There is one Adminer and one Mailpit per bench
-    # and both answer on every hostname it serves, so protecting them for one site would leave the
-    # SAME tools reachable unprotected on its neighbours: one of two doors into the same room.
-    # Refused rather than quietly applied bench-wide, which is the version an operator finds out
-    # about only when it matters.
+    # One Adminer/Mailpit per bench answers on every hostname it serves, so per-site protection
+    # cannot exist; refuse rather than silently apply bench-wide.
     if site and AuthSurface.tools in protect:
         output.error(
             f"--protect tools cannot take a site part: one Adminer and one Mailpit serve the whole bench, on every hostname '{bench.name}' has, so protecting them for '{site}' alone would leave the same tools open on the others. Run 'fm auth {bench.name} --protect tools' to protect them for the bench.",

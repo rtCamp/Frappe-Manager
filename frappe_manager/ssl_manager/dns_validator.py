@@ -81,7 +81,6 @@ class DNSValidator:
             self.output.debug(f"Validating CNAME: {challenge_domain} → {expected_target}")
 
         try:
-            # Query DNS using dig
             result = subprocess.run(
                 ["dig", "+short", challenge_domain, "CNAME"],
                 capture_output=True,
@@ -101,7 +100,6 @@ class DNSValidator:
                     dns_query_output=dns_output,
                 )
 
-            # Normalize (add trailing dot if missing for comparison)
             normalized_actual = actual_value if actual_value.endswith(".") else f"{actual_value}."
 
             if normalized_actual == expected_target:
@@ -177,12 +175,11 @@ class DNSValidator:
                     dns_query_output=dns_output,
                 )
 
-            # Check if it looks like an IP address (basic validation)
-            ip_parts = actual_value.split("\n")[0].split(".")  # Take first line if multiple IPs
+            ip_parts = actual_value.split("\n")[0].split(".")
             if len(ip_parts) == 4 and all(part.isdigit() for part in ip_parts):
                 return ValidationResult(
                     valid=True,
-                    actual_value=actual_value.split("\n")[0],  # Return first IP
+                    actual_value=actual_value.split("\n")[0],
                     expected_value=None,
                     message=f"Domain resolves to {actual_value.split()[0]}",
                     dns_query_output=dns_output,

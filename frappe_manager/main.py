@@ -28,8 +28,6 @@ def cli_entrypoint():
     if hasattr(signal, "SIGPIPE"):
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
-    # Initialize basic output handler early (before app() runs)
-    # This will be upgraded to LoggingOutputHandler in app_callback after CLI args are parsed
     basic_handler = RichOutputHandler()
     set_global_output_handler(basic_handler)
 
@@ -89,7 +87,7 @@ def cli_entrypoint():
         except Exception:
             file_level = "DEBUG"
 
-        log.get_logger(file_level=file_level)  # apply configured file log level
+        log.get_logger(file_level=file_level)
         logger = get_logger(component="main")
         output = get_global_output_handler()
 
@@ -122,7 +120,7 @@ def cli_entrypoint():
         except Exception:
             file_level = "DEBUG"
 
-        log.get_logger(file_level=file_level)  # apply configured file log level
+        log.get_logger(file_level=file_level)
         logger = get_logger(component="main")
         output = get_global_output_handler()
 

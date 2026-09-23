@@ -61,8 +61,6 @@ from frappe_manager.utils.helpers import (
 )
 from frappe_manager.utils.site import pull_docker_images, validate_sitename
 
-# Helper functions
-
 
 def get_bench_arg_from_context(ctx: typer.Context) -> str | None:
     """
@@ -230,9 +228,7 @@ def _prompt_and_run_migration(
     raise typer.Exit(1)
 
 
-# Create main Typer app
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
-# Activate typer-examples for the main Typer app
 install(app)
 
 # Rich help panels for `fm --help`, grouped by the shape of the address the command takes (see
@@ -256,7 +252,6 @@ from frappe_manager.commands.domain import domain_app
 from frappe_manager.commands.telemetry import telemetry_app
 from frappe_manager.commands.tools import tools_app
 
-# Register subcommands
 app.add_typer(services_app, name="services", help="Handle global services.", rich_help_panel=_PANEL_GLOBAL)
 app.add_typer(
     self_app,
@@ -276,7 +271,6 @@ app.add_typer(
 )
 
 
-# App callback (runs before all commands)
 @app.callback()
 def app_callback(
     ctx: typer.Context,
@@ -316,28 +310,21 @@ def app_callback(
     # module, thread (via ctx_submit), or the output mirror -- carries these.
     set_context(correlation_id=str(uuid.uuid4()), operation=ctx.invoked_subcommand)
 
-    # Import early for validation error reporting
     from frappe_manager.output_manager import get_global_output_handler, set_global_output_handler
 
-    # Determine effective log level
     if log_level:
-        # Explicit --log-level takes precedence
         level_name = log_level.upper()
 
-        # Validate log level
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
         if level_name not in valid_levels:
             output = get_global_output_handler()
             output.display_error(f"Invalid log level: {log_level}. Must be one of: {', '.join(valid_levels).lower()}")
             raise typer.Exit(1)
     elif verbose:
-        # -v flag sets INFO level
         level_name = "INFO"
     else:
-        # Default: WARNING
         level_name = "WARNING"
 
-    # Store in context for commands
     ctx.obj["log_level"] = level_name
     ctx.obj["verbose"] = verbose or level_name in ["INFO", "DEBUG"]
     ctx.obj["non_interactive"] = non_interactive or json_output
@@ -478,7 +465,6 @@ def app_callback(
             bench_arg = get_bench_arg_from_context(ctx) or get_bench_arg_from_argv(full_command)
             bench_path = CLI_BENCHES_DIRECTORY / bench_arg if bench_arg else None
 
-            # Check migration states
             global_services_version = fm_config_manager.get_system_migration_version()
             current_version = Version(get_current_fm_version())
             infra_needs_migration = global_services_version < current_version
@@ -620,14 +606,11 @@ def app_callback(
             ctx.obj["fm_config_manager"] = fm_config_manager
 
 
-# Import extracted read-only commands (Step 3)
-# Import extracted remaining commands (Step 6)
 from frappe_manager.commands.auth import auth
 from frappe_manager.commands.bake import bake
 from frappe_manager.commands.code import code
 from frappe_manager.commands.compose import compose
 
-# Import extracted complex commands (Step 5)
 from frappe_manager.commands.create import create
 from frappe_manager.commands.delete import delete
 from frappe_manager.commands.deploy import switch
@@ -642,7 +625,6 @@ from frappe_manager.commands.restart import restart
 from frappe_manager.commands.maintenance import maintenance
 from frappe_manager.commands.shell import shell
 
-# Import extracted lifecycle commands (Step 4)
 from frappe_manager.commands.start import start
 from frappe_manager.commands.stop import stop
 from frappe_manager.commands.update import update
@@ -679,7 +661,6 @@ app.command(name="auth", rich_help_panel=_PANEL_SITE)(auth)
 app.command(name="ngrok", rich_help_panel=_PANEL_DOMAIN)(ngrok)
 app.command(name="list", rich_help_panel=_PANEL_GLOBAL)(list_benches)
 
-# Export app and helpers for backward compatibility
 __all__ = [
     "app",
     "app_callback",

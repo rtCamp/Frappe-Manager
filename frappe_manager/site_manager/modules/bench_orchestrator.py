@@ -541,7 +541,6 @@ class BenchOrchestrator:
         bench.set_bench_site_config(bench.site_name, {"admin_password": bench.bench_config.admin_pass})
         bench.sync_bench_config_configuration()
 
-    # ------------------------------------------------------------------ external database
 
     @property
     def _attaching(self) -> bool:

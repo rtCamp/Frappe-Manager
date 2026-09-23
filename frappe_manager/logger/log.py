@@ -10,7 +10,6 @@ from rich.logging import RichHandler
 from frappe_manager import CLI_LOG_DIRECTORY
 from frappe_manager.exceptions import ConfigurationError
 
-# Define MESSAGE log level
 CLEANUP = 25
 
 
@@ -26,7 +25,6 @@ def rotator(source, dest):
 
 loggers: dict[str, logging.Logger] = {}
 
-# "Register" new loggin level
 logging.addLevelName(CLEANUP, "CLEANUP")
 
 
@@ -156,10 +154,8 @@ class ConsoleLogFilter(logging.Filter):
         Returns:
             Simplified command string
         """
-        # Remove "COMMAND: " prefix
         cmd = cmd_line.replace("COMMAND: ", "")
 
-        # Common patterns to simplify
         simplifications = [
             # Docker compose exec commands - show only the actual command
             (r"docker compose -f [^\s]+ exec (?:--user \w+ )?(?:--workdir [^\s]+ )?(\w+) (.+)", r"[\1] \2"),
@@ -174,15 +170,12 @@ class ConsoleLogFilter(logging.Filter):
             if match:
                 try:
                     simplified = re.sub(pattern, replacement, cmd)
-                    # Further trim if still too long
                     if len(simplified) > 100:
                         simplified = simplified[:97] + "..."
                     return f"COMMAND: {simplified}"
                 except Exception:
-                    # If regex replacement fails, continue to next pattern
                     continue
 
-        # Fallback: just truncate long commands
         if len(cmd) > 80:
             return f"COMMAND: {cmd[:77]}..."
 
@@ -302,7 +295,6 @@ def get_logger(
     Returns:
         FMLOGGER instance configured with file handler and optional console handler
     """
-    # Build Log File Full Path
     logPath = log_dir / f"{log_file_name}.log"
 
     try:
@@ -312,7 +304,6 @@ def get_logger(
         print(f"FATAL: Logging not working. {e}")
         raise ConfigurationError(f"Logging not working: {e}", details={"log_dir": str(log_dir)})
 
-    # Create logger object and set the format for logging and other attributes
     logger_exists = loggers.get(log_file_name) is not None
     if logger_exists:
         logger: logging.Logger | None = loggers.get(log_file_name)
@@ -334,7 +325,6 @@ def get_logger(
         handler.addFilter(ContextInjectFilter())
         logger.addHandler(handler)
 
-        # save logger to dict loggers
         loggers[log_file_name] = logger
 
     # Add or update console handler only if:

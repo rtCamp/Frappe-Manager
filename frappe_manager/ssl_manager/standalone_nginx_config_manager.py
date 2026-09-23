@@ -30,7 +30,6 @@ class StandaloneNginxConfigManager:
         certs_dir: Path to SSL certificates directory (container path)
     """
 
-    # Template for standalone domain server block (HTTP only, for ACME challenges)
     HTTP_SERVER_TEMPLATE = """# Standalone domain: {domain}
 # Managed by Frappe Manager
 # This configuration allows HTTP-01 ACME challenge for SSL certificate generation
@@ -54,7 +53,6 @@ server {{
 }}
 """
 
-    # Template for standalone domain with SSL
     HTTPS_SERVER_TEMPLATE = """# Standalone domain: {domain}
 # Managed by Frappe Manager
 # This configuration provides SSL termination without requiring a backend
@@ -116,7 +114,6 @@ server {{
         self.webroot_dir = webroot_dir_container
         self.certs_dir = certs_dir_container
 
-        # Ensure config directory exists
         self.conf_dir.mkdir(parents=True, exist_ok=True)
 
     def create_http_config(self, domain: str) -> Path:

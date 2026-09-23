@@ -143,7 +143,6 @@ def get_docker_image_tag():
 
     version = get_current_fm_version()
 
-    # Always prepend 'v' if not already present
     if not version.startswith('v'):
         return f'v{version}'
 
@@ -218,15 +217,10 @@ def get_bench_connection_config(
 
 
 def random_password_generate(password_length=13, symbols=False):
-    # Define the character set to include symbols
-    # symbols = "!@#$%^&*()_-+=[]{}|;:,.<>?`~"
     symbols = "!@%_-+?"
-
-    # Generate a password without symbols using token_urlsafe
 
     generated_password = secrets.token_urlsafe(password_length)
 
-    # Replace some characters with symbols in the generated password
     if symbols:
         password = "".join(c if secrets.choice([True, False]) else secrets.choice(symbols) for c in generated_password)
         return password
@@ -234,7 +228,6 @@ def random_password_generate(password_length=13, symbols=False):
     return generated_password
 
 
-# Retrieve Unix groups and their corresponding integer mappings
 def get_unix_groups():
     groups = {}
     for group_entry in grp.getgrall():
@@ -312,8 +305,6 @@ def create_symlink(source: Path, dest: Path):
     Note: The function will overwrite the destination if a symlink already exists there.
     """
 
-    # Convert the source and destination to Path objects
-
     if dest.exists() or dest.is_symlink():
         dest.unlink()
 
@@ -372,7 +363,6 @@ def capture_and_format_exception(traceback_max_frames: int = 100) -> str:
         max_frames=traceback_max_frames,
     )
 
-    # Convert the Traceback object to a formatted string
     formatted_traceback = rich_object_to_string(traceback)
 
     return formatted_traceback

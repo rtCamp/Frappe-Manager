@@ -53,7 +53,6 @@ def extract_app_python_module_name(app_path: Path) -> str:
     Returns:
         Python module name (e.g., "frappe_consent_management")
     """
-    # Try pyproject.toml first (most reliable)
     pyproject = app_path / "pyproject.toml"
     if pyproject.exists():
         try:
@@ -61,27 +60,22 @@ def extract_app_python_module_name(app_path: Path) -> str:
             if "project" in data and "name" in data["project"]:
                 return data["project"]["name"]
         except Exception:
-            pass  # Fall through to next method
+            pass
 
-    # Try hooks.py (Frappe convention)
-    # Search for hooks.py in immediate subdirectories (frappe convention: app_name/hooks.py)
     hooks_files = list(app_path.glob("*/hooks.py"))
 
-    # Filter to only top-level hooks.py (not nested deeper)
     top_level_hooks = [f for f in hooks_files if len(f.relative_to(app_path).parts) == 2]
 
     if top_level_hooks:
         try:
             hooks_py = top_level_hooks[0]
             content = hooks_py.read_text()
-            # Match: app_name = "module_name"
             match = re.search(r'app_name\s*=\s*["\']([^"\']+)["\']', content)
             if match:
                 return match.group(1)
         except Exception:
-            pass  # Fall through to fallback
+            pass
 
-    # Fallback: use directory name
     return app_path.name
 
 
@@ -469,56 +463,39 @@ class AppConfig(BaseModel):
         Returns:
             AppConfig instance
         """
-        # Split on '#' for subdirectory
         if "#" in app_string:
             app_part, subdir_path = app_string.split("#", 1)
         else:
             app_part = app_string
             subdir_path = None
 
-        # Check if this is a full URL (starts with protocol or git@)
         is_full_url = app_part.startswith(("http://", "https://"))
         is_ssh_url = app_part.startswith("git@")
 
-        # Split on ':' for branch/ref
-        # For URLs: skip protocol colon, find the LAST colon (if any) for ref
-        # For SSH: format is git@host:org/repo:ref, so find LAST colon after @
-        # For short form: any colon is ref separator
         ref = None
         if is_full_url:
-            # For http(s):// URLs, look for colon AFTER the protocol and host
-            # e.g., "https://github.com/frappe/frappe:version-15"
-            #       split at ":" -> ["https", "//github.com/frappe/frappe", "version-15"]
             parts = app_part.split(":")
-            if len(parts) > 2:  # Has protocol + potential ref
-                # Rejoin protocol + host/path, last part is ref
+            if len(parts) > 2:
                 repo_part = ":".join(parts[:-1])
                 ref = parts[-1]
             else:
                 repo_part = app_part
         elif is_ssh_url:
-            # For git@ URLs: git@github.com:frappe/frappe:version-15
-            # Find last colon after @ for ref
             at_index = app_part.index("@")
             remainder = app_part[at_index + 1 :]
             if remainder.count(":") > 1:
-                # Multiple colons: last one is ref separator
                 last_colon_idx = remainder.rfind(":")
                 repo_part = app_part[: at_index + 1 + last_colon_idx]
                 ref = remainder[last_colon_idx + 1 :]
             else:
                 repo_part = app_part
-        # Short form: org/repo:ref or app:ref
         elif ":" in app_part:
             repo_part, ref = app_part.split(":", 1)
         else:
             repo_part = app_part
 
-        # Parse repo (e.g., "frappe/erpnext" or just "erpnext" or full URL)
         if is_full_url or is_ssh_url:
-            # Full URL: keep as-is, extract name from path
             repo = repo_part
-            # Extract name from URL path (last segment before .git)
             path_part = repo_part.split("/")[-1]
             name = path_part.replace(".git", "")
         elif "/" in repo_part:
@@ -526,9 +503,8 @@ class AppConfig(BaseModel):
             name = repo_part.split("/")[-1]
         else:
             name = repo_part
-            repo = f"frappe/{name}"  # Default to frappe org
+            repo = f"frappe/{name}"
 
-        # Override name if subdirectory specified
         if subdir_path:
             name = subdir_path.split("/")[-1]
 
@@ -839,7 +815,6 @@ def ssl_certificate_to_toml_doc(cert: SSLCertificate) -> tomlkit.TOMLDocument | 
 
 def ssl_certificates_to_toml_array(certs: list[SSLCertificate]) -> TOMLArray:
     """Convert a list of certificates to TOML array-of-tables."""
-    # Use aot() for array-of-tables format [[ssl_certificates]]
     toml_aot = tomlkit.aot()
     for cert in certs:
         if cert.ssl_type != SUPPORTED_SSL_TYPES.none:
@@ -1723,7 +1698,6 @@ class BenchConfig(BaseModel):
         """
         return list(self._hand_read_unknown_keys)
 
-    # Deploy model (#323): runtime + image identity + config tables
     runtime: BenchRuntime = Field(
         BenchRuntime.mount,
         description="Runtime: 'mount' (live-mounted code) or 'image' (immutable app image). Default 'mount'.",
@@ -1794,10 +1768,8 @@ class BenchConfig(BaseModel):
         exclude=True,
     )
 
-    # Multi-certificate support
     ssl_certificates: list[SSLCertificate] = Field(default=[], description="List of SSL certificates for this bench")
 
-    # DNS provider credentials for DNS-01 challenge (optional, bench-specific override)
     dns_providers: dict[str, DNSProviderConfig] | None = Field(
         default=None,
         description="DNS provider credentials for DNS-01 challenge (e.g., {'cloudflare': {...}})",
@@ -1812,23 +1784,19 @@ class BenchConfig(BaseModel):
     userid: int = Field(default_factory=os.getuid, description="The user ID of the current process")
     usergroup: int = Field(default_factory=os.getgid, description="The group ID of the current process")
 
-    # NEW: GitHub token for private repositories
     github_token: str | None = Field(None, description="GitHub personal access token for private repositories")
 
-    # NEW: UV installation preference (always True, with fallback)
     use_uv: bool = Field(
         True,
         description="Use UV for faster Python package installation (with automatic fallback to pip)",
     )
 
-    # NEW: Auto-detected Python and Node version requirements from frappe
     python_version: str | None = Field(
         None,
         description="Python version requirement from frappe app (e.g., '>=3.10,<3.14')",
     )
     node_version: str | None = Field(None, description="Node version requirement from frappe app (e.g., '>=18')")
 
-    # Database name (randomized on creation to avoid conflicts)
     db_name: str | None = Field(None, description="Database name for this bench (auto-generated random string)")
 
     restart_policy: RestartPolicyEnum | None = Field(
@@ -1952,7 +1920,6 @@ class BenchConfig(BaseModel):
         if self.ssl_certificates:
             return self.ssl_certificates[0]
 
-        # Return default disabled certificate
         return SSLCertificate(domain=self.name, ssl_type=SUPPORTED_SSL_TYPES.none)
 
     def certificate_for(self, domain: str) -> SSLCertificate:
@@ -2034,7 +2001,6 @@ class BenchConfig(BaseModel):
                 desired[key] = value
         desired.update(tables)
 
-        # [ssl]
         ssl_table = tomlkit.table()
         if self.dns_providers:
             dns = tomlkit.table()

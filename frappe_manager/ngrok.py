@@ -83,7 +83,6 @@ async def start_tunnel(site_name: str, auth_token: str):
 
     print(f"Ingress established at: {listener.url()}")
 
-    # Handle graceful shutdown
     def signal_handler(sig, frame):
         print("\nShutting down ngrok tunnel...")
         asyncio.create_task(listener.close())
@@ -91,7 +90,6 @@ async def start_tunnel(site_name: str, auth_token: str):
 
     signal.signal(signal.SIGINT, signal_handler)
 
-    # Keep the tunnel open
     try:
         while True:
             await asyncio.sleep(1)

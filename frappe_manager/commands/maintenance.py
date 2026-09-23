@@ -160,10 +160,8 @@ def _bench_domains(benchname: str, site: str | None = None) -> tuple[list[str], 
     """
     config_path = CLI_BENCHES_DIRECTORY / benchname / CLI_BENCH_CONFIG_FILE_NAME
     data = tomlkit.parse(config_path.read_text())
-    # Every hostname the bench serves, read from `[sites]`: each site's own name plus that site's
-    # aliases. This read `alias_domains` at the top level, which the aliases moved out of. Keeping
-    # the raw-TOML read rather than loading BenchConfig is deliberate, so maintenance still works on
-    # a bench whose config the model would refuse.
+    # Raw-TOML read, not BenchConfig: maintenance must keep working on a bench whose config the
+    # model would refuse. Aliases live per-site under `[sites]`, not at the top level.
     sites = data.get("sites") or {}
     by_site: dict[str, list[str]] = {}
     for site_name, entry in sites.items():

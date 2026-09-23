@@ -87,9 +87,6 @@ class CustomCertificateService:
         self.output = output_handler or RichOutputHandler()
         self.root_dir.mkdir(parents=True, exist_ok=True)
 
-    # ------------------------------------------------------------------
-    # SSLCertificateService Protocol implementation
-    # ------------------------------------------------------------------
 
     def generate_certificate(self, certificate: SSLCertificate, test_ca: bool = False) -> tuple[Path, Path]:
         """Validate the operator-supplied cert/key/ca and copy them into fm's own storage.
@@ -209,9 +206,6 @@ class CustomCertificateService:
         shutil.rmtree(dest_dir)
         return True
 
-    # ------------------------------------------------------------------
-    # helpers
-    # ------------------------------------------------------------------
 
     def _read_file(self, path: Path, flag: str, domain: str) -> bytes:
         if not path.exists():
