@@ -60,6 +60,29 @@ class BenchNotFoundError(FileNotFoundError, BenchException):
         BenchException.__init__(self, self.bench_name, self.message)
 
 
+class BenchConfigNotFoundError(FileNotFoundError, BenchException):
+    """Raised when a bench directory exists but carries no bench_config.toml.
+
+    The half-created state a failed `fm create` leaves behind: containers and a compose file, no
+    config. Without this the loader raised a bare `FileNotFoundError` and every command reported
+    `Unexpected Error [Errno 2] No such file or directory`, naming neither the bench nor the file
+    nor the way out. `fm delete` does not go through this loader, so it still cleans such a bench
+    up, which is why the message names it.
+    """
+
+    def __init__(self, bench_name: str, path: Path):
+        self.bench_name = bench_name
+        self.path = path
+        self.message = (
+            f"No bench config at {path}. The bench directory exists but is not fully created, "
+            f"which is what a failed 'fm create' leaves behind. Remove it with: "
+            f"fm delete {bench_name} --yes"
+        )
+        # Chain explicitly, NOT via super(): see BenchNotFoundError above for why the MRO makes
+        # `super().__init__` render a bogus "[Errno <bench name>]" prefix and drop `.details`.
+        BenchException.__init__(self, self.bench_name, self.message)
+
+
 class BenchRemoveDirectoryError(BenchException):
     """Raised when bench directory removal fails."""
 
