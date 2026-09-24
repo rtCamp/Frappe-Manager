@@ -159,7 +159,7 @@ def _build_standalone_config(
 )
 @example(
     "Standalone bake, no bench involved",
-    "--apps erpnext:version-15 --image ghcr.io/acme/mysite --push",
+    "--apps erpnext:version-16 --image ghcr.io/acme/mysite --push",
 )
 @example(
     "Standalone bake from a config file",
@@ -215,7 +215,7 @@ def bake(
         typer.Option(
             "--apps",
             "-a",
-            help="Standalone bake only: apps to bake (appname:branch or appname, e.g. erpnext:version-15). Repeatable.",
+            help="Standalone bake only: apps to bake (appname:branch or appname, e.g. erpnext:version-16). Repeatable.",
             callback=apps_list_validation_callback,
             show_default=False,
         ),

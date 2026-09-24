@@ -13,7 +13,7 @@ fm create mybench            # http://mybench.localhost just works
 fm create shop.example.com   # any domain works; DNS is your job (see below)
 ```
 
-Once a domain has a certificate it is served over both HTTP and HTTPS: fm configures the proxy not to redirect, so a plain-HTTP request keeps working rather than becoming a 301.
+A domain with no certificate is served over plain HTTP only. Once it has one, fm writes a per-domain redirect that turns a plain-HTTP request into a 301 to HTTPS, except for internal `/api/method/frappe.realtime.*` calls, which stay on HTTP because Node's `fetch` drops the `Cookie` header across a protocol redirect.
 
 ## Alias domains
 

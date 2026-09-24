@@ -28,12 +28,12 @@ fm bake mybench                                  # build the image pair from a b
 fm create prodbench --runtime image --base-image repo:tag   # or create a bench directly on a pre-built image
 ```
 
-In that second form, `--base-image` names the release the bench is *born* on, not a permanent pin: only the repo half is persisted to the bench's top-level `image` key, while the tag half is recorded in `[deploy_state].current_image` and rewritten by `fm switch` on every deploy.
+In that second form, `--base-image` names the release the bench is *born* on, not a permanent pin: only the repo half is persisted to the bench's top-level `image` key, while the full reference is recorded in `[deploy_state].current_image` and rewritten by `fm switch` on every deploy.
 
 A bake produces two images: the app image holds the code, the venv and the built assets, and the paired `<repo>-nginx` image holds those assets again for the bench's nginx to serve. The bench itself keeps only mutable data host-side: the site directory, `common_site_config.json`, `apps.txt`, logs and config. The database is never in an image; it stays on whichever server the bench uses, `mariadb` or an external one. There is nothing to edit, and that's the point:
 
 - deploys are atomic and repeatable, and rollback is one command away; see [Deployment](../deploy/index.md) and [Rolling back](../deploy/rollback.md)
-- `fm update` accepts settings only: environment, upload limit, restart policy, NewRelic, external-database CA. `--python`, `--node` and `--developer-mode enable` are refused, since those are baked in. Alias domains (`fm domain add`/`fm domain remove`), admin tools (`fm tools enable`/`fm tools disable`) and app code (`fm apps add`) are separate commands now; the last of those still needs an editable workspace, so it is refused on an image bench the same way
+- `fm update` accepts settings only: environment, upload limit, restart policy, redis endpoints (`--redis-cache`/`--redis-queue`, and `--no-redis-cache`/`--no-redis-queue` to move a side back), external-database CA; APM is `fm telemetry enable` now, not an update flag. `--python`, `--node` and `--developer-mode enable` are refused, since those are baked in. Alias domains (`fm domain add`/`fm domain remove`), admin tools (`fm tools enable`/`fm tools disable`) and app code (`fm apps add`) are separate commands now; the last of those still needs an editable workspace, so it is refused on an image bench the same way
 
 The full pipeline (baking, zero-downtime rolling swaps, rollbacks with DB restore, release pruning) is covered in the [Deployment guide](../deploy/index.md).
 

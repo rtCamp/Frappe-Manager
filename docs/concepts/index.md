@@ -9,7 +9,7 @@ A **bench** is one Frappe site with everything it needs (the web process, its ow
 | **[Runtime](runtimes.md)** | *Where does the code live?* | `mount`: an editable workspace on your disk · `image`: an immutable, pre-built Docker image |
 | **[Environment](../guides/environments.md)** | *How does the web process run?* | `dev`: auto-reloading dev server · `prod`: Gunicorn, restart-on-crash |
 
-One machine runs many benches, and they share two **global services**: a single MariaDB server (`mariadb`) holding every bench's database, and one `nginx-proxy` on ports 80/443 routing requests to the right bench by domain. `fm services` manages these; everything else is per-bench. A bench can opt out of the shared database and Redis at create time by pointing at external servers.
+One machine runs many benches, and they share two **global services**: a single MariaDB server (`mariadb`) holding every bench's database, and one `nginx-proxy` on ports 80/443 routing requests to the right bench by domain. `fm services` manages these; everything else is per-bench. A bench can opt out of the shared database at create time by pointing at an external server (only its CA is editable later, with `fm update --db-ca`); redis is more flexible, and each side moves independently, at create time or later: `fm update --redis-cache`/`--redis-queue` points a side at an external server, `--no-redis-cache`/`--no-redis-queue`/`--no-redis` brings it back to fm's own container.
 
 The axes combine freely:
 

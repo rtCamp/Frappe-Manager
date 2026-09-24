@@ -71,7 +71,7 @@ fm create mybench/b.example.com
 ### Add apps, pinned to a branch or not
 
 ```bash
-fm create mybench --apps erpnext:version-15 --apps hrms
+fm create mybench --apps erpnext:version-16 --apps hrms
 ```
 
 ### Create a production bench

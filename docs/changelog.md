@@ -7,17 +7,56 @@ All notable changes to Frappe Manager are documented here.
 
 ## Unreleased
 
+This is the 1.0.0 cycle. Versions 0.20.0 and 0.21.0 were never published: their work ships here.
+
+### Breaking Changes
+
+- **address:** Commands now address a bench and a site separately as `BENCH/SITE`. A bench name is a name, not a domain, and the site it serves has its own; `all` is an address (`fm tools enable mybench/all`), not a flag; an alias domain belongs to a site rather than to the bench; and every usage line states the address grammar it accepts. Commands that used to act on "the site named after the bench" now act on every site the bench serves: `fm switch` switches all of them, and a migration backs all of them up
+- **migrate:** `fm migrate` was split in two. `fm services migrate` migrates fm's own global services & configuration; `fm migrate` migrates benches only and refuses to run while the services tier is behind, naming the command to run first. The word "infrastructure" is retired. Upgrading fm is now three commands: `fm self upgrade`, `fm services migrate`, `fm migrate all`
+- **migrate:** One version ledger, `[migration_state].migrated_to`, replaces `system_migrated_to` and the informational top-level `version` key at both scopes. Files written by older releases are read and rewritten on the next migration. A config carrying an unknown version (`0.0.0`) now refuses to migrate rather than impersonating an ancient install and replaying every migration ever shipped
+- **services:** The global services are named after their engines: `mariadb` and `nginx-proxy` (containers `fm_mariadb` and `fm_nginx-proxy`), replacing `global-db` and `global-nginx-proxy`. Networks, volumes and every reference are renamed by the 1.0.0 migration, and MariaDB moves from 10.6 to 11.8 with an automatic datadir upgrade
+- **telemetry:** APM moved out of `fm update` into its own group: `fm telemetry enable|disable|status`. Disabling now means off: the agent is removed from the bench's configuration rather than left running with reporting muted
+- **stop:** `fm stop` waits for in-flight RQ jobs before stopping a bench, and refuses rather than killing a job that overruns. `--no-drain` keeps the old immediate behavior
+- **cli:** `--yes`/`-y` is the only confirmation bypass; `--auto-proceed` is gone. Every confirmation prompt defaults to No, so a bare Enter declines. Decisions that change *what* happens get their own named flag (`--restore-db`, `--delete-backups`, `--skip-db-backup`, `--on-failure`) and `--yes` never answers them
+- **ssl:** `fm ssl add`/`fm ssl renew --dry-run` is renamed `--test-ca`. It always selected Let's Encrypt's staging CA and issued a real (untrusted) certificate, which is the opposite of what `--dry-run` means everywhere else in the CLI
+- **delete:** `--delete-db-from-mariadb` is renamed `--delete-db-from-fm-mariadb`, naming the only database fm will ever drop. An external database is never touched
+- **compose:** `fm self compose` is promoted to `fm compose`, with canonical bench selection and an explicit `fm compose -- ARGS` form for omitting the bench
+- **services:** Global-services commands moved off the bench command surface into `fm services` (`fm services info`, `fm services real-ip`)
+- **config:** The `[registry]` table is removed. fm performs no registry login of its own; authentication is the docker daemon's ambient `docker login`, and the registry host is parsed from the image reference
+
 ### Features
 
-- **ssl:** Add `fm ssl add --custom` to import an operator-supplied certificate (`--cert` and `--key`, optional `--ca` trusted inside bench containers for outbound HTTPS); `fm ssl renew` deliberately refuses to rotate an imported certificate and directs the operator to re-run the import
-- **ssl:** Add `fm ssl add --behind-proxy` (alias `--edge-tls`) for origins behind an external TLS terminator such as Cloudflare: the redirect keys on the forwarded proto, the bench's web server trusts that header (per bench, never globally), and fm hints when a domain resolves into Cloudflare's ranges
+- **prune:** Explicit disk hygiene. `fm prune BENCH` reclaims deploy artifacts, backups and logs; `fm services prune` does the same for the shared services. Both are plan-first: they print every path they will touch, one row each, and `--dry-run` changes nothing. Automatic retention is gone, and fm never deletes on a schedule you did not ask for. Retention policy lives in the `[prune]` config table, and `fm info`/`fm services info` carry a disk row saying whether a prune is worth running
+- **migrate:** Migration backups keep the newest three sessions, pruned only after a successful run. `--dry-run` prints the plan; `--rerun` re-applies the current release's migration; `--on-failure prompt|rollback|archive` decides what happens when a step fails, and Ctrl+C mid-migration is routed through that same policy instead of leaving a half-migrated install
+- **locks:** Host and bench locks. A second `fm` process no longer runs blind next to the first: a migration takes a host-wide lock, bench-mutating commands take a per-bench lock, and a refusal names the operation and PID holding it. Read-only commands hold no lock and never start the stack to answer a question
+- **redis:** The cache and the queue may live on different servers, each side independent. `fm update` moves either side between fm-managed and external (`--redis-cache`, `--redis-queue`, and the matching `--no-redis-cache`/`--no-redis-queue`), draining the queue, producers paused and in-flight jobs finished, rather than copied, with `--abandon-queued` to skip that deliberately
+- **workers:** One drain gate shared by every command that disturbs workers: `fm restart`, `fm stop`, `fm apps add`, `fm update` and the `fm switch` pipeline. The scheduler is paused explicitly rather than as a side effect of maintenance mode, and an interrupted wait resumes producers instead of leaking a suspended queue
+- **cli:** `--dry-run` on the plan-first commands (`prune`, `services prune`, `migrate`, `services migrate`, `delete`, `update`): print the plan, change nothing, exit 0, never prompt. `fm create --dry-run` prints the resolved `bench_config.toml` it would write
+- **cli:** New command groups `fm apps`, `fm domain` and `fm tools`; `fm --help` groups commands by the address they take; `fm --json` streams machine-readable JSONL
+- **auth:** Basic auth and admin-tools routing are per site, so one site can prompt or stop serving Adminer while its neighbours do not. Each site gets its own nginx server block, and `fm maintenance BENCH/SITE` takes one site down rather than the bench
+- **ssl:** `fm ssl add --custom` imports a certificate you already hold (`--cert`, `--key`, optional `--ca` trusted inside bench containers for outbound HTTPS); `fm ssl renew` refuses to rotate an imported certificate and directs you to re-run the import
+- **ssl:** `fm ssl add --behind-proxy` (alias `--edge-tls`) for origins behind an external TLS terminator such as Cloudflare: the redirect keys on the forwarded proto, the bench's web server trusts that header per bench rather than globally, and fm hints when a domain resolves into Cloudflare's ranges
+- **ssl:** DNS-01 credential sets are named and selected per certificate, so one machine can hold several Cloudflare credentials. The `[cloudflare]` table becomes `[ssl.dns_providers.cloudflare]`
+- **deploy:** `on_rollback` is generalized into a terminal `after_switch` hook that runs on every outcome, with `DEPLOY_OUTCOME` and `ROLLBACK_REASON` in its environment, enough to drive an external-database rollback such as an RDS snapshot restore
+- **create:** `fm create --remove-on-failure` cleans up the half-built bench instead of leaving it behind
+- **config:** The annotated example configs are generated from the pydantic models, so they cannot drift from the fields they document
 
 ### Bug Fixes
 
+- **prompt:** Enter on a destructive prompt no longer destroys
+- **create:** A failed `fm create` exits non-zero and says why once, instead of reporting failure as success
+- **config:** A typo in a config key is no longer silent: it is reported, including in the global `[migration_state]`, and fm stops accusing its own files. An `fm` older than the bench it reads keeps quiet rather than warning about keys from the future
 - **ssl:** The `hsts` field on `[[ssl.certificates]]` now controls the header browsers actually receive: `"off"` (the default) sends no `Strict-Transport-Security` header at all, and any other value is sent verbatim. Applied as a marked block in the global proxy's `vhost.d/<domain>` file that also strips the two-year `includeSubDomains; preload` pin the bench nginx image hardcodes; written on `fm start`, at bench creation and on site add, so an existing bench heals on its next start with no image rebuild
 - **ssl:** `fm ssl add`/`fm ssl remove` for an alias domain no longer rewrites the site's `host_name` to the alias. Only a certificate for the site's own canonical name moves `host_name`, so links, password resets and emails keep pointing at the site instead of silently renaming it
+- **ssl:** One typo stopped an external domain renewing, then erased it. The dev CA's trust-store install is best-effort, so `--dev` works on a server with no trust store, and acme.sh is installed without its cron job and shell-profile patch
 - **nginx:** A bench whose rendered nginx config fell behind its site list (a site added after the config's first render) now heals on `fm start`, instead of silently answering the missing domain with the primary site's data and a 200
 - **delete:** `fm delete` now removes the bench's per-domain upload-limit and HSTS entries from the global proxy's `vhost.d/` for every domain the bench served. Hand-written content in those shared files survives, and a file is deleted only when nothing else remains
+- **compose:** A service's volumes are no longer reordered on every render, so `fm` stops producing a diff where nothing changed. `ComposeFile`'s transaction semantics are honest about failure, and discarded `stream=True` calls that silently executed nothing now run
+- **redis:** fm asks redis who it is instead of comparing hostnames, refuses a redis URL it cannot support and a database index that lies, and warns about a hand-edited scheme while canonicalising the host
+- **info:** `fm info` reports tool routing and auth per site rather than one answer for the whole bench, and its credentials say which site they belong to
+- **deploy:** A failed auto-rollback is halted, not aborted, so the operator is told the bench is in a known-bad state rather than left guessing. Tag-era `[deploy_state]` keys are migrated to the image spelling, and a deploy state fm can no longer read is announced instead of ignored
+- **bake:** Temporary trees stay off `/tmp`, and a bench-mode bake of an image bench is refused
+- **backup:** The database dump is handed across the container boundary in a way both runtimes can mount
 
 ## v0.19.0.dev0 - 2026-04-14
 

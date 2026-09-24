@@ -89,7 +89,7 @@ Existing content is printed file by file, then `-f` polls all of them for new li
 
 With `--service`, the logs come from docker and that container has to be running, otherwise `fm logs` reports that the service is not running and prints nothing.
 
-`--service` accepts any service in the bench's compose files: `docker-compose.yml` (`frappe`, `nginx`, `socketio`, `schedule`, `redis-cache`, `redis-queue`), `docker-compose.workers.yml` (`short-worker`, `long-worker`, `default-worker`, plus one per custom queue), and `docker-compose.admin-tools.yml` (`adminer`, `mailpit`) when admin tools are enabled. An unknown name prints the bench's actual list.
+`--service` accepts any service in the bench's compose files: `docker-compose.yml` (`frappe`, `nginx`, `socketio`, `schedule`, `redis-cache`, `redis-queue`), `docker-compose.workers.yml` (`short-worker`, `long-worker`, plus one per custom queue), and `docker-compose.admin-tools.yml` (`adminer`, `mailpit`) when admin tools are enabled. An unknown name prints the bench's actual list.
 
 ---
 
