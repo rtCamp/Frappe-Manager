@@ -139,21 +139,17 @@ class MigrationExecutor:
             effective_prev_version = min(self.prev_version, min_bench_version)
 
         # When --rerun is active, ensure migrations are discovered even when
-        # prev_version == current_version.  The strict ``<`` in discovery
+        # prev_version == current_version. The strict ``<`` in discovery
         # (``from_version < migration.version``) would otherwise exclude the
         # current version's migration class.
         #
-        # We narrow the range to the current base version's minor floor
-        # (e.g. 0.18.9999 for 0.19.x) rather than ``0.0.0``, so that only
-        # migrations belonging to the current release are included and old,
-        # potentially non-idempotent migrations are not re-applied.
+        # The floor is the current release's own dev marker (``1.0.0.dev0`` for ``1.0.0``),
+        # which PEP 440 sorts immediately below the release and above every earlier one: only
+        # THIS release's migrations re-run, older, potentially non-idempotent ones do not.
+        # Never computed by decrementing the minor -- that underflowed to ``1.-1.9999`` on any
+        # x.0.0 release, which `Version` refuses to parse.
         if self.rerun and effective_prev_version >= self.current_version:
-            from packaging.version import Version as PV
-
-            parsed = PV(self.current_version.version)
-            base = parsed.base_version  # e.g. "0.19.0"
-            parts = base.split(".")
-            floor = Version(f"{parts[0]}.{int(parts[1]) - 1}.9999")
+            floor = Version(f"{self.current_version.base_version}.dev0")
             effective_prev_version = min(effective_prev_version, floor)
 
         # 0.0.0 (unknown) refuses exactly like below-minimum does: the validator prints the
