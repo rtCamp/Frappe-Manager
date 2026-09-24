@@ -6,12 +6,16 @@ import typer
 # `install` on the package, shadowing typer_examples' function.
 from typer_examples import install as install_examples
 
+from frappe_manager.commands.gating import BrokenHostGroup
+
 ca_command = typer.Typer(
     no_args_is_help=True,
     rich_markup_mode="rich",
     help="Inspect, install or remove fm's dev CA in this host's trust stores.",
+    # Every command here only touches host trust stores, and removing a root CA fm installed is
+    # exactly what an operator does when fm is on its way off the machine.
+    cls=BrokenHostGroup,
 )
-
 
 from .install import ca_install
 from .remove import ca_remove

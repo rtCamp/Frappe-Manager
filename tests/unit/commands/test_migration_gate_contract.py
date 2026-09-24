@@ -33,7 +33,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import typer
 
-from frappe_manager.commands import app_callback
+from frappe_manager.commands import app, app_callback
+from frappe_manager.commands.gating import record_command_chain
 from frappe_manager.exceptions import NonInteractiveError
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager.base import OutputHandler
@@ -177,6 +178,13 @@ class MigrationGateHarness:
         if argv is None:
             argv = ["fm", invoked_subcommand] + ([bench_arg] if bench_arg else [])
         self.monkeypatch.setattr(sys, "argv", argv)
+
+        # The gates read the command chain the ROOT GROUP recorded, so the harness resolves it
+        # through the real click app rather than restating what argv is supposed to mean.
+        group = typer.main.get_command(app)
+        resolved = group.make_context("fm", argv[1:], resilient_parsing=True)
+        record_command_chain(group, resolved)
+        ctx.meta = resolved.meta
 
         app_callback(ctx, verbose=False, log_level=None, non_interactive=non_interactive, version=None)
         return ctx

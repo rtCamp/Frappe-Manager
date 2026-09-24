@@ -4,7 +4,6 @@ Migration manager constants.
 Centralized constants for timeouts, versions, and configuration values.
 """
 
-from frappe_manager import BROKEN_HOST_COMMANDS
 from frappe_manager.migration_manager.version import Version
 
 MINIMUM_SUPPORTED_VERSION = Version("0.18.0")
@@ -27,11 +26,8 @@ MIGRATION_CHECK_WHITELIST_COMMANDS: list[str] = [
     # the migrations manage.
     "prune",
     "services prune",
-    # A teardown never has to migrate the state it is about to delete, and a host being
-    # decommissioned is precisely the one that will not be migrated first. Derived, not
-    # restated: these commands are exempt from the docker and config gates for the same reason,
-    # and a second copy of the list is how one of them silently stops matching.
-    *sorted(BROKEN_HOST_COMMANDS),
+    # Teardown commands are NOT listed here: they declare `tolerates_broken_host` on the command
+    # itself (commands/gating.py), which the same gate honours.
 ]
 
 MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS: list[str] = ["maintenance"]

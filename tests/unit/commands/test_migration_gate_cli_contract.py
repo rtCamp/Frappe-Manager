@@ -28,7 +28,13 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from frappe_manager.commands import app, check_bench_migration_required, get_bench_arg_from_argv
+from frappe_manager.commands import app, check_bench_migration_required, get_bench_arg_from_args
+from frappe_manager.commands.gating import (
+    command_args,
+    command_path,
+    record_command_chain,
+    tolerates_broken_host,
+)
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager.base import OutputHandler
 
@@ -227,11 +233,23 @@ class TestCheckBenchMigrationRequiredExitCode:
         assert check_bench_migration_required("does-not-exist.localhost") is None
 
 
-class TestGetBenchArgFromArgv:
-    """The argv scan that replaces the unreachable ``ctx.params`` lookup."""
+class TestCommandResolution:
+    """What the root group records for the gates: the resolved command, and the bench it names.
+
+    Driven through the real click app, because the bug this replaced was a hand-written argv
+    scan that resolved `fm --json ssl ca status` to "ssl" and re-armed the gates that command
+    is exempt from.
+    """
+
+    @staticmethod
+    def _resolve(argv: list[str]) -> tuple[str, str | None]:
+        group = typer.main.get_command(app)
+        ctx = group.make_context("fm", argv[1:], resilient_parsing=True)
+        record_command_chain(group, ctx)
+        return command_path(ctx), get_bench_arg_from_args(command_args(ctx))
 
     @pytest.mark.parametrize(
-        ("argv", "command_path", "expected"),
+        ("argv", "expected_path", "expected_bench"),
         [
             (["fm", "start", BENCH], "start", BENCH),
             (["fm", "-v", "start", BENCH], "start", BENCH),
@@ -241,13 +259,40 @@ class TestGetBenchArgFromArgv:
             (["fm", "compose", BENCH, "ps"], "compose", BENCH),
             (["fm", "self", "update-images"], "self update-images", None),
             (["fm", "self", "~/some/path"], "self", None),
-            (["fm"], "start", None),
+            (["fm"], "", None),
+            # Three levels deep, and behind the global flags that used to shift the answer.
+            (["fm", "ssl", "ca", "status"], "ssl ca status", None),
+            (["fm", "--json", "ssl", "ca", "status"], "ssl ca status", None),
+            (["fm", "--log-level", "warning", "start", BENCH], "start", BENCH),
         ],
     )
-    def test_argv_scan(self, monkeypatch, argv, command_path, expected):
-        monkeypatch.setattr(sys, "argv", argv)
+    def test_resolution(self, argv, expected_path, expected_bench):
+        assert self._resolve(argv) == (expected_path, expected_bench)
 
-        assert get_bench_arg_from_argv(command_path) == expected
+
+class TestBrokenHostDeclaration:
+    """Which commands keep working on a host whose docker, migration state or config is broken.
+
+    Declared on the command, so a global flag before it cannot change the answer.
+    """
+
+    @pytest.mark.parametrize(
+        ("argv", "tolerated"),
+        [
+            (["fm", "ssl", "ca", "status"], True),
+            (["fm", "--json", "ssl", "ca", "remove"], True),
+            (["fm", "self", "uninstall"], True),
+            (["fm", "ssl", "list", BENCH], False),
+            (["fm", "self", "stop"], False),
+            (["fm", "start", BENCH], False),
+        ],
+    )
+    def test_declaration(self, argv, tolerated):
+        group = typer.main.get_command(app)
+        ctx = group.make_context("fm", argv[1:], resilient_parsing=True)
+        record_command_chain(group, ctx)
+
+        assert tolerates_broken_host(ctx) is tolerated
 
 
 class TestTheGlobalStackIsGatedOnTheCommand:
