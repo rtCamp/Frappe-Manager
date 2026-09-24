@@ -4,6 +4,7 @@ Migration manager constants.
 Centralized constants for timeouts, versions, and configuration values.
 """
 
+from frappe_manager import BROKEN_HOST_COMMANDS
 from frappe_manager.migration_manager.version import Version
 
 MINIMUM_SUPPORTED_VERSION = Version("0.18.0")
@@ -26,13 +27,11 @@ MIGRATION_CHECK_WHITELIST_COMMANDS: list[str] = [
     # the migrations manage.
     "prune",
     "services prune",
-    # Removing a root CA fm installed into this host's trust stores must never be blocked by a
-    # pending migration: the CA outlives fm's own state, and a host that is being decommissioned
-    # is precisely the one that will not be migrated first.
-    "ssl ca",
-    # Removing fm from a host must never require migrating it first: the state is being deleted,
-    # and a migration failure would strand exactly the install the operator is trying to be rid of.
-    "self uninstall",
+    # A teardown never has to migrate the state it is about to delete, and a host being
+    # decommissioned is precisely the one that will not be migrated first. Derived, not
+    # restated: these commands are exempt from the docker and config gates for the same reason,
+    # and a second copy of the list is how one of them silently stops matching.
+    *sorted(BROKEN_HOST_COMMANDS),
 ]
 
 MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS: list[str] = ["maintenance"]
