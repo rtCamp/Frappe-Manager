@@ -109,6 +109,25 @@ class AdminToolsFailedToStart(BenchException):
         super().__init__(self.bench_name, self.message)
 
 
+class AdminToolsProbeUnavailable(BenchException):
+    """Raised when the bench nginx is down, so whether the admin tools work cannot be determined.
+
+    Admin tools are only reachable through the bench nginx, so a dead nginx means they are
+    genuinely unserved AND unprobeable. This is deliberately not `AdminToolsFailedToStart`: fm
+    used to report a dead nginx as an admin-tools failure while `docker ps` showed the tools
+    healthy, which sent debugging at the wrong component (rtCamp/Frappe-Manager#481).
+    """
+
+    def __init__(self, bench_name):
+        self.bench_name = bench_name
+        self.message = (
+            "Bench nginx is not running, so the admin tools cannot be served or checked. "
+            "Start it with 'fm restart <bench> --nginx --container' and check its logs "
+            "with 'fm logs <bench> --service nginx'."
+        )
+        super().__init__(self.bench_name, self.message)
+
+
 class AdminToolsFailedToStop(BenchException):
     """Raised when admin tools containers fail to stop."""
 

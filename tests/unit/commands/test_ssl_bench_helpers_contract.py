@@ -58,14 +58,19 @@ from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.site_manager.bench_config import AuthConfig, FMBenchEnvType, SiteConfig
-from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, AdminToolsFailedToStop, BenchException
+from frappe_manager.site_manager.exceptions import (
+    AdminToolsFailedToStart,
+    AdminToolsFailedToStop,
+    AdminToolsProbeUnavailable,
+    BenchException,
+)
 from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
 from frappe_manager.site_manager.modules.cdn_detection import CDNDetectionResult, CDNProxyStatus
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import RETIRED_CERTIFICATE_KEYS, CustomCertificate, SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotFoundError
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
-from frappe_manager.utils.helpers import get_current_fm_version
+from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
 
 SSL_MODULE = "frappe_manager.commands.ssl.bench_helpers"
 TOOLS_MODULE = "frappe_manager.site_manager.modules.bench_admin_tools"
@@ -1240,6 +1245,10 @@ class ToolsHarness:
         self.bench.name = BENCH
         self.bench.bench_config.auth = auth
         self.bench.bench_config.restart_policy.value = "always"
+        # The probe runs THROUGH the bench nginx (the only path to the tools), so the harness
+        # needs the bench's own docker client and a live nginx by default.
+        self.bench_docker = self.bench.docker_client
+        self.bench.docker_ops.get_services_running_status.return_value = {"nginx": "running"}
 
         # A real `[sites]` shape, because the locations are rendered once per site now and each
         # site decides whether it routes them at all.
@@ -1614,34 +1623,68 @@ def test_remove_mailpit_tolerates_keys_that_were_never_written(t):
 
 
 @pytest.mark.timeout(15)
-def test_readiness_probes_each_tool_port_from_inside_its_own_container(t):
+def test_readiness_probes_each_tool_through_the_bench_nginx(t):
+    """The tools are only reachable via nginx, so that is the path the probe has to exercise.
+
+    A check from inside the tool's own container ("is something bound on my localhost?") passes
+    while the feature is broken: a tool off the bench network, or a wrong alias, answers itself
+    happily and 502s the user.
+    """
     t.tools.wait_till_services_started(interval=2, timeout=5)
 
-    assert t.docker.compose.exec.call_args_list == [
-        call(service="mailpit", command="timeout 2 nc -z localhost 8025", stream=False),
-        call(service="adminer", command="timeout 2 nc -z localhost 8080", stream=False),
+    prefix = get_container_name_prefix(BENCH) + "__"
+    assert t.bench_docker.compose.exec.call_args_list == [
+        call(service="nginx", command=f"wait-for-it -t 2 {prefix}mailpit:8025", stream=False),
+        call(service="nginx", command=f"wait-for-it -t 2 {prefix}adminer:8080", stream=False),
     ]
 
 
 @pytest.mark.timeout(15)
+def test_a_dead_bench_nginx_is_reported_as_such_and_the_tools_are_never_probed(t):
+    """fm used to report a dead nginx as "Failed to start admin tools" while docker ps showed the
+    tools healthy, sending debugging at the wrong component (#481)."""
+    t.bench.docker_ops.get_services_running_status.return_value = {"nginx": "exited"}
+
+    with pytest.raises(AdminToolsProbeUnavailable) as excinfo:
+        t.tools.wait_till_services_started(interval=1, timeout=3)
+
+    assert "nginx" in str(excinfo.value.message)
+    t.bench_docker.compose.exec.assert_not_called()
+
+
+@pytest.mark.timeout(15)
 def test_readiness_retries_until_the_probe_succeeds(t):
-    t.docker.compose.exec.side_effect = [_docker_failure(), _docker_failure(), None, None]
+    t.bench_docker.compose.exec.side_effect = [_docker_failure(), _docker_failure(), None, None]
 
     t.tools.wait_till_services_started(interval=1, timeout=5)
 
-    assert t.docker.compose.exec.call_count == 4
+    assert t.bench_docker.compose.exec.call_count == 4
 
 
 @pytest.mark.timeout(15)
 def test_readiness_gives_up_after_timeout_attempts_and_never_probes_the_second_tool(t):
-    t.docker.compose.exec.side_effect = _docker_failure()
+    t.bench_docker.compose.exec.side_effect = _docker_failure()
 
-    with pytest.raises(AdminToolsFailedToStart):
+    with pytest.raises(AdminToolsFailedToStart) as excinfo:
         t.tools.wait_till_services_started(interval=1, timeout=3)
 
     # `timeout` is an attempt count, not seconds; mailpit failing aborts before adminer.
-    assert t.docker.compose.exec.call_count == 3
-    assert {c.kwargs["service"] for c in t.docker.compose.exec.call_args_list} == {"mailpit"}
+    assert t.bench_docker.compose.exec.call_count == 3
+    assert {c.kwargs["service"] for c in t.bench_docker.compose.exec.call_args_list} == {"nginx"}
+    assert excinfo.value.services == ["mailpit"]
+
+
+@pytest.mark.timeout(15)
+def test_the_failing_probe_error_is_kept_as_the_cause(t):
+    """"The exec could not run" and "the port refused" arrive here identically; discarding the
+    docker error leaves the operator with neither."""
+    boom = _docker_failure()
+    t.bench_docker.compose.exec.side_effect = boom
+
+    with pytest.raises(AdminToolsFailedToStart) as excinfo:
+        t.tools.wait_till_services_started(interval=1, timeout=1)
+
+    assert excinfo.value.__cause__ is boom
 
 
 # ======================================================================================
