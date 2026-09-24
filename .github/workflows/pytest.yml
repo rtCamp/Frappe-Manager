@@ -29,7 +29,11 @@ jobs:
         os: [ubuntu-latest]
     
     steps:
+      # The changelog gate walks history back to the last tag; a shallow clone has neither the
+      # commits nor the tags, and would fail it with "cannot resolve".
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       
       - uses: actions/setup-python@v6
         with:
@@ -57,6 +61,12 @@ jobs:
       - name: Check docs against the CLI
         run: |
           uv run python scripts/docslint.py
+
+      # Fires on the commit, where writing the entry is cheap. The v1.0.0 cycle shipped 289
+      # commits with zero changelog entries and nobody noticed for three weeks.
+      - name: Check every commit has a changelog entry
+        run: |
+          uv run python scripts/changelog_check.py
       
       - name: Upload coverage to Codecov
         if: matrix.python-ver == '3.13'

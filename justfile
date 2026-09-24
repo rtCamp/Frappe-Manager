@@ -229,6 +229,14 @@ config-example:
 docs-lint:
     uv run python scripts/docslint.py
 
+# Refuse commits that ship behavior with no changelog entry. Pass a ref to audit older history.
+changelog-check since="":
+    uv run python scripts/changelog_check.py {{since}}
+
+# Retitle the Unreleased section as a release (the release workflow runs this)
+changelog-release version:
+    uv run python scripts/changelog_release.py {{version}}
+
 # Serve versioned docs locally via mike (shows version selector)
 docs port="8000":
     mike serve -F zensical.toml -a 127.0.0.1:{{port}}
