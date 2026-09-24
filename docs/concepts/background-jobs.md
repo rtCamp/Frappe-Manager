@@ -72,7 +72,7 @@ Handles jobs like:
 - Backup operations
 
 !!! warning "Interrupting long jobs"
-    A plain `fm restart` drains workers first and aborts rather than kill a long job that exceeds the drain budget. If you must restart immediately, `--no-drain` interrupts the job (see [safe restart workflow](#safe-worker-restarts)).
+    A plain `fm restart` drains workers first and aborts rather than kill a long job that exceeds the drain budget. If you must restart immediately, `--no-drain` interrupts the job (see [draining workers safely](#draining-workers-safely)).
 
 ---
 
@@ -116,7 +116,7 @@ At each tick it checks the `scheduler_events` declared in every installed app's 
 
 ---
 
-## Safe Worker Restarts
+## Draining Workers Safely
 
 `fm restart` treats in-flight jobs explicitly. Workers drain by default:
 
@@ -125,6 +125,8 @@ At each tick it checks the `scheduler_events` declared in every installed app's 
 | `fm restart mybench` (default) | never killed: workers are suspended via a Redis flag, fm waits for every in-flight job to finish (stale workers skipped, bounded at 300 seconds), then restarts and resumes; if jobs are still running when the budget expires, fm resumes the workers and aborts the restart (exit 1, nothing restarted) | normal |
 | `fm restart mybench --no-drain` | interrupted, and fm says so: SIGUSR1 to each worker; a worker that has not exited after 15 seconds (tunable via `[workers].kill_timeout`) is escalated to a supervisor stop (SIGTERM, then SIGKILL when the stop grace expires); the job is marked failed or retried | fast, lossy |
 | `fm restart mybench --force` | killed immediately along with everything else (supervisor stop + start) | fastest, lossiest |
+
+The gate is shared, not restart-specific: `fm stop`, `fm apps add`, `fm update` and the `fm switch` deploy pipeline all suspend workers and wait the same way before touching them, and each aborts its own operation rather than killing a job that overruns. `fm stop` is the one to know about, because a stop that waits is surprising: it drains by default, carries its own `--drain`/`--no-drain`, and on timeout leaves the bench *running* rather than half-stopped.
 
 Raising the budget is `[workers].drain_timeout` in the [configuration reference](../reference/configuration.md#workers); the alternative is `--no-drain`. Only genuinely busy workers count against the gate: a worker holding no job that stops responding is declared stale after 15 seconds (`[workers].stale_timeout`) and skipped, so a dead worker cannot block restarts.
 

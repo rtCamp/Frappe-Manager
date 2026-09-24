@@ -14,10 +14,11 @@ uv tool install --python 3.13 frappe-manager
 
 ```bash
 fm self upgrade
+fm services migrate
 fm migrate all
 ```
 
-The first updates the CLI, the second brings fm's config, the global services and your benches up to match it. Every bench command refuses to run against a bench that is behind, so do not skip it. Details: [Upgrading fm](getting-started/installation.md#upgrading-fm).
+The first updates the CLI, the second brings fm's own config and the global services up to match it, the third brings your benches up to match those. `fm migrate` refuses to run while the global services are behind, so do not skip a step. Details: [Upgrading fm](getting-started/installation.md#upgrading-fm).
 
 ### Can I run multiple benches on the same machine?
 

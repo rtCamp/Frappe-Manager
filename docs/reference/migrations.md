@@ -188,7 +188,7 @@ The services tier defaults to `rollback` and adds `halt`: leave everything exact
 
 Migration classes are discovered from the modules in `migration_manager/migrations/` and filtered by `from_version < migration.version <= current_version`, then sorted by version.
 
-`from_version` is the lower of FM's recorded infrastructure version and the lowest version among the targeted benches, so one run can catch a bench that is several releases behind an already-current infrastructure.
+`from_version` is the lower of the global services & configuration ledger and the lowest version among the targeted benches, so one run can catch a bench that is several releases behind already-current services.
 
 For each selected version, in ascending order:
 

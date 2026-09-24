@@ -79,7 +79,7 @@ The shape is the same two commands, split across the two machines. Bake and push
 
 ```bash
 # on the runner: no bench needed, just the app list and a ref you chose
-fm bake --apps frappe --apps erpnext:version-15 --image ghcr.io/acme/mybench:$GIT_SHA --push
+fm bake --apps frappe --apps erpnext:version-16 --image ghcr.io/acme/mybench:$GIT_SHA --push
 
 # on the server that owns the bench
 ssh prod "fm switch mybench ghcr.io/acme/mybench:$GIT_SHA"
@@ -100,7 +100,7 @@ The bench-less bake (`--apps` or `--config` with no bench name) builds and pushe
     image: ghcr.io/acme/mybench
     apps: |
       frappe
-      erpnext:version-15
+      erpnext:version-16
     push: true
     registry-username: ${{ github.actor }}
     registry-password: ${{ secrets.GITHUB_TOKEN }}

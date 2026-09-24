@@ -774,7 +774,7 @@ def _resolve_external_options(
 )
 @example(
     "Add apps, pinned to a branch or not",
-    "{benchname} --apps erpnext:version-15 --apps hrms",
+    "{benchname} --apps erpnext:version-16 --apps hrms",
     benchname="mybench",
 )
 @example(

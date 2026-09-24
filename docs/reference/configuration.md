@@ -251,7 +251,7 @@ name = "mybench.localhost"
     Cannot be changed after creation (requires bench recreation). This value determines:
     
     - Bench directory name: `~/frappe/sites/mybench.localhost/`
-    - Container prefix: `fm-mybench-localhost-*`
+    - Container prefix: `fm__mybench_localhost__*`
     - Default URL: `http://mybench.localhost`
 
 ---

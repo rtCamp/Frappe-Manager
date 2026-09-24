@@ -220,7 +220,7 @@ fm keeps everything under a single root directory (default `~/frappe/`).
 
 1. **Global configuration**: machine-wide fm settings (ngrok token, DNS credentials, log level, frontend network addressing).
 2. **CLI operation log**: everything every `fm` command did. Rotates at 10 MiB, keeping `fm.log.1.gz` to `fm.log.3.gz`.
-3. **Infrastructure migration backups**: one directory per migration session, named `%d-%b-%y--%H-%M-%S`, with a per-bench subdirectory inside.
+3. **Migration backups**: one directory per migration session, named `%d-%b-%y--%H-%M-%S`, with a per-bench subdirectory inside.
 4. **Archived benches**: benches moved aside by `fm migrate --on-failure=archive`.
 5. **Global services**: the `mariadb` and `nginx-proxy` stack.
 6. **Database secrets**: `db_password.txt` and `db_root_password.txt`, mounted into `mariadb` as Docker secrets.

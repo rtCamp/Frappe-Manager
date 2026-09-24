@@ -116,7 +116,9 @@ The same flag family covers redis, per bench rather than per site:
 fm create mybench --redis-cache redis://r.example:6379/0 --redis-queue redis://r.example:6379/1
 ```
 
-Both are required together, and they must not point at the same logical index: a restore mass-deletes the cache index and would take the queue with it. With them set, fm suppresses its own redis containers. The keys land in [`[redis]`](../reference/configuration.md#redis).
+The two sides are independent: naming only `--redis-queue` moves the queue out and leaves the cache on fm's own container, or the other way round. Only when both sides are external must they avoid the same logical index: a restore mass-deletes the cache index and would take the queue with it. fm suppresses only the container for whichever side you moved out. The keys land in [`[redis]`](../reference/configuration.md#redis).
+
+`fm update` can move a bench's redis after create, per side: `--redis-cache URL` or `--redis-queue URL` moves that side out, and `--no-redis-cache` or `--no-redis-queue` brings it back to fm's own container. Moving the queue drains it first, pausing producers and letting in-flight jobs finish, rather than copying its backlog; `--abandon-queued` skips the drain and leaves those jobs behind, unrun. `fm update --dry-run` prints the plan, including the current queue depth. `[database]`, by contrast, stays create-time: only `--db-ca` is editable afterwards (see [Moving an existing bench](#moving-an-existing-bench)).
 
 ## Snapshots around a deploy
 

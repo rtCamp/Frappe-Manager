@@ -25,7 +25,7 @@ $ fm bake BENCH [OPTIONS]
 * `--base-image`: Image the runtime Dockerfile builds FROM. Defaults to \[build].base_image, else fm's published frappe image for this fm version.
 * `--push/--no-push`: Push the baked image to the registry after building. Defaults to \[build].push, which is off unless set. A bake that does not push still loads the image into the local daemon.
 * `--config`: TOML overlay, either a file path or inline TOML. With a bench it is merged into bench_config.toml and stays there; standalone it supplies the whole config. Repeatable; later --config wins.
-* `-a, --apps`: Standalone bake only: apps to bake (appname:branch or appname, e.g. erpnext:version-15). Repeatable.
+* `-a, --apps`: Standalone bake only: apps to bake (appname:branch or appname, e.g. erpnext:version-16). Repeatable.
 * `--python`: Standalone bake only: Python version to bake.
 * `--node`: Standalone bake only: Node version to bake.
 * `-t, --github-token`: Standalone bake only: GitHub token for private app repos (or use GITHUB_TOKEN env var).
@@ -72,7 +72,7 @@ fm bake mybench --source workspace
 ### Standalone bake, no bench involved
 
 ```bash
-fm bake --apps erpnext:version-15 --image ghcr.io/acme/mysite --push
+fm bake --apps erpnext:version-16 --image ghcr.io/acme/mysite --push
 ```
 
 ### Standalone bake from a config file

@@ -14,7 +14,7 @@ The bench name is also its domain. A bare name has no dot in it, so fm appends `
     `--apps` is repeatable, and each app can be pinned to a branch, tag, or commit:
 
     ```bash
-    fm create mybench --apps erpnext:version-15 --apps hrms
+    fm create mybench --apps erpnext --apps hrms
     ```
 
 ## 2. Open the site

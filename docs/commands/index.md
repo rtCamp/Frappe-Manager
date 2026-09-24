@@ -188,7 +188,7 @@ fm info mybench
 
 ## Configuration
 
-Modify bench settings and infrastructure.
+Modify bench settings, apps, domains, and tools.
 
 ### :material-cog: [`fm update`](update.md) {.command-heading}
 **Update bench configuration**
@@ -210,8 +210,8 @@ fm update mybench --runtime mount
 Fetch app code onto a bench and record it, or install it into one site (`BENCH/SITE`) or every site (`BENCH/all`); installing runs `bench migrate` and restarts.
 
 ```bash
-fm apps add mybench erpnext:version-15
-fm apps add mybench/all hrms:version-15
+fm apps add mybench erpnext:version-16
+fm apps add mybench/all hrms:version-16
 fm apps list mybench
 ```
 
@@ -306,7 +306,7 @@ Provision a bench's apps into a runtime image, or build standalone from `--apps`
 ```bash
 fm bake mybench
 fm bake mybench --image ghcr.io/acme/mysite:v42 --push
-fm bake --apps erpnext:version-15 --image ghcr.io/acme/mysite --push
+fm bake --apps erpnext:version-16 --image ghcr.io/acme/mysite --push
 ```
 
 ### :material-swap-horizontal: [`fm switch`](switch.md) {.command-heading}
@@ -340,7 +340,7 @@ Manage SSL certificates and HTTPS.
 ### :material-certificate: [`fm ssl`](ssl.md) {.command-heading}
 **Manage SSL certificates**
 
-Add, remove, renew, and list SSL certificates using Let's Encrypt (HTTP-01 or DNS-01 challenges), or by importing your own certificate with `--custom`.
+Add, remove, renew, and list SSL certificates using Let's Encrypt (HTTP-01 or DNS-01 challenges), or by importing your own certificate with `--custom`. `fm ssl acme-sh` runs the bundled acme.sh directly against fm's certificate home, for inspection and recovery. DNS-01 needs provider credentials first, set with [`fm ssl dns-config cloudflare`](ssl-dns-config-cloudflare.md) (`--api-token`, `--api-key`, `--email`, `--name`, `--show`, `--remove`).
 
 ```bash
 fm ssl add mybench/example.com
@@ -349,6 +349,8 @@ fm ssl add mybench/example.com --custom --cert ./tls.crt --key ./tls.key
 fm ssl remove mybench/example.com
 fm ssl renew mybench/example.com
 fm ssl list mybench
+fm ssl dns-config cloudflare --api-token YOUR_TOKEN
+fm ssl acme-sh --list
 ```
 
 ---
