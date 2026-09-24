@@ -29,14 +29,11 @@ jobs:
             exit 1
           fi
 
-      - name: Update changelog
-        uses: orhun/git-cliff-action@v4
-        with:
-          config: cliff.toml
-          args: --unreleased --tag v${{ github.event.inputs.version }} --prepend docs/changelog.md
-        env:
-          GITHUB_REPO: ${{ github.repository }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Retitles the hand-written Unreleased section. The prose is already in the file,
+      # written per-commit and enforced by scripts/changelog_check.py.
+      - name: Stamp the changelog
+        run: |
+          python3 scripts/changelog_release.py "${{ github.event.inputs.version }}"
 
       - name: Open release PR
         env:

@@ -60,15 +60,7 @@ jobs:
 
       - name: Extract release notes from changelog
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          python3 -c "
-          import re, sys
-          with open('docs/changelog.md') as f:
-              content = f.read()
-          pattern = rf'(## v{re.escape(sys.argv[1])}.*?)(?=\n## v|\Z)'
-          match = re.search(pattern, content, re.DOTALL)
-          print(match.group(1).strip() if match else f'Release {sys.argv[1]}')
-          " "$VERSION" > release-notes.md
+          python3 scripts/release_notes.py "${GITHUB_REF_NAME#v}" > release-notes.md
 
       - name: Create draft GitHub Release
         env:
