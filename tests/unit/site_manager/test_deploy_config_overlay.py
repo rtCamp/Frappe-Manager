@@ -151,7 +151,7 @@ def test_apply_persists_nothing_when_an_overlay_is_refused(tmp_path):
 
 
 def test_apply_succeeds_on_pre_migration_base_and_overlay_still_lands(tmp_path):
-    """0.20.0 is unreleased, so every bench on disk right now still carries pre-migration shape:
+    """1.0.0 is unreleased, so every bench on disk right now still carries pre-migration shape:
     a top-level `alias_domains` and a `[registry]` table `BenchConfig` no longer recognises. The
     old bug ran the refusal check on the WHOLE merged document, so these pre-existing strays got
     blamed on whatever `--config` value happened to be applied, refusing a bake this seam exists

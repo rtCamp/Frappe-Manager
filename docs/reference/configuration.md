@@ -79,7 +79,7 @@ challenge_type = "http01"
 acme_client = "acme.sh"
 
 [migration_state]
-migrated_to = "0.20.0"
+migrated_to = "1.0.0"
 ```
 
 ---
@@ -226,7 +226,7 @@ FM version the global services & configuration were last migrated to, stamped by
 
 ```toml
 [migration_state]
-migrated_to = "0.21.0"
+migrated_to = "1.0.0"
 ```
 
 ---
@@ -643,11 +643,11 @@ ssl_type = "custom"
 - `behind_proxy`: `true` when the origin sits behind an external TLS terminator, written by `fm ssl add --behind-proxy`. Keys the domain's HTTP to HTTPS redirect off the forwarded proto instead of the connection scheme, and makes the bench's web server trust that header. A modifier on the method, not a type: `letsencrypt`, `dev` and `custom` entries can all carry it, and every certificate on a bench must agree on it. Default `false`
 
 !!! note "Browsers may still hold a pin from before `hsts` worked"
-    Until v0.20.0 every bench sent `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` on HTTPS responses regardless of this setting, because the bench nginx image hardcoded it and nothing stripped it at the proxy. A browser that visited an fm-served site over HTTPS in that era cached a two-year HTTPS-only pin for the domain and its subdomains. The fix stops new pins; it cannot retract one already issued: those visitors keep being forced to HTTPS until the pin expires or is cleared per browser (`chrome://net-internals/#hsts` in Chrome and Edge, "Forget About This Site" in Firefox).
+    Until v1.0.0 every bench sent `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` on HTTPS responses regardless of this setting, because the bench nginx image hardcoded it and nothing stripped it at the proxy. A browser that visited an fm-served site over HTTPS in that era cached a two-year HTTPS-only pin for the domain and its subdomains. The fix stops new pins; it cannot retract one already issued: those visitors keep being forced to HTTPS until the pin expires or is cleared per browser (`chrome://net-internals/#hsts` in Chrome and Edge, "Forget About This Site" in Firefox).
 
 A `custom` entry records only the domain, the type and the shared flags above: the imported bytes live under `~/frappe/services/nginx-proxy/ssl/custom/<domain>/`, and FM keeps no record of the original `--cert`/`--key`/`--ca` paths. `fm ssl renew` never renews one, because FM does not rotate a certificate it did not issue; re-run `fm ssl add BENCH/DOMAIN --custom` with the replacement files instead. The [SSL guide](../guides/ssl.md#custom-certificates) covers the import and its validation.
 
-That is the whole entry, and an unrecognised key in one is an error. A certificate never holds a credential: DNS-01 credentials are resolved from [`[ssl.dns_providers]`](#dns-providers) at issuance and again at every renewal. Earlier releases copied the global token onto every certificate, which put a secret in this world readable file and kept it working after `fm ssl dns-config cloudflare --remove` had reported success; the 0.20.0 migration moves any such copy into `[ssl.dns_providers]` and deletes it from the certificate.
+That is the whole entry, and an unrecognised key in one is an error. A certificate never holds a credential: DNS-01 credentials are resolved from [`[ssl.dns_providers]`](#dns-providers) at issuance and again at every renewal. Earlier releases copied the global token onto every certificate, which put a secret in this world readable file and kept it working after `fm ssl dns-config cloudflare --remove` had reported success; the 1.0.0 migration moves any such copy into `[ssl.dns_providers]` and deletes it from the certificate.
 
 **Managed by:** `fm ssl add`, `fm ssl remove`, `fm ssl renew`, `fm ssl list`
 
@@ -708,7 +708,7 @@ dns_provider = "client-zones"
 | `dns_provider = "<label>"` | that label in the bench table, then that label in the global table | error naming the missing label and listing the labels that do exist |
 | no `dns_provider` | the label `cloudflare` in the bench table, then in the global table | error: no DNS-01 credentials configured |
 
-There is no third tier. A machine set up before 0.20.0 kept its default Cloudflare credential in a table of its own in `~/frappe/fm_config.toml`, consulted after the labels; the 0.20.0 migration moves that credential to the `cloudflare` label here, after which it is an ordinary labelled set a certificate can also name explicitly. See the [migration history](migration-history.md#inventory).
+There is no third tier. A machine set up before 1.0.0 kept its default Cloudflare credential in a table of its own in `~/frappe/fm_config.toml`, consulted after the labels; the 1.0.0 migration moves that credential to the `cloudflare` label here, after which it is an ordinary labelled set a certificate can also name explicitly. See the [migration history](migration-history.md#inventory).
 
 A named label is never quietly substituted. If a certificate sets `dns_provider = "client-zones"` and no `client-zones` entry exists at either scope, issuance and renewal fail. Falling back would authenticate against whichever account happened to be configured and report success, which is the one outcome worth failing over.
 
@@ -792,14 +792,14 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm switch`, `fm prun
     A bench file that still carries the removed `"auto"` value for this key fails validation. Set it to `true` or `false`.
 
 !!! info "There is no `[registry]` table"
-    Registry authentication is docker's. Run `docker login` once on each machine that pushes or pulls, or add a login step in CI: `~/.docker/config.json` stores credentials per registry and supports credential helpers (osxkeychain, `pass`, `ecr-login`) that fm cannot reach. The registry host is already part of the [`image`](#images) ref. The table existed until 0.20.0 and did nothing but run `docker login` for you; a bench that still carries it loads fine, and the 0.20.0 migration strips it.
+    Registry authentication is docker's. Run `docker login` once on each machine that pushes or pulls, or add a login step in CI: `~/.docker/config.json` stores credentials per registry and supports credential helpers (osxkeychain, `pass`, `ecr-login`) that fm cannot reach. The registry host is already part of the [`image`](#images) ref. The table existed until 1.0.0 and did nothing but run `docker login` for you; a bench that still carries it loads fine, and the 1.0.0 migration strips it.
 
 !!! warning "An unknown key is reported, not obeyed"
     `[switch]`, `[build]`, `[workers]`, `[telemetry]`, `[database]`, `[redis]` and the nested provider tables accept keys they do not define and keep them in the file, then name them on load: `Bench '<name>': bench_config.toml has unrecognised key(s) <keys>; check for a typo, since fm will not use them.` A misspelled key is therefore never silently dropped, but it is also never interpreted, so the setting you meant to change stays at its default until you fix the spelling. A bench that is behind on migrations is warned about nothing, because `fm migrate` is about to relocate or strip those keys itself.
 
     This is deliberate, and it is a safety property rather than laxity. Rejecting an unrecognised key would mean a bench fm refuses to load, and `fm list`, `fm bake` and `fm switch` skip the migration gate: one file carrying a key from a newer fm, or a table a migration has not reached yet, would take `fm list` down for every bench on the host.
 
-    `[ssl]` carries one deliberately narrow exception. Keys fm itself used to write into a `[[ssl.certificates]]` entry (`api_token`, `api_key`, `email`, `preferred_challenge`, `status`, `cert_path`, `key_path`, `issued_date`, `last_renewal_attempt`, `toml_exclude`) are dropped on read instead of rejected, and the 0.20.0 migration removes them from the file. They are ignored, never interpreted, so a retired key cannot change what fm does. Rejecting them would mean a bench fm cannot load until it is migrated, and `fm list`, `fm bake` and `fm switch` skip the migration gate: one un-migrated file would take `fm list` down for every bench on the host.
+    `[ssl]` carries one deliberately narrow exception. Keys fm itself used to write into a `[[ssl.certificates]]` entry (`api_token`, `api_key`, `email`, `preferred_challenge`, `status`, `cert_path`, `key_path`, `issued_date`, `last_renewal_attempt`, `toml_exclude`) are dropped on read instead of rejected, and the 1.0.0 migration removes them from the file. They are ignored, never interpreted, so a retired key cannot change what fm does. Rejecting them would mean a bench fm cannot load until it is migrated, and `fm list`, `fm bake` and `fm switch` skip the migration gate: one un-migrated file would take `fm list` down for every bench on the host.
 
 ---
 
@@ -967,7 +967,7 @@ FM version this bench was last migrated to. Managed by `fm migrate`; do not edit
 
 ```toml
 [migration_state]
-migrated_to = "0.20.0"
+migrated_to = "1.0.0"
 last_migration_date = "2026-04-12T14:30:45"
 ```
 
@@ -991,7 +991,7 @@ enabled = true
 license_key = "eu01xx..."
 ```
 
-`[telemetry]` declares `newrelic` and is the umbrella for future backends, so an unrecognised sub-table under it is accepted, retained and reported as an unknown key, not rejected. The table was named `[monitoring]` in the 0.20/0.21 development line and, before that, two flat top-level keys (`newrelic_enabled`, `newrelic_license_key`); the 0.21.0 migration moves either shape into `[telemetry.newrelic]` and deletes the old keys.
+`[telemetry]` declares `newrelic` and is the umbrella for future backends, so an unrecognised sub-table under it is accepted, retained and reported as an unknown key, not rejected. The table was named `[monitoring]` in the unreleased 0.20/0.21 development line and, before that, two flat top-level keys (`newrelic_enabled`, `newrelic_license_key`); the 1.0.0 migration moves either shape into `[telemetry.newrelic]` and deletes the old keys.
 
 With both keys set, FM seeds `workspace/frappe-bench/config/newrelic.ini` (app name `Frappe - <bench>`, SQL recorded obfuscated, `Authorization` and `Cookie` request headers excluded) and adds `NEWRELIC_ENABLED` and `NEWRELIC_LICENSE_KEY` to the `frappe` service's compose environment. The wrapper installs the `newrelic` package into the bench venv on first start when it is missing, exports the key as the agent's own `NEW_RELIC_LICENSE_KEY`, then execs Gunicorn under `newrelic-admin`. If the env vars are set but `newrelic.ini` is gone, the web process refuses to start; re-seed it with `fm telemetry enable BENCH newrelic --force-config`.
 

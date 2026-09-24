@@ -40,7 +40,7 @@ class MigrationBench:
         definition a shape the current model may refuse, so `BenchConfig` is not usable here.
 
         Falls back to the bench's own name when no `[sites]` table is recorded. That is the
-        pre-decoupling shape every migration up to 0.20.0 was written against, where the bench name
+        pre-decoupling shape every migration up to 1.0.0 was written against, where the bench name
         IS the site name, so the fallback keeps those benches behaving exactly as before. A bench
         that HAS the table may hold several sites, and may hold one whose name is not the bench's,
         which is the case that used to send every caller here looking for `sites/<bench>/` and

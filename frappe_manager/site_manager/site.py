@@ -2024,10 +2024,10 @@ class Bench:
     def nginx_conf_serves_per_site(self) -> bool:
         """Whether this bench's rendered nginx conf includes each site's OWN drop-in directory.
 
-        MIGRATION is the mechanism that fixes this, not this probe. `migrate_0_20_0` deletes the
+        MIGRATION is the mechanism that fixes this, not this probe. `migrate_1_0_0` deletes the
         generated `conf.d/default.conf` so the entrypoint re-renders it from the new image's
         template, and the per-site include ships in that same template. That covers the upgrade
-        paths, dev builds included: `0.20.0.dev0` sorts below `0.20.0`, so a bench on a dev build
+        paths, dev builds included: `1.0.0.dev0` sorts below `1.0.0`, so a bench on a dev build
         re-runs the step rather than being stranded by it. Commands also refuse outright on an
         unmigrated bench (`check_bench_migration_required`).
 

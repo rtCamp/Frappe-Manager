@@ -12,10 +12,10 @@ FM migrates two things, tracked separately and migrated by separate commands:
 Both are **version-aware**: FM records the version each one is migrated to and only runs the migrations newer than that. What each shipped migration actually changed is catalogued in the [Migration History](migration-history.md).
 
 !!! important "The services tier is a prerequisite, never a side effect"
-    `fm migrate` never migrates the global services implicitly. While they are behind it refuses outright and names the fix, because the services tier performs host-wide cutovers (v0.21.0 renames the very addresses benches dial) that must be an explicit decision:
+    `fm migrate` never migrates the global services implicitly. While they are behind it refuses outright and names the fix, because the services tier performs host-wide cutovers (v1.0.0 renames the very addresses benches dial) that must be an explicit decision:
 
     ```
-    ⛔ fm's global services & configuration are behind (v0.20.0 < v0.21.0). Run 'fm services migrate' first.
+    ⛔ fm's global services & configuration are behind (v0.19.0 < v1.0.0). Run 'fm services migrate' first.
     ```
 
 !!! tip "After updating the CLI"
@@ -51,14 +51,14 @@ While a migration runs, every other fm command on the host is refused (and a mig
 
 ```toml
 [migration_state]
-migrated_to = "0.21.0"
+migrated_to = "1.0.0"
 ```
 
 **Per bench**, in `~/frappe/sites/<bench>/bench_config.toml`:
 
 ```toml
 [migration_state]
-migrated_to = "0.20.0"
+migrated_to = "1.0.0"
 last_migration_date = "2026-04-12T14:30:45.123456"
 ```
 
@@ -68,7 +68,7 @@ A missing `[migration_state]` or an unparseable `migrated_to` reads as *unknown*
 
 ```toml
 [migration_state]
-migrated_to = "0.20.0"
+migrated_to = "1.0.0"
 ```
 
 ### Minimum supported version {#minimum-supported-version}
@@ -77,7 +77,7 @@ Migrations only reach back to **v0.18.0**. From anything older, FM refuses and p
 
 ```
 Cannot migrate from v0.17.0. Minimum supported version is v0.18.0.
-Migration path: v0.17.0 → v0.18.0 → v0.21.0
+Migration path: v0.17.0 → v0.18.0 → v1.0.0
 ```
 
 ---
@@ -90,7 +90,7 @@ Migration path: v0.17.0 → v0.18.0 → v0.21.0
 fm services migrate
 ```
 
-Migrates the shared services and FM's own config. No bench version is touched, though a host-wide cutover (like the v0.21.0 rename) may rewrite bench files and briefly take every bench down, because the shared services are every bench's database and only route in. When already current it says so and exits 0.
+Migrates the shared services and FM's own config. No bench version is touched, though a host-wide cutover (like the v1.0.0 rename) may rewrite bench files and briefly take every bench down, because the shared services are every bench's database and only route in. When already current it says so and exits 0.
 
 `--dry-run` prints that same plan (or the "already at vX" line above when there is nothing to do) and exits 0 without migrating or prompting -- including under `--non-interactive`, which the real run refuses without `--yes`. That makes it the scriptable way to ask "is a migration pending?" before deciding whether to run for real: check the printed line rather than the exit code, since a pending and an up-to-date host both exit 0. `fm migrate BENCH --dry-run` / `fm migrate all --dry-run` is the equivalent probe for the bench tier, below.
 
@@ -105,11 +105,11 @@ Refused while the global services & configuration are behind: run `fm services m
 
 ```
 Benches:
-  • mybench.localhost: v0.19.0 → v0.20.0
-  • prod.localhost: v0.19.0 → v0.20.0
+  • mybench.localhost: v0.19.0 → v1.0.0
+  • prod.localhost: v0.19.0 → v1.0.0
 
 Migration versions:
-  • v0.20.0
+  • v1.0.0
 
 Do you want to proceed?
   yes - Start migration
@@ -140,7 +140,7 @@ fm migrate all --skip-config-backup   # the reverse
 fm migrate all --skip-backup          # skip both kinds
 ```
 
-`fm services migrate` takes the same three flags. There, `--skip-db-backup` covers whole-engine dumps like v0.20.0's pre-upgrade dump, where the dump is the only route back from a one-way engine upgrade: reach for it only when taking the dump is genuinely impossible, and prefer it over `--skip-backup`, which also throws away the near-free config backups the rollback restores.
+`fm services migrate` takes the same three flags. There, `--skip-db-backup` covers whole-engine dumps like v1.0.0's pre-upgrade dump, where the dump is the only route back from a one-way engine upgrade: reach for it only when taking the dump is genuinely impossible, and prefer it over `--skip-backup`, which also throws away the near-free config backups the rollback restores.
 
 !!! danger "No backups means no rollback"
     Rollback restores files from the backup directory. Without it, a failed migration leaves the bench where it stopped. Use these only when you have external backups, when backup creation itself is what is failing (disk space, permissions), or on disposable benches.

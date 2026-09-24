@@ -79,35 +79,35 @@ def discover(discovery, available_versions, from_version, to_version):
 class TestDiscoveryVersionRange:
     def test_migration_equal_to_from_version_is_excluded(self, discovery):
         """The already-applied migration must NOT run again (from_version is exclusive)."""
-        selected = discover(discovery, ["0.19.0", "0.20.0"], from_version="0.19.0", to_version="0.20.0")
+        selected = discover(discovery, ["0.19.0", "1.0.0"], from_version="0.19.0", to_version="1.0.0")
 
-        assert selected == ["0.20.0"]
+        assert selected == ["1.0.0"]
 
     def test_equal_from_and_to_versions_select_nothing(self, discovery):
         """Nothing to do when the bench is already at the target version."""
-        selected = discover(discovery, ["0.19.0", "0.20.0"], from_version="0.19.0", to_version="0.19.0")
+        selected = discover(discovery, ["0.19.0", "1.0.0"], from_version="0.19.0", to_version="0.19.0")
 
         assert selected == []
 
     def test_migration_equal_to_to_version_is_included(self, discovery):
         """to_version is inclusive: the target release's migration must run."""
-        selected = discover(discovery, ["0.19.0", "0.20.0"], from_version="0.18.0", to_version="0.19.0")
+        selected = discover(discovery, ["0.19.0", "1.0.0"], from_version="0.18.0", to_version="0.19.0")
 
         assert selected == ["0.19.0"]
 
     def test_full_range_is_included_and_sorted(self, discovery):
-        selected = discover(discovery, ["0.20.0", "0.19.0"], from_version="0.18.0", to_version="0.20.0")
+        selected = discover(discovery, ["1.0.0", "0.19.0"], from_version="0.18.0", to_version="1.0.0")
 
-        assert selected == ["0.19.0", "0.20.0"]
+        assert selected == ["0.19.0", "1.0.0"]
 
     def test_migration_above_to_version_is_excluded(self, discovery):
-        selected = discover(discovery, ["0.19.0", "0.20.0"], from_version="0.18.0", to_version="0.19.0")
+        selected = discover(discovery, ["0.19.0", "1.0.0"], from_version="0.18.0", to_version="0.19.0")
 
-        assert "0.20.0" not in selected
+        assert "1.0.0" not in selected
 
     def test_dev_target_version_includes_its_release_migration(self, discovery):
         """0.19.0.dev0 normalizes to 0.19.0, so migration 0.19.0 is in range."""
-        selected = discover(discovery, ["0.19.0", "0.20.0"], from_version="0.18.0", to_version="0.19.0.dev0")
+        selected = discover(discovery, ["0.19.0", "1.0.0"], from_version="0.18.0", to_version="0.19.0.dev0")
 
         assert selected == ["0.19.0"]
 
@@ -124,7 +124,7 @@ class TestShouldIncludeMigrationBoundaries:
     @pytest.mark.parametrize(
         ("migration_version", "from_version", "to_version", "expected"),
         [
-            ("0.19.0", "0.19.0", "0.20.0", False),  # equal to from_version -> exclusive
+            ("0.19.0", "0.19.0", "1.0.0", False),  # equal to from_version -> exclusive
             ("0.19.0", "0.18.0", "0.19.0", True),  # equal to to_version -> inclusive
             ("0.19.0", "0.19.0", "0.19.0", False),  # from == to == migration
             ("0.19.0", "0.18.0", "0.18.5", False),  # above to_version

@@ -155,8 +155,8 @@ def recognised_fm_config_keys() -> frozenset[str]:
     reason as `recognised_bench_config_keys` in bench_config.py: a field added or renamed here
     changes the recognised set for free. Four names are not fields and are added by hand:
     `ssl` (the table `dns_providers` is read out of), `migration_state` (kept in `_raw_config`,
-    never a pydantic field), the pre-0.20.0 top-level `[cloudflare]` table this reader still
-    folds into `dns_providers` by hand, and the retired top-level `version` key (v0.21.0's
+    never a pydantic field), the pre-1.0.0 top-level `[cloudflare]` table this reader still
+    folds into `dns_providers` by hand, and the retired top-level `version` key (v1.0.0's
     migration strips it from disk; recognised-but-inert until then so a not-yet-migrated file
     is not warned about its own key).
     """
@@ -166,7 +166,7 @@ def recognised_fm_config_keys() -> frozenset[str]:
 def recognised_global_migration_state_keys() -> frozenset[str]:
     """Every `[migration_state]` key this file itself gives meaning to: `migrated_to` (read in
     `get_system_migration_version`, written in `set_system_migration_version`) and its pre-rename
-    spelling `system_migrated_to` (seeded from at load, renamed on disk by v0.21.0's migration;
+    spelling `system_migrated_to` (seeded from at load, renamed on disk by v1.0.0's migration;
     recognised so a not-yet-migrated host is not warned about its own ledger).
 
     `[migration_state]` is kept as a raw dict in `_raw_config`, never a pydantic field (see the
@@ -363,7 +363,7 @@ class FMConfigManager(BaseModel):
                 if isinstance(provider_data, dict):
                     dns_providers[label] = DNSProviderConfig.import_from_toml_doc(provider_data)
 
-            # A pre-0.20.0 file keeps its default account in a top-level `[cloudflare]` table. It is
+            # A pre-1.0.0 file keeps its default account in a top-level `[cloudflare]` table. It is
             # folded into the `cloudflare` label here, and NOT left to the migration, because the
             # model can no longer represent that table while `export_to_toml` rebuilds the whole
             # file: any command that writes fm_config.toml would drop the credential silently, and
@@ -421,8 +421,8 @@ class FMConfigManager(BaseModel):
 
             # THE one place legacy ledger spellings are understood, and memory-only: the ledger
             # is read (by the gates and the executor's discovery) BEFORE any migration runs, so
-            # a pre-rename file must still read correctly here or a v0.20 host would read 0.0.0
-            # and discovery would re-select the frozen v0.19/v0.20 migrations against it. Disk
+            # a pre-rename file must still read correctly here or a v0.19 host would read 0.0.0
+            # and discovery would re-select the frozen v0.19 migration against it. Disk
             # is cut over by the write path instead: the first stamp pops `system_migrated_to`
             # (see `set_system_migration_version`) and the export prune retires the top-level
             # `version` key. Precedence: `system_migrated_to` (the ledger's pre-rename spelling),

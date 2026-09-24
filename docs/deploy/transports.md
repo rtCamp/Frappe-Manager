@@ -35,7 +35,7 @@ push = true                  # or pass --push on the command line
 
 `fm bake --push` (or `[build] push = true`) publishes both images, and `fm switch` on the target pulls whatever it does not already have. The registry host is part of the image ref itself (`image = "ghcr.io/acme/mybench"`), so there is nothing else to configure.
 
-**Authentication is docker's, not fm's.** A private registry needs one `docker login` on each machine that pushes or pulls, or a login step in CI. That is all: `~/.docker/config.json` already stores credentials per registry, and supports credential helpers (osxkeychain, `pass`, `ecr-login`) that fm has no way to reach. fm holds no registry credentials of its own and never did anything with them beyond running `docker login` for you, which is why the `[registry]` table was removed in 0.20.0. A bench that still carries one loads fine and the 0.20.0 migration strips it.
+**Authentication is docker's, not fm's.** A private registry needs one `docker login` on each machine that pushes or pulls, or a login step in CI. That is all: `~/.docker/config.json` already stores credentials per registry, and supports credential helpers (osxkeychain, `pass`, `ecr-login`) that fm has no way to reach. fm holds no registry credentials of its own and never did anything with them beyond running `docker login` for you, which is why the `[registry]` table was removed in 1.0.0. A bench that still carries one loads fine and the 1.0.0 migration strips it.
 
 If a pull fails, fm says which of the two things is wrong. It cannot ask the registry whether you are authenticated, but `docker login` records the host in `~/.docker/config.json` even when the secret lives in a helper, so fm checks there and leads with the likely cause:
 

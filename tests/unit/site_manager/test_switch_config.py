@@ -79,9 +79,9 @@ def test_search_replace_is_gone_from_the_model():
     # site's URL to rewrite. It was deleted once on that reasoning alone, which broke every
     # command that loaded a bench carrying `search_replace = true` while SwitchConfig was
     # extra="forbid" (observed live: it took down `fm info` and `fm ssl list`). It is gone again
-    # in 0.20.0, this time with the loader filtering the stale key at the `--config` overlay seam
+    # in 1.0.0, this time with the loader filtering the stale key at the `--config` overlay seam
     # and the bench migration stripping it from disk; the model itself now tolerates it too
     # (extra="allow"), retaining it as an unknown key for a caller to act on rather than raising.
-    # See test_bench_config_toml.py::test_a_bench_config_carrying_keys_removed_in_0_20_0_still_loads.
+    # See test_bench_config_toml.py::test_a_bench_config_carrying_keys_removed_in_1_0_0_still_loads.
     sc = SwitchConfig(search_replace=True)
     assert collect_unknown_keys(sc) == ["search_replace"]

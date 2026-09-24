@@ -93,7 +93,7 @@ class BackupManager:
         self.new_files = []  # Track newly created files for cleanup on rollback
         self.logger = get_logger(component="migration")
         # The session directory is created LAZILY, by the first actual backup (backup()
-        # mkdirs its dest parent; the 0.20.0 engine dump guards its own): constructing a
+        # mkdirs its dest parent; the 1.0.0 engine dump guards its own): constructing a
         # manager is not a promise anything will be backed up, and the eager mkdir here
         # littered real installs with thousands of empty timestamp dirs -- every
         # MigrationBase.init() and worker regeneration builds one of these, including the

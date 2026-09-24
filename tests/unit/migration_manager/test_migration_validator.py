@@ -32,7 +32,7 @@ from frappe_manager.migration_manager.version import Version
 VALIDATOR_MODULE = "frappe_manager.migration_manager.migration_validator"
 
 
-def make_validator(target_benches, exclude_benches=None, prev="0.18.0", current="0.20.0"):
+def make_validator(target_benches, exclude_benches=None, prev="0.18.0", current="1.0.0"):
     """Build a MigrationValidator with a mock output handler."""
     bench_filter = BenchFilter(target_benches=target_benches, exclude_benches=exclude_benches or [])
     return MigrationValidator(
@@ -82,7 +82,7 @@ class TestGetMinimumBenchVersion:
         with benches_patch, version_patch:
             result = validator.get_minimum_bench_version()
 
-        assert result == Version("0.20.0"), "Must report current version when no benches are targeted"
+        assert result == Version("1.0.0"), "Must report current version when no benches are targeted"
         benches_cls.assert_not_called()
         version_fn.assert_not_called()
 
@@ -115,13 +115,13 @@ class TestGetMinimumBenchVersion:
 
     def test_bench_newer_than_current_does_not_raise_the_minimum(self):
         """current_version is the ceiling of the minimum."""
-        validator = make_validator(target_benches=["bench-a"], current="0.20.0")
-        benches_patch, version_patch, _, _ = patch_benches({"bench-a": "0.21.0"})
+        validator = make_validator(target_benches=["bench-a"], current="1.0.0")
+        benches_patch, version_patch, _, _ = patch_benches({"bench-a": "1.0.1"})
 
         with benches_patch, version_patch:
             result = validator.get_minimum_bench_version()
 
-        assert result == Version("0.20.0")
+        assert result == Version("1.0.0")
 
 
 class TestCheckBenchesNeedMigration:
@@ -177,7 +177,7 @@ class TestValidateVersionSupport:
 
     def test_version_below_minimum_is_refused(self):
         """Too-old version => migration must be REFUSED (False), with guidance printed."""
-        validator = make_validator(target_benches=None, current="0.20.0")
+        validator = make_validator(target_benches=None, current="1.0.0")
 
         result = validator.validate_version_support(Version("0.17.0"))
 
@@ -222,8 +222,8 @@ class TestValidateVersionSupport:
         """One damaged bench in `fm migrate all` drags the effective version to 0.0.0; the
         refusal must say WHICH bench, and point at its bench_config.toml -- a bare v0.0.0
         leaves the operator guessing across every bench on the host."""
-        validator = make_validator(target_benches=["bench-a", "bench-b"], prev="0.20.0")
-        benches_patch, version_patch, _, _ = patch_benches({"bench-a": "0.20.0", "bench-b": "0.0.0"})
+        validator = make_validator(target_benches=["bench-a", "bench-b"], prev="1.0.0")
+        benches_patch, version_patch, _, _ = patch_benches({"bench-a": "1.0.0", "bench-b": "0.0.0"})
 
         with benches_patch, version_patch:
             result = validator.validate_version_support(Version("0.0.0"))

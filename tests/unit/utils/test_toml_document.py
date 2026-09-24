@@ -1,7 +1,7 @@
 """Saving a config file keeps what the reader wrote in it, and still retires what the model dropped.
 
 `export_to_toml` used to build a fresh document and overwrite the file, so every comment died on the
-next save. The 0.20.0 migration preserves comments with a tomlkit round-trip and then
+next save. The 1.0.0 migration preserves comments with a tomlkit round-trip and then
 `set_bench_migration_version` stamped the version through the model and deleted them again, which is
 how this was found.
 
@@ -104,7 +104,7 @@ def test_saving_twice_changes_nothing(tmp_path):
 
 def test_the_global_config_keeps_comments_and_still_retires_the_old_table(tmp_path):
     path = tmp_path / "fm_config.toml"
-    path.write_text('# host notes\nversion = "0.20.0.dev0"\n[cloudflare]\napi_key = "cf_LIVE"\n')
+    path.write_text('# host notes\nversion = "1.0.0.dev0"\n[cloudflare]\napi_key = "cf_LIVE"\n')
 
     FMConfigManager.import_from_toml(path).export_to_toml(path)
 

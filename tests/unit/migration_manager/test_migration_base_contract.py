@@ -1,10 +1,10 @@
-"""Characterization tests for the migration contract and for the v0.20.0 migration.
+"""Characterization tests for the migration contract and for the v1.0.0 migration.
 
 ``MigrationBase`` is the lifecycle every migration inherits: which steps run in which
 order during ``up``, which benches a run refuses to touch and why, what is recorded
 when a bench blows up mid-migration, and how ``down`` unwinds a run. Those decisions
 are the contract; a migration author only fills in ``migrate_bench`` /
-``migrate_services``. ``MigrationV0200`` is the newest migration and the concrete
+``migrate_services``. ``MigrationV100`` is the newest migration and the concrete
 example of that contract: what it rewrites on disk, and what it deliberately leaves
 alone.
 
@@ -29,12 +29,12 @@ from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.migration_manager.migration_constants import DOCKER_COMPOSE_DOWN_TIMEOUT_SECONDS
 from frappe_manager.migration_manager.migration_exceptions import MigrationExceptionInBench
-from frappe_manager.migration_manager.migrations.migrate_0_20_0 import ADMINER_VOLUMES, MigrationV0200
+from frappe_manager.migration_manager.migrations.migrate_1_0_0 import ADMINER_VOLUMES, MigrationV100
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo
 
 BASE = "frappe_manager.migration_manager.migration_base"
-V0200 = "frappe_manager.migration_manager.migrations.migrate_0_20_0"
+V100 = "frappe_manager.migration_manager.migrations.migrate_1_0_0"
 
 
 # --------------------------------------------------------------------------------------
@@ -53,7 +53,7 @@ class _FakeBench:
         self.compose_file_manager = MagicMock()
         # The real property reads `[sites]` out of bench_config.toml and falls back to the bench's
         # own name when there is no table, which is the pre-decoupling shape every migration up to
-        # 0.20.0 was written against. Defaulting to that fallback keeps these tests describing a
+        # 1.0.0 was written against. Defaulting to that fallback keeps these tests describing a
         # pre-decoupling bench unless one explicitly asks for several sites.
         self.site_names = list(sites) if sites else [name]
 
@@ -772,7 +772,7 @@ def test_a_recorded_site_with_no_config_on_disk_is_reported_and_skipped(backup_m
 
 def test_a_pre_decoupling_bench_still_backs_up_exactly_one_site(backup_migration, backed_up_bench):
     """`alpha` has no `[sites]` table, so the fallback names the bench's own site. Every migration
-    up to 0.20.0 runs on benches of this shape and must behave exactly as it did."""
+    up to 1.0.0 runs on benches of this shape and must behave exactly as it did."""
     with patch.object(backup_migration, "bench_db_backup") as db_backup:
         backup_migration.bench_basic_backup(backed_up_bench)
 
@@ -1003,7 +1003,7 @@ def test_the_transit_path_is_one_both_runtimes_mount(backup_migration, backed_up
 
 
 # ======================================================================================
-# MigrationV0200
+# MigrationV100
 # ======================================================================================
 
 _ADMIN_TOOLS_COMPOSE = """\
@@ -1033,11 +1033,11 @@ def no_frontend_subnet(tmp_path):
 
 
 @pytest.fixture
-def v0200(output, tmp_path):
-    migration = MigrationV0200(output_handler=output)
+def v100(output, tmp_path):
+    migration = MigrationV100(output_handler=output)
     migration.benches_dir = tmp_path / "sites"
     migration.backup_manager = BackupManager(
-        name="0.20.0",
+        name="1.0.0",
         benches_dir=tmp_path / "sites",
         backup_dir=tmp_path / "backups",
     )
@@ -1046,7 +1046,7 @@ def v0200(output, tmp_path):
 
 
 @pytest.fixture
-def v0200_bench(tmp_path):
+def v100_bench(tmp_path):
     bench_path = tmp_path / "sites" / "alpha"
     (bench_path / "workspace" / "frappe-bench" / "sites").mkdir(parents=True)
     return _FakeBench("alpha", bench_path)
@@ -1062,41 +1062,41 @@ def _load(path: Path):
     return YAML().load(path.read_text())
 
 
-def test_a_bench_without_admin_tools_still_gets_the_nginx_work(v0200, v0200_bench, tmp_path):
+def test_a_bench_without_admin_tools_still_gets_the_nginx_work(v100, v100_bench, tmp_path):
     services = tmp_path / "services"
     services.mkdir()
     (services / "docker-compose.yml").write_text(
         "networks:\n  global-frontend-network:\n    ipam:\n      config:\n        - subnet: 10.5.0.0/16\n",
     )
-    default_conf = v0200_bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+    default_conf = v100_bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
     default_conf.parent.mkdir(parents=True)
     default_conf.write_text("server { }\n")
 
     with patch("frappe_manager.CLI_SERVICES_DIRECTORY", services):
-        v0200.migrate_bench(v0200_bench)
+        v100._admin_tools_and_config_bench(v100_bench)
 
-    realip = v0200_bench.path / "configs" / "nginx" / "conf" / "custom" / "real-ip.conf"
+    realip = v100_bench.path / "configs" / "nginx" / "conf" / "custom" / "real-ip.conf"
     assert "10.5.0.0/16" in realip.read_text()
     assert not default_conf.exists()
     # No admin-tools compose, so no adminer work happened.
-    assert not (v0200_bench.path / "configs" / "adminer").exists()
+    assert not (v100_bench.path / "configs" / "adminer").exists()
 
 
-def test_the_admin_tools_compose_is_backed_up_before_being_rewritten(v0200, v0200_bench, no_frontend_subnet):
-    compose_path = _admin_tools(v0200_bench)
+def test_the_admin_tools_compose_is_backed_up_before_being_rewritten(v100, v100_bench, no_frontend_subnet):
+    compose_path = _admin_tools(v100_bench)
 
-    v0200.migrate_bench(v0200_bench)
+    v100._admin_tools_and_config_bench(v100_bench)
 
-    backup = next(b for b in v0200.backup_manager.backups if b.src == compose_path)
+    backup = next(b for b in v100.backup_manager.backups if b.src == compose_path)
     assert backup.bench == "alpha"
     assert backup.real_dest.read_text() == _ADMIN_TOOLS_COMPOSE
     assert compose_path.read_text() != _ADMIN_TOOLS_COMPOSE
 
 
-def test_adminer_moves_to_5_and_loses_its_hardcoded_default_server(v0200, v0200_bench, no_frontend_subnet):
-    compose_path = _admin_tools(v0200_bench)
+def test_adminer_moves_to_5_and_loses_its_hardcoded_default_server(v100, v100_bench, no_frontend_subnet):
+    compose_path = _admin_tools(v100_bench)
 
-    v0200.migrate_bench(v0200_bench)
+    v100._admin_tools_and_config_bench(v100_bench)
 
     data = _load(compose_path)
     assert data["services"]["adminer"]["image"] == "adminer:5"
@@ -1105,57 +1105,57 @@ def test_adminer_moves_to_5_and_loses_its_hardcoded_default_server(v0200, v0200_
     assert data["services"]["adminer"]["restart"] == "always"
 
 
-def test_an_environment_with_other_keys_survives_without_the_default_server(v0200, v0200_bench, no_frontend_subnet):
+def test_an_environment_with_other_keys_survives_without_the_default_server(v100, v100_bench, no_frontend_subnet):
     compose_path = _admin_tools(
-        v0200_bench,
+        v100_bench,
         _ADMIN_TOOLS_COMPOSE.replace(
             "      ADMINER_DEFAULT_SERVER: global-db\n",
             "      ADMINER_DEFAULT_SERVER: global-db\n      ADMINER_DESIGN: dracula\n",
         ),
     )
 
-    v0200.migrate_bench(v0200_bench)
+    v100._admin_tools_and_config_bench(v100_bench)
 
     environment = _load(compose_path)["services"]["adminer"]["environment"]
     assert dict(environment) == {"ADMINER_DESIGN": "dracula"}
 
 
-def test_the_old_volumes_are_replaced_by_the_read_only_login_mounts(v0200, v0200_bench, no_frontend_subnet):
-    compose_path = _admin_tools(v0200_bench)
+def test_the_old_volumes_are_replaced_by_the_read_only_login_mounts(v100, v100_bench, no_frontend_subnet):
+    compose_path = _admin_tools(v100_bench)
 
-    v0200.migrate_bench(v0200_bench)
+    v100._admin_tools_and_config_bench(v100_bench)
 
     assert list(_load(compose_path)["services"]["adminer"]["volumes"]) == ADMINER_VOLUMES
 
 
-def test_the_compose_records_the_migration_version_without_a_v_prefix(v0200, v0200_bench, no_frontend_subnet):
-    compose_path = _admin_tools(v0200_bench)
+def test_the_compose_records_the_migration_version_without_a_v_prefix(v100, v100_bench, no_frontend_subnet):
+    compose_path = _admin_tools(v100_bench)
 
-    v0200.migrate_bench(v0200_bench)
+    v100._admin_tools_and_config_bench(v100_bench)
 
-    assert _load(compose_path)["x-version"] == "0.20.0"
+    assert _load(compose_path)["x-version"] == "1.0.0"
 
 
-def test_the_login_plugin_is_placed_in_the_benchs_adminer_config_dir(v0200, v0200_bench, no_frontend_subnet):
-    _admin_tools(v0200_bench)
+def test_the_login_plugin_is_placed_in_the_benchs_adminer_config_dir(v100, v100_bench, no_frontend_subnet):
+    _admin_tools(v100_bench)
 
-    v0200.migrate_bench(v0200_bench)
+    v100._admin_tools_and_config_bench(v100_bench)
 
-    plugin = v0200_bench.path / "configs" / "adminer" / "000-fm-login.php"
+    plugin = v100_bench.path / "configs" / "adminer" / "000-fm-login.php"
     assert plugin.read_bytes().startswith(b"<?php")
 
 
-def test_a_compose_without_an_adminer_service_is_left_untouched(v0200, v0200_bench, no_frontend_subnet):
+def test_a_compose_without_an_adminer_service_is_left_untouched(v100, v100_bench, no_frontend_subnet):
     body = "x-version: '0.19.0'\nservices:\n  something-else:\n    image: busybox\n"
-    compose_path = _admin_tools(v0200_bench, body)
+    compose_path = _admin_tools(v100_bench, body)
 
-    v0200.migrate_bench(v0200_bench)
+    v100._admin_tools_and_config_bench(v100_bench)
 
     assert compose_path.read_text() == body
-    assert not (v0200_bench.path / "configs" / "adminer").exists()
+    assert not (v100_bench.path / "configs" / "adminer").exists()
 
 
-def test_the_real_ip_conf_falls_back_to_the_running_network(v0200, v0200_bench, tmp_path):
+def test_the_real_ip_conf_falls_back_to_the_running_network(v100, v100_bench, tmp_path):
     empty = tmp_path / "no-services"
     empty.mkdir()
 
@@ -1163,19 +1163,19 @@ def test_the_real_ip_conf_falls_back_to_the_running_network(v0200, v0200_bench, 
         patch("frappe_manager.CLI_SERVICES_DIRECTORY", empty),
         patch("frappe_manager.utils.network.detect_running_network", return_value={"subnet_cidr": "10.9.0.0/16"}),
     ):
-        v0200._place_realip_conf(v0200_bench)
+        v100._place_realip_conf(v100_bench)
 
-    conf = v0200_bench.path / "configs" / "nginx" / "conf" / "custom" / "real-ip.conf"
+    conf = v100_bench.path / "configs" / "nginx" / "conf" / "custom" / "real-ip.conf"
     assert "10.9.0.0/16" in conf.read_text()
 
 
-def test_no_discoverable_subnet_means_no_real_ip_conf(v0200, v0200_bench, no_frontend_subnet):
-    v0200._place_realip_conf(v0200_bench)
+def test_no_discoverable_subnet_means_no_real_ip_conf(v100, v100_bench, no_frontend_subnet):
+    v100._place_realip_conf(v100_bench)
 
-    assert not (v0200_bench.path / "configs" / "nginx").exists()
+    assert not (v100_bench.path / "configs" / "nginx").exists()
 
 
-def test_a_failing_network_probe_does_not_abort_the_migration(v0200, v0200_bench, tmp_path):
+def test_a_failing_network_probe_does_not_abort_the_migration(v100, v100_bench, tmp_path):
     empty = tmp_path / "no-services"
     empty.mkdir()
 
@@ -1186,34 +1186,34 @@ def test_a_failing_network_probe_does_not_abort_the_migration(v0200, v0200_bench
             side_effect=RuntimeError("no docker"),
         ),
     ):
-        v0200._place_realip_conf(v0200_bench)
+        v100._place_realip_conf(v100_bench)
 
-    assert not (v0200_bench.path / "configs" / "nginx").exists()
+    assert not (v100_bench.path / "configs" / "nginx").exists()
 
 
-def test_the_generated_default_conf_is_backed_up_then_deleted(v0200, v0200_bench):
-    default_conf = v0200_bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+def test_the_generated_default_conf_is_backed_up_then_deleted(v100, v100_bench):
+    default_conf = v100_bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
     default_conf.parent.mkdir(parents=True)
     default_conf.write_text("server { access_log /dev/stdout; }\n")
 
-    v0200._refresh_nginx_default_conf(v0200_bench)
+    v100._refresh_nginx_default_conf(v100_bench)
 
     assert not default_conf.exists()
-    backup = next(b for b in v0200.backup_manager.backups if b.src == default_conf)
+    backup = next(b for b in v100.backup_manager.backups if b.src == default_conf)
     assert backup.real_dest.read_text() == "server { access_log /dev/stdout; }\n"
 
 
-def test_a_bench_without_a_generated_default_conf_is_left_alone(v0200, v0200_bench):
-    v0200._refresh_nginx_default_conf(v0200_bench)
+def test_a_bench_without_a_generated_default_conf_is_left_alone(v100, v100_bench):
+    v100._refresh_nginx_default_conf(v100_bench)
 
-    assert v0200.backup_manager.backups == []
+    assert v100.backup_manager.backups == []
 
 
-def test_the_old_admin_tools_credentials_move_into_the_auth_table(v0200, v0200_bench):
-    config = v0200_bench.path / "bench_config.toml"
+def test_the_old_admin_tools_credentials_move_into_the_auth_table(v100, v100_bench):
+    config = v100_bench.path / "bench_config.toml"
     config.write_text('name = "alpha"\nadmin_tools_username = "bob"\nadmin_tools_password = "hunter2"\n')
 
-    v0200._move_admin_tools_credentials(v0200_bench)
+    v100._move_admin_tools_credentials(v100_bench)
 
     doc = tomlkit.parse(config.read_text())
     assert "admin_tools_username" not in doc
@@ -1222,24 +1222,24 @@ def test_the_old_admin_tools_credentials_move_into_the_auth_table(v0200, v0200_b
     assert doc["name"] == "alpha"
 
 
-def test_an_existing_auth_table_wins_but_the_old_keys_still_go(v0200, v0200_bench):
-    config = v0200_bench.path / "bench_config.toml"
+def test_an_existing_auth_table_wins_but_the_old_keys_still_go(v100, v100_bench):
+    config = v100_bench.path / "bench_config.toml"
     config.write_text(
         'admin_tools_username = "bob"\nadmin_tools_password = "hunter2"\n[auth]\nuser = "newer"\nweb = true\n',
     )
 
-    v0200._move_admin_tools_credentials(v0200_bench)
+    v100._move_admin_tools_credentials(v100_bench)
 
     doc = tomlkit.parse(config.read_text())
     assert "admin_tools_username" not in doc
     assert dict(doc["auth"]) == {"user": "newer", "web": True}
 
 
-def test_a_missing_username_becomes_admin_and_a_missing_password_is_omitted(v0200, v0200_bench):
-    config = v0200_bench.path / "bench_config.toml"
+def test_a_missing_username_becomes_admin_and_a_missing_password_is_omitted(v100, v100_bench):
+    config = v100_bench.path / "bench_config.toml"
     config.write_text('admin_tools_password = "hunter2"\n')
 
-    v0200._move_admin_tools_credentials(v0200_bench)
+    v100._move_admin_tools_credentials(v100_bench)
 
     assert dict(tomlkit.parse(config.read_text())["auth"]) == {
         "user": "admin",
@@ -1249,36 +1249,36 @@ def test_a_missing_username_becomes_admin_and_a_missing_password_is_omitted(v020
     }
 
     config.write_text('admin_tools_username = "bob"\n')
-    v0200._move_admin_tools_credentials(v0200_bench)
+    v100._move_admin_tools_credentials(v100_bench)
 
     assert dict(tomlkit.parse(config.read_text())["auth"]) == {"user": "bob", "web": False, "tools": True}
 
 
-def test_the_renamed_admin_tools_htpasswd_is_dropped(v0200, v0200_bench):
-    htpasswd = v0200_bench.path / "configs" / "nginx" / "conf" / "http_auth" / "alpha-admin-tools.htpasswd"
+def test_the_renamed_admin_tools_htpasswd_is_dropped(v100, v100_bench):
+    htpasswd = v100_bench.path / "configs" / "nginx" / "conf" / "http_auth" / "alpha-admin-tools.htpasswd"
     htpasswd.parent.mkdir(parents=True)
     htpasswd.write_text("alpha:hash\n")
 
-    v0200._move_admin_tools_credentials(v0200_bench)
+    v100._move_admin_tools_credentials(v100_bench)
 
     assert not htpasswd.exists()
 
 
-def test_keys_removed_in_0_20_0_are_stripped_from_bench_config(v0200, v0200_bench):
+def test_keys_removed_in_1_0_0_are_stripped_from_bench_config(v100, v100_bench):
     """The models dropped these, so the file must stop carrying them.
 
     Two shapes: a single key out of a table that survives (`[switch].search_replace`), and a
     whole table (`[registry]`, whose every field existed only to run `docker login`, which
     docker already owns). Neighbouring keys and unrelated tables must survive both.
     """
-    config = v0200_bench.path / "bench_config.toml"
+    config = v100_bench.path / "bench_config.toml"
     config.write_text(
         'name = "alpha"\n'
         "[switch]\nmigrate = true\nsearch_replace = true\n"
         '[registry]\nregistry = "ghcr.io/acme"\nusername = "u"\npassword = "p"\n',
     )
 
-    v0200._drop_removed_config_keys(v0200_bench)
+    v100._drop_removed_config_keys(v100_bench)
 
     doc = tomlkit.parse(config.read_text())
     assert "search_replace" not in doc["switch"]
@@ -1287,46 +1287,47 @@ def test_keys_removed_in_0_20_0_are_stripped_from_bench_config(v0200, v0200_benc
     assert doc["name"] == "alpha"
 
 
-def test_a_config_without_the_removed_keys_is_not_rewritten(v0200, v0200_bench):
+def test_a_config_without_the_removed_keys_is_not_rewritten(v100, v100_bench):
     """No key present means no write, so mtimes and formatting are left alone."""
-    config = v0200_bench.path / "bench_config.toml"
+    config = v100_bench.path / "bench_config.toml"
     original = 'name = "alpha"\n[switch]\nmigrate = true\n'
     config.write_text(original)
 
-    v0200._drop_removed_config_keys(v0200_bench)
+    v100._drop_removed_config_keys(v100_bench)
 
     assert config.read_text() == original
 
 
-def test_migrate_bench_actually_runs_the_key_strip(v0200, v0200_bench):
+def test_migrate_bench_actually_runs_the_key_strip(v100, v100_bench):
     """Wiring, not behaviour. The helper is unit-tested directly above, so nothing there
     notices if the call goes missing from ``migrate_bench``. Safe to run in full here:
-    with no docker-compose.admin-tools.yml it returns before the compose rewrite."""
-    config = v0200_bench.path / "bench_config.toml"
+    with no compose files on disk, neither the admin-tools rewrite nor the service-rename
+    half of ``migrate_bench`` has anything to touch."""
+    config = v100_bench.path / "bench_config.toml"
     config.write_text('name = "alpha"\n[switch]\nsearch_replace = true\n')
 
-    v0200.migrate_bench(v0200_bench)
+    v100.migrate_bench(v100_bench)
 
     assert "search_replace" not in tomlkit.parse(config.read_text())["switch"]
 
 
-def test_a_config_without_the_old_keys_is_not_rewritten(v0200, v0200_bench, output):
-    config = v0200_bench.path / "bench_config.toml"
+def test_a_config_without_the_old_keys_is_not_rewritten(v100, v100_bench, output):
+    config = v100_bench.path / "bench_config.toml"
     config.write_text('name = "alpha"\n[auth]\nuser = "bob"\n')
 
-    v0200._move_admin_tools_credentials(v0200_bench)
+    v100._move_admin_tools_credentials(v100_bench)
 
     assert config.read_text() == 'name = "alpha"\n[auth]\nuser = "bob"\n'
     output.print.assert_not_called()
 
 
 # --------------------------------------------------------------------------------------
-# MigrationV0200: the global database engine upgrade
+# MigrationV100: the global database engine upgrade
 # --------------------------------------------------------------------------------------
 
 
 @pytest.fixture
-def services(v0200, tmp_path):
+def services(v100, tmp_path):
     """A services manager whose compose file is a real dict plus mocked docker."""
     compose_path = tmp_path / "services" / "docker-compose.yml"
     compose_path.parent.mkdir(parents=True)
@@ -1342,7 +1343,7 @@ def services(v0200, tmp_path):
             },
         },
     }
-    v0200.services_manager = manager
+    v100.services_manager = manager
     return manager
 
 
@@ -1355,10 +1356,10 @@ def _dump_lands_on_host(services):
     services.compose.cp.side_effect = _cp
 
 
-def test_the_engine_upgrade_is_skipped_without_a_services_compose(v0200, services):
+def test_the_engine_upgrade_is_skipped_without_a_services_compose(v100, services):
     services.compose_file_manager.exists.return_value = False
 
-    v0200.migrate_services()
+    v100._admin_tools_and_config_services()
 
     services.compose.stop.assert_not_called()
     services.compose_file_manager.write_to_file.assert_not_called()
@@ -1372,25 +1373,25 @@ def test_the_engine_upgrade_is_skipped_without_a_services_compose(v0200, service
         {"other": {"image": "busybox"}},
     ],
 )
-def test_the_engine_upgrade_is_skipped_when_there_is_no_global_db_image(v0200, services, services_block):
+def test_the_engine_upgrade_is_skipped_when_there_is_no_global_db_image(v100, services, services_block):
     services.compose_file_manager.yml = {"services": services_block}
 
-    v0200.migrate_services()
+    v100._admin_tools_and_config_services()
 
     services.compose.stop.assert_not_called()
     services.compose_file_manager.write_to_file.assert_not_called()
 
 
-def test_an_engine_already_on_the_pinned_image_is_left_alone(v0200, services):
+def test_an_engine_already_on_the_pinned_image_is_left_alone(v100, services):
     services.compose_file_manager.yml["services"]["global-db"]["image"] = GLOBAL_DB_IMAGE
 
-    v0200.migrate_services()
+    v100._admin_tools_and_config_services()
 
     services.compose.stop.assert_not_called()
     services.compose_file_manager.write_to_file.assert_not_called()
 
 
-def test_the_engine_is_dumped_before_it_is_stopped_rewritten_and_restarted(v0200, services):
+def test_the_engine_is_dumped_before_it_is_stopped_rewritten_and_restarted(v100, services):
     order = []
     _dump_lands_on_host(services)
     services.compose.cp.side_effect = lambda source, dest, stream=False: (
@@ -1401,10 +1402,10 @@ def test_the_engine_is_dumped_before_it_is_stopped_rewritten_and_restarted(v0200
     services.compose.up.side_effect = lambda **kwargs: order.append(("up", kwargs))
     services.compose_file_manager.write_to_file.side_effect = lambda: order.append("write")
 
-    with patch(f"{V0200}.MariaDBManager") as manager_cls, patch(f"{V0200}.DatabaseServerServiceInfo"):
+    with patch(f"{V100}.MariaDBManager") as manager_cls, patch(f"{V100}.DatabaseServerServiceInfo"):
         manager_cls.return_value.db_export_all.side_effect = lambda path: order.append("dump")
         manager_cls.return_value.wait_till_db_start.side_effect = lambda: order.append("wait")
-        v0200.migrate_services()
+        v100._admin_tools_and_config_services()
 
     assert [step if isinstance(step, str) else step[0] for step in order] == [
         "dump",
@@ -1420,11 +1421,11 @@ def test_the_engine_is_dumped_before_it_is_stopped_rewritten_and_restarted(v0200
     assert up_kwargs == {"services": ["global-db"], "force_recreate": True, "detach": True, "pull": "missing"}
 
 
-def test_the_upgraded_compose_service_is_rewritten_in_place(v0200, services):
+def test_the_upgraded_compose_service_is_rewritten_in_place(v100, services):
     _dump_lands_on_host(services)
 
-    with patch(f"{V0200}.MariaDBManager"), patch(f"{V0200}.DatabaseServerServiceInfo"):
-        v0200.migrate_services()
+    with patch(f"{V100}.MariaDBManager"), patch(f"{V100}.DatabaseServerServiceInfo"):
+        v100._admin_tools_and_config_services()
 
     engine = services.compose_file_manager.yml["services"]["global-db"]
     assert engine["image"] == GLOBAL_DB_IMAGE
@@ -1433,11 +1434,11 @@ def test_the_upgraded_compose_service_is_rewritten_in_place(v0200, services):
     assert engine["environment"]["MYSQL_ROOT_PASSWORD"] == "root"
 
 
-def test_the_pre_upgrade_dump_is_copied_out_of_the_container_and_compressed(v0200, services):
+def test_the_pre_upgrade_dump_is_copied_out_of_the_container_and_compressed(v100, services):
     _dump_lands_on_host(services)
 
-    with patch(f"{V0200}.MariaDBManager") as manager_cls, patch(f"{V0200}.DatabaseServerServiceInfo"):
-        v0200.migrate_services()
+    with patch(f"{V100}.MariaDBManager") as manager_cls, patch(f"{V100}.DatabaseServerServiceInfo"):
+        v100._admin_tools_and_config_services()
 
     container_path = manager_cls.return_value.db_export_all.call_args.args[0]
     assert container_path.parent == Path("/tmp")
@@ -1445,7 +1446,7 @@ def test_the_pre_upgrade_dump_is_copied_out_of_the_container_and_compressed(v020
     assert source == f"global-db:{container_path}"
     assert services.compose.cp.call_args.kwargs == {"stream": False}
 
-    dumps = list(v0200.backup_manager.backup_dir.glob("global-db-all-databases-*.sql.gz"))
+    dumps = list(v100.backup_manager.backup_dir.glob("global-db-all-databases-*.sql.gz"))
     assert len(dumps) == 1
     with gzip.open(dumps[0], "rb") as f:
         assert f.read() == b"-- all databases\n"
@@ -1454,20 +1455,20 @@ def test_the_pre_upgrade_dump_is_copied_out_of_the_container_and_compressed(v020
 
 
 # --------------------------------------------------------------------------------------
-# Rolling the v0.20.0 migration back
+# Rolling the v1.0.0 migration back
 # --------------------------------------------------------------------------------------
 
 
-def test_undoing_the_services_migration_restores_only_the_services_compose(v0200, services, output):
+def test_undoing_the_services_migration_restores_only_the_services_compose(v100, services, output):
     compose_path = services.compose_file_manager.compose_path
     compose_path.write_text("original\n")
-    v0200.backup_manager.backup(compose_path)
-    other = v0200.backup_manager.backup_dir.parent / "unrelated.yml"
+    v100.backup_manager.backup(compose_path)
+    other = v100.backup_manager.backup_dir.parent / "unrelated.yml"
     other.write_text("unrelated\n")
-    unrelated_backup = v0200.backup_manager.backup(other)
+    unrelated_backup = v100.backup_manager.backup(other)
     compose_path.write_text("migrated\n")
 
-    v0200.undo_services_migrate()
+    v100._undo_admin_tools_and_config_services()
 
     assert compose_path.read_text() == "original\n"
     assert unrelated_backup.is_restored is False
@@ -1475,19 +1476,19 @@ def test_undoing_the_services_migration_restores_only_the_services_compose(v0200
     assert "NOT rolled back" in output.warning.call_args.args[0]
 
 
-def test_undoing_a_bench_restores_the_admin_tools_compose_and_drops_only_the_plugin_file(v0200, v0200_bench):
+def test_undoing_a_bench_restores_the_admin_tools_compose_and_drops_only_the_plugin_file(v100, v100_bench):
     """The directory is a bind-mount SOURCE for a container migrate does not stop here; rmtree-ing
     it would strand that container on the inode docker already resolved, which is the defect this
     step exists to not reintroduce. Only the file this migration placed comes back out."""
-    compose_path = _admin_tools(v0200_bench)
-    v0200.backup_manager.backup(compose_path, bench_name="alpha")
+    compose_path = _admin_tools(v100_bench)
+    v100.backup_manager.backup(compose_path, bench_name="alpha")
     compose_path.write_text("migrated\n")
-    plugin_dir = v0200_bench.path / "configs" / "adminer"
+    plugin_dir = v100_bench.path / "configs" / "adminer"
     plugin_dir.mkdir(parents=True)
     (plugin_dir / "000-fm-login.php").write_text("<?php")
     (plugin_dir / "other-plugin.php").write_text("<?php // not fm's to remove")
 
-    v0200.undo_bench_migrate(v0200_bench)
+    v100.undo_bench_migrate(v100_bench)
 
     assert compose_path.read_text() == _ADMIN_TOOLS_COMPOSE
     assert not (plugin_dir / "000-fm-login.php").exists()
@@ -1495,7 +1496,7 @@ def test_undoing_a_bench_restores_the_admin_tools_compose_and_drops_only_the_plu
     assert (plugin_dir / "other-plugin.php").read_text() == "<?php // not fm's to remove"
 
 
-def test_undoing_a_bench_that_was_never_backed_up_is_harmless(v0200, v0200_bench):
-    v0200.undo_bench_migrate(v0200_bench)
+def test_undoing_a_bench_that_was_never_backed_up_is_harmless(v100, v100_bench):
+    v100.undo_bench_migrate(v100_bench)
 
-    assert not (v0200_bench.path / "docker-compose.admin-tools.yml").exists()
+    assert not (v100_bench.path / "docker-compose.admin-tools.yml").exists()
