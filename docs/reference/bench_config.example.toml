@@ -5,7 +5,7 @@
 # `fm create`. Everything below is commented out. Copy a line, uncomment it, set a value.
 # Comments you add to a real bench_config.toml are preserved when fm saves it.
 #
-# fm's own bookkeeping tables are omitted: [migration_state] and [deploy_state] are written
+# fm's own bookkeeping tables are omitted: [schema] and [deploy_state] are written
 # by fm and are not settings.
 
 # ---- top-level keys ---------------------------------------------------------------------------

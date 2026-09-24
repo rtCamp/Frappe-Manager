@@ -1,6 +1,6 @@
 """Contract tests for the image deploy-state round-trip on BenchConfig.
 
-`deploy_state` mirrors `migration_state`: it is exported via `export_to_toml`
+`deploy_state` mirrors `schema`: it is exported via `export_to_toml`
 (model_dump) and re-parsed explicitly by `import_from_toml`. These tests assert
 that current/previous images and the deploy history survive the round-trip.
 """

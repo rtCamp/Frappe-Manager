@@ -58,9 +58,16 @@ def test_the_legacy_cloudflare_table_does_not_warn(tmp_path):
 
 
 def test_migration_state_does_not_warn(tmp_path):
-    """`migration_state` is kept in `_raw_config`, not a pydantic field, but it is still a
-    recognised top-level key."""
+    """`migration_state` is `[schema]`'s pre-1.0.0 table spelling, kept in `_raw_config`, not a
+    pydantic field, but it is still a recognised top-level key."""
     _, handler = _load_with_warnings(tmp_path, '[migration_state]\nsystem_migrated_to = "0.19.0"\n')
+
+    handler.warning.assert_not_called()
+
+
+def test_schema_does_not_warn(tmp_path):
+    """The current spelling gets the identical treatment."""
+    _, handler = _load_with_warnings(tmp_path, '[schema]\nversion = "0.19.0"\n')
 
     handler.warning.assert_not_called()
 
@@ -77,6 +84,17 @@ def test_a_typo_inside_migration_state_warns(tmp_path):
     assert config.get_system_migration_version().version == "0.19.0"  # loads regardless (ledger seeded from the pre-rename `system_migrated_to`)
     handler.warning.assert_called_once()
     assert "migration_state.sytem_migrated_at" in handler.warning.call_args.args[0]
+
+
+def test_a_typo_inside_schema_warns(tmp_path):
+    """Same blind spot, current table name: the dotted prefix in the warning is whichever table
+    name the file actually used, so a typo under `[schema]` is named `schema.<key>`, not
+    `migration_state.<key>`."""
+    config, handler = _load_with_warnings(tmp_path, '[schema]\nversion = "0.19.0"\nvresion_typo = "x"\n')
+
+    assert config.get_system_migration_version().version == "0.19.0"
+    handler.warning.assert_called_once()
+    assert "schema.vresion_typo" in handler.warning.call_args.args[0]
 
 
 def test_a_typo_inside_logs_warns_instead_of_raising(tmp_path):
@@ -176,7 +194,7 @@ def test_two_top_level_and_one_nested_typo_are_one_sorted_deduplicated_message(t
 
 
 def test_top_level_nested_and_migration_state_typo_are_one_sorted_message(tmp_path):
-    """`[migration_state]` is hand-checked (see `recognised_global_migration_state_keys`), the
+    """`[migration_state]` is hand-checked (see `recognised_global_schema_keys`), the
     other two families are found structurally by `collect_unknown_keys` -- both routes must still
     land in the SAME `warn_or_log` call, sorted together, not a second warning for the hand-read
     one."""

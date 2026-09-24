@@ -12,7 +12,7 @@ from typing import Any, Literal
 import tomlkit
 from packaging.version import InvalidVersion
 from packaging.version import Version as PackagingVersion
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from tomlkit.items import Array as TOMLArray
 
 from frappe_manager import COMMON_SITE_CONFIG_FILE
@@ -824,8 +824,8 @@ def ssl_certificates_to_toml_array(certs: list[SSLCertificate]) -> TOMLArray:
     return toml_aot
 
 
-class MigrationState(BaseModel):
-    """Migration bookkeeping (`[migration_state]`); splatted directly, like every model below.
+class SchemaState(BaseModel):
+    """The on-disk schema version this bench has been migrated to (`[schema]`), splatted directly.
 
     # extra="allow": this was the one model in the file Phase 1's forbid -> allow sweep missed,
     # because it was never "forbid" to begin with -- it had no model_config at all, which is
@@ -836,22 +836,30 @@ class MigrationState(BaseModel):
     # (certificate.py:19-23) rather than staying the outlier.
     """
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
-    migrated_to: str | None = Field(None, description="Version bench is migrated to (e.g., '0.19.0')")
+    # `migrated_to` is the key's pre-1.0.0 spelling, accepted so a bench written before the rename
+    # still reports its real version to the gate instead of reading as 0.0.0 -- which now REFUSES
+    # migration rather than replaying every migration ever shipped. Read-only: the writer always
+    # emits `version`, and v1.0.0's migration renames it on disk.
+    version: str | None = Field(
+        None,
+        validation_alias=AliasChoices("version", "migrated_to"),
+        description="Schema version this bench is migrated to (e.g., '1.0.0')",
+    )
     last_migration_date: str | None = Field(None, description="ISO timestamp of last migration")
 
     # Both fields are `str | None`, but a hand-edited file can carry either as a bare TOML-native
     # date/datetime/int/bool (tomlkit hands those back as `Date`/`DateTime`/`Integer`/`bool`, none
-    # of which pydantic coerces to `str`) or even a stray `[migration_state.migrated_to]`
-    # sub-table. `MigrationState(**migration_state_data)` in `import_from_toml`/`collect_from_data`
+    # of which pydantic coerces to `str`) or even a stray `[schema.version]`
+    # sub-table. `SchemaState(**schema_data)` in `import_from_toml`/`collect_from_data`
     # runs on every command that skips the migration gate, and it used to raise a
     # `pydantic.ValidationError` on any of those -- one bad TYPE for a recognised key took the
     # whole host down exactly like the `InvalidVersion` crash `_bench_is_at_current_version` guards
     # against below, just one step earlier in the same load. Coerced to its string form here
     # rather than rejected: fm never deletes a key it does not understand, and an odd TYPE on a
     # recognised key earns the same tolerance an odd NAME already gets.
-    @field_validator("migrated_to", "last_migration_date", mode="before")
+    @field_validator("version", "last_migration_date", mode="before")
     @classmethod
     def _coerce_non_string_scalar(cls, value: Any) -> Any:
         if value is None or isinstance(value, str):
@@ -1097,7 +1105,7 @@ class SwitchConfig(BaseModel):
 # NOT used to filter the read path any more (it once was, via `_filter_removed`/`_table` below):
 # these models are `extra="allow"` (Phase 1), so a leftover key is retained as an unknown extra
 # like any other stray, and the version-gated warning in `import_from_toml` (silent while the
-# bench is behind `migrated_to`, warns once it is current) is what a per-key read-path exemption
+# bench is behind `version`, warns once it is current) is what a per-key read-path exemption
 # here used to be needed for. A key still present at 0.19.x is one the migration has not gotten
 # to yet, not a typo; one still present once the bench is current is worth the same warning a
 # genuine typo gets.
@@ -1161,11 +1169,14 @@ def recognised_bench_config_keys() -> frozenset[str]:
     (`admin_tools_username`, `alias_domains`, a top-level `database`, ...) is deliberately NOT
     unioned in here: `BenchConfig` is `extra="allow"`, so either kind is retained as an unknown
     key exactly like a genuine typo, and the two are told apart by the version-gated warning in
-    `import_from_toml`, not by this set. A bench behind `migrated_to` stays silent about all of
+    `import_from_toml`, not by this set. A bench behind `version` stays silent about all of
     them; one at the current version gets the same "unrecognised key" warning a typo would, which
     is the right answer for a name the migration should already have moved or stripped by then.
     """
-    return frozenset(BenchConfig.model_fields) | {"environment", "apps", "ssl"}
+    # `model_fields` are FIELD names, so a field whose TOML name differs must be named by hand:
+    # `environment`/`apps`/`ssl`, plus `schema` (the field is `schema_state`) and its pre-1.0.0
+    # spelling `migration_state`, which v1.0.0's migration renames on disk.
+    return frozenset(BenchConfig.model_fields) | {"environment", "apps", "ssl", "schema", "migration_state"}
 
 
 # Every key `import_from_toml` reads out of `[ssl]` by hand (like `[deploy_state]` below, not
@@ -1245,8 +1256,15 @@ def _forget_stale_warning(path: Path) -> None:
     _warned_unknown_keys.pop(str(path), None)
 
 
+def _recorded_schema_version(schema: Any) -> Any:
+    """`[schema].version`, accepting the pre-1.0.0 key name `migrated_to`."""
+    if not isinstance(schema, dict):
+        return None
+    return schema.get("version") or schema.get("migrated_to")
+
+
 def _bench_is_at_current_version(data: Any) -> bool:
-    """True only when `[migration_state].migrated_to` is exactly fm's current version. False when
+    """True only when `[schema].version` is exactly fm's current version. False when
     it is behind, ahead, absent, or unparseable.
 
     This decides whether fm may warn about an unrecognised key at all, so it is phrased as the
@@ -1269,9 +1287,9 @@ def _bench_is_at_current_version(data: Any) -> bool:
     `migration_manager` (see the comment on `REMOVED_CONFIG_KEYS` above), and the comparison
     itself needs nothing that thin wrapper adds over `packaging`.
 
-    `migrated_to` is untrusted, hand-editable file content, not a value fm itself ever writes
+    `version` is untrusted, hand-editable file content, not a value fm itself ever writes
     wrong: a fork or nightly build string, a bare TOML date (tomlkit hands that back as a `date`/
-    `datetime`, not a `str`), a stray `[migration_state.migrated_to]` sub-table, or any other non
+    `datetime`, not a `str`), a stray `[schema.version]` sub-table, or any other non
     PEP 440 text all make `PackagingVersion` raise `InvalidVersion`. This is read on every command
     that skips the migration gate (`fm list`, `bake`, `switch`, `maintenance`), so letting that
     propagate takes down every bench on the host over one bad value in one bench's file, the exact
@@ -1279,12 +1297,12 @@ def _bench_is_at_current_version(data: Any) -> bool:
     treated exactly like an absent one: fm cannot place the file at all, so it stays silent (never
     raise, never warn) until `fm migrate` gives it a version fm can parse.
     """
-    migration_state = data.get("migration_state")
-    migrated_to = migration_state.get("migrated_to") if isinstance(migration_state, dict) else None
-    if not migrated_to:
+    schema = data.get("schema") or data.get("migration_state")
+    version = _recorded_schema_version(schema)
+    if not version:
         return False
     try:
-        return PackagingVersion(str(migrated_to)) == PackagingVersion(get_current_fm_version())
+        return PackagingVersion(str(version)) == PackagingVersion(get_current_fm_version())
     except InvalidVersion:
         return False
 
@@ -1647,7 +1665,7 @@ class BenchConfig(BaseModel):
     # `input_data` by hand and simply never named it. Two typos a user would call identical
     # behaved differently. Fixed by retaining it here too (see the `unknown_keys` handling in
     # `import_from_toml`): fm never deletes a key it does not understand, at any depth.
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
     name: str = Field(..., description="The name of the bench")
     developer_mode: bool = Field(..., description="Whether developer mode is enabled")
@@ -1680,7 +1698,7 @@ class BenchConfig(BaseModel):
     # (not assumed) to preserve private attributes. What a future writer must NOT do: build a
     # fresh `BenchConfig(...)` from a named-kwarg list or from `model_dump()` between a load and
     # a save -- that is reconstruction, not mutation, and it drops this silently. Global config's
-    # `[migration_state]` has the identical shape (a private `_raw_config` set only during import,
+    # `[schema]` has the identical shape (a private `_raw_config` set only during import,
     # so it is a live gap for any `FMConfigManager` instance built some other way), which is the
     # evidence this limitation is worth stating precisely rather than claiming as a general one.
     _ssl_unknown: dict[str, Any] = PrivateAttr(default_factory=dict)
@@ -1804,9 +1822,13 @@ class BenchConfig(BaseModel):
         description="Docker Compose restart policy for all services in this bench",
     )
 
-    migration_state: MigrationState | None = Field(
+    # Attribute is `schema_state`, TOML table is `[schema]`: a field literally named `schema`
+    # shadows pydantic's deprecated `BaseModel.schema()` and makes every import of this module
+    # emit a UserWarning. The alias keeps the on-disk name short.
+    schema_state: SchemaState | None = Field(
         None,
-        description="Migration state tracking (managed by migration system)",
+        alias="schema",
+        description="On-disk schema version this bench has been migrated to (managed by fm).",
     )
 
     deploy_state: DeployState | None = Field(
@@ -1985,7 +2007,9 @@ class BenchConfig(BaseModel):
         was discarded by every one of its six callers, and `save_bench_config` printed "Saved bench
         config" straight afterwards, so a failed save looked like a successful one.
         """
-        bench_dict = self.model_dump(exclude=NOT_WRITTEN_TO_DISK, exclude_none=True)
+        # by_alias: `schema_state` is written as `[schema]`. It is the only aliased field in the
+        # package, so this changes exactly that one table name.
+        bench_dict = self.model_dump(exclude=NOT_WRITTEN_TO_DISK, exclude_none=True, by_alias=True)
 
         # Scalars first, then tables, so a bare top-level key cannot fall under a table header.
         desired: dict[str, Any] = {"name": self.name, "environment": self.environment_type.value}
@@ -2042,7 +2066,7 @@ class BenchConfig(BaseModel):
 
         The one place the top-level table, `[ssl]`, `[deploy_state]` and `[sites]` are read into
         the model. `import_from_toml` calls this and then decides what to do with the two lists it
-        returns: a version-gated combined warning for the unknown keys (see `migrated_to` there),
+        returns: a version-gated combined warning for the unknown keys (see `version` there),
         an unconditional one for the stale tags. `deploy_config_overlay`'s `--config` refusal check
         calls it on a merged overlay document instead and refuses on a non-empty unknown-key list,
         so a refusal and a warning about the same document can never name a different set of keys.
@@ -2089,10 +2113,12 @@ class BenchConfig(BaseModel):
             if isinstance(provider_data, dict):
                 dns_providers_dict[provider_name] = DNSProviderConfig.import_from_toml_doc(provider_data)
 
-        migration_state_data = data.get("migration_state", None)
-        migration_state_obj = None
-        if migration_state_data and isinstance(migration_state_data, dict):
-            migration_state_obj = MigrationState(**migration_state_data)
+        # `[migration_state]` is `[schema]`'s pre-1.0.0 spelling, read but never written: the
+        # table is loaded under its new name and v1.0.0's migration removes the old one from disk.
+        schema_data = data.get("schema", None) or data.get("migration_state", None)
+        schema_obj = None
+        if schema_data and isinstance(schema_data, dict):
+            schema_obj = SchemaState(**schema_data)
 
         deploy_state_data = data.get("deploy_state", None)
         deploy_state_obj = None
@@ -2150,7 +2176,7 @@ class BenchConfig(BaseModel):
             "node_version": data.get("node_version", None),
             "db_name": data.get("db_name"),
             "restart_policy": data.get("restart_policy", None),
-            "migration_state": migration_state_obj,
+            "schema_state": schema_obj,
             "deploy_state": deploy_state_obj,
             "runtime": data.get("runtime", "mount"),
             "image": data.get("image", None),
@@ -2221,7 +2247,7 @@ class BenchConfig(BaseModel):
         # after create, and the CLI's own refusal (`create.py::_refuse_unsupported_redis_scheme`)
         # never sees a hand edit at all -- but raising here instead of warning would take THIS
         # command down over one bench's bad `[redis]` table, the exact incident
-        # `certificate.py`/`dns_provider.py`/`migration_state` already moved away from, and this
+        # `certificate.py`/`dns_provider.py`/`schema` already moved away from, and this
         # command may be `fm list`, `fm bake`, `fm switch` or `fm maintenance`, which skip the
         # migration gate for precisely that reason (see the same reasoning at the CLI refusal).
         if config.redis is not None:
@@ -2249,7 +2275,7 @@ class BenchConfig(BaseModel):
 
         # Severity by origin, applied to time: a key read FROM A FILE warns, but a pre-migration
         # bench is warned about NOTHING here -- `fm migrate` is the operator's next instruction,
-        # and naming a key that command is about to relocate or strip is noise. `migrated_to` at
+        # and naming a key that command is about to relocate or strip is noise. `version` at
         # or past fm's own version means the file is current, so any leftover unknown key earns
         # the same warning a genuine typo would. `_should_warn_once` folds the parameter-callback
         # load and the command body's own reload of this same file into one message.

@@ -141,7 +141,7 @@ If space is genuinely unavailable and you have backups elsewhere, `--skip-backup
 ls ~/frappe/sites/mybench.localhost/backups/migrations/
 ```
 
-**"Already up to date" but the config looks wrong.** Use `fm migrate mybench.localhost --rerun` rather than editing `[migration_state]` by hand: it re-applies the current release's steps against the bench as it is now.
+**"Already up to date" but the config looks wrong.** Use `fm migrate mybench.localhost --rerun` rather than editing `[schema]` by hand: it re-applies the current release's steps against the bench as it is now.
 
 ### Before a deploy or switch
 

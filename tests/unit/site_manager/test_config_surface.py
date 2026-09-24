@@ -25,7 +25,7 @@ import pytest
 from frappe_manager.metadata_manager import (
     FMConfigManager,
     recognised_fm_config_keys,
-    recognised_global_migration_state_keys,
+    recognised_global_schema_keys,
 )
 from frappe_manager.site_manager.bench_config import (
     BenchConfig,
@@ -53,9 +53,9 @@ DYNAMIC_OR_INDIRECT: dict[str, str] = {
     "SwitchHookScripts.before_migrate": "getattr(hooks, name)",
     "SwitchHookScripts.after_migrate": "getattr(hooks, name)",
     "SwitchHookScripts.after_switch": "getattr(hooks, name)",
-    # `MigrationState.migrated_to`/`last_migration_date` used to be exempted here (raw-TOML read
+    # `SchemaState.version`/`last_migration_date` used to be exempted here (raw-TOML read
     # in bench_migration_state.py, never a `.field` access) -- now mutated via plain attribute
-    # assignment (`config.migration_state.migrated_to = ...`) in bench_migration_state.py and
+    # assignment (`config.schema_state.version = ...`) in bench_migration_state.py and
     # bench_orchestrator.py instead of being reconstructed, so the AST scan finds them like any
     # other field and neither needs the exemption any more.
     # SSLConfig, the one entry this list used to carry, is gone: it was never constructed, and while
@@ -241,22 +241,22 @@ def test_recognised_fm_config_keys_covers_every_key_the_reader_touches():
     )
 
 
-def test_recognised_global_migration_state_keys_covers_every_key_the_reader_touches():
-    """The global fm_config.toml's `[migration_state]` is the metadata_manager.py counterpart to
+def test_recognised_global_schema_keys_covers_every_key_the_reader_touches():
+    """The global fm_config.toml's `[schema]` is the metadata_manager.py counterpart to
     bench_config.py's `[ssl]`: kept as a raw dict in `_raw_config`, never a pydantic field, so a
     key `get_system_migration_version` starts reading there needs the identical guard or the
     loader would warn about the very key it just consumed.
 
     Scans `get_system_migration_version`, not `import_from_toml`: the latter only computes the
     unknown-key set difference, it never names a recognised key by its literal spelling, whereas
-    `get_system_migration_version` is where `system_migrated_to` is actually read.
+    `get_system_migration_version` is where `version` is actually read.
     """
     source = textwrap.dedent(inspect.getsource(FMConfigManager.get_system_migration_version))
-    keys_read = _keys_read_from("migration_state_data", source)
+    keys_read = _keys_read_from("schema_data", source)
 
     assert keys_read, "the AST scan found nothing, so this test is not testing anything"
-    missing = keys_read - recognised_global_migration_state_keys()
+    missing = keys_read - recognised_global_schema_keys()
     assert not missing, (
-        f"get_system_migration_version reads {sorted(missing)} from [migration_state] but "
-        "recognised_global_migration_state_keys() does not know them."
+        f"get_system_migration_version reads {sorted(missing)} from [schema] but "
+        "recognised_global_schema_keys() does not know them."
     )

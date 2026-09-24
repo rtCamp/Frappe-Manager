@@ -40,7 +40,8 @@ GLOBAL_NOT_WRITTEN = frozenset({"root_path", "version", "dns_providers"})
 
 # Written to disk, but by fm and only by fm. Listing them as configurable would invite hand edits of
 # fm's own bookkeeping, which is how a bench ends up claiming a migration it never ran.
-FM_OWNED = frozenset({"migration_state", "deploy_state"})
+# These are FIELD names, not TOML names: `schema_state` is written as `[schema]` via its alias.
+FM_OWNED = frozenset({"schema_state", "deploy_state"})
 
 
 def _unwrap_optional(annotation: Any) -> Any:
@@ -118,7 +119,7 @@ def bench_config_example() -> str:
         "# `fm create`. Everything below is commented out. Copy a line, uncomment it, set a value.",
         "# Comments you add to a real bench_config.toml are preserved when fm saves it.",
         "#",
-        "# fm's own bookkeeping tables are omitted: [migration_state] and [deploy_state] are written",
+        "# fm's own bookkeeping tables are omitted: [schema] and [deploy_state] are written",
         "# by fm and are not settings.",
         "",
         "# ---- top-level keys " + "-" * (WRAP - 21),

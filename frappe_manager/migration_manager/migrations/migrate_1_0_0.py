@@ -50,6 +50,12 @@ SSL configuration:
 - relocates the global ``[cloudflare]`` table in fm_config.toml into
   ``[ssl.dns_providers.cloudflare]``, so both scopes store labelled credential sets
 
+Schema ledger:
+
+- renames `[migration_state]` to `[schema]`, and its `migrated_to` key to `version`, in both
+  bench_config.toml and the global fm_config.toml
+- the global side additionally folds a leftover `system_migrated_to` into `version`
+
 Global service rename: the compose service `global-db` becomes `mariadb` and
 `global-nginx-proxy` becomes `nginx-proxy`; the shared networks and the macOS data volume
 drop the `global` token the same way. Engine names are the point: a postgres or traefik
@@ -365,6 +371,9 @@ class MigrationV100(MigrationBase):
         # table it reads has to be written already.
         self._backfill_default_site(bench)
         self._drop_removed_config_keys(bench)
+        # Last: renames the ledger table itself, ahead of the bench version stamp the executor
+        # writes after `migrate_bench` returns, which only mutates an existing [schema] table.
+        self._rename_schema_table(bench)
 
         compose_path = bench.path / "docker-compose.admin-tools.yml"
         if not compose_path.exists():
@@ -586,6 +595,39 @@ class MigrationV100(MigrationBase):
 
         toml_document.save(config_path, doc)
         self.output.print(f"Dropped removed config {', '.join(dropped)} for {bench.name}")
+
+    def _rename_schema_table(self, bench: MigrationBench):
+        """Rename `[migration_state]` to `[schema]`, and its `migrated_to` key to `version`,
+        in bench_config.toml.
+
+        Skipped once `[schema]` exists: a bench already on the new spelling, including one this
+        step already ran on, must not have a stale `[migration_state]` clobber it on a later run.
+
+        Every other key -- `last_migration_date`, any stray fm does not recognise -- carries
+        over untouched: this only touches the table's name and the one key that changed shape.
+        """
+        config_path = bench.path / "bench_config.toml"
+        if not config_path.exists():
+            return
+
+        doc = tomlkit.parse(config_path.read_text())
+        if "schema" in doc:
+            return
+
+        state = doc.get("migration_state")
+        if not isinstance(state, MutableMapping):
+            return
+
+        if "migrated_to" in state:
+            value = state.pop("migrated_to")
+            if "version" not in state:
+                state["version"] = value
+
+        del doc["migration_state"]
+        doc["schema"] = state
+
+        toml_document.save(config_path, doc)
+        self.output.print(f"Renamed \\[migration_state] to \\[schema] for {bench.name}")
 
     def _write_sites_table(self, bench: MigrationBench):
         """Give every bench a `[sites."<site>"]` entry, and move `[database."<site>"]` under it.
@@ -969,6 +1011,10 @@ class MigrationV100(MigrationBase):
         # First: it is a small file rewrite, and it must not be skipped because the engine
         # upgrade below failed on an unrelated container.
         self._relocate_global_dns_credentials()
+        # After the credential relocation: a config carrying both a legacy [cloudflare] table
+        # and [migration_state] then backs the file up only once -- see the guard inside this
+        # step -- from whichever of the two ran first and actually mutated it.
+        self._rename_global_schema_table()
         self._upgrade_global_db_engine()
 
     def _relocate_global_dns_credentials(self):
@@ -1042,6 +1088,45 @@ class MigrationV100(MigrationBase):
             del doc["ssl"]
 
         toml_document.save(config_path, doc)
+
+    def _rename_global_schema_table(self):
+        """Rename `[migration_state]` to `[schema]` in fm_config.toml, folding the pre-rename
+        `migrated_to` then `system_migrated_to` keys into `version`.
+
+        Skipped once `[schema]` exists, the same guard as the bench-scope rename: a config
+        already on the new spelling must not have a stale `[migration_state]` clobber it.
+
+        Backs the file up only when nothing already has this run: `_relocate_global_dns_
+        credentials` may already have backed up and rewritten the same file ahead of this call,
+        and a second `backup()` for the same path would copy that ALREADY-mutated file over the
+        pristine one `BackupManager` keeps at one fixed, unversioned destination per source path.
+        """
+        config_path = CLI_FM_CONFIG_PATH
+        if not config_path.exists():
+            return
+
+        doc = tomlkit.parse(config_path.read_text())
+        if "schema" in doc:
+            return
+
+        state = doc.get("migration_state")
+        if not isinstance(state, MutableMapping):
+            return
+
+        if not any(backup.src == config_path for backup in self.backup_manager.backups):
+            self.backup_manager.backup(config_path)
+
+        for legacy_key in ("migrated_to", "system_migrated_to"):
+            if legacy_key in state:
+                value = state.pop(legacy_key)
+                if "version" not in state:
+                    state["version"] = value
+
+        del doc["migration_state"]
+        doc["schema"] = state
+
+        toml_document.save(config_path, doc)
+        self.output.print("Renamed \\[migration_state] to \\[schema] in the global fm config")
 
     def _upgrade_global_db_engine(self):
         """Move global-db onto the engine tag frappe tests against.

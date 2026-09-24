@@ -78,8 +78,8 @@ ssl_type = "letsencrypt"
 challenge_type = "http01"
 acme_client = "acme.sh"
 
-[migration_state]
-migrated_to = "1.0.0"
+[schema]
+version = "1.0.0"
 ```
 
 ---
@@ -218,15 +218,15 @@ rotate_logs_over     = "10M"  # only log files larger than this get rotated
 
 ---
 
-### `migration_state` {#fm-migration-state}
+### `schema` {#fm-schema}
 
-**File key:** `[migration_state]` → `migrated_to`
+**File key:** `[schema]` → `version`
 
-FM version the global services & configuration were last migrated to, stamped by `fm services migrate` (the same key name the per-bench ledger uses in `bench_config.toml`). Do not edit. Files written before the key rename carry `system_migrated_to`; FM reads it and rewrites it to the new name on the next migration.
+FM version the global services & configuration were last migrated to, stamped by `fm services migrate` (the same key name the per-bench ledger uses in `bench_config.toml`). Do not edit. fm reads `[schema].version`; it still accepts the older `[migration_state]` table and the `migrated_to` / `system_migrated_to` key spellings on read, rewriting them to the new names on the next migration.
 
 ```toml
-[migration_state]
-migrated_to = "1.0.0"
+[schema]
+version = "1.0.0"
 ```
 
 ---
@@ -959,15 +959,15 @@ Release retention is not here: it predates this table as [`[switch].keep_release
 
 ---
 
-### `[migration_state]` {#migration-state}
+### `[schema]` {#schema}
 
-**File key:** `[migration_state]`
+**File key:** `[schema]`
 
 FM version this bench was last migrated to. Managed by `fm migrate`; do not edit.
 
 ```toml
-[migration_state]
-migrated_to = "1.0.0"
+[schema]
+version = "1.0.0"
 last_migration_date = "2026-04-12T14:30:45"
 ```
 

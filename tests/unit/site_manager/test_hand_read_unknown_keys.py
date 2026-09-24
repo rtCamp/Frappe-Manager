@@ -147,7 +147,7 @@ class TestOneWarningNamesEveryStray:
             + "top_level_typo = true\n"
             + "[switch]\ntable_typo = true\n"
             + "[ssl]\nhand_read_typo = []\n"
-            + f'\n[migration_state]\nmigrated_to = "{get_current_fm_version()}"\n'
+            + f'\n[schema]\nversion = "{get_current_fm_version()}"\n'
         )
         handler = MagicMock(spec=OutputHandler)
         set_global_output_handler(handler)
@@ -220,20 +220,34 @@ class TestTopLevelAsymmetryFixed:
 
 
 class TestMigrationStateVerdict:
-    """`MigrationState` was the one model in this file Phase 1's forbid -> allow sweep missed: it
+    """`SchemaState` was the one model in this file Phase 1's forbid -> allow sweep missed: it
     was never `extra="forbid"` to begin with (no `model_config` at all), so it fell outside that
     sweep's search-and-replace scope, and was left at pydantic's default `extra="ignore"` --
     worse than `forbid` here, since `ignore` neither raises nor round-trips, it just deletes a
     stray key silently on the very next save. Fixed here (not deferred) because it is a one-line
-    consistency fix inside this owned file, not because `[migration_state]` is hand-read like the
-    other three -- it is already splatted (`MigrationState(**migration_state_data)`), so flipping
+    consistency fix inside this owned file, not because `[schema]` is hand-read like the
+    other three -- it is already splatted (`SchemaState(**schema_data)`), so flipping
     the flag is the entire fix and `collect_unknown_keys` finds it with no reader change at all.
     """
 
     def test_a_migration_state_stray_is_retained_instead_of_silently_dropped(self, tmp_path):
+        """The legacy table name itself is not noise: only the genuine typo (`migrated_at`) is
+        reported, not `[migration_state]` for merely existing under its pre-rename spelling.
+        Reported as `schema_state.migrated_at` -- the collector walks the Python field name
+        (`schema_state`), never the on-disk table spelling, since a real model backs this field."""
         cfg = _import(
             tmp_path,
             _BASE + '\n[migration_state]\nmigrated_to = "0.19.0"\nmigrated_at = "2026-01-01"\n',
         )
-        assert cfg.migration_state.migrated_to == "0.19.0"
-        assert collect_unknown_keys(cfg) == ["migration_state.migrated_at"]
+        assert cfg.schema_state.version == "0.19.0"
+        assert collect_unknown_keys(cfg) == ["schema_state.migrated_at"]
+
+    def test_a_schema_stray_is_retained_instead_of_silently_dropped(self, tmp_path):
+        """Same guarantee, current table name: `[schema]` for merely existing is not noise
+        either, only a genuine typo inside it."""
+        cfg = _import(
+            tmp_path,
+            _BASE + '\n[schema]\nversion = "0.19.0"\nmigrated_at = "2026-01-01"\n',
+        )
+        assert cfg.schema_state.version == "0.19.0"
+        assert collect_unknown_keys(cfg) == ["schema_state.migrated_at"]

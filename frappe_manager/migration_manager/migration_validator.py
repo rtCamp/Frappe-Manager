@@ -132,8 +132,8 @@ class MigrationValidator:
         Check if migration from effective_prev_version is supported.
 
         Returns False and displays an error when the version is too old -- or UNKNOWN.
-        0.0.0 means fm could not read a version at all (no `[migration_state]`, or an
-        unparseable `migrated_to`). It used to be exempted here as the fresh-install state;
+        0.0.0 means fm could not read a version at all (no `[schema]`, or an
+        unparseable `version`). It used to be exempted here as the fresh-install state;
         a fresh install now stamps its ledger immediately, so every remaining 0.0.0 is a
         damaged or hand-edited state, and "run every migration ever shipped against it" is
         the most destructive possible guess. fm refuses and names what to fix instead.
@@ -147,9 +147,9 @@ class MigrationValidator:
             for culprit in self._unknown_version_targets():
                 self.output.display_error(f"  • {culprit}")
             self.output.display_error(
-                "\nInspect the file's \\[migration_state] table: `migrated_to` is missing or "
+                "\nInspect the file's \\[schema] table: `version` is missing or "
                 "not a version. If you know the real version, write it back by hand "
-                '(migrated_to = "1.0.0") and re-run.',
+                '(version = "1.0.0") and re-run.',
             )
             return False
 

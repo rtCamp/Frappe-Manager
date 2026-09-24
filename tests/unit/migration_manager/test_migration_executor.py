@@ -435,7 +435,7 @@ class TestUnknownVersionRefusal:
 class TestExecutorIsTheSoleLedgerStamper:
     """P2: finalize_success/rollback are the ONLY writers of the services-tier ledger, and
     only when the services tier was actually part of the run -- a bench-only `fm migrate`
-    must never move the host's `[migration_state].migrated_to`."""
+    must never move the host's `[schema].version`."""
 
     @staticmethod
     def _run(mock_fm_config, *, migrate_global_services, up=None):

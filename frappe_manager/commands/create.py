@@ -459,7 +459,7 @@ def _refuse_unsupported_redis_scheme(redis_cache: str, redis_queue: str) -> None
     maintenance`, which skip the migration gate (`MIGRATION_CHECK_WHITELIST_COMMANDS` /
     `MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS`) specifically so one bench's bad file
     cannot take the rest of the host down with it. A pydantic validator that RAISES on
-    read is exactly the incident `certificate.py`/`dns_provider.py`/`migration_state`
+    read is exactly the incident `certificate.py`/`dns_provider.py`/`schema`
     moved away from (see their `extra="allow"` and `ConfigDict`/coercion comments): one
     hand-edited `[redis]` scheme would turn `fm list` into a host-wide outage. Checking
     once, at create time, before anything exists, refuses the same thing without
@@ -468,7 +468,7 @@ def _refuse_unsupported_redis_scheme(redis_cache: str, redis_queue: str) -> None
     A hand edit is still not left silent, just not RAISING: `bench_config.py`'s
     `import_from_toml` calls the same `unsupported_redis_scheme` this does and warns
     (`warn_or_log`, never raise) on every load, the same tolerant treatment
-    `certificate.py`/`dns_provider.py`/`migration_state` already use for a bad
+    `certificate.py`/`dns_provider.py`/`schema` already use for a bad
     hand-edited value elsewhere in this file.
 
     The scheme test itself (`compose_shape.unsupported_redis_scheme`) is shared with
