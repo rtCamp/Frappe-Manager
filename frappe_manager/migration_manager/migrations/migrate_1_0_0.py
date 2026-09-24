@@ -354,6 +354,7 @@ class MigrationV100(MigrationBase):
         # early returns below.
         self._place_realip_conf(bench)
         self._refresh_nginx_default_conf(bench)
+        self._add_nginx_depends_on(bench)
         self._move_admin_tools_credentials(bench)
         # Ahead of the key drop: this one renames keys the drop list may later be told to remove.
         self._rewrite_ssl_table(bench)
@@ -407,6 +408,40 @@ class MigrationV100(MigrationBase):
 
         self._heal_adminer_mount(bench, compose_path)
         self.output.print(f"Updated admin tools (Adminer 5 + login plugin) for {bench.name}")
+
+    def _add_nginx_depends_on(self, bench: MigrationBench):
+        """Order bench nginx after the two services it names as upstreams.
+
+        nginx resolves `frappe-site` and `socketio-site` at config parse and aborts with
+        `[emerg] host not found in upstream` if either is missing, so whichever container wins
+        the startup race dies -- and a dev bench's `restart: no` leaves it dead, taking the whole
+        create down with it. `service_started` is the condition, not `service_healthy`: the alias
+        is registered when the container starts, and nginx needs the NAME, not a ready app.
+
+        Compose files are generated once at create, so the template carries this for new benches
+        and existing ones are healed here.
+        """
+        compose_path = bench.path / "docker-compose.yml"
+        if not compose_path.exists():
+            return
+
+        yaml = YAML()
+        yaml.preserve_quotes = True
+        compose_data = yaml.load(compose_path.read_text())
+        services = (compose_data or {}).get("services") or {}
+        nginx = services.get("nginx")
+        if not isinstance(nginx, dict) or "depends_on" in nginx:
+            return
+
+        wanted = [name for name in ("frappe", "socketio") if name in services]
+        if not wanted:
+            return
+
+        self.backup_manager.backup(compose_path, bench_name=bench.name)
+        nginx["depends_on"] = wanted
+        with compose_path.open("w") as f:
+            yaml.dump(compose_data, f)
+        self.output.print(f"Ordered nginx after {', '.join(wanted)} for {bench.name}")
 
     def _heal_adminer_mount(self, bench: MigrationBench, compose_path: Path) -> None:
         """Place the login plugin, and recreate the container if that just recreated its directory.
