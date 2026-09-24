@@ -90,10 +90,18 @@ class MigrationGateHarness:
         exists: bool = True,
         needs_migration: bool = False,
         version: str | None = OLD_VERSION,
+        with_config: bool = True,
     ) -> Path:
+        """A bench as it exists on disk: a directory AND its config.
+
+        `with_config=False` is the half-built shape a failed `fm create` leaves, which the gate
+        must not offer to migrate.
+        """
         path = self.benches_dir / name
         if exists:
             path.mkdir()
+            if with_config:
+                (path / "bench_config.toml").write_text("")
         self._bench_needs[name] = needs_migration
         self._bench_versions[name] = Version(version) if version else None
         return path
@@ -436,6 +444,21 @@ class TestBenchMigrationPromptWithCurrentInfra:
             f"Bench 'mysite.localhost' needs migration: v{OLD_VERSION} -> v{CURRENT_FM_VERSION}",
         ]
         assert gate.prompts == [_bench_prompt_kwargs("mysite.localhost")]
+
+    def test_a_directory_with_no_bench_config_is_not_offered_migration(self, gate):
+        """A directory is not a bench.
+
+        Without its config the version probe reads 0.0.0, and the gate used to offer to migrate
+        the half-built shape a failed `fm create` leaves behind. The command's own loader raises
+        `BenchConfigNotFoundError` instead, which names the bench, the file and the recovery.
+        """
+        gate.add_bench("half.localhost", needs_migration=True, with_config=False)
+
+        gate.run("start", bench_arg="half.localhost")
+
+        assert gate.prompts == []
+        assert gate.executors == []
+        assert gate.warnings == []
 
     def test_update_builds_bench_executor_and_runs_it_inside_temporary_stop(self, gate):
         gate.add_bench("mysite.localhost", needs_migration=True)

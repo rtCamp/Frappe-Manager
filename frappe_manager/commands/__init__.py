@@ -114,7 +114,11 @@ def check_bench_migration_required(bench_name: str | None) -> None:
 
     bench_path = CLI_BENCHES_DIRECTORY / bench_name
 
-    if not bench_path.exists():
+    # A DIRECTORY is not a bench: without its config the version probe reads 0.0.0 and this
+    # demanded `fm migrate` for something that was never created. The caller's own bench load
+    # raises `BenchConfigNotFoundError`, which names the file and the recovery. Same guard as the
+    # callback gate in `app_callback`.
+    if not (bench_path / CLI_BENCH_CONFIG_FILE_NAME).exists():
         return
 
     current_version = Version(get_current_fm_version())
@@ -471,7 +475,12 @@ def app_callback(
 
             bench_needs_migration_flag = False
             bench_version = None
-            if bench_path and bench_path.exists() and invoked_command not in commands_skip_bench_migration:
+            # A DIRECTORY is not a bench. Without its config the version probe reads 0.0.0, and
+            # the gate offered to migrate something that was never created -- the half-built shape
+            # a failed `fm create` leaves. Skipping here lets the command's own loader raise
+            # `BenchConfigNotFoundError`, which names the bench, the missing file and the way out.
+            bench_has_config = bool(bench_path and (bench_path / CLI_BENCH_CONFIG_FILE_NAME).exists())
+            if bench_has_config and invoked_command not in commands_skip_bench_migration:
                 bench_needs_migration_flag = bench_needs_migration(bench_path, current_version)
                 if bench_needs_migration_flag:
                     bench_version = get_bench_migration_version(bench_path)
