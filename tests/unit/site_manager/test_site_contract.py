@@ -49,6 +49,7 @@ from frappe_manager.site_manager.bench_config import (
     SiteConfig,
 )
 from frappe_manager.site_manager.exceptions import (
+    BenchConfigNotFoundError,
     BenchException,
     BenchNotFoundError,
     BenchRemoveDirectoryError,
@@ -346,15 +347,27 @@ def captured_get_object(monkeypatch):
     return captured
 
 
+def _bench_dir_with_config(tmp_path, name: str, config_name: str = "bench_config.toml"):
+    """A bench directory as `fm create` leaves it: directory AND config.
+
+    `get_object` refuses a directory with no config, because that half-created shape used to
+    surface as a bare `[Errno 2] No such file or directory`.
+    """
+    path = tmp_path / name
+    path.mkdir(parents=True, exist_ok=True)
+    (path / config_name).write_text("")
+    return path
+
+
 class TestGetObject:
     def test_bare_name_is_promoted_to_a_localhost_domain(self, tmp_path, captured_get_object):
-        (tmp_path / "mybench.localhost").mkdir()
+        _bench_dir_with_config(tmp_path, "mybench.localhost")
         Bench.get_object("mybench", MagicMock(), benches_path=tmp_path)
         assert captured_get_object["name"] == "mybench.localhost"
         assert captured_get_object["path"] == tmp_path / "mybench.localhost"
 
     def test_an_already_qualified_name_is_left_alone(self, tmp_path, captured_get_object):
-        (tmp_path / "shop.example.com").mkdir()
+        _bench_dir_with_config(tmp_path, "shop.example.com")
         Bench.get_object("shop.example.com", MagicMock(), benches_path=tmp_path)
         assert captured_get_object["name"] == "shop.example.com"
 
@@ -364,7 +377,7 @@ class TestGetObject:
         assert captured_get_object == {}
 
     def test_reconciliation_hooks_default_off_unlike_the_constructor(self, tmp_path, captured_get_object):
-        (tmp_path / "mybench.localhost").mkdir()
+        _bench_dir_with_config(tmp_path, "mybench.localhost")
         Bench.get_object("mybench", MagicMock(), benches_path=tmp_path)
         # `Bench.__init__` defaults both to True; `get_object` deliberately does not,
         # so merely looking a bench up never starts containers.
@@ -372,18 +385,18 @@ class TestGetObject:
         assert captured_get_object["admin_tools_check"] is False
 
     def test_output_handler_kwarg_is_omitted_when_none_so_the_default_applies(self, tmp_path, captured_get_object):
-        (tmp_path / "mybench.localhost").mkdir()
+        _bench_dir_with_config(tmp_path, "mybench.localhost")
         Bench.get_object("mybench", MagicMock(), benches_path=tmp_path)
         assert "output_handler" not in captured_get_object
 
     def test_output_handler_kwarg_is_forwarded_when_supplied(self, tmp_path, captured_get_object):
-        (tmp_path / "mybench.localhost").mkdir()
+        _bench_dir_with_config(tmp_path, "mybench.localhost")
         handler = MagicMock()
         Bench.get_object("mybench", MagicMock(), benches_path=tmp_path, output_handler=handler)
         assert captured_get_object["output_handler"] is handler
 
     def test_config_is_read_from_the_named_file_inside_the_bench(self, tmp_path, monkeypatch):
-        (tmp_path / "mybench.localhost").mkdir()
+        _bench_dir_with_config(tmp_path, "mybench.localhost", config_name="other.toml")
         monkeypatch.setattr(Bench, "__init__", lambda self, **kwargs: None)
         monkeypatch.setattr("frappe_manager.site_manager.site.ComposeFile", MagicMock())
         monkeypatch.setattr("frappe_manager.site_manager.site.DockerClient", MagicMock())
@@ -397,7 +410,7 @@ class TestGetObject:
     def test_lookup_tags_the_ambient_logging_context_with_the_resolved_name(self, tmp_path, captured_get_object):
         from frappe_manager.logger import current_context, reset_context
 
-        (tmp_path / "mybench.localhost").mkdir()
+        _bench_dir_with_config(tmp_path, "mybench.localhost")
         reset_context()
         try:
             Bench.get_object("mybench", MagicMock(), benches_path=tmp_path)
@@ -405,6 +418,26 @@ class TestGetObject:
             assert current_context().bench == "mybench.localhost"
         finally:
             reset_context()
+
+    def test_a_bench_directory_with_no_config_names_itself_and_the_way_out(self, tmp_path):
+        """The half-created shape a failed `fm create` leaves: directory and containers, no config.
+
+        It used to reach the operator as `Unexpected Error [Errno 2] No such file or directory`,
+        naming neither the bench, the file, nor the recovery. `fm delete` does not go through this
+        loader, so it still cleans such a bench up.
+        """
+        (tmp_path / "half.localhost").mkdir()
+
+        with pytest.raises(BenchConfigNotFoundError) as excinfo:
+            Bench.get_object("half.localhost", MagicMock(), benches_path=tmp_path)
+
+        assert "half.localhost/bench_config.toml" in str(excinfo.value.path)
+        assert "fm delete half.localhost --yes" in excinfo.value.message
+
+    def test_a_missing_bench_directory_is_still_a_different_error(self, tmp_path):
+        """Not-a-bench and half-a-bench are different findings and must not collapse into one."""
+        with pytest.raises(BenchNotFoundError):
+            Bench.get_object("absent.localhost", MagicMock(), benches_path=tmp_path)
 
 
 # --------------------------------------------------------------------------------------
