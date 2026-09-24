@@ -16,7 +16,7 @@ import datetime
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.utils.config_keys import collect_unknown_keys
 
-_VERSION = 'version = "0.20.0"\n'
+_VERSION = 'version = "1.0.0"\n'
 
 
 def _config(tmp_path, body: str):
@@ -211,7 +211,7 @@ def test_set_system_migration_version_write_does_not_drop_a_top_level_stray(tmp_
     path = _config(tmp_path, 'ngrok_auth_tokenn = "SECRET-TOKEN"\n[migration_state]\nsystem_migrated_to = "0.19.0"\n')
 
     config = FMConfigManager.import_from_toml(path)
-    config.set_system_migration_version(Version("0.20.0"))
+    config.set_system_migration_version(Version("1.0.0"))
 
     text = path.read_text()
     assert "ngrok_auth_tokenn" in text

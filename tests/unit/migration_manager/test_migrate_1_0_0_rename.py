@@ -1,4 +1,4 @@
-"""v0.21.0 rename cutover: the compose rewrite and the db_host rewrite.
+"""v1.0.0 rename cutover: the compose rewrite and the db_host rewrite.
 
 The decisions defended here are the ones whose failure mode is data loss or a dark host:
 
@@ -17,8 +17,8 @@ from unittest.mock import MagicMock, patch
 import tomlkit
 from ruamel.yaml import YAML
 
-from frappe_manager.migration_manager.migrations.migrate_0_21_0 import (
-    MigrationV0210,
+from frappe_manager.migration_manager.migrations.migrate_1_0_0 import (
+    MigrationV100,
     rewrite_compose_for_rename,
 )
 
@@ -175,7 +175,7 @@ class TestServicesNetworkOwnershipNormalization:
     fixture: a proxy pinned at 10.0.1.2 beside a claimed 10.1.0.0/16)."""
 
     def _migration(self):
-        m = MigrationV0210(output_handler=MagicMock())
+        m = MigrationV100(output_handler=MagicMock())
         # daemon truth captured before deletion; deliberately different from the rotten
         # compose ipam, because the daemon is the side that must win
         m._old_subnets = {"frontend-network": "10.0.0.0/16", "backend-network": None}
@@ -209,7 +209,7 @@ class TestServicesNetworkOwnershipNormalization:
 
 
 def _migration(tmp_path):
-    m = MigrationV0210(output_handler=MagicMock())
+    m = MigrationV100(output_handler=MagicMock())
     m.backup_manager = MagicMock()
     return m
 
@@ -284,7 +284,7 @@ class TestRollbackPath:
     restored stack could not start."""
 
     def _rollback_migration(self, tmp_path, compose_text):
-        m = MigrationV0210(output_handler=MagicMock())
+        m = MigrationV100(output_handler=MagicMock())
         m._was_running = set()
         m._old_subnets = {"frontend-network": "10.0.1.0/24", "backend-network": None}
         m.backup_manager = MagicMock()
@@ -301,9 +301,9 @@ class TestRollbackPath:
         m.backup_manager.backups = [MagicMock(src=tmp_path / "other"), backup]
 
         with patch(
-            "frappe_manager.migration_manager.migrations.migrate_0_21_0.run_command_with_exit_code"
+            "frappe_manager.migration_manager.migrations.migrate_1_0_0.run_command_with_exit_code"
         ):
-            m.undo_services_migrate()
+            m._undo_service_rename_services()
 
         m.backup_manager.restore.assert_called_once_with(backup, force=True)
         # order: renamed stack down, THEN restore, THEN the restored stack up
@@ -321,9 +321,9 @@ class TestRollbackPath:
         m.backup_manager.backups = []
 
         with patch(
-            "frappe_manager.migration_manager.migrations.migrate_0_21_0.run_command_with_exit_code"
+            "frappe_manager.migration_manager.migrations.migrate_1_0_0.run_command_with_exit_code"
         ) as run_cmd:
-            m.undo_services_migrate()
+            m._undo_service_rename_services()
 
         created = [c.args[0] for c in run_cmd.call_args_list if c.args[0][:3] == ["docker", "network", "create"]]
         assert created == [
@@ -338,9 +338,9 @@ class TestRollbackPath:
         m.backup_manager.backups = []
 
         with patch(
-            "frappe_manager.migration_manager.migrations.migrate_0_21_0.run_command_with_exit_code"
+            "frappe_manager.migration_manager.migrations.migrate_1_0_0.run_command_with_exit_code"
         ) as run_cmd:
-            m.undo_services_migrate()
+            m._undo_service_rename_services()
 
         assert not any(c.args[0][:3] == ["docker", "network", "create"] for c in run_cmd.call_args_list)
 
@@ -356,7 +356,7 @@ class TestTelemetryTableRewrite:
     """`[monitoring.newrelic]` and the v0.19.0 flat keys both become `[telemetry.newrelic]`.
 
     The flat hop is the one that matters: v0.19.0 wrote `newrelic_enabled` /
-    `newrelic_license_key` at the top level, the 0.20/0.21 line moved to a table and stopped
+    `newrelic_license_key` at the top level, the 1.0.0 development line moved to a table and stopped
     reading them, and NO migration carried them over. `BenchConfig` is `extra="allow"`, so the
     keys neither raised nor were read and every bench reporting to NewRelic silently stopped on
     upgrade. Both hops are pinned here because both still exist on real disks.

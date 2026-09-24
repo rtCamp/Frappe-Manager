@@ -869,7 +869,7 @@ def test_rerun_reruns_benches_only_and_never_the_services_tier(tmp_path):
 def test_a_stale_services_tier_is_refused_naming_the_command_that_fixes_it(out, tmp_path):
     """The services tier is a prerequisite, never an implicit side effect: migrating a bench
     over stale global services would migrate it into a world that does not exist yet (the
-    v0.21.0 cutover renames the addresses benches dial)."""
+    v1.0.0 cutover renames the addresses benches dial)."""
     _bench_dir(tmp_path, "a.localhost")
     r = _run_migrate(tmp_path, address="a.localhost", system_version="0.18.0", current_version="0.19.0")
     assert r.exit.exit_code == 1

@@ -260,11 +260,11 @@ def run_upgrade(published: str, current: str, *, yes: bool = True):
 def test_a_published_version_older_than_the_installed_one_is_never_installed(out):
     """D58: the test was plain string inequality, so a dev build (which is AHEAD of the published
     release) was offered the PyPI version -- and `--yes` performed that downgrade unattended."""
-    install = run_upgrade(published="0.19.3", current="0.20.0.dev0")
+    install = run_upgrade(published="0.19.3", current="1.0.0.dev0")
 
     install.assert_not_called()
     assert "New update available" not in joined(out.print)
-    assert "fm is already up to date (v0.20.0.dev0)" in joined(out.print)
+    assert "fm is already up to date (v1.0.0.dev0)" in joined(out.print)
 
 
 def test_an_identical_version_is_not_an_update(out):
@@ -274,9 +274,9 @@ def test_an_identical_version_is_not_an_update(out):
 
 
 def test_a_newer_published_version_is_still_installed(out):
-    install = run_upgrade(published="0.21.0", current="0.20.0.dev0")
+    install = run_upgrade(published="1.0.1", current="1.0.0.dev0")
 
-    install.assert_called_once_with("frappe-manager", "0.21.0")
+    install.assert_called_once_with("frappe-manager", "1.0.1")
 
 
 # =========================================================================== #
@@ -692,7 +692,7 @@ def test_services_shell_propagates_the_containers_exit_code():
 # =========================================================================== #
 
 
-def _run_services_migrate(*, system_version="0.20.0", current_version="0.21.0", execute_result=True, **kwargs):
+def _run_services_migrate(*, system_version="0.19.0", current_version="1.0.0", execute_result=True, **kwargs):
     from frappe_manager.commands.services.migrate import migrate_services
     from frappe_manager.migration_manager.version import Version
 
@@ -730,7 +730,7 @@ def test_services_migrate_runs_the_services_tier_only_and_never_stamps_itself(ou
 
 
 def test_services_migrate_is_a_noop_when_already_current(out):
-    r = _run_services_migrate(system_version="0.21.0", current_version="0.21.0")
+    r = _run_services_migrate(system_version="1.0.0", current_version="1.0.0")
 
     assert r.exit.exit_code == 0
     r.executor_cls.assert_not_called()
@@ -738,7 +738,7 @@ def test_services_migrate_is_a_noop_when_already_current(out):
 
 
 def test_services_migrate_rerun_runs_even_when_current(out):
-    r = _run_services_migrate(system_version="0.21.0", current_version="0.21.0", rerun=True)
+    r = _run_services_migrate(system_version="1.0.0", current_version="1.0.0", rerun=True)
 
     assert r.exit is None
     assert r.executor_cls.call_args.kwargs["rerun"] is True

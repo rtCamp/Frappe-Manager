@@ -137,7 +137,7 @@ jq -r 'select(.status >= 500) | .path' \
 ```
 
 !!! note "Older benches"
-    The JSON format arrived with the v0.20.0 migration, which deletes the generated `conf.d/default.conf` so the container re-renders it from the current image template. A bench that has not been migrated still writes nginx's combined format.
+    The JSON format arrived with the v1.0.0 migration, which deletes the generated `conf.d/default.conf` so the container re-renders it from the current image template. A bench that has not been migrated still writes nginx's combined format.
 
 ---
 
@@ -178,7 +178,7 @@ Prints the version and nothing else:
 
 ```console
 $ fm --version
-0.20.0
+1.0.0
 ```
 
 ---

@@ -136,7 +136,7 @@ def unwrap_toml_value(value: Any) -> Any:
 
     Called at every hand-built retained-extra dict: in `site_manager/bench_config.py`, the
     top-level remainder, the `[ssl]` hand-read remainder, the `[deploy_state]` remainder, and the
-    per-site remainder; in `metadata_manager.py`, the top-level remainder and the pre-0.20.0
+    per-site remainder; in `metadata_manager.py`, the top-level remainder and the pre-1.0.0
     `[cloudflare]` legacy splat. It is NOT called on a splat into a typed field
     (`AuthConfig(**dict(...))`, `AppConfig(**dict(...))`, and similar elsewhere in
     `bench_config.py`): pydantic's own field coercion already handles those, so wrapping them

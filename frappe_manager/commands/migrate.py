@@ -131,7 +131,7 @@ def migrate(
 
     # The services tier is a PREREQUISITE, never an implicit side effect: a bench migrated
     # over stale global services is migrated into a world that does not exist yet, and the
-    # cutovers that tier performs (v0.21.0 renames the addresses benches dial) are exactly
+    # cutovers that tier performs (v1.0.0 renames the addresses benches dial) are exactly
     # the ones that must be an explicit operator decision.
     global_services_version = fm_config_manager.get_system_migration_version()
     if global_services_version < current_version:

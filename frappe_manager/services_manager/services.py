@@ -93,7 +93,7 @@ class ServicesManager:
                 f"Seems like global services has taken a down. No compose file found at {self.compose_path}.",
             )
 
-        # A pre-v0.21.0 install still has `global-db`/`global-nginx-proxy` in its services
+        # A pre-v1.0.0 install still has `global-db`/`global-nginx-proxy` in its services
         # compose. Commands whitelisted past the migration gate (`fm list`, `fm compose`, ...)
         # reach this init anyway, and against the old names it dies deep inside MariaDBManager
         # with a missing-password error that says nothing about the actual problem. Detect the
@@ -108,7 +108,7 @@ class ServicesManager:
         if "global-db" in old_names and "mariadb" not in old_names:
             if command not in MIGRATION_COMMANDS and command.split(" ")[0] != "self":
                 self.output.exit(
-                    "The global services predate the v0.21.0 rename (global-db -> mariadb). "
+                    "The global services predate the v1.0.0 rename (global-db -> mariadb). "
                     "Run 'fm services migrate' to cut this install over."
                 )
             return
@@ -154,7 +154,7 @@ class ServicesManager:
         self.compose_file_manager = ComposeFile(self.compose_path, template_name=template_name)
         self.docker_client = DockerClient(compose_file_path=self.compose_path, output=self.output)
 
-        # Transition wiring, not legacy support: on a pre-v0.21.0 compose the proxy service is
+        # Transition wiring, not legacy support: on a pre-v1.0.0 compose the proxy service is
         # still `global-nginx-proxy`, and ProxyStoragePaths resolves its volumes eagerly -- so
         # `fm migrate` (the only command allowed to run against that compose, see
         # entrypoint_checks) could never construct this manager to perform the cutover. The

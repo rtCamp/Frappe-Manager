@@ -421,7 +421,7 @@ class TestCustomCertificateSourceFieldsNeverSurviveTheTomlBoundary:
 
 
 class TestPreMigrationCertificateEntry:
-    """A bench whose file predates the 0.20.0 migration must still load.
+    """A bench whose file predates the 1.0.0 migration must still load.
 
     `fm list`, `fm bake` and `fm switch` skip the migration gate, so a ValidationError here would
     take `fm list` down for every bench on the host because one file had not been migrated yet.
@@ -486,17 +486,17 @@ class TestPreMigrationCertificateEntry:
         }
 
 
-def test_a_bench_config_carrying_keys_removed_in_0_20_0_still_loads(tmp_path):
+def test_a_bench_config_carrying_keys_removed_in_1_0_0_still_loads(tmp_path):
     """Keys and tables deleted from the models must not break benches that still carry them.
 
     `[switch].search_replace` was removed as a key, and `[registry]` as a whole table, in
-    0.20.0. `import_from_toml` splats each TOML table into its model, so a stale KEY used to make
+    1.0.0. `import_from_toml` splats each TOML table into its model, so a stale KEY used to make
     every command that loads the bench die with a pydantic ValidationError while the models were
     `extra="forbid"` (now `extra="allow"`, so a stale key is simply retained as an unknown extra
     rather than raising). `REMOVED_CONFIG_KEYS`/`REMOVED_CONFIG_TABLES` no longer filter either
     one out of the read path -- retention plus the version-gated warning covers that now, the
     same as any other stray -- they only drive `_drop_removed_config_keys`'s on-disk strip during
-    the actual 0.20.0 migration (`migrate_0_20_0.py`). `search_replace` was deleted once before
+    the actual 1.0.0 migration (`migrate_1_0_0.py`). `search_replace` was deleted once before
     on the grounds that nothing read it, and it took down `fm info` and `fm ssl list` on a live
     bench whose config carried `search_replace = true`; `[registry]` went entirely, since every
     field in it existed only to run `docker login`, which docker already owns.
@@ -669,7 +669,7 @@ class TestUnrecognisedKeysWarnRatherThanVanish:
 class TestPreMigrationBenchConfigNeverWarns:
     """The regression this fixes: `admin_tools_username`/`admin_tools_password`,
     `alias_domains`, and `[database]` are all top-level names fm itself wrote at 0.19.x or
-    earlier, relocated (not retired) by the unreleased `migrate_0_20_0` migration. Every
+    earlier, relocated (not retired) by the unreleased `migrate_1_0_0` migration. Every
     existing host is pre-migration while that migration is unreleased, and `fm list`/`fm bake`/
     `fm switch`/`fm maintenance` read a bench's config before offering to run it -- so each of
     these four names used to produce a fabricated "check for a typo" warning on the very first
@@ -689,8 +689,8 @@ class TestPreMigrationBenchConfigNeverWarns:
     # earlier version untouched by that migration, and a site-keyed `[database]` table
     # (`_write_sites_table`'s docstring: "the [database] table already had a site as its key").
     # No `[migration_state]` at all: a bench that has never been migrated, which is every bench
-    # while 0.20.0 is unreleased.
-    _PRE_0_20_0_SHAPED = (
+    # while 1.0.0 is unreleased.
+    _PRE_1_0_0_SHAPED = (
         _BASE
         + 'admin_tools_username = "admin"\n'
         + 'admin_tools_password = "secret123"\n'
@@ -709,7 +709,7 @@ class TestPreMigrationBenchConfigNeverWarns:
         handler = MagicMock(spec=OutputHandler)
         set_global_output_handler(handler)
         try:
-            bc = _import(tmp_path, self._PRE_0_20_0_SHAPED)
+            bc = _import(tmp_path, self._PRE_1_0_0_SHAPED)
         finally:
             set_global_output_handler(None)
 
@@ -730,7 +730,7 @@ class TestPreMigrationBenchConfigNeverWarns:
         from frappe_manager.output_manager.base import OutputHandler
         from frappe_manager.utils.helpers import get_current_fm_version
 
-        shaped = self._PRE_0_20_0_SHAPED.replace(
+        shaped = self._PRE_1_0_0_SHAPED.replace(
             '\n[database."dev.localhost"]', '\ntypoed_kee = true\n\n[database."dev.localhost"]'
         )
         shaped += f'\n[migration_state]\nmigrated_to = "{get_current_fm_version()}"\n'

@@ -10,7 +10,7 @@ import copy
 from ruamel.yaml import YAML
 
 from frappe_manager import MARIADB_IMAGE as GLOBAL_DB_IMAGE
-from frappe_manager.migration_manager.migrations.migrate_0_20_0 import (
+from frappe_manager.migration_manager.migrations.migrate_1_0_0 import (
     STALE_ENGINE_FLAG,
     rewrite_global_db_service,
 )

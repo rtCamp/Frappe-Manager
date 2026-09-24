@@ -107,7 +107,7 @@ def migrate_services(
         rerun=rerun,
         on_failure=(on_failure.value if on_failure else "rollback"),
         # Benches deliberately untargeted: this command is the services tier. A migration
-        # may still rewrite bench FILES where the cutover is atomic (v0.21.0 renames the
+        # may still rewrite bench FILES where the cutover is atomic (v1.0.0 renames the
         # addresses benches dial), but bench versions are stamped only by fm migrate.
         target_benches=None,
         migrate_global_services=True,

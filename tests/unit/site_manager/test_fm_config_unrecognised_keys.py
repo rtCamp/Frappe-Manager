@@ -10,7 +10,7 @@ from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import set_global_output_handler
 from frappe_manager.output_manager.base import OutputHandler
 
-_VERSION = 'version = "0.20.0.dev0"\n'
+_VERSION = 'version = "1.0.0.dev0"\n'
 
 
 def _load_with_warnings(tmp_path, body: str):
@@ -29,7 +29,7 @@ def _load_with_warnings(tmp_path, body: str):
 def test_an_unknown_top_level_key_warns(tmp_path):
     config, handler = _load_with_warnings(tmp_path, 'typoed_kee = "x"\n')
 
-    assert config.get_system_migration_version().version == "0.20.0.dev0"  # loads regardless (ledger seeded from the retired top-level `version`)
+    assert config.get_system_migration_version().version == "1.0.0.dev0"  # loads regardless (ledger seeded from the retired top-level `version`)
     handler.warning.assert_called_once()
     assert "typoed_kee" in handler.warning.call_args.args[0]
 
@@ -50,7 +50,7 @@ def test_no_warning_for_an_ordinary_config(tmp_path):
 
 
 def test_the_legacy_cloudflare_table_does_not_warn(tmp_path):
-    """`[cloudflare]` is a pre-0.20.0 table this reader still folds in by hand (see
+    """`[cloudflare]` is a pre-1.0.0 table this reader still folds in by hand (see
     test_global_dns_credentials.py); it must stay a recognised spelling, not a typo."""
     _, handler = _load_with_warnings(tmp_path, '[cloudflare]\napi_key = "cf_LIVE"\n')
 
@@ -134,7 +134,7 @@ def test_top_level_and_nested_unknown_keys_are_one_message(tmp_path):
         'typoed_kee = "x"\n[network]\nsubnett_cidr = "10.1.0.0/16"\n',
     )
 
-    assert config.get_system_migration_version().version == "0.20.0.dev0"  # loads regardless (ledger seeded from the retired top-level `version`)
+    assert config.get_system_migration_version().version == "1.0.0.dev0"  # loads regardless (ledger seeded from the retired top-level `version`)
     handler.warning.assert_called_once()
     message = handler.warning.call_args.args[0]
     assert "typoed_kee" in message
@@ -150,7 +150,7 @@ def test_a_top_level_typo_is_named_exactly_once(tmp_path):
     ngrok_auth_tokenn' for two strays -- one typo, printed twice."""
     config, handler = _load_with_warnings(tmp_path, 'ngrok_auth_tokenn = "x"\n')
 
-    assert config.get_system_migration_version().version == "0.20.0.dev0"  # loads regardless (ledger seeded from the retired top-level `version`)
+    assert config.get_system_migration_version().version == "1.0.0.dev0"  # loads regardless (ledger seeded from the retired top-level `version`)
     handler.warning.assert_called_once()
     message = handler.warning.call_args.args[0]
     assert message.count("ngrok_auth_tokenn") == 1, message
@@ -165,7 +165,7 @@ def test_two_top_level_and_one_nested_typo_are_one_sorted_deduplicated_message(t
         'ngrok_auth_tokenn = "x"\nanother_typo = 1\n[network]\nsubnett_cidr = "10.1.0.0/16"\n',
     )
 
-    assert config.get_system_migration_version().version == "0.20.0.dev0"  # loads regardless (ledger seeded from the retired top-level `version`)
+    assert config.get_system_migration_version().version == "1.0.0.dev0"  # loads regardless (ledger seeded from the retired top-level `version`)
     handler.warning.assert_called_once()
     message = handler.warning.call_args.args[0]
     names = message.split("unrecognised key(s) ", 1)[1].split("; check", 1)[0].split(", ")

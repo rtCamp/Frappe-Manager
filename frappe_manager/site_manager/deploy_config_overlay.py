@@ -95,7 +95,7 @@ def merge_overlays(base_toml: str, configs: list[str]) -> str:
     """Return ``base_toml`` with each ``--config`` overlay deep-merged in order.
 
     The refusal check runs `_refused_keys` on the merged document, but a merged document also
-    contains everything the BASE already carried -- and a pre-migration bench (0.20.0 is
+    contains everything the BASE already carried -- and a pre-migration bench (1.0.0 is
     unreleased, so this is every bench right now) still has plenty of top-level keys and whole
     tables `BenchConfig` does not recognise (see the migration-gate note at `certificate.py:19-23`
     for why a real read tolerates them). Checking the whole merged document blamed those on

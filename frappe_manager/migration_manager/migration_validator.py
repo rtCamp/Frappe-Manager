@@ -149,7 +149,7 @@ class MigrationValidator:
             self.output.display_error(
                 "\nInspect the file's \\[migration_state] table: `migrated_to` is missing or "
                 "not a version. If you know the real version, write it back by hand "
-                '(migrated_to = "0.20.0") and re-run.',
+                '(migrated_to = "1.0.0") and re-run.',
             )
             return False
 

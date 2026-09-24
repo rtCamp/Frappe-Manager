@@ -82,7 +82,7 @@ class MigrationBase(ABC):
         VERIFICATION CONVENTION: there is deliberately no separate verify() hook. Any
         exception raised anywhere in here triggers the error handler's rollback/halt, so
         a migration verifies its own work by ENDING its hook with a health check that
-        raises -- exactly what v0.20.0 and v0.21.0 do with wait_till_db_start() after
+        raises -- exactly what v1.0.0 does with wait_till_db_start() after
         bringing the engine up. Do not return with the world unverified.
         """
         if self.skip:
@@ -336,7 +336,7 @@ class MigrationBase(ABC):
 
         # The db-kind chokepoint: every per-site dump of every migration reaches this
         # method, so honoring the policy here covers them all without any migration
-        # knowing the flags exist. (The one historical outlier is v0.20.0's whole-engine
+        # knowing the flags exist. (The one historical outlier is v1.0.0's whole-engine
         # dump, which bypasses this path and carries its own guard.)
         if self.migration_executor.skip_backup or self.migration_executor.skip_db_backup:
             self.output.warning(f"Skipping the database dump for {site} (--skip-backup/--skip-db-backup)")

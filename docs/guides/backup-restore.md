@@ -107,7 +107,7 @@ Backups are grouped by the migration version that took them, so the version subd
 
 ```bash
 BENCH=mybench.localhost
-BACKUP=~/frappe/sites/$BENCH/backups/migrations/12-Apr-26--14-30-45/0.20.0
+BACKUP=~/frappe/sites/$BENCH/backups/migrations/12-Apr-26--14-30-45/1.0.0
 
 fm stop $BENCH
 

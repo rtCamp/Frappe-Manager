@@ -1,4 +1,4 @@
-"""`[database."<site>"]` becomes `[sites."<site>".database]`, in the 0.20.0 migration.
+"""`[database."<site>"]` becomes `[sites."<site>".database]`, in the 1.0.0 migration.
 
 A bench holds exactly one site today and its name is the bench's, so that table already had a site
 as its key. The move gives the site somewhere to hold its other per-site facts later, instead of
@@ -14,8 +14,8 @@ a new risk: the same migration renames `dns_challenge_providers` to `dns_provide
 that. So the tests below assert the file shape AND that the result loads, because a migration that
 writes something the loader cannot read is the failure that matters.
 
-This step must be idempotent, and not as a nicety: 0.20.0 is unreleased, so a bench recorded at
-`0.20.0.dev0` sorts BELOW `0.20.0` and re-runs this migration whenever one is triggered at all.
+This step must be idempotent, and not as a nicety: 1.0.0 is unreleased, so a bench recorded at
+`0.21.0.dev0` sorts BELOW `1.0.0` and re-runs this migration whenever one is triggered at all.
 """
 
 import contextlib
@@ -31,8 +31,8 @@ import tomlkit
 from frappe_manager import MARIADB_IMAGE as GLOBAL_DB_IMAGE
 from frappe_manager.docker import DockerException
 from frappe_manager.metadata_manager import FMConfigManager
-from frappe_manager.migration_manager.migrations import migrate_0_20_0 as migrate_mod
-from frappe_manager.migration_manager.migrations.migrate_0_20_0 import MigrationV0200
+from frappe_manager.migration_manager.migrations import migrate_1_0_0 as migrate_mod
+from frappe_manager.migration_manager.migrations.migrate_1_0_0 import MigrationV100
 from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.utils.config_keys import collect_unknown_keys
 from frappe_manager.utils.helpers import get_template_path
@@ -59,7 +59,7 @@ check_hostname = false
 
 @pytest.fixture
 def step():
-    migration = MigrationV0200.__new__(MigrationV0200)  # bypass __init__: no executor, no backups
+    migration = MigrationV100.__new__(MigrationV100)  # bypass __init__: no executor, no backups
     migration.output = MagicMock()
     return migration
 
@@ -181,7 +181,7 @@ def test_the_alias_move_is_reported(step, tmp_path):
 
 
 def test_re_running_the_alias_move_changes_nothing(step, tmp_path):
-    """Same reason as the database move: a bench at `0.20.0.dev0` runs this step again, and a second
+    """Same reason as the database move: a bench at `0.21.0.dev0` runs this step again, and a second
     pass must not duplicate the list or strand it back at the top level."""
     bench, path = _bench(tmp_path, BASE + 'alias_domains = ["www.shop.example.com"]\n' + EXTERNAL)
 
@@ -235,7 +235,7 @@ def test_an_empty_top_level_alias_list_is_just_dropped(step, tmp_path):
 
 
 def test_running_it_again_changes_nothing(step, tmp_path):
-    """Required, not merely tidy: a bench at `0.20.0.dev0` re-runs this migration, because a dev
+    """Required, not merely tidy: a bench at `0.21.0.dev0` re-runs this migration, because a dev
     release sorts below its own final version."""
     bench, path = _bench(tmp_path, BASE + EXTERNAL)
 
@@ -424,7 +424,7 @@ def test_the_old_spelling_no_longer_prevents_loading_but_is_retained_as_unknown(
 
 
 def test_the_step_is_idempotent(step, tmp_path):
-    # 0.20.0 is unreleased, so a bench at 0.20.0.dev0 re-runs this whenever a migration triggers.
+    # 1.0.0 is unreleased, so a bench at 0.21.0.dev0 re-runs this whenever a migration triggers.
     bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + HISTORY)
 
     step._rewrite_deploy_history(bench)
@@ -522,7 +522,7 @@ def test_tag_era_keys_are_renamed_and_the_result_loads_with_values_intact(step, 
 
 
 def test_the_tag_rename_is_idempotent(step, tmp_path):
-    # 0.20.0 is unreleased, so a bench at 0.20.0.dev0 re-runs this whenever a migration triggers.
+    # 1.0.0 is unreleased, so a bench at 0.21.0.dev0 re-runs this whenever a migration triggers.
     bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + TAG_HISTORY)
 
     step._rename_deploy_tag_keys(bench)
@@ -807,7 +807,7 @@ def test_a_bench_with_no_generated_conf_is_left_alone(step, tmp_path):
 
 
 def test_re_running_the_refresh_changes_nothing(step, tmp_path):
-    """`0.20.0.dev0` sorts below `0.20.0`, so a bench on a dev build re-runs every step of this
+    """`0.21.0.dev0` sorts below `1.0.0`, so a bench on a dev build re-runs every step of this
     migration whenever one is triggered at all."""
     bench, _ = _bench(tmp_path, BASE)
     _nginx_conf(tmp_path, "server { }\n")
@@ -930,7 +930,7 @@ def test_an_ssl_key_that_is_not_a_table_is_left_for_a_human(step, tmp_path):
 
 
 def test_re_running_the_ssl_rewrite_changes_nothing(step, tmp_path):
-    """`0.20.0.dev0` sorts below `0.20.0`, so every step here re-runs on a dev-build bench."""
+    """`0.21.0.dev0` sorts below `1.0.0`, so every step here re-runs on a dev-build bench."""
     bench, path = _bench(tmp_path, BASE + PRE_020_TOP_LEVEL_SSL)
 
     step._rewrite_ssl_table(bench)
@@ -1024,7 +1024,7 @@ def test_a_credential_less_legacy_table_leaves_no_empty_scaffolding(step, tmp_pa
 
 
 def test_a_file_with_no_legacy_table_is_not_even_backed_up(step, tmp_path, monkeypatch):
-    path = _fm_config(step, tmp_path, 'version = "0.20.0"\n')
+    path = _fm_config(step, tmp_path, 'version = "1.0.0"\n')
     monkeypatch.setattr(migrate_mod, "CLI_FM_CONFIG_PATH", path)
 
     step._relocate_global_dns_credentials()
@@ -1152,7 +1152,7 @@ def test_the_adminer_plugin_lands_byte_identical(step, tmp_path):
 
 
 def test_re_placing_the_plugin_overwrites_a_stale_copy(step, tmp_path):
-    """0.20.0.dev0 sorts below 0.20.0, so this re-runs; a bench that got an older plugin from an
+    """0.21.0.dev0 sorts below 1.0.0, so this re-runs; a bench that got an older plugin from an
     earlier dev build has to end up with the current one."""
     bench, _ = _bench(tmp_path, BASE)
     stale = tmp_path / "configs" / "adminer" / "000-fm-login.php"
@@ -1218,7 +1218,7 @@ def test_admin_tools_disabled_means_no_recreate_even_for_a_fresh_directory(step,
 
 
 def test_a_second_run_does_not_bounce_the_container_it_already_healed(step, tmp_path, monkeypatch):
-    """0.20.0.dev0 sorts below 0.20.0, so this heal runs on every migrate call on a dev-build
+    """0.21.0.dev0 sorts below 1.0.0, so this heal runs on every migrate call on a dev-build
     bench; the first pass's own directory must not look "fresh" to the second."""
     bench, _ = _bench(tmp_path, BASE.replace("admin_tools = false", "admin_tools = true"))
     compose_path = tmp_path / "docker-compose.admin-tools.yml"
@@ -1373,7 +1373,7 @@ def test_the_container_is_recreated_rather_than_restarted(step, tmp_path, monkey
 
 
 def test_a_bench_already_on_the_target_engine_is_left_completely_alone(step, tmp_path, monkeypatch):
-    """`0.20.0.dev0` sorts below `0.20.0`, so this re-runs on every dev-build host. A second pass
+    """`0.21.0.dev0` sorts below `1.0.0`, so this re-runs on every dev-build host. A second pass
     that dumped and bounced the shared database would be an outage per migration."""
     events, cfm = _engine_step(step, tmp_path, monkeypatch, image=GLOBAL_DB_IMAGE)
 

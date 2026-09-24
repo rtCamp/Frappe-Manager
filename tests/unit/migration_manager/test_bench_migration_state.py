@@ -15,7 +15,7 @@ from frappe_manager.migration_manager.version import Version
 VALID_STATE = """\
 name = "x.localhost"
 [migration_state]
-migrated_to = "0.20.0"
+migrated_to = "1.0.0"
 last_migration_date = "2026-07-24T00:00:00"
 """
 
@@ -25,7 +25,7 @@ name = "x.localhost"
 backup_db = false
 rollback_db = true
 [migration_state]
-migrated_to = "0.20.0"
+migrated_to = "1.0.0"
 last_migration_date = "2026-07-24T00:00:00"
 """
 
@@ -37,14 +37,14 @@ def _bench(tmp_path, content):
 
 def test_version_read_from_valid_config(tmp_path):
     b = _bench(tmp_path, VALID_STATE)
-    assert get_bench_migration_version(b) == Version("0.20.0")
+    assert get_bench_migration_version(b) == Version("1.0.0")
 
 
 def test_schema_invalid_config_keeps_real_version(tmp_path):
     # The regression: an invalid [switch] combo must NOT degrade to v0.0.0.
     b = _bench(tmp_path, SCHEMA_INVALID)
-    assert get_bench_migration_version(b) == Version("0.20.0")
-    assert not bench_needs_migration(b, Version("0.20.0"))
+    assert get_bench_migration_version(b) == Version("1.0.0")
+    assert not bench_needs_migration(b, Version("1.0.0"))
 
 
 def test_missing_file_and_missing_state(tmp_path):
@@ -88,21 +88,21 @@ migrated_at = "operator_typo_value"
 def test_set_bench_migration_version_preserves_a_stray_key_in_migration_state(tmp_path):
     b = _bench(tmp_path, STATE_WITH_STRAY)
 
-    set_bench_migration_version(b, Version("0.20.0"))
+    set_bench_migration_version(b, Version("1.0.0"))
 
     doc = tomlkit.parse((b / "bench_config.toml").read_text())
     state = dict(doc["migration_state"])
     # The stray survives, value intact -- not just its name.
     assert state["migrated_at"] == "operator_typo_value"
     # And the write this call exists to make still happened.
-    assert state["migrated_to"] == "0.20.0"
+    assert state["migrated_to"] == "1.0.0"
 
 
 def test_set_bench_migration_version_with_no_prior_migration_state_still_writes_one(tmp_path):
     """No [migration_state] table to preserve; a fresh one is created, not an error."""
     b = _bench(tmp_path, 'name = "x.localhost"\ndeveloper_mode = false\nadmin_tools = false\nenvironment_type = "prod"\n')
 
-    set_bench_migration_version(b, Version("0.21.0"))
+    set_bench_migration_version(b, Version("1.0.1"))
 
     doc = tomlkit.parse((b / "bench_config.toml").read_text())
-    assert dict(doc["migration_state"])["migrated_to"] == "0.21.0"
+    assert dict(doc["migration_state"])["migrated_to"] == "1.0.1"

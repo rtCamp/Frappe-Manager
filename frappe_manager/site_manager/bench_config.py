@@ -1090,8 +1090,8 @@ class SwitchConfig(BaseModel):
 
 
 # Keys that used to be valid in a config table and no longer exist on its model. Removing a field
-# from any model below means adding ONE line here: `_drop_removed_config_keys` (migrate_0_20_0.py)
-# strips it off disk during the 0.20.0 migration, so the file stops carrying a name a future
+# from any model below means adding ONE line here: `_drop_removed_config_keys` (migrate_1_0_0.py)
+# strips it off disk during the 1.0.0 migration, so the file stops carrying a name a future
 # version might reuse for something else.
 #
 # NOT used to filter the read path any more (it once was, via `_filter_removed`/`_table` below):
@@ -2083,7 +2083,7 @@ class BenchConfig(BaseModel):
                 # meaningful without one, and that domain is the bench name.
                 ssl_certificates_list.append(CERTIFICATE_ADAPTER.validate_python({"domain": domain, **cert_data}))
         dns_providers_dict = {}
-        # `dns_challenge_providers` was this key's old spelling. migrate_0_20_0 renames it on disk, so
+        # `dns_challenge_providers` was this key's old spelling. migrate_1_0_0 renames it on disk, so
         # a bench that gets this far already carries the new one and there is nothing to fall back to.
         for provider_name, provider_data in (ssl_data.get("dns_providers") or {}).items():
             if isinstance(provider_data, dict):

@@ -163,23 +163,23 @@ class TestMigrationExecutorMigrationDiscovery:
         mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
 
         mock_migration_class = Mock()
-        mock_migration_class.version = Version("0.20.0")
+        mock_migration_class.version = Version("1.0.0")
         mock_migration_class.up = Mock()
         mock_migration_class.down = Mock()
         mock_migration_class.set_migration_executor = Mock()
         mock_migration_instance = Mock()
-        mock_migration_instance.version = Version("0.20.0")
+        mock_migration_instance.version = Version("1.0.0")
         mock_migration_class.return_value = mock_migration_instance
 
         mock_module = Mock()
-        mock_module.Migrate_0_20_0 = mock_migration_class
+        mock_module.Migrate_1_0_0 = mock_migration_class
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
             patch("frappe_manager.migration_manager.migration_executor.get_logger"),
             patch(
                 "frappe_manager.migration_manager.migration_discovery.pkgutil.iter_modules",
-                return_value=[(None, "migrate_0_20_0", None)],
+                return_value=[(None, "migrate_1_0_0", None)],
             ),
             patch(
                 "frappe_manager.migration_manager.migration_discovery.importlib.import_module",
@@ -306,7 +306,7 @@ class TestMigrationExecutorUserPrompt:
         """The undo stack must reach the error handler: the executor's copy used to be
         synced only on the SUCCESS path, so a failed migration's down() never ran and
         "Rollback complete." was printed with every backup unrestored and the
-        half-migrated state left in place (found live by the v0.21.0 rename cutover,
+        half-migrated state left in place (found live by the v1.0.0 rename cutover,
         whose unrolled-back failure leaves every bench on the host dark)."""
         mock_fm_config.get_system_migration_version.return_value = Version("0.18.0")
 
@@ -418,7 +418,7 @@ class TestUnknownVersionRefusal:
         mock_output = Mock()
 
         with (
-            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.21.0"),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="1.0.0"),
             patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
             executor = MigrationExecutor(mock_fm_config, migrate_global_services=True, output_handler=mock_output)

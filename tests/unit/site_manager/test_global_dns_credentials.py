@@ -1,7 +1,7 @@
 """The global DNS-01 credential set, and why the loader still reads the table it replaced.
 
-`[cloudflare]` was the pre-0.20.0 home of the default account. It is gone from the model, and the
-0.20.0 migration moves it into the `cloudflare` label. That migration is NOT sufficient on its own,
+`[cloudflare]` was the pre-1.0.0 home of the default account. It is gone from the model, and the
+1.0.0 migration moves it into the `cloudflare` label. That migration is NOT sufficient on its own,
 which is the point of this file: `export_to_toml` rebuilds the whole document from the model, so any
 command that writes fm_config.toml drops a table the model cannot represent, and `migrate_services`
 never runs once the infrastructure version is already current. Found on a real host, where one
@@ -11,7 +11,7 @@ the next write leaves only the new shape behind.
 
 from frappe_manager.metadata_manager import FMConfigManager
 
-_VERSION = 'version = "0.20.0.dev0"\n'
+_VERSION = 'version = "1.0.0.dev0"\n'
 
 
 def _config(tmp_path, body: str):
@@ -20,7 +20,7 @@ def _config(tmp_path, body: str):
     return path
 
 
-def test_a_pre_0_20_credential_table_is_folded_into_the_default_label(tmp_path):
+def test_a_pre_1_0_0_credential_table_is_folded_into_the_default_label(tmp_path):
     path = _config(tmp_path, '[cloudflare]\nemail = "ops@example.com"\napi_key = "cf_LIVE"\n')
 
     entry = (FMConfigManager.import_from_toml(path).dns_providers or {})["cloudflare"]
@@ -30,7 +30,7 @@ def test_a_pre_0_20_credential_table_is_folded_into_the_default_label(tmp_path):
     assert entry.provider.value == "cloudflare"
 
 
-def test_an_ordinary_write_does_not_destroy_a_pre_0_20_credential(tmp_path):
+def test_an_ordinary_write_does_not_destroy_a_pre_1_0_0_credential(tmp_path):
     """The regression itself. Before the fold, this write lost the key outright."""
     path = _config(tmp_path, '[cloudflare]\napi_key = "cf_LIVE"\n')
 

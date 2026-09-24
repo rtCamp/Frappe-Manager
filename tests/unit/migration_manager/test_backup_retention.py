@@ -85,7 +85,7 @@ class TestLazySessionDirectory:
         is what produced 21k empty session dirs on a real install."""
         backups_root = tmp_path / "backups"
 
-        manager = BackupManager(name="0.21.0", benches_dir=tmp_path / "sites", backup_dir=backups_root)
+        manager = BackupManager(name="1.0.0", benches_dir=tmp_path / "sites", backup_dir=backups_root)
 
         assert not backups_root.exists()
         assert manager.backup_dir.is_relative_to(backups_root)  # path computed, not created
@@ -95,7 +95,7 @@ class TestLazySessionDirectory:
         src = tmp_path / "docker-compose.yml"
         src.write_text("services: {}\n")
 
-        manager = BackupManager(name="0.21.0", benches_dir=tmp_path / "sites", backup_dir=backups_root)
+        manager = BackupManager(name="1.0.0", benches_dir=tmp_path / "sites", backup_dir=backups_root)
         manager.backup(src)
 
         assert (manager.backup_dir / "docker-compose.yml").read_text() == "services: {}\n"

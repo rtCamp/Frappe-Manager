@@ -30,7 +30,7 @@ from frappe_manager.utils.config_keys import collect_unknown_keys
 def _global_config(tmp_path, body: str = ""):
     """Parse a real global config file, then make the resolver read it instead of the developer's own."""
     path = tmp_path / "fm_config.toml"
-    path.write_text('version = "0.20.0.dev0"\n' + body)
+    path.write_text('version = "1.0.0.dev0"\n' + body)
     parsed = FMConfigManager.import_from_toml(path)
     return patch.object(FMConfigManager, "import_from_toml", staticmethod(lambda *a, **k: parsed))
 
