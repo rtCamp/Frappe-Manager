@@ -1,3 +1,4 @@
+import builtins
 import os
 import secrets
 import shutil
@@ -11,12 +12,12 @@ import typer
 from typer_examples import install
 
 from frappe_manager import (
+    BROKEN_HOST_COMMANDS,
     CLI_BENCH_CONFIG_FILE_NAME,
     CLI_BENCHES_DIRECTORY,
     CLI_DIR,
     CLI_FM_CONFIG_PATH,
     DEFAULT_EXTENSIONS,
-    DOCKER_FREE_COMMANDS,
     MIGRATION_COMMANDS,
     OBSERVE_ONLY_COMMANDS,
     STABLE_APP_BRANCH_MAPPING_LIST,
@@ -276,6 +277,44 @@ app.add_typer(
 )
 
 
+# fm's own global options. `--log-level` is the only one that consumes a following value, so it
+# is the only one that can push a command word out of position.
+_GLOBAL_VALUE_FLAGS = {"--log-level"}
+
+
+def command_argv() -> "builtins.list[str]":
+    """The command words in sys.argv, with fm's global flags removed.
+
+    `fm --json ssl ca status` has to resolve to the same command as `fm ssl ca status`: every
+    gate here is keyed by command name, and a positional slice of argv silently shifts by one
+    for each global flag, quietly re-arming the gate the command was exempted from.
+
+    Return type is spelled `builtins.list` because `list` is shadowed in this module by the
+    `fm list` command submodule.
+    """
+    words: "builtins.list[str]" = []
+    args = sys.argv[1:]
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg.startswith("-"):
+            index += 2 if arg in _GLOBAL_VALUE_FLAGS else 1
+            continue
+        words.append(arg)
+        index += 1
+    return words
+
+
+def _is_broken_host_command() -> bool:
+    """Whether the command being run is one that must survive a broken host.
+
+    Resolved before typer has parsed anything, because the gates that ask this run in the
+    callback's first lines -- so it reads the command words, and a global flag before the
+    command cannot shift the answer.
+    """
+    return " ".join(command_argv()[:2]) in BROKEN_HOST_COMMANDS
+
+
 @app.callback()
 def app_callback(
     ctx: typer.Context,
@@ -373,7 +412,7 @@ def app_callback(
             except Exception as e:
                 # A config fm cannot parse must not trap the commands that exist to clean up after
                 # it. Every other command needs the config to do its job and still fails loudly.
-                if sys.argv[1:3] not in DOCKER_FREE_COMMANDS:
+                if not _is_broken_host_command():
                     raise
                 output.warning(f"fm_config.toml could not be read ({e}); continuing with defaults.")
                 fm_config_manager = FMConfigManager.defaults()
@@ -403,9 +442,7 @@ def app_callback(
             # exactly where fm's leftovers would otherwise be permanent: `ssl ca` only ever touches
             # host trust stores, and `self uninstall` reports the docker half as un-removable and
             # still deletes the files and the CA.
-            # `sys.argv[1:3]` is already a list: never call list() in this module, where the name
-            # is shadowed by the `fm list` command submodule.
-            if sys.argv[1:3] not in DOCKER_FREE_COMMANDS and not DockerClient().server_running():
+            if not _is_broken_host_command() and not DockerClient().server_running():
                 output.exit("Docker daemon not running. Please start docker service")
 
             invoked_command = ctx.invoked_subcommand or "no-command"
@@ -418,7 +455,7 @@ def app_callback(
             # paid on every job. The teardown commands are exempt for a sharper reason: after a
             # successful uninstall there is no fm_config.toml, so running one again would read as
             # a first install and PULL the entire stack on the way to removing it.
-            first_install = not CLI_FM_CONFIG_PATH.exists() and sys.argv[1:3] not in DOCKER_FREE_COMMANDS
+            first_install = not CLI_FM_CONFIG_PATH.exists() and not _is_broken_host_command()
             if first_install and invoked_command not in STOCK_IMAGE_PREFETCH_SKIP_COMMANDS:
                 output.print("First installation detected. Pulling docker images...️", "🔍")
 
@@ -441,30 +478,32 @@ def app_callback(
 
             def get_full_command_path() -> str:
                 """
-                Build full command path from sys.argv for multi-level commands.
+                Build full command path from the command words for multi-level commands.
 
                 Multi-level commands (self, ssl, services, apps, domain, tools) have subcommands and return paths like "ssl add".
                 Single-level commands take arguments (start, stop, create) and return just the base command.
-                Stops parsing at flags (--) or path-like arguments (/ or ~). Limits depth to 2 levels max.
+                Stops at path-like arguments (/ or ~). Limits depth to 2 levels max.
+
+                Reads `command_argv()`, not sys.argv: a global flag such as `--json` sits BEFORE
+                the command, and slicing raw argv resolved `fm --json ssl ca status` to "ssl",
+                silently missing every whitelist keyed on the full path.
                 """
                 # Commands that have subcommands (multi-level structure)
                 MULTI_LEVEL_COMMANDS = {"self", "ssl", "services", "apps", "domain", "tools"}
 
-                if len(sys.argv) < 2:
+                words = command_argv()
+                if not words:
                     return invoked_command
 
-                first_command = sys.argv[1] if len(sys.argv) > 1 else invoked_command
+                first_command = words[0]
 
                 # If it's not a multi-level command, return just the first command
                 if first_command not in MULTI_LEVEL_COMMANDS:
-                    return first_command if not first_command.startswith("-") else invoked_command
+                    return first_command
 
                 # For multi-level commands, build the full path (max 2 levels)
                 command_parts = []
-                for arg in sys.argv[1:]:
-                    # Stop at flags
-                    if arg.startswith("-"):
-                        break
+                for arg in words:
                     # Stop at paths (likely bench names like /path or ~/path)
                     if arg.startswith("/") or arg.startswith("~"):
                         break
@@ -626,7 +665,7 @@ def app_callback(
             # alone starting) the shared stack on the way to tearing it down would resurrect the
             # very services being removed, and on a never-created host it would build them from
             # scratch just to delete them.
-            if invoked_command != "bake" and full_command not in ("ssl ca", "self uninstall"):
+            if invoked_command != "bake" and full_command not in BROKEN_HOST_COMMANDS:
                 try:
                     services_manager.entrypoint_checks(start=invoked_command != "migrate")
                 except ServicesNotCreated as e:
@@ -641,21 +680,19 @@ from frappe_manager.commands.auth import auth
 from frappe_manager.commands.bake import bake
 from frappe_manager.commands.code import code
 from frappe_manager.commands.compose import compose
-
 from frappe_manager.commands.create import create
 from frappe_manager.commands.delete import delete
 from frappe_manager.commands.deploy import switch
-from frappe_manager.commands.prune import prune
 from frappe_manager.commands.info import info
 from frappe_manager.commands.list import list as list_benches
 from frappe_manager.commands.logs import logs
+from frappe_manager.commands.maintenance import maintenance
 from frappe_manager.commands.migrate import migrate
 from frappe_manager.commands.ngrok import ngrok
+from frappe_manager.commands.prune import prune
 from frappe_manager.commands.reset import reset
 from frappe_manager.commands.restart import restart
-from frappe_manager.commands.maintenance import maintenance
 from frappe_manager.commands.shell import shell
-
 from frappe_manager.commands.start import start
 from frappe_manager.commands.stop import stop
 from frappe_manager.commands.update import update

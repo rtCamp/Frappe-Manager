@@ -74,11 +74,12 @@ MARIADB_IMAGE = "mariadb:11.8"
 # FROM. On a CI runner that prefetch is a per-job tax for images the job never runs.
 STOCK_IMAGE_PREFETCH_SKIP_COMMANDS: frozenset[str] = frozenset({"bake"})
 
-# Commands allowed to run with no docker daemon, matched against sys.argv[1:3]. A teardown is
-# the one job that must still work after docker has been removed from the host: `fm ssl ca`
-# only touches trust stores, and `fm self uninstall` reports its docker half as un-removable
-# and still deletes the filesystem tree and the CA. Everything else genuinely needs the daemon.
-DOCKER_FREE_COMMANDS: tuple[list[str], ...] = (["ssl", "ca"], ["self", "uninstall"])
+# Commands that must keep working on a BROKEN host, keyed by full command path. A teardown is
+# the one job whose preconditions are the very things it removes, so these three gates all read
+# this one set: no docker daemon, a pending migration, and an unparseable fm_config.toml. The
+# rule is narrow on purpose -- a command earns a place here only by being how you get fm off a
+# machine, never merely by being read-only.
+BROKEN_HOST_COMMANDS: frozenset[str] = frozenset({"ssl ca", "self uninstall"})
 
 # Commands that only OBSERVE fm's state: they read configs and container states and
 # mutate nothing. Two behaviors key off this set, and they must stay a pair:
