@@ -12,7 +12,6 @@ import typer
 from typer_examples import install
 
 from frappe_manager import (
-    BROKEN_HOST_COMMANDS,
     CLI_BENCH_CONFIG_FILE_NAME,
     CLI_BENCHES_DIRECTORY,
     CLI_DIR,
@@ -24,6 +23,7 @@ from frappe_manager import (
     STOCK_IMAGE_PREFETCH_SKIP_COMMANDS,
     EnableDisableOptionsEnum,
 )
+from frappe_manager.commands.gating import FMGroup, command_args, command_path, tolerates_broken_host
 from frappe_manager.commands.self import self_app
 from frappe_manager.commands.services import services_app
 from frappe_manager.commands.ssl import ssl_app
@@ -71,33 +71,24 @@ def get_bench_arg_from_context(ctx: typer.Context) -> str | None:
 
     Only useful on a *subcommand* context. On the group context built for ``app_callback``
     Click populates ``ctx.params`` with the group's own options only, so this returns None
-    there and the caller falls back to :func:`get_bench_arg_from_argv`.
+    there and the caller falls back to :func:`get_bench_arg_from_args`.
     """
     return ctx.params.get("benchname") or ctx.params.get("sitename") or ctx.params.get("bench_name")
 
 
-def get_bench_arg_from_argv(command_path: str) -> str | None:
+def get_bench_arg_from_args(args: "builtins.list[str]") -> str | None:
+    """The bench/site name among a command's own arguments.
+
+    ``app_callback`` is a group callback: Click resolves the subcommand and builds its context
+    only after the callback returns, so the subcommand's ``benchname`` parameter does not exist
+    yet. ``args`` is what the root group recorded (:func:`gating.command_args`) -- everything
+    after the resolved command, with fm's global options already parsed off by Click.
+
+    The first token wins unless it is a flag or a filesystem path. Anything more clever would
+    need the subcommand's own parser; a missed name only means the callback gate stays quiet,
+    because every bench command still re-checks via ``check_bench_migration_required``.
     """
-    Extract the bench/site name from ``sys.argv``.
-
-    ``app_callback`` is a group callback: Click clears ``ctx.args`` and resolves the subcommand
-    *after* the callback returns, so the subcommand's ``benchname`` argument is not reachable
-    from the context. ``sys.argv`` is the only place it exists at that point -- the same source
-    ``get_full_command_path()`` already parses.
-
-    ``command_path`` is that resolved path ("start", "ssl add"): its tokens are consumed first
-    (skipping any global flags typed before them), and the next token is the bench argument
-    unless it is a flag or a filesystem path. Anything more clever would need the subcommand's
-    own parser, which does not exist yet here; a missed name only means the callback gate stays
-    quiet, because every bench command still re-checks via ``check_bench_migration_required``.
-    """
-    pending = command_path.split()
-
-    for token in sys.argv[1:]:
-        if pending:
-            if token == pending[0]:
-                pending.pop(0)
-            continue
+    for token in args:
         if token.startswith(("-", "/", "~")):
             break
         # The bench half only: this feeds `CLI_BENCHES_DIRECTORY / bench_arg` below, and a
@@ -234,7 +225,7 @@ def _prompt_and_run_migration(
     raise typer.Exit(1)
 
 
-app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
+app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich", cls=FMGroup)
 install(app)
 
 # Rich help panels for `fm --help`, grouped by the shape of the address the command takes (see
@@ -276,43 +267,6 @@ app.add_typer(
     rich_help_panel=_PANEL_SITE,
 )
 
-
-# fm's own global options. `--log-level` is the only one that consumes a following value, so it
-# is the only one that can push a command word out of position.
-_GLOBAL_VALUE_FLAGS = {"--log-level"}
-
-
-def command_argv() -> "builtins.list[str]":
-    """The command words in sys.argv, with fm's global flags removed.
-
-    `fm --json ssl ca status` has to resolve to the same command as `fm ssl ca status`: every
-    gate here is keyed by command name, and a positional slice of argv silently shifts by one
-    for each global flag, quietly re-arming the gate the command was exempted from.
-
-    Return type is spelled `builtins.list` because `list` is shadowed in this module by the
-    `fm list` command submodule.
-    """
-    words: "builtins.list[str]" = []
-    args = sys.argv[1:]
-    index = 0
-    while index < len(args):
-        arg = args[index]
-        if arg.startswith("-"):
-            index += 2 if arg in _GLOBAL_VALUE_FLAGS else 1
-            continue
-        words.append(arg)
-        index += 1
-    return words
-
-
-def _is_broken_host_command() -> bool:
-    """Whether the command being run is one that must survive a broken host.
-
-    Resolved before typer has parsed anything, because the gates that ask this run in the
-    callback's first lines -- so it reads the command words, and a global flag before the
-    command cannot shift the answer.
-    """
-    return " ".join(command_argv()[:2]) in BROKEN_HOST_COMMANDS
 
 
 @app.callback()
@@ -412,7 +366,7 @@ def app_callback(
             except Exception as e:
                 # A config fm cannot parse must not trap the commands that exist to clean up after
                 # it. Every other command needs the config to do its job and still fails loudly.
-                if not _is_broken_host_command():
+                if not tolerates_broken_host(ctx):
                     raise
                 output.warning(f"fm_config.toml could not be read ({e}); continuing with defaults.")
                 fm_config_manager = FMConfigManager.defaults()
@@ -442,7 +396,7 @@ def app_callback(
             # exactly where fm's leftovers would otherwise be permanent: `ssl ca` only ever touches
             # host trust stores, and `self uninstall` reports the docker half as un-removable and
             # still deletes the files and the CA.
-            if not _is_broken_host_command() and not DockerClient().server_running():
+            if not tolerates_broken_host(ctx) and not DockerClient().server_running():
                 output.exit("Docker daemon not running. Please start docker service")
 
             invoked_command = ctx.invoked_subcommand or "no-command"
@@ -455,7 +409,7 @@ def app_callback(
             # paid on every job. The teardown commands are exempt for a sharper reason: after a
             # successful uninstall there is no fm_config.toml, so running one again would read as
             # a first install and PULL the entire stack on the way to removing it.
-            first_install = not CLI_FM_CONFIG_PATH.exists() and not _is_broken_host_command()
+            first_install = not CLI_FM_CONFIG_PATH.exists() and not tolerates_broken_host(ctx)
             if first_install and invoked_command not in STOCK_IMAGE_PREFETCH_SKIP_COMMANDS:
                 output.print("First installation detected. Pulling docker images...️", "🔍")
 
@@ -476,54 +430,18 @@ def app_callback(
                 MIGRATION_CHECK_WHITELIST_COMMANDS,
             )
 
-            def get_full_command_path() -> str:
-                """
-                Build full command path from the command words for multi-level commands.
-
-                Multi-level commands (self, ssl, services, apps, domain, tools) have subcommands and return paths like "ssl add".
-                Single-level commands take arguments (start, stop, create) and return just the base command.
-                Stops at path-like arguments (/ or ~). Limits depth to 2 levels max.
-
-                Reads `command_argv()`, not sys.argv: a global flag such as `--json` sits BEFORE
-                the command, and slicing raw argv resolved `fm --json ssl ca status` to "ssl",
-                silently missing every whitelist keyed on the full path.
-                """
-                # Commands that have subcommands (multi-level structure)
-                MULTI_LEVEL_COMMANDS = {"self", "ssl", "services", "apps", "domain", "tools"}
-
-                words = command_argv()
-                if not words:
-                    return invoked_command
-
-                first_command = words[0]
-
-                # If it's not a multi-level command, return just the first command
-                if first_command not in MULTI_LEVEL_COMMANDS:
-                    return first_command
-
-                # For multi-level commands, build the full path (max 2 levels)
-                command_parts = []
-                for arg in words:
-                    # Stop at paths (likely bench names like /path or ~/path)
-                    if arg.startswith("/") or arg.startswith("~"):
-                        break
-                    # Limit to max 2 command levels (e.g., "self update-images")
-                    if len(command_parts) >= 2:
-                        break
-
-                    command_parts.append(arg)
-
-                return " ".join(command_parts) if command_parts else invoked_command
-
-            full_command = get_full_command_path()
+            # The command click resolved, as a full path ("start", "ssl add", "ssl ca status"),
+            # recorded by the root group before this callback ran. Every whitelist below is keyed
+            # by it.
+            full_command = command_path(ctx) or invoked_command
 
             commands_skip_migration_check = MIGRATION_CHECK_WHITELIST_COMMANDS
 
             commands_skip_bench_migration = ["stop", "delete"] + MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS
 
             # Get bench argument if present. The group context never carries the subcommand's
-            # benchname, so sys.argv is what actually resolves it here.
-            bench_arg = get_bench_arg_from_context(ctx) or get_bench_arg_from_argv(full_command)
+            # benchname, so the command's own arguments are what resolve it here.
+            bench_arg = get_bench_arg_from_context(ctx) or get_bench_arg_from_args(command_args(ctx))
             bench_path = CLI_BENCHES_DIRECTORY / bench_arg if bench_arg else None
 
             global_services_version = fm_config_manager.get_system_migration_version()
@@ -543,7 +461,9 @@ def app_callback(
                     bench_version = get_bench_migration_version(bench_path)
 
             should_check_migration = (
-                invoked_command not in commands_skip_migration_check
+                # A teardown never has to migrate the state it is about to delete.
+                not tolerates_broken_host(ctx)
+                and invoked_command not in commands_skip_migration_check
                 and full_command not in commands_skip_migration_check
             )
 
@@ -665,7 +585,7 @@ def app_callback(
             # alone starting) the shared stack on the way to tearing it down would resurrect the
             # very services being removed, and on a never-created host it would build them from
             # scratch just to delete them.
-            if invoked_command != "bake" and full_command not in BROKEN_HOST_COMMANDS:
+            if invoked_command != "bake" and not tolerates_broken_host(ctx):
                 try:
                     services_manager.entrypoint_checks(start=invoked_command != "migrate")
                 except ServicesNotCreated as e:
@@ -733,6 +653,6 @@ __all__ = [
     "app",
     "app_callback",
     "check_bench_migration_required",
-    "get_bench_arg_from_argv",
+    "get_bench_arg_from_args",
     "get_bench_arg_from_context",
 ]
