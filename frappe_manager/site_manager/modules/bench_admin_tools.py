@@ -17,7 +17,12 @@ from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, AdminToolsFailedToStop, BenchException
+from frappe_manager.site_manager.exceptions import (
+    AdminToolsFailedToStart,
+    AdminToolsFailedToStop,
+    AdminToolsProbeUnavailable,
+    BenchException,
+)
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version, get_template_path
 from frappe_manager.utils.site import host_bench_dir
 
@@ -241,34 +246,58 @@ class BenchAdminTools:
         config_path.write_text(json.dumps(config))
 
     def wait_till_services_started(self, interval=2, timeout=30):
-        """
-        Wait for admin tools services to start by checking their HTTP ports directly.
+        """Wait until each admin tool answers THROUGH the bench nginx.
 
-        Uses the admin-tools compose file to exec into each service container
-        and check its port, avoiding dependency on the bench nginx (which may
-        be crash-looping if frappe isn't ready yet).
+        The probe runs from inside nginx on purpose. Admin tools are never reached directly: every
+        request goes browser -> bench nginx -> `fm__<bench>__<tool>` (see
+        templates/admin-tools-location.tmpl), so a check from inside the tool's own container
+        ("is something bound on my localhost?") can pass while the feature is broken -- a tool off
+        the bench network, or a wrong container alias, both answer themselves happily and 502 a
+        user. A probe that passes while the feature is broken is worse than one that fails while
+        it works.
+
+        The price of probing through nginx is that a dead nginx makes every exec fail, and fm used
+        to report that as "Failed to start admin tools" while `docker ps` showed the tools healthy,
+        sending the operator after the wrong component (rtCamp/Frappe-Manager#481). Hence the
+        explicit nginx check first: it is a different failure and it says so.
         """
+        if not self._bench_nginx_running():
+            raise AdminToolsProbeUnavailable(self.bench_name)
+
         admin_tools_services = [
             ("mailpit", "8025"),
             ("adminer", "8080"),
         ]
+        prefix = get_container_name_prefix(self.bench_name) + CLI_DEFAULT_DELIMETER
 
         for tool_name, tool_port in admin_tools_services:
+            last_error: DockerException | None = None
             running = False
             for _ in range(timeout):
                 try:
-                    self.docker_client.compose.exec(
-                        service=tool_name,
-                        command=f"timeout {interval} nc -z localhost {tool_port}",
+                    self.bench.docker_client.compose.exec(
+                        service="nginx",
+                        command=f"wait-for-it -t {interval} {prefix}{tool_name}:{tool_port}",
                         stream=False,
                     )
                     running = True
                     break
-                except DockerException:
-                    continue
+                except DockerException as e:
+                    # Kept, not discarded: "the exec could not run" and "the port refused" are
+                    # different failures that reach here identically. `enable()` already raises
+                    # `from e` for exactly this reason.
+                    last_error = e
 
             if not running:
-                raise AdminToolsFailedToStart(self.bench_name)
+                raise AdminToolsFailedToStart(
+                    self.bench_name,
+                    compose_path=self.compose_path,
+                    services=[tool_name],
+                ) from last_error
+
+    def _bench_nginx_running(self) -> bool:
+        """Whether the bench nginx, the only path to the admin tools, is up."""
+        return self.bench.docker_ops.get_services_running_status().get("nginx") == "running"
 
     def enable(self, force_recreate_container: bool = False, force_configure: bool = False):
         """Enable admin tools by starting services."""
