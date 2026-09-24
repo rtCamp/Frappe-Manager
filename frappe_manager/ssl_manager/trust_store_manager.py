@@ -7,14 +7,59 @@ Handles macOS (login keychain), Linux (system CA store), and Firefox/Chrome NSS 
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 
+# Store labels. Shared by the probes, the removal dispatch and the rendered plan, so a label can
+# never drift out of the branch that acts on it.
+MACOS_STORE = "macOS login keychain"
+ARCH_STORE = "Arch trust anchors"
+NSS_STORE = "NSS database (Firefox/Chrome)"
+
+
+# Where each Linux flavour's CA store keeps fm's anchor. install() writes ONE of these (first
+# tool found wins); find/remove check ALL of them, because a host that changed distro tooling,
+# or was installed to by an older fm, can hold the anchor in a store the current install() would
+# never pick. Removal must be wider than installation or it leaves a trusted CA behind.
+LINUX_CA_FILENAME = "fm-dev-ca.crt"
+LINUX_CA_STORES: tuple[tuple[Path, str, list[str]], ...] = (
+    (Path("/usr/local/share/ca-certificates") / LINUX_CA_FILENAME, "Debian/Ubuntu CA store", ["update-ca-certificates"]),
+    (
+        Path("/etc/pki/ca-trust/source/anchors") / LINUX_CA_FILENAME,
+        "RHEL/Fedora CA store",
+        ["update-ca-trust", "extract"],
+    ),
+)
+
+
+def display_path(path: Path) -> str:
+    """`location` is shown in a terminal next to a padded store label; an absolute home path
+    pushes the line past 80 columns and rich then breaks it mid-path."""
+    home = str(Path.home())
+    text = str(path)
+    return f"~{text[len(home) :]}" if text.startswith(home) else text
+
+
+@dataclass(frozen=True)
+class TrustStoreEntry:
+    """One place on this host that currently trusts fm's dev CA.
+
+    `location` is for humans; `key` is what removal acts on (a certificate hash, an anchor file,
+    an NSS database path). They are separate so the displayed string can be made readable without
+    removal having to parse it back.
+    """
+
+    store: str
+    location: str
+    key: str = ""
+    privileged: bool = False
+
 
 class TrustStoreManager:
-    """Installs a local CA certificate into the host OS and browser trust stores."""
+    """Installs and removes a local CA certificate in the host OS and browser trust stores."""
 
     CA_NAME = "Frappe Manager Dev CA"
 
@@ -186,6 +231,28 @@ class TrustStoreManager:
 
         self.output.debug("CA installed into Linux system trust store")
 
+    def _nss_databases(self) -> list[Path]:
+        """Every NSS database on this host fm may have installed into.
+
+        Shared by install, find and remove so a database that install() could reach can never be
+        one that remove() silently skips.
+        """
+        nss_paths: list[Path] = []
+
+        ff_mac = Path.home() / "Library" / "Application Support" / "Firefox" / "Profiles"
+        if ff_mac.exists():
+            nss_paths.extend(ff_mac.glob("*.default*"))
+
+        ff_linux = Path.home() / ".mozilla" / "firefox"
+        if ff_linux.exists():
+            nss_paths.extend(ff_linux.glob("*.default*"))
+
+        chrome_nss = Path.home() / ".pki" / "nssdb"
+        if chrome_nss.exists():
+            nss_paths.append(chrome_nss)
+
+        return nss_paths
+
     def _install_nss(self, ca_cert_path: Path) -> None:
         """Best-effort installation into NSS databases (Firefox, Chrome on Linux)."""
         certutil = shutil.which("certutil")
@@ -193,22 +260,7 @@ class TrustStoreManager:
             self.output.debug("certutil not found, skipping NSS trust store installation")
             return
 
-        nss_paths: list[Path] = []
-
-        # Firefox profiles — macOS
-        ff_mac = Path.home() / "Library" / "Application Support" / "Firefox" / "Profiles"
-        if ff_mac.exists():
-            nss_paths.extend(ff_mac.glob("*.default*"))
-
-        # Firefox profiles — Linux
-        ff_linux = Path.home() / ".mozilla" / "firefox"
-        if ff_linux.exists():
-            nss_paths.extend(ff_linux.glob("*.default*"))
-
-        # Chrome/Chromium NSS DB — Linux
-        chrome_nss = Path.home() / ".pki" / "nssdb"
-        if chrome_nss.exists():
-            nss_paths.append(chrome_nss)
+        nss_paths = self._nss_databases()
 
         for nss_db in nss_paths:
             result = subprocess.run(  # noqa: S603
@@ -232,3 +284,177 @@ class TrustStoreManager:
                 self.output.debug(f"CA installed into NSS database: {nss_db}")
             else:
                 self.output.debug(f"NSS install skipped for {nss_db}: {result.stderr.strip()}")
+
+    # ---- removal -----------------------------------------------------------------------
+    #
+    # None of this can key off the `.installed` sentinel next to the CA: that file records only
+    # that ONE install once succeeded, never where, and it is gone the moment the services dir
+    # is deleted -- which is exactly the state a user is in when they want the CA gone. Every
+    # probe below asks the store itself.
+
+    def _macos_hashes(self) -> list[str]:
+        """SHA-256 hashes of every copy of fm's CA in the login keychain.
+
+        `-a` because a regenerated CA installs a SECOND certificate under the same name, and
+        deleting one would leave the other trusted. Delete by hash, not by `-c`: `-c` matches any
+        substring of a common name, so it could take a certificate that merely contains ours.
+        """
+        keychain = Path.home() / "Library" / "Keychains" / "login.keychain-db"
+        if not keychain.exists():
+            return []
+
+        result = subprocess.run(  # noqa: S603
+            ["security", "find-certificate", "-a", "-c", self.CA_NAME, "-Z", str(keychain)],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return []
+
+        return [
+            line.split(":", 1)[1].strip()
+            for line in result.stdout.splitlines()
+            if line.startswith("SHA-256 hash:")
+        ]
+
+    def _nss_databases_with_ca(self) -> list[Path]:
+        certutil = shutil.which("certutil")
+        if not certutil:
+            return []
+
+        found = []
+        for nss_db in self._nss_databases():
+            result = subprocess.run(  # noqa: S603
+                [certutil, "-L", "-d", f"sql:{nss_db}", "-n", self.CA_NAME],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0:
+                found.append(nss_db)
+        return found
+
+    def find(self) -> list[TrustStoreEntry]:
+        """Every store on this host that trusts fm's dev CA right now, asked of the stores."""
+        entries: list[TrustStoreEntry] = []
+
+        if sys.platform == "darwin":
+            keychain = Path.home() / "Library" / "Keychains" / "login.keychain-db"
+            for digest in self._macos_hashes():
+                entries.append(TrustStoreEntry(store=MACOS_STORE, location=display_path(keychain), key=digest))
+
+        if sys.platform.startswith("linux"):
+            for dest, label, _ in LINUX_CA_STORES:
+                if dest.exists():
+                    entries.append(TrustStoreEntry(store=label, location=str(dest), key=str(dest), privileged=True))
+            if self._arch_anchor_present():
+                entries.append(
+                    TrustStoreEntry(
+                        store=ARCH_STORE,
+                        location=f"trust anchor '{self.CA_NAME}'",
+                        privileged=True,
+                    )
+                )
+
+        for nss_db in self._nss_databases_with_ca():
+            entries.append(TrustStoreEntry(store=NSS_STORE, location=display_path(nss_db), key=str(nss_db)))
+
+        return entries
+
+    def _arch_anchor_present(self) -> bool:
+        if not shutil.which("trust"):
+            return False
+        result = subprocess.run(  # noqa: S603
+            ["trust", "list", "--filter=ca-anchors"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return result.returncode == 0 and self.CA_NAME in result.stdout
+
+    def uninstall(self) -> tuple[list[TrustStoreEntry], list[str]]:
+        """Remove fm's dev CA from every store that has it. Returns (removed, failures).
+
+        Best-effort per store, like install: one store refusing (no sudo, a locked keychain)
+        must not leave the others trusted. Failures are returned, never raised, so the caller
+        can name exactly what is still trusted and exit non-zero.
+        """
+        removed: list[TrustStoreEntry] = []
+        failures: list[str] = []
+
+        for entry in self.find():
+            try:
+                self._remove_entry(entry)
+                removed.append(entry)
+            except RuntimeError as e:
+                failures.append(f"{entry.store}: {e}")
+
+        return removed, failures
+
+    def _remove_entry(self, entry: TrustStoreEntry) -> None:
+        if entry.store == MACOS_STORE:
+            self._remove_macos(entry.key)
+        elif entry.store == ARCH_STORE:
+            self._remove_arch()
+        elif entry.store == NSS_STORE:
+            self._remove_nss(Path(entry.key))
+        else:
+            self._remove_linux_file(Path(entry.key))
+
+    def _remove_macos(self, digest: str) -> None:
+        keychain = Path.home() / "Library" / "Keychains" / "login.keychain-db"
+        result = subprocess.run(  # noqa: S603
+            # -t also drops the user trust setting: deleting the certificate alone would leave a
+            # dangling "always trust" entry that re-applies if the same CA is ever re-imported.
+            ["security", "delete-certificate", "-Z", digest, "-t", str(keychain)],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or f"security delete-certificate exited {result.returncode}")
+
+    def _remove_linux_file(self, dest: Path) -> None:
+        refresh = next((cmd for path, _, cmd in LINUX_CA_STORES if path == dest), None)
+        if refresh is None:
+            raise RuntimeError(f"unknown CA store location {dest}")
+
+        result = subprocess.run(  # noqa: S603
+            ["sudo", "rm", "-f", str(dest)],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "could not remove the anchor file")
+
+        # The file is already gone; a failing refresh leaves the OS bundle still containing the
+        # CA, so it is a real failure and must be reported as one.
+        result = subprocess.run(["sudo", *refresh], capture_output=True, text=True, check=False)  # noqa: S603
+        if result.returncode != 0:
+            raise RuntimeError(f"{' '.join(refresh)} failed: {result.stderr.strip()}")
+
+    def _remove_arch(self) -> None:
+        result = subprocess.run(  # noqa: S603
+            ["sudo", "trust", "anchor", "--remove", self.CA_NAME],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "trust anchor --remove failed")
+
+    def _remove_nss(self, nss_db: Path) -> None:
+        certutil = shutil.which("certutil")
+        if not certutil:
+            raise RuntimeError("certutil is not installed")
+
+        result = subprocess.run(  # noqa: S603
+            [certutil, "-D", "-d", f"sql:{nss_db}", "-n", self.CA_NAME],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or f"certutil -D exited {result.returncode}")

@@ -340,7 +340,7 @@ Manage SSL certificates and HTTPS.
 ### :material-certificate: [`fm ssl`](ssl.md) {.command-heading}
 **Manage SSL certificates**
 
-Add, remove, renew, and list SSL certificates using Let's Encrypt (HTTP-01 or DNS-01 challenges), or by importing your own certificate with `--custom`. `fm ssl acme-sh` runs the bundled acme.sh directly against fm's certificate home, for inspection and recovery. DNS-01 needs provider credentials first, set with [`fm ssl dns-config cloudflare`](ssl-dns-config-cloudflare.md) (`--api-token`, `--api-key`, `--email`, `--name`, `--show`, `--remove`).
+Add, remove, renew, and list SSL certificates using Let's Encrypt (HTTP-01 or DNS-01 challenges), or by importing your own certificate with `--custom`. `fm ssl acme-sh` runs the bundled acme.sh directly against fm's certificate home, for inspection and recovery. DNS-01 needs provider credentials first, set with [`fm ssl dns-config cloudflare`](ssl-dns-config-cloudflare.md) (`--api-token`, `--api-key`, `--email`, `--name`, `--show`, `--remove`). `fm ssl ca` manages the dev CA fm installs into this host's trust stores for `.localhost` HTTPS: `status` asks each store directly, `install` puts the CA back when one attempt did not stick (a declined sudo prompt, a browser profile created later), and `remove` takes it out again. This group needs neither docker nor a migrated install, because removing a root CA has to work on a host fm is leaving.
 
 ```bash
 fm ssl add mybench/example.com
@@ -351,6 +351,9 @@ fm ssl renew mybench/example.com
 fm ssl list mybench
 fm ssl dns-config cloudflare --api-token YOUR_TOKEN
 fm ssl acme-sh --list
+fm ssl ca status
+fm ssl ca install
+fm ssl ca remove
 ```
 
 ---
@@ -392,12 +395,15 @@ fm migrate all
 ### :material-wrench: [`fm self`](self.md) {.command-heading}
 **Manage the tool itself**
 
-Update `fm`, pull latest Docker images, or stop everything FM manages.
+Update `fm`, pull latest Docker images, stop everything fm manages, or remove fm from the host entirely. `fm self uninstall` is plan-first and destroys every bench and every database in fm's own mariadb; it never touches a schema on a database server fm does not own, never removes public base images (mariadb, redis, nginx-proxy, mailpit, adminer), and leaves the `fm` package itself for you to remove with the command it prints. Narrow it with `--only benches|services|host|trust`.
 
 ```bash
 fm self upgrade
 fm self update-images
 fm self stop
+fm self uninstall --dry-run
+fm self uninstall
+fm self uninstall --only benches
 ```
 
 ---

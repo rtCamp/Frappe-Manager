@@ -40,6 +40,8 @@ This is the 1.0.0 cycle. Versions 0.20.0 and 0.21.0 were never published: their 
 - **deploy:** `on_rollback` is generalized into a terminal `after_switch` hook that runs on every outcome, with `DEPLOY_OUTCOME` and `ROLLBACK_REASON` in its environment, enough to drive an external-database rollback such as an RDS snapshot restore
 - **create:** `fm create --remove-on-failure` cleans up the half-built bench instead of leaving it behind
 - **config:** The annotated example configs are generated from the pydantic models, so they cannot drift from the fields they document
+- **uninstall:** `fm self uninstall` removes everything fm put on a host: benches, the shared services, `~/frappe`, `~/.cache/fm`, and the dev CA it installed into the system trust stores. Plan-first, with a typed confirmation and `--only benches|services|host|trust` to narrow it. Public base images (mariadb, redis, nginx-proxy, mailpit, adminer) are never removed, since the host may be using them for something else; `--images` removes fm's own. A schema on a database server fm does not own is never touched, and the `fm` package itself is left to the command fm prints
+- **ssl:** `fm ssl ca status|install|remove` manages the dev CA's host trust. Until now fm could install a root CA into the macOS keychain, the Linux system CA store and the browsers' NSS databases, and had no way to remove it or even to report where it was: uninstalling fm left a trusted CA behind forever. `status` asks each store directly rather than trusting the `.installed` marker, so a CA fm believes it installed but no store actually holds is visible and fixable. Neither docker nor a migrated install is required, because removing a root CA has to work on a host fm is leaving
 
 ### Bug Fixes
 

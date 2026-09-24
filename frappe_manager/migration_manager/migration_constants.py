@@ -26,6 +26,13 @@ MIGRATION_CHECK_WHITELIST_COMMANDS: list[str] = [
     # the migrations manage.
     "prune",
     "services prune",
+    # Removing a root CA fm installed into this host's trust stores must never be blocked by a
+    # pending migration: the CA outlives fm's own state, and a host that is being decommissioned
+    # is precisely the one that will not be migrated first.
+    "ssl ca",
+    # Removing fm from a host must never require migrating it first: the state is being deleted,
+    # and a migration failure would strand exactly the install the operator is trying to be rid of.
+    "self uninstall",
 ]
 
 MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS: list[str] = ["maintenance"]

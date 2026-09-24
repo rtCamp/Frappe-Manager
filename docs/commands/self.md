@@ -17,6 +17,7 @@ $ fm self [OPTIONS] COMMAND [ARGS]...
 * `upgrade`: Upgrade fm to the latest release published on PyPI.
 * `update-images`: Pull the docker images fm's stack runs on.
 * `stop`: Stop every bench on this host, then the global services (nginx-proxy, mariadb).
+* `uninstall`: Remove everything fm put on this host: benches, shared services, its directory, and its dev CA.
 
 
 ### `fm self upgrade`
@@ -108,5 +109,59 @@ fm self stop --global-only
 
 ```bash
 fm self stop --benches-only
+```
+
+
+### `fm self uninstall`
+
+Remove everything fm put on this host: benches, shared services, its directory, and its dev CA.
+
+This destroys every bench and every database in fm's own mariadb, with no undo and no backup taken. A schema on a database server fm does not own is never touched. Narrow the blast radius with --only: 'benches' wipes the benches and leaves the shared services and fm's config, which is the closest thing to a fresh start that keeps the host set up.
+
+Plan-first: every container, path, image and trust store is listed before anything happens, then one confirmation covers it; --dry-run stops after the plan. Public base images (mariadb, redis, nginx-proxy, mailpit, adminer) are never removed, because this host may be using them for something else; --images removes fm's own.
+
+fm's own package is not uninstalled here: the command to do that is printed at the end, because a running process cannot reliably delete the environment it is executing from.
+
+**Usage**:
+
+```console
+$ fm self uninstall [OPTIONS]
+```
+
+**Options**:
+
+* `--only`: Act on this tier only (repeatable): benches, services, host, trust. Default: all four.
+* `--images`: Also remove fm's own docker images (ghcr.io/rtcamp/frappe-manager-*).
+* `--keep-backups`: Leave ~/frappe/backups on disk.
+* `-y, --yes`: Uninstall without asking, including the typed confirmation.
+* `--dry-run`: Print the plan and exit without removing anything; never prompts.
+
+
+## Examples
+
+### See everything that would be removed, change nothing
+
+```bash
+fm self uninstall --dry-run
+```
+
+### Remove every trace of fm from this host
+
+Prints the full plan, then asks for the word 'uninstall' typed back.
+
+```bash
+fm self uninstall
+```
+
+### Also remove fm's own docker images
+
+```bash
+fm self uninstall --images
+```
+
+### Reset the benches only, keep the shared services and fm's config
+
+```bash
+fm self uninstall --only benches
 ```
 

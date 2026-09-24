@@ -302,6 +302,16 @@ class FMConfigManager(BaseModel):
             raise RuntimeError(f"Failed to write FM config to {path}: {e}") from e
 
     @classmethod
+    def defaults(cls, path: Path = CLI_FM_CONFIG_PATH) -> "FMConfigManager":
+        """The config fm would have with nothing on disk, for a file that cannot be parsed.
+
+        Delegates to the real loader against a name that is never created, so these defaults
+        cannot drift from the ones a host with no config already gets.
+        """
+        config = cls.import_from_toml(path.parent / f".{path.name}.absent")
+        return config.model_copy(update={"root_path": path})
+
+    @classmethod
     def import_from_toml(cls, path: Path = CLI_FM_CONFIG_PATH) -> "FMConfigManager":
         input_data = {}
 

@@ -16,6 +16,7 @@ from frappe_manager import (
     CLI_DIR,
     CLI_FM_CONFIG_PATH,
     DEFAULT_EXTENSIONS,
+    DOCKER_FREE_COMMANDS,
     MIGRATION_COMMANDS,
     OBSERVE_ONLY_COMMANDS,
     STABLE_APP_BRANCH_MAPPING_LIST,
@@ -367,7 +368,15 @@ def app_callback(
             global logger
             console_level = level_name if ctx.obj["verbose"] else None
 
-            fm_config_manager: FMConfigManager = FMConfigManager.import_from_toml()
+            try:
+                fm_config_manager: FMConfigManager = FMConfigManager.import_from_toml()
+            except Exception as e:
+                # A config fm cannot parse must not trap the commands that exist to clean up after
+                # it. Every other command needs the config to do its job and still fails loudly.
+                if sys.argv[1:3] not in DOCKER_FREE_COMMANDS:
+                    raise
+                output.warning(f"fm_config.toml could not be read ({e}); continuing with defaults.")
+                fm_config_manager = FMConfigManager.defaults()
             file_level = fm_config_manager.logs.file_level
 
             # Theme (colors) + style (layout) from config; env FM_THEME/FM_STYLE win.
@@ -390,7 +399,13 @@ def app_callback(
             logger.info(f"LOG LEVEL: {level_name}")
             logger.info("-" * 20)
 
-            if not DockerClient().server_running():
+            # Two commands must survive a host whose docker is already gone, because that host is
+            # exactly where fm's leftovers would otherwise be permanent: `ssl ca` only ever touches
+            # host trust stores, and `self uninstall` reports the docker half as un-removable and
+            # still deletes the files and the CA.
+            # `sys.argv[1:3]` is already a list: never call list() in this module, where the name
+            # is shadowed by the `fm list` command submodule.
+            if sys.argv[1:3] not in DOCKER_FREE_COMMANDS and not DockerClient().server_running():
                 output.exit("Docker daemon not running. Please start docker service")
 
             invoked_command = ctx.invoked_subcommand or "no-command"
@@ -400,8 +415,11 @@ def app_callback(
             # stall halfway. Commands that never touch those containers are exempt: `fm bake`
             # builds an image and pulls the one base image it is told to build FROM, so
             # prefetching the stack is pure waste, and on a CI runner it is waste that gets
-            # paid on every job.
-            if not CLI_FM_CONFIG_PATH.exists() and invoked_command not in STOCK_IMAGE_PREFETCH_SKIP_COMMANDS:
+            # paid on every job. The teardown commands are exempt for a sharper reason: after a
+            # successful uninstall there is no fm_config.toml, so running one again would read as
+            # a first install and PULL the entire stack on the way to removing it.
+            first_install = not CLI_FM_CONFIG_PATH.exists() and sys.argv[1:3] not in DOCKER_FREE_COMMANDS
+            if first_install and invoked_command not in STOCK_IMAGE_PREFETCH_SKIP_COMMANDS:
                 output.print("First installation detected. Pulling docker images...️", "🔍")
 
                 completed_status = pull_docker_images()
@@ -604,7 +622,11 @@ def app_callback(
             # which a build discards. `migrate` owns its own service lifecycle, so the
             # stack is ensured for it but not started. `switch` is deliberately absent
             # from both lists: it runs bench migrate against mariadb.
-            if invoked_command != "bake":
+            # `ssl ca` and `self uninstall` join `bake` here for a different reason: creating (let
+            # alone starting) the shared stack on the way to tearing it down would resurrect the
+            # very services being removed, and on a never-created host it would build them from
+            # scratch just to delete them.
+            if invoked_command != "bake" and full_command not in ("ssl ca", "self uninstall"):
                 try:
                     services_manager.entrypoint_checks(start=invoked_command != "migrate")
                 except ServicesNotCreated as e:

@@ -435,6 +435,109 @@ Without --name, a scope holding more than one set is refused rather than guessed
 fm ssl dns-config cloudflare --remove --name acct-b
 ```
 
+
+### `fm ssl ca`
+
+Ca commands.
+
+**Usage**:
+
+```console
+$ fm ssl ca [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options**:
+
+* `--help`: Show this message and exit.
+
+**Commands**:
+
+* `status`: Show fm's dev CA and every trust store on this host that currently trusts it.
+* `install`: Install fm's dev CA into this host's OS and browser trust stores.
+* `remove`: Remove fm's dev CA from every trust store on this host that has it.
+
+
+#### `fm ssl ca status`
+
+Show fm's dev CA and every trust store on this host that currently trusts it.
+
+Each store is asked directly (the keychain, the system CA directories, each browser's NSS database), never the .installed marker fm writes next to the CA: that marker records only that one install once succeeded, not where, and not whether it is still there. A CA fm believes it installed but no store actually holds is the case this command exists to surface, and `fm ssl ca install` is the fix.
+
+**Usage**:
+
+```console
+$ fm ssl ca status
+```
+
+
+## Examples
+
+### Is fm's dev CA trusted on this host?
+
+```bash
+fm ssl ca status
+```
+
+
+#### `fm ssl ca install`
+
+Install fm's dev CA into this host's OS and browser trust stores.
+
+fm installs the CA by itself the first time it issues a dev certificate, and only once. This command is the way back when that one attempt did not stick or no longer covers everything: a sudo prompt that was declined, a browser profile created afterwards, a restored machine. It is safe to run repeatedly.
+
+A CA that does not exist yet is not created here: it is minted the first time a bench asks for a dev certificate.
+
+**Usage**:
+
+```console
+$ fm ssl ca install
+```
+
+
+## Examples
+
+### Trust the dev CA on this host
+
+```bash
+fm ssl ca install
+```
+
+
+#### `fm ssl ca remove`
+
+Remove fm's dev CA from every trust store on this host that has it.
+
+Certificates signed by this CA stop being trusted the moment it is removed, so every dev bench served over https will warn until the CA is installed again. Nothing else is affected: the certificates themselves, the benches and their data are untouched.
+
+The CA key and certificate stay on disk unless --delete-ca is passed, which is what lets `fm ssl ca install` put the same CA back. Deleting them means the next dev certificate is signed by a NEW CA that every client must be told to trust again.
+
+**Usage**:
+
+```console
+$ fm ssl ca remove [OPTIONS]
+```
+
+**Options**:
+
+* `-y, --yes`: Remove without asking for confirmation.
+* `--dry-run`: Print the stores that would be touched and exit; never prompts.
+* `--delete-ca`: Also delete the CA key and certificate from disk.
+
+
+## Examples
+
+### Stop trusting the dev CA
+
+```bash
+fm ssl ca remove
+```
+
+### See which stores would be touched, change nothing
+
+```bash
+fm ssl ca remove --dry-run
+```
+
 ## Related
 
 - [SSL / HTTPS guide](../guides/ssl.md)
