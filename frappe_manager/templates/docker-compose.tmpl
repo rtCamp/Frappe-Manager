@@ -26,6 +26,14 @@ services:
   nginx:
     image: ghcr.io/rtcamp/frappe-manager-nginx:{{ nginx_image_tag }}
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    # nginx resolves BOTH upstreams at config parse and aborts with
+    # `[emerg] host not found in upstream` if either name is missing, so a container that wins
+    # the startup race dies and -- with dev's `restart: no` -- stays dead. `service_started` is
+    # the right condition, not `service_healthy`: the alias is registered when the container
+    # starts, and nginx needs the NAME to resolve, not the app to be ready.
+    depends_on:
+      - frappe
+      - socketio
     user: REPLACE_ME_WITH_CURRENT_USER:REPLACE_ME_WITH_CURRENT_USER_GROUP
     environment:
       SITE_MAPPINGS: REPLACE_ME_WITH_SITE_MAPPINGS
