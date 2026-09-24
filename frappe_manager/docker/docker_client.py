@@ -247,6 +247,17 @@ class DockerClient:
         names = [line.strip() for line in output.stdout if line.strip()]
         return names
 
+    def network_rm(self, network_name: str) -> bool:
+        """Remove a network. False when docker refused, which is normal while a container is
+        still attached -- the caller reports it rather than the network vanishing silently."""
+        result = subprocess.run(  # noqa: S603
+            [*self.docker_cmd, "network", "rm", network_name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return result.returncode == 0
+
     def network_inspect(
         self,
         network_name: str,

@@ -6,6 +6,7 @@ The local CA is installed into the host OS trust store once, then reused for all
 """
 
 import shutil
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -19,6 +20,32 @@ from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.trust_store_manager import TrustStoreManager
+
+
+@dataclass(frozen=True)
+class DevCAPaths:
+    """Where the dev CA lives, derived from the ssl service dir alone.
+
+    Separate from `DevCertificateService` because `fm ssl ca` and `fm self uninstall` need these
+    paths without constructing the service, whose __init__ CREATES the directories -- a status
+    command that mkdirs its own subject always reports something.
+    """
+
+    ca_dir: Path
+    key: Path
+    cert: Path
+    sentinel: Path
+
+
+def dev_ca_paths(ssl_service_dir: Path) -> DevCAPaths:
+    """`ssl_service_dir` is <services>/nginx-proxy/ssl, the same argument the service takes."""
+    ca_dir = ssl_service_dir / "dev" / "ca"
+    return DevCAPaths(
+        ca_dir=ca_dir,
+        key=ca_dir / "rootCA-key.pem",
+        cert=ca_dir / "rootCA.pem",
+        sentinel=ca_dir / ".installed",
+    )
 
 
 class DevCertificateService:
@@ -36,11 +63,12 @@ class DevCertificateService:
         output_handler: OutputHandler | None = None,
     ):
         self.logger = get_logger(component="dev_ssl")
+        paths = dev_ca_paths(ssl_service_dir)
         self.root_dir = ssl_service_dir / "dev"
-        self.ca_dir = self.root_dir / "ca"
-        self.ca_key_path = self.ca_dir / "rootCA-key.pem"
-        self.ca_cert_path = self.ca_dir / "rootCA.pem"
-        self.ca_sentinel_path = self.ca_dir / ".installed"
+        self.ca_dir = paths.ca_dir
+        self.ca_key_path = paths.key
+        self.ca_cert_path = paths.cert
+        self.ca_sentinel_path = paths.sentinel
         self.output = output_handler or RichOutputHandler()
 
         self.root_dir.mkdir(parents=True, exist_ok=True)

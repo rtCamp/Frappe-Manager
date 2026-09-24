@@ -9,6 +9,7 @@ install(ssl_app)
 
 from .acme_sh import acmesh_passthrough
 from .add import add_certificate
+from .ca import ca_command
 from .dns_config import dns_config_command
 from .list import list_certificates
 from .remove import remove_certificate
@@ -24,5 +25,6 @@ ssl_app.command(name="acme-sh", context_settings={"allow_extra_args": True, "ign
 
 # dns-config's help lives on the dns_config Typer itself.
 ssl_app.add_typer(dns_config_command, name="dns-config")
+ssl_app.add_typer(ca_command, name="ca")
 
 __all__ = ["ssl_app"]
