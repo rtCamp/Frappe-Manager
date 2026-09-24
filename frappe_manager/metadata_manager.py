@@ -153,37 +153,38 @@ def recognised_fm_config_keys() -> frozenset[str]:
 
     Derived from `FMConfigManager.model_fields` rather than listed a second time, for the same
     reason as `recognised_bench_config_keys` in bench_config.py: a field added or renamed here
-    changes the recognised set for free. Four names are not fields and are added by hand:
-    `ssl` (the table `dns_providers` is read out of), `migration_state` (kept in `_raw_config`,
-    never a pydantic field), the pre-1.0.0 top-level `[cloudflare]` table this reader still
-    folds into `dns_providers` by hand, and the retired top-level `version` key (v1.0.0's
-    migration strips it from disk; recognised-but-inert until then so a not-yet-migrated file
-    is not warned about its own key).
+    changes the recognised set for free. Five names are not fields and are added by hand:
+    `ssl` (the table `dns_providers` is read out of), `schema` (kept in `_raw_config`,
+    never a pydantic field), its pre-1.0.0 spelling `migration_state`, the pre-1.0.0 top-level
+    `[cloudflare]` table this reader still folds into `dns_providers` by hand, and the retired
+    top-level `version` key (v1.0.0's migration strips both from disk; recognised-but-inert until
+    then so a not-yet-migrated file is not warned about its own keys).
     """
-    return frozenset(FMConfigManager.model_fields) | {"ssl", "migration_state", "cloudflare", "version"}
+    return frozenset(FMConfigManager.model_fields) | {"ssl", "schema", "migration_state", "cloudflare", "version"}
 
 
-def recognised_global_migration_state_keys() -> frozenset[str]:
-    """Every `[migration_state]` key this file itself gives meaning to: `migrated_to` (read in
-    `get_system_migration_version`, written in `set_system_migration_version`) and its pre-rename
-    spelling `system_migrated_to` (seeded from at load, renamed on disk by v1.0.0's migration;
-    recognised so a not-yet-migrated host is not warned about its own ledger).
+def recognised_global_schema_keys() -> frozenset[str]:
+    """Every `[schema]` key this file itself gives meaning to: `version` (read in
+    `get_system_migration_version`, written in `set_system_migration_version`) and the two
+    spellings it has had before, `migrated_to` and `system_migrated_to` (seeded from at load,
+    renamed on disk by v1.0.0's migration; recognised so a not-yet-migrated host is not warned
+    about its own ledger).
 
-    `[migration_state]` is kept as a raw dict in `_raw_config`, never a pydantic field (see the
+    `[schema]` is kept as a raw dict in `_raw_config`, never a pydantic field (see the
     `extra="allow"` comment on `FMConfigManager` below and `import_from_toml`'s handling of the
     table), so it has no `model_extra` of its own for `collect_unknown_keys` to walk into -- the
     same hole bench_config.py's `[ssl]` has, and the same fix: an explicit recognised set,
     checked by hand in `import_from_toml`, derived here instead of hand-listed a second time
     there.
     """
-    return frozenset({"migrated_to", "system_migrated_to"})
+    return frozenset({"version", "migrated_to", "system_migrated_to"})
 
 
 class FMConfigManager(BaseModel):
     # extra="allow": a top-level stray in fm_config.toml (a mistyped table header or bare key)
     # used to be silently dropped -- `import_from_toml` builds `input_data` by hand and never
     # named it, so the warning below fired once and `export_to_toml`'s `toml_document.apply` prune
-    # deleted the evidence on the very next ordinary write, including the first `[migration_state]`
+    # deleted the evidence on the very next ordinary write, including the first `[schema]`
     # write every host gets from `set_system_migration_version`. Retained the same way `BenchConfig`
     # retains one (see `retained_top_level` in bench_config.py): fm never deletes a key it does not
     # understand, at any depth.
@@ -212,40 +213,41 @@ class FMConfigManager(BaseModel):
     def get_system_migration_version(self) -> Version:
         """The global services & configuration ledger: the version `fm services migrate` last
         completed. THE single source of truth for that tier -- both migration gates and the
-        executor's own discovery read it through here. One key: `[migration_state].migrated_to`,
+        executor's own discovery read it through here. One key: `[schema].version`,
         symmetric with the bench ledger in bench_config.toml. Legacy spellings (the pre-rename
         `system_migrated_to`, the retired top-level `version`) are seeded into this key by
         `import_from_toml`, never read here. Absent entirely means "never migrated / unknown"
-        and reads as 0.0.0, the same convention as a bench with no `[migration_state]`.
+        and reads as 0.0.0, the same convention as a bench with no `[schema]`.
 
-        Reads through a local `migration_state_data` rather than the `self._raw_config[...]`
+        Reads through a local `schema_data` rather than the `self._raw_config[...]`
         chain inline, so this method's literal key read is visible to the AST guard test in
         `tests/unit/site_manager/test_config_surface.py` the same way `[ssl]`'s hand-read keys
         in bench_config.py are: that scan only recognises `name.get("key")` on a plain local
         variable, not a subscript-of-a-subscript.
         """
-        if hasattr(self, "_raw_config") and "migration_state" in self._raw_config:
-            migration_state_data = self._raw_config["migration_state"]
-            version_str = migration_state_data.get("migrated_to")
+        if hasattr(self, "_raw_config") and "schema" in self._raw_config:
+            schema_data = self._raw_config["schema"]
+            version_str = schema_data.get("version")
             if version_str:
                 return Version(version_str)
         return Version("0.0.0")
 
     def set_system_migration_version(self, version: Version) -> None:
-        """Stamp the ledger. Writes `migrated_to` and pops the pre-rename `system_migrated_to`:
-        `export_to_toml` writes `_raw_config["migration_state"]` back verbatim, so a lingering
-        old key here would be resurrected on disk by every later save. Together with the
+        """Stamp the ledger. Writes `version` and pops the pre-rename spellings `migrated_to` and
+        `system_migrated_to`: `export_to_toml` writes `_raw_config["schema"]` back verbatim, so a
+        lingering old key here would be resurrected on disk by every later save. Together with the
         export prune retiring the top-level `version` key, the first stamp on a legacy host
         leaves exactly one version key on disk. Persists immediately: the ledger is what a
         concurrent gate would read."""
         if not hasattr(self, "_raw_config"):
             self._raw_config = {}
 
-        if "migration_state" not in self._raw_config:
-            self._raw_config["migration_state"] = {}
+        if "schema" not in self._raw_config:
+            self._raw_config["schema"] = {}
 
-        self._raw_config["migration_state"]["migrated_to"] = str(version.version)
-        self._raw_config["migration_state"].pop("system_migrated_to", None)
+        self._raw_config["schema"]["version"] = str(version.version)
+        self._raw_config["schema"].pop("migrated_to", None)
+        self._raw_config["schema"].pop("system_migrated_to", None)
         self.export_to_toml()
 
 
@@ -263,8 +265,8 @@ class FMConfigManager(BaseModel):
 
         fm_config_dict = self.model_dump(exclude=exclude, exclude_none=True)
 
-        if hasattr(self, "_raw_config") and "migration_state" in self._raw_config:
-            fm_config_dict["migration_state"] = self._raw_config["migration_state"]
+        if hasattr(self, "_raw_config") and "schema" in self._raw_config:
+            fm_config_dict["schema"] = self._raw_config["schema"]
 
         desired: dict = dict(fm_config_dict)
 
@@ -314,9 +316,9 @@ class FMConfigManager(BaseModel):
 
         raw_config_data = {}
 
-        # Dotted paths for a stray inside [migration_state], the one hand-read table with no
+        # Dotted paths for a stray inside [schema], the one hand-read table with no
         # model of its own to hold a stray as `model_extra` -- see
-        # `recognised_global_migration_state_keys`.
+        # `recognised_global_schema_keys`.
         hand_read_unknown_keys: list[str] = []
 
         # Populated only when the file exists; merged into `input_data` below so a stray this
@@ -394,7 +396,11 @@ class FMConfigManager(BaseModel):
 
             input_data["dns_providers"] = dns_providers or None
 
-            if "migration_state" in data:
+            # `[migration_state]` is `[schema]`'s pre-1.0.0 spelling. Read here, never written:
+            # the table is captured under its new name, and v1.0.0's migration is what removes the
+            # old one from disk.
+            schema_table_name = "schema" if "schema" in data else "migration_state"
+            if schema_table_name in data:
                 import json
 
                 # `json.loads(json.dumps(...))` is a two-step unwrap: it strips tomlkit's `Item`
@@ -402,10 +408,10 @@ class FMConfigManager(BaseModel):
                 # whole table rather than key by key, since the table is captured wholesale rather
                 # than splatted into named fields. Captured BEFORE the stray check below, and
                 # completely unfiltered by it: `export_to_toml` writes this dict back verbatim
-                # (see its own `migration_state` line), so a stray here surviving a save was never
+                # (see its own `schema` line), so a stray here surviving a save was never
                 # contingent on it being recognised -- only on it staying in this dict.
-                migration_state_data = json.loads(json.dumps(data["migration_state"]))
-                raw_config_data["migration_state"] = migration_state_data
+                schema_data = json.loads(json.dumps(data[schema_table_name]))
+                raw_config_data["schema"] = schema_data
 
                 # Same hole `[ssl]` has in bench_config.py: this table is read by hand, not
                 # splatted into a model, so a typo'd key (e.g. `sytem_migrated_to`) parses cleanly
@@ -413,27 +419,32 @@ class FMConfigManager(BaseModel):
                 # find it either -- `_raw_config` is a plain dict, not a `BaseModel`, so it has no
                 # `model_extra` for that walk to reach -- hence the explicit check here, unioned
                 # into the same message below.
-                if isinstance(migration_state_data, dict):
+                if isinstance(schema_data, dict):
                     hand_read_unknown_keys.extend(
-                        f"migration_state.{key}"
-                        for key in set(migration_state_data.keys()) - recognised_global_migration_state_keys()
+                        f"{schema_table_name}.{key}"
+                        for key in set(schema_data.keys()) - recognised_global_schema_keys()
                     )
 
             # THE one place legacy ledger spellings are understood, and memory-only: the ledger
             # is read (by the gates and the executor's discovery) BEFORE any migration runs, so
             # a pre-rename file must still read correctly here or a v0.19 host would read 0.0.0
-            # and discovery would re-select the frozen v0.19 migration against it. Disk
-            # is cut over by the write path instead: the first stamp pops `system_migrated_to`
-            # (see `set_system_migration_version`) and the export prune retires the top-level
-            # `version` key. Precedence: `system_migrated_to` (the ledger's pre-rename spelling),
-            # then `version` (hosts from before the ledger existed, where it doubled as one).
-            migration_state = raw_config_data.setdefault("migration_state", {})
-            if isinstance(migration_state, dict) and not migration_state.get("migrated_to"):
-                legacy_ledger = migration_state.get("system_migrated_to") or unwrap_toml_value(data.get("version"))
+            # and discovery would re-select the frozen v0.19 migration against it. Disk is cut
+            # over by the write path instead: the first stamp writes `[schema].version` and pops
+            # the old spellings, and the export prune retires the top-level `version` key.
+            # Precedence runs newest to oldest: `migrated_to` (the v1.0.0-cycle ledger key),
+            # `system_migrated_to` (its predecessor), then the top-level `version` (hosts from
+            # before the ledger existed, where it doubled as one).
+            schema = raw_config_data.setdefault("schema", {})
+            if isinstance(schema, dict) and not schema.get("version"):
+                legacy_ledger = (
+                    schema.get("migrated_to")
+                    or schema.get("system_migrated_to")
+                    or unwrap_toml_value(data.get("version"))
+                )
                 if legacy_ledger:
-                    migration_state["migrated_to"] = str(legacy_ledger)
-            if not raw_config_data["migration_state"]:
-                del raw_config_data["migration_state"]
+                    schema["version"] = str(legacy_ledger)
+            if not raw_config_data["schema"]:
+                del raw_config_data["schema"]
 
         input_data.update(retained_top_level)
         fm_config_instance = cls(**input_data)
@@ -441,7 +452,7 @@ class FMConfigManager(BaseModel):
 
         # `collect_unknown_keys` walks every `extra="allow"` model from this instance down,
         # including top-level strays (`retained_top_level` put them on this instance's own
-        # `model_extra` before the walk). The one region outside its reach is `[migration_state]`
+        # `model_extra` before the walk). The one region outside its reach is `[schema]`
         # -- raw JSON in `_raw_config`, no model, no `model_extra` -- so `hand_read_unknown_keys`
         # is unioned in: strays from either family report through the SAME warning, never two.
         all_unknown_keys = sorted(set(collect_unknown_keys(fm_config_instance)) | set(hand_read_unknown_keys))

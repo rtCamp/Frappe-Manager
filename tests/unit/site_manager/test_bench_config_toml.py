@@ -512,7 +512,7 @@ def test_a_bench_config_carrying_keys_removed_in_1_0_0_still_loads(tmp_path):
     assert cfg.switch.migrate is True
     # Retained, not filtered: a pre-migration bench that still carries either one keeps it on the
     # next save (`fm never deletes a key it does not understand`), and the version-gated warning
-    # is silent about both until `migrated_to` catches up.
+    # is silent about both until the bench's version catches up.
     assert collect_unknown_keys(cfg.switch) == ["search_replace"]
     assert collect_unknown_keys(cfg) == ["registry", "switch.search_replace"]
 
@@ -582,7 +582,7 @@ class TestUnrecognisedKeysWarnRatherThanVanish:
     the same tradeoff `TestStaleDeployStateKeysWarnLoudly` already makes for the deploy_state
     rename.
 
-    Every fixture that expects a warning stamps `[migration_state].migrated_to` at fm's current
+    Every fixture that expects a warning stamps `[schema].version` at fm's current
     version: the warning itself is version-gated (Phase 5), silent on a bench that has simply
     never been migrated, so proving "a typo warns" needs a bench the gate treats as current.
     """
@@ -590,7 +590,7 @@ class TestUnrecognisedKeysWarnRatherThanVanish:
     def _current(self) -> str:
         from frappe_manager.utils.helpers import get_current_fm_version
 
-        return f'\n[migration_state]\nmigrated_to = "{get_current_fm_version()}"\n'
+        return f'\n[schema]\nversion = "{get_current_fm_version()}"\n'
 
     def _warn(self, tmp_path, text: str):
         from unittest.mock import MagicMock
@@ -630,9 +630,9 @@ class TestUnrecognisedKeysWarnRatherThanVanish:
     def test_a_retired_key_and_the_retired_table_do_not_warn(self, tmp_path):
         """A bench that has not been migrated yet keeps loading quietly, whatever it still
         carries: the version gate (Phase 5) is silent about EVERY unrecognised key while
-        `migrated_to` is behind fm's current version, not just `REMOVED_CONFIG_KEYS`/
+        the bench's version is behind fm's current version, not just `REMOVED_CONFIG_KEYS`/
         `REMOVED_CONFIG_TABLES` (which now only drive the migration's own on-disk strip). No
-        `[migration_state]` here at all, which is every un-migrated bench's actual shape."""
+        `[schema]` here at all, which is every un-migrated bench's actual shape."""
         bc, handler = self._warn(
             tmp_path,
             _BASE + '[switch]\nmigrate = true\nsearch_replace = true\n\n[registry]\nregistry = "ghcr.io/acme"\n',
@@ -676,7 +676,7 @@ class TestPreMigrationBenchConfigNeverWarns:
     load of every bench on a host.
 
     Phase 5 replaced the hand-list that used to exempt exactly these four spellings
-    (`RELOCATED_CONFIG_KEYS`) with a version check: silent while `[migration_state].migrated_to`
+    (`RELOCATED_CONFIG_KEYS`) with a version check: silent while `[schema].version`
     is behind fm's current version, regardless of WHICH names are unrecognised, because the
     operator's next instruction is `fm migrate` and naming a key that command is about to move or
     strip is noise. That is strictly more general than the four-name list it replaced -- a fifth
@@ -688,7 +688,7 @@ class TestPreMigrationBenchConfigNeverWarns:
     # (`_add_new_config_fields`), `admin_tools_username`/`admin_tools_password` from an even
     # earlier version untouched by that migration, and a site-keyed `[database]` table
     # (`_write_sites_table`'s docstring: "the [database] table already had a site as its key").
-    # No `[migration_state]` at all: a bench that has never been migrated, which is every bench
+    # No `[schema]` at all: a bench that has never been migrated, which is every bench
     # while 1.0.0 is unreleased.
     _PRE_1_0_0_SHAPED = (
         _BASE
@@ -720,7 +720,7 @@ class TestPreMigrationBenchConfigNeverWarns:
         assert collect_unknown_keys(bc) == ["admin_tools_password", "admin_tools_username", "alias_domains", "database"]
 
     def test_at_current_version_every_stray_including_the_legacy_ones_warns_together(self, tmp_path):
-        """Once `migrated_to` reaches fm's current version, the silence lifts for ALL of them at
+        """Once the bench's version reaches fm's current version, the silence lifts for ALL of them at
         once, in one message alongside a genuine typo sitting next to them -- there is no name
         left on this side that gets special treatment, because the gate is on the bench's
         version, never on which key it is."""
@@ -733,7 +733,7 @@ class TestPreMigrationBenchConfigNeverWarns:
         shaped = self._PRE_1_0_0_SHAPED.replace(
             '\n[database."dev.localhost"]', '\ntypoed_kee = true\n\n[database."dev.localhost"]'
         )
-        shaped += f'\n[migration_state]\nmigrated_to = "{get_current_fm_version()}"\n'
+        shaped += f'\n[schema]\nversion = "{get_current_fm_version()}"\n'
 
         handler = MagicMock(spec=OutputHandler)
         set_global_output_handler(handler)
@@ -783,7 +783,7 @@ class TestVersionGateIsolatesATypoFromMigrationNoise:
         shaped = (
             _BASE
             + "typoed_stray = true\n"
-            + f'\n[migration_state]\nmigrated_to = "{get_current_fm_version()}"\n'
+            + f'\n[schema]\nversion = "{get_current_fm_version()}"\n'
             + "\n[switch]\nmigrate = true\n"
         )
         handler = MagicMock(spec=OutputHandler)
@@ -799,7 +799,7 @@ class TestVersionGateIsolatesATypoFromMigrationNoise:
         )
 
     def test_a_bench_a_newer_fm_has_migrated_is_silent_too(self, tmp_path):
-        """The gate warns on EQUALITY, not on "not behind". A bench whose `migrated_to` is AHEAD of
+        """The gate warns on EQUALITY, not on "not behind". A bench whose version is AHEAD of
         this build carries a schema this fm predates, so its unrecognised keys are not typos, they
         are fields this version has never heard of. Reachable by testing a dev build and going back
         to stable, or by two hosts on different fm versions sharing a bench directory. Warning there
@@ -813,7 +813,7 @@ class TestVersionGateIsolatesATypoFromMigrationNoise:
         from_the_future = (
             _BASE
             + "key_a_later_fm_added = true\n"
-            + '\n[migration_state]\nmigrated_to = "99.0.0"\n'
+            + '\n[schema]\nversion = "99.0.0"\n'
             + "\n[switch]\nmigrate = true\n"
         )
         handler = MagicMock(spec=OutputHandler)
@@ -845,7 +845,7 @@ class TestACommentIsNeverAKey:
         annotated = (
             "# maintained by ops, do not edit blindly\n"
             + _BASE
-            + f'\n[migration_state]\nmigrated_to = "{get_current_fm_version()}"\n'
+            + f'\n[schema]\nversion = "{get_current_fm_version()}"\n'
             + "\n# ---- switch pipeline ----\n"
             + "[switch]\n"
             + "migrate = true  # trailing comment\n"
@@ -1108,15 +1108,24 @@ class TestUnknownKeysRoundTripLosslessly:
 
 class TestVersionGateNeverRaisesOnAnOddMigratedTo:
     """The version gate replacing `RELOCATED_CONFIG_KEYS` (`TestVersionGateIsolatesATypoFromMigrationNoise`
-    above) reads `[migration_state].migrated_to` on every load that reaches `_bench_is_pre_migration`, on
-    every command that skips the migration gate (`fm list`/`bake`/`switch`/`maintenance`). Two crash sites
-    fed off the same untrusted value: `packaging.version.Version` raised `InvalidVersion` on anything not
-    PEP 440, and `MigrationState.migrated_to: str | None` rejected a TOML-native non-string value (a bare
-    date, a bool, a nested table...) with a `pydantic.ValidationError` before the gate was even reached.
-    One bad `migrated_to` in one bench's file used to take every bench on the host down. An unparseable or
+    above) reads `[migration_state].migrated_to` (now `[schema].version`, via the read-side alias) on
+    every load that reaches `_bench_is_pre_migration`, on every command that skips the migration gate
+    (`fm list`/`bake`/`switch`/`maintenance`). Two crash sites fed off the same untrusted value:
+    `packaging.version.Version` raised `InvalidVersion` on anything not PEP 440, and
+    `SchemaState.version: str | None` rejected a TOML-native non-string value (a bare date, a bool, a
+    nested table...) with a `pydantic.ValidationError` before the gate was even reached. One bad
+    `migrated_to` in one bench's file used to take every bench on the host down. An unparseable or
     oddly-typed version is treated exactly like an ABSENT one: fm cannot tell whether it is ahead of or
     behind, so it stays silent -- never raises, never warns -- until `fm migrate` writes one it can parse.
     """
+
+    def test_the_migrated_to_alias_populates_version_directly(self, tmp_path):
+        """The model-level guarantee the gate above relies on: `validation_alias=AliasChoices(
+        "version", "migrated_to")` means the pre-rename spelling constructs the SAME field, with
+        no bench_config.toml or import_from_toml involved at all."""
+        from frappe_manager.site_manager.bench_config import SchemaState
+
+        assert SchemaState(**{"migrated_to": "0.19.0"}).version == "0.19.0"
 
     def _loads_silently(self, tmp_path, migration_state_body: str) -> BenchConfig:
         from unittest.mock import MagicMock
@@ -1209,7 +1218,7 @@ class TestVersionGateNeverRaisesOnAnOddMigratedTo:
             set_global_output_handler(None)
         assert bc.name == "dev.localhost"
         handler.warning.assert_not_called()  # no unrecognised key here, only the odd type
-        assert bc.migration_state.last_migration_date == "2024-01-15"  # coerced, not dropped
+        assert bc.schema_state.last_migration_date == "2024-01-15"  # coerced, not dropped
 
     def test_an_odd_migrated_to_type_is_retained_as_its_string_form_not_dropped(self, tmp_path):
         """fm never deletes a key it does not understand: an odd TYPE on a recognised key is
@@ -1219,8 +1228,8 @@ class TestVersionGateNeverRaisesOnAnOddMigratedTo:
 
         bc = BenchConfig.import_from_toml(path)
 
-        assert bc.migration_state is not None
-        assert bc.migration_state.migrated_to == "2024-01-15"
+        assert bc.schema_state is not None
+        assert bc.schema_state.version == "2024-01-15"
 
 
 class TestDisabledNewRelicIsAnExplicitOffNotAnOmission:

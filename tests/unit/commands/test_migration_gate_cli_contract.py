@@ -46,7 +46,7 @@ def _write_stale_bench(benches_dir: Path, name: str = BENCH) -> Path:
     """A bench on disk whose recorded migration version is behind the running fm."""
     path = benches_dir / name
     path.mkdir(parents=True)
-    (path / "bench_config.toml").write_text(f'[migration_state]\nmigrated_to = "{OLD_VERSION}"\n')
+    (path / "bench_config.toml").write_text(f'[schema]\nversion = "{OLD_VERSION}"\n')
     return path
 
 
@@ -169,7 +169,7 @@ class TestBenchGateThroughTheRealCli:
     def test_up_to_date_bench_is_not_gated(self, cli_gate):
         bench = cli_gate.benches_dir / BENCH
         bench.mkdir()
-        (bench / "bench_config.toml").write_text(f'[migration_state]\nmigrated_to = "{CURRENT_FM_VERSION}"\n')
+        (bench / "bench_config.toml").write_text(f'[schema]\nversion = "{CURRENT_FM_VERSION}"\n')
 
         cli_gate.invoke(["start", BENCH])
 
@@ -219,7 +219,7 @@ class TestCheckBenchMigrationRequiredExitCode:
     def test_current_bench_is_not_refused(self, benches_dir):
         bench = benches_dir / BENCH
         bench.mkdir()
-        (bench / "bench_config.toml").write_text(f'[migration_state]\nmigrated_to = "{CURRENT_FM_VERSION}"\n')
+        (bench / "bench_config.toml").write_text(f'[schema]\nversion = "{CURRENT_FM_VERSION}"\n')
 
         assert check_bench_migration_required(BENCH) is None
 

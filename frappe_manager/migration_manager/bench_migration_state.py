@@ -11,23 +11,27 @@ import tomlkit
 
 from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME
 from frappe_manager.migration_manager.version import Version
-from frappe_manager.site_manager.bench_config import BenchConfig, MigrationState
+from frappe_manager.site_manager.bench_config import BenchConfig, SchemaState, _recorded_schema_version
 
 
-def _read_migration_state(bench_config_path: Path) -> dict:
-    """Raw-TOML read of ``[migration_state]`` (schema-tolerant).
+def _read_schema_table(bench_config_path: Path) -> dict:
+    """Raw-TOML read of ``[schema]``, tolerating a config the model would reject.
 
     Deliberately NOT via the BenchConfig model: the version probe runs before
     every command, and a config that fails schema validation must still report
     its real version -- otherwise validation errors get masked as a bogus
     "migration required (v0.0.0)" prompt. The actual command's config load
     surfaces the real error.
+
+    ``[migration_state]`` is the table's pre-1.0.0 spelling, and every bench written before the
+    rename carries it. Reading one as 0.0.0 would make the gate REFUSE it as an unknown version
+    instead of migrating it, which is a hard stop on precisely the benches this release upgrades.
     """
     try:
         data = tomlkit.parse(bench_config_path.read_text())
     except Exception:
         return {}
-    state = data.get("migration_state")
+    state = data.get("schema") or data.get("migration_state")
     return dict(state) if isinstance(state, dict) else {}
 
 
@@ -39,16 +43,16 @@ def get_bench_migration_version(bench_path: Path) -> Version:
         bench_path: Path to bench directory
 
     Returns:
-        Version object representing bench migration state
+        Version object representing the bench's recorded schema version
     """
     bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
 
     if not bench_config_path.exists():
         return Version("0.0.0")
 
-    migrated_to = _read_migration_state(bench_config_path).get("migrated_to")
-    if migrated_to:
-        return Version(str(migrated_to))
+    recorded = _recorded_schema_version(_read_schema_table(bench_config_path))
+    if recorded:
+        return Version(str(recorded))
 
     return Version("0.0.0")
 
@@ -67,23 +71,23 @@ def set_bench_migration_version(bench_path: Path, version: Version) -> None:
         raise FileNotFoundError(f"Bench config not found: {bench_config_path}")
 
     config = BenchConfig.import_from_toml(bench_config_path)
-    migrated_to = str(version.version)
+    version_str = str(version.version)
     last_migration_date = datetime.now().isoformat()
-    if config.migration_state is not None:
-        # Mutate the loaded instance rather than rebuilding it: MigrationState is extra="allow", so a
-        # stray key already retained inside [migration_state] only survives this call if it stays on
-        # the SAME instance import_from_toml returned. A fresh MigrationState(migrated_to=...,
+    if config.schema_state is not None:
+        # Mutate the loaded instance rather than rebuilding it: SchemaState is extra="allow", so a
+        # stray key already retained inside [schema] only survives this call if it stays on
+        # the SAME instance import_from_toml returned. A fresh SchemaState(version=...,
         # last_migration_date=...) here would construct without the stray kwarg and silently drop it
         # on every migration -- the one command whose job is to fix an out-of-date file would destroy
-        # the evidence of an unrecognised key while doing so. MigrationState's only validator is a
+        # the evidence of an unrecognised key while doing so. SchemaState's only validator is a
         # `mode="before"` one that runs on construction, not on plain attribute assignment
         # (`validate_assignment` is not enabled), and the model is not frozen, so this is safe.
-        config.migration_state.migrated_to = migrated_to
-        config.migration_state.last_migration_date = last_migration_date
+        config.schema_state.version = version_str
+        config.schema_state.last_migration_date = last_migration_date
     else:
-        # No prior [migration_state] table to preserve; nothing to carry forward.
-        config.migration_state = MigrationState(
-            migrated_to=migrated_to,
+        # No prior [schema] table to preserve; nothing to carry forward.
+        config.schema_state = SchemaState(
+            version=version_str,
             last_migration_date=last_migration_date,
         )
     config.export_to_toml(bench_config_path)

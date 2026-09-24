@@ -153,13 +153,13 @@ def calls():
     return []
 
 
-def _write_bench(benches_dir: Path, name: str, migrated_to: str | None = None) -> Path:
+def _write_bench(benches_dir: Path, name: str, version: str | None = None) -> Path:
     """A bench dir shaped the way ``MigrationBenches.get_all_benches`` expects."""
     bench_path = benches_dir / name
     bench_path.mkdir(parents=True, exist_ok=True)
     (bench_path / "docker-compose.yml").write_text("services: {}\n")
-    if migrated_to:
-        (bench_path / "bench_config.toml").write_text(f'[migration_state]\nmigrated_to = "{migrated_to}"\n')
+    if version:
+        (bench_path / "bench_config.toml").write_text(f'[schema]\nversion = "{version}"\n')
     return bench_path
 
 
@@ -414,12 +414,12 @@ def test_the_services_compose_is_backed_up_before_it_is_touched(output, tmp_path
 def bench_loop(output, calls, tmp_path):
     """A migration whose bench loop runs for real over benches on disk."""
 
-    def _build(bench_names, *, fail_for=(), migrated_to=None, **executor_kwargs):
+    def _build(bench_names, *, fail_for=(), version=None, **executor_kwargs):
         migration = _BenchLoopMigration(output_handler=output, calls=calls, fail_for=fail_for)
         migration.benches_dir = tmp_path / "sites"
         migration.benches_dir.mkdir(parents=True, exist_ok=True)
         for name in bench_names:
-            _write_bench(migration.benches_dir, name, migrated_to=migrated_to)
+            _write_bench(migration.benches_dir, name, version=version)
         migration.init = lambda: None  # type: ignore[method-assign]
         from frappe_manager.migration_manager.migration_helpers import MigrationBenches
 
@@ -458,7 +458,7 @@ def test_an_excluded_bench_is_skipped_and_told_so(bench_loop, calls, output):
 
 
 def test_a_bench_already_at_the_migration_version_is_skipped(bench_loop, calls, output):
-    migration = bench_loop(["alpha"], target_benches=["alpha"], migrated_to="0.9.0")
+    migration = bench_loop(["alpha"], target_benches=["alpha"], version="0.9.0")
 
     migration.migrate_benches()
 
@@ -467,7 +467,7 @@ def test_a_bench_already_at_the_migration_version_is_skipped(bench_loop, calls, 
 
 
 def test_a_bench_beyond_the_migration_version_is_skipped(bench_loop, calls):
-    migration = bench_loop(["alpha"], target_benches=["alpha"], migrated_to="1.5.0")
+    migration = bench_loop(["alpha"], target_benches=["alpha"], version="1.5.0")
 
     migration.migrate_benches()
 
@@ -475,7 +475,7 @@ def test_a_bench_beyond_the_migration_version_is_skipped(bench_loop, calls):
 
 
 def test_rerun_forces_a_bench_that_is_already_at_the_version(bench_loop, calls):
-    migration = bench_loop(["alpha"], target_benches=["alpha"], migrated_to="0.9.0", rerun=True)
+    migration = bench_loop(["alpha"], target_benches=["alpha"], version="0.9.0", rerun=True)
 
     migration.migrate_benches()
 
@@ -483,7 +483,7 @@ def test_rerun_forces_a_bench_that_is_already_at_the_version(bench_loop, calls):
 
 
 def test_a_bench_below_the_migration_version_is_migrated(bench_loop, calls):
-    migration = bench_loop(["alpha"], target_benches=["alpha"], migrated_to="0.8.0")
+    migration = bench_loop(["alpha"], target_benches=["alpha"], version="0.8.0")
 
     migration.migrate_benches()
 

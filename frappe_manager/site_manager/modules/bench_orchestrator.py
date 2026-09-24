@@ -1061,26 +1061,26 @@ class BenchOrchestrator:
         from datetime import datetime
 
         from frappe_manager.migration_manager.version import Version
-        from frappe_manager.site_manager.bench_config import MigrationState
+        from frappe_manager.site_manager.bench_config import SchemaState
         from frappe_manager.utils.helpers import get_current_fm_version
 
         current_fm_version = Version(get_current_fm_version())
-        migrated_to = str(current_fm_version.version)
+        version = str(current_fm_version.version)
         last_migration_date = datetime.now().isoformat()
-        if bench.bench_config.migration_state is not None:
-            # Mutate the loaded instance rather than rebuilding it: MigrationState is
-            # extra="allow", so a stray key already retained inside [migration_state]
+        if bench.bench_config.schema_state is not None:
+            # Mutate the loaded instance rather than rebuilding it: SchemaState is
+            # extra="allow", so a stray key already retained inside [schema]
             # only survives this call if it stays on the SAME instance the config load
-            # returned. A fresh MigrationState(migrated_to=..., last_migration_date=...)
+            # returned. A fresh SchemaState(version=..., last_migration_date=...)
             # here would construct without the stray kwarg and silently drop it on every
             # bench creation/finalize that reaches this phase. Same pattern as
             # bench_migration_state.py's set_bench_migration_version.
-            bench.bench_config.migration_state.migrated_to = migrated_to
-            bench.bench_config.migration_state.last_migration_date = last_migration_date
+            bench.bench_config.schema_state.version = version
+            bench.bench_config.schema_state.last_migration_date = last_migration_date
         else:
-            # No prior [migration_state] table to preserve; nothing to carry forward.
-            bench.bench_config.migration_state = MigrationState(
-                migrated_to=migrated_to,
+            # No prior [schema] table to preserve; nothing to carry forward.
+            bench.bench_config.schema_state = SchemaState(
+                version=version,
                 last_migration_date=last_migration_date,
             )
 

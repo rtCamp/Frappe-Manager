@@ -47,28 +47,28 @@ While a migration runs, every other fm command on the host is refused (and a mig
 
 ## Version Tracking
 
-**Global services & configuration**, in `~/frappe/fm_config.toml` (files from older releases carry the key as `system_migrated_to`; it is renamed on the next migration):
+**Global services & configuration**, in `~/frappe/fm_config.toml` (fm still accepts the older `[migration_state]` table and the `migrated_to` / `system_migrated_to` key spellings, rewriting them to `[schema].version` on the next migration):
 
 ```toml
-[migration_state]
-migrated_to = "1.0.0"
+[schema]
+version = "1.0.0"
 ```
 
 **Per bench**, in `~/frappe/sites/<bench>/bench_config.toml`:
 
 ```toml
-[migration_state]
-migrated_to = "1.0.0"
+[schema]
+version = "1.0.0"
 last_migration_date = "2026-04-12T14:30:45.123456"
 ```
 
 ### Unknown versions refuse {#unknown-version}
 
-A missing `[migration_state]` or an unparseable `migrated_to` reads as *unknown* (`0.0.0`). Observation commands still work on such a bench, but **migrating it is refused**, naming the file: fm will not guess what a system is migrated to, because guessing wrong means re-running every migration against a state that may already be current. If you know the real version (say, a bench restored from a partial backup), write it back by hand and re-run:
+A missing `[schema]` or an unparseable `version` reads as *unknown* (`0.0.0`). Observation commands still work on such a bench, but **migrating it is refused**, naming the file: fm will not guess what a system is migrated to, because guessing wrong means re-running every migration against a state that may already be current. If you know the real version (say, a bench restored from a partial backup), write it back by hand and re-run:
 
 ```toml
-[migration_state]
-migrated_to = "1.0.0"
+[schema]
+version = "1.0.0"
 ```
 
 ### Minimum supported version {#minimum-supported-version}

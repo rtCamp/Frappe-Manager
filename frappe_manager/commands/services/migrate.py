@@ -124,7 +124,7 @@ def migrate_services(
         return
 
     # No ledger stamp here: the executor's finalize_success is the ONLY stamper of
-    # [migration_state].migrated_to (and its rollback path the only rewinder), so a crash
+    # [schema].version (and its rollback path the only rewinder), so a crash
     # between "migration done" and "version recorded" has no window to leave the two apart.
 
     output.print(

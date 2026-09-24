@@ -1893,14 +1893,14 @@ def test_phase_five_verifies_the_bench_after_saving_its_config(tmp_path):
     assert "inactive or unresponsive" in str(orchestrator._handle_creation_failure.call_args[0][0])
 
 
-def test_phase_five_stamps_the_current_fm_version_as_the_migration_state(tmp_path):
+def test_phase_five_stamps_the_current_fm_version_as_the_schema_state(tmp_path):
     harness = _Harness(_config(tmp_path), tmp_path)
 
     harness.reraising_orchestrator(real=("_phase5_finalize",)).create_bench()
 
-    state = harness.config.migration_state
+    state = harness.config.schema_state
     assert state is not None
-    assert state.migrated_to
+    assert state.version
     assert state.last_migration_date
 
 
@@ -1911,15 +1911,15 @@ def test_a_bench_only_create_is_stamped_and_saved_by_phase_five(tmp_path):
 
     harness.reraising_orchestrator(real=("_phase5_finalize",)).create_bench(bench_only=True)
 
-    assert harness.config.migration_state is not None
+    assert harness.config.schema_state is not None
     harness.events.before("sync_workers_compose", "save_bench_config(migrate=None)")
 
 
-def test_phase_five_preserves_a_stray_key_inside_migration_state_across_the_stamp(tmp_path):
-    """MigrationState is extra="allow": a stray key already retained inside a loaded
+def test_phase_five_preserves_a_stray_key_inside_schema_state_across_the_stamp(tmp_path):
+    """SchemaState is extra="allow": a stray key already retained inside a loaded, legacy
     [migration_state] table must survive the version stamp this phase writes on every create,
     not just a `fm migrate` run (see bench_migration_state.py's set_bench_migration_version for
-    the identical shape). A fresh MigrationState(migrated_to=..., last_migration_date=...)
+    the identical shape). A fresh SchemaState(version=..., last_migration_date=...)
     built without the stray kwarg would silently delete it from disk via
     toml_document.apply's prune. Real disk round trip: save_bench_config is rewired to the
     real export_to_toml/import_from_toml cycle so a prune would show up here too."""
@@ -1932,7 +1932,7 @@ def test_phase_five_preserves_a_stray_key_inside_migration_state_across_the_stam
     tmp_path.mkdir(parents=True, exist_ok=True)
     path.write_text(toml)
     config = BenchConfig.import_from_toml(path)
-    assert config.migration_state.model_extra == {"pinned_by_ops": "do-not-touch"}
+    assert config.schema_state.model_extra == {"pinned_by_ops": "do-not-touch"}
 
     harness = _Harness(config, tmp_path)
     harness.bench.save_bench_config.side_effect = lambda *_a, **_k: config.export_to_toml(path)
@@ -1941,10 +1941,10 @@ def test_phase_five_preserves_a_stray_key_inside_migration_state_across_the_stam
     orchestrator._phase5_finalize(bench_only=True)
 
     reloaded = BenchConfig.import_from_toml(path)
-    assert reloaded.migration_state.model_extra == {"pinned_by_ops": "do-not-touch"}
+    assert reloaded.schema_state.model_extra == {"pinned_by_ops": "do-not-touch"}
     # The stamp itself still does its real job: values actually change on every finalize.
-    assert reloaded.migration_state.migrated_to != "0.1.0"
-    assert reloaded.migration_state.last_migration_date != "2020-01-01T00:00:00"
+    assert reloaded.schema_state.version != "0.1.0"
+    assert reloaded.schema_state.last_migration_date != "2020-01-01T00:00:00"
 
 
 def test_phase_six_installs_the_apps_then_migrates(tmp_path):

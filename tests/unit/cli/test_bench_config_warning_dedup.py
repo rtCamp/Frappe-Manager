@@ -32,8 +32,8 @@ def _bench_with_a_typo(root, bench_dir_name: str) -> None:
         "admin_tools = false\n"
         'environment = "prod"\n'
         "typoed_top_level = true\n"
-        "\n[migration_state]\n"
-        f'migrated_to = "{get_current_fm_version()}"\n'
+        "\n[schema]\n"
+        f'version = "{get_current_fm_version()}"\n'
     )
 
 
@@ -95,8 +95,8 @@ def _clean_bench(root, bench_dir_name: str) -> None:
         "developer_mode = false\n"
         "admin_tools = false\n"
         'environment = "prod"\n'
-        "\n[migration_state]\n"
-        f'migrated_to = "{get_current_fm_version()}"\n'
+        "\n[schema]\n"
+        f'version = "{get_current_fm_version()}"\n'
     )
 
 

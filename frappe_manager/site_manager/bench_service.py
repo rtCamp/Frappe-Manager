@@ -388,7 +388,7 @@ class BenchService:
             python_version=None,
             node_version=None,
             db_name=None,
-            migration_state=None,
+            schema=None,
         )
 
         set_context(bench=bench_name, operation="cleanup")

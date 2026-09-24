@@ -235,7 +235,7 @@ class MigrationErrorHandler:
         """
         Execute full rollback and rewind the services-tier ledger.
 
-        Calls orchestrator's rollback, rewinds `[migration_state].migrated_to` when the
+        Calls orchestrator's rollback, rewinds `[schema].version` when the
         services tier was part of this run, and optionally provides user instructions
         for CLI version rollback.
 
