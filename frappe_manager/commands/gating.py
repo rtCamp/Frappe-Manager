@@ -54,8 +54,10 @@ def record_command_chain(group: click.Group, ctx: click.Context) -> None:
     name, a typo. A typo is left for click's own error, which names the valid commands.
     """
     # `_protected_args` is click's own split of the group's leftovers; `Group.invoke` reads it the
-    # same way one frame later. There is no public accessor, and it is cleared before the callback.
-    args = [*ctx._protected_args, *ctx.args]  # noqa: SLF001
+    # same way one frame later, and it is cleared before the callback. The public `protected_args`
+    # warns as deprecated on click 8 and goes away in click 9, where `args` carries every remaining
+    # token on its own -- so read the private name defensively rather than hard-failing on upgrade.
+    args = [*getattr(ctx, "_protected_args", []), *ctx.args]
     chain: builtins.list[click.Command] = []
     current: click.Command = group
 
@@ -93,3 +95,38 @@ def command_args(ctx: click.Context) -> "builtins.list[str]":
 def tolerates_broken_host(ctx: click.Context) -> bool:
     """True when the command, or a group it sits under, is declared a teardown."""
     return any(getattr(command, "tolerates_broken_host", False) for command in ctx.meta.get(META_CHAIN, ()))
+
+
+def will_print_help(ctx: click.Context) -> bool:
+    """Whether click is about to print help instead of running the command.
+
+    The callback's setup -- the docker probe, the migration gate, the host lock, creating and
+    starting the shared stack, and on a first install pulling every image -- is pure waste when
+    the answer is a help page. Click cannot be asked: its help option is eager on the SUBcommand's
+    context, which is built after this group callback has already run and done all of that.
+
+    Cobra, which docker's CLI is built on, returns `flag.ErrHelp` before any `PersistentPreRunE`
+    hook, so this question never reaches docker's own code. Click inverts that order, so fm has to
+    answer it -- but it answers the way cobra decides: from what the command DECLARES, never by
+    searching the command line for text. The old check globbed sys.argv into one string and looked
+    for "--help" anywhere in it, so `fm compose BENCH ps --format '{{.Name}} --help'` silently
+    skipped every gate above.
+    """
+    chain = ctx.meta.get(META_CHAIN) or []
+    if not chain:
+        # Root-level `fm --help` never gets here: click's eager help exits inside `make_context`,
+        # before the group is ever invoked.
+        return False
+
+    command = chain[-1]
+    args = command_args(ctx)
+
+    # Everything after `--` is an argument, never an option -- `fm shell BENCH -- --help` asks the
+    # container for help, not fm.
+    options = args[: args.index("--")] if "--" in args else args
+    if set(options) & set(command.get_help_option_names(ctx)):
+        return True
+
+    # Cobra's second help return is `!c.Runnable()`; in click terms that is a command (or group)
+    # that declares it shows help when given nothing.
+    return bool(getattr(command, "no_args_is_help", False)) and not args
