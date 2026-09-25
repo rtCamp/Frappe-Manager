@@ -25,7 +25,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-ver: ["3.13"]
+        # Both supported versions: requires-python allows 3.13 and 3.14, so a dependency that
+        # breaks on either has to fail here rather than in a user's install.
+        python-ver: ["3.13", "3.14"]
         os: [ubuntu-latest]
     
     steps:

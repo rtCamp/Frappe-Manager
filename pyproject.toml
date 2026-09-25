@@ -3,7 +3,7 @@ name = "frappe-manager"
 dynamic = ["version"]
 description = "A CLI tool based on Docker Compose to easily manage Frappe based projects. As of now, only suitable for development in local machines running on Mac and Linux based OS."
 readme = "README.md"
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.13,<3.15"
 license = { text = "MIT" }
 authors = [ { name = "rtCamp", email = "sys@rtcamp.com" } ]
 maintainers = [ { name = "Alok Singh", email = "alok.singh@rtcamp.com" } ]
@@ -37,6 +37,8 @@ fm = "frappe_manager.main:cli_entrypoint"
 [tool.ruff]
 line-length = 120
 indent-width = 4
+# The LOWEST supported version, not the newest: fm runs on 3.13 and 3.14, and targeting 3.14
+# would let ruff rewrite code into syntax 3.13 cannot parse.
 target-version = "py313"
 
 [tool.ruff.lint]

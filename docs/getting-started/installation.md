@@ -4,7 +4,7 @@ This page shows how to install Frappe Manager. Choose the installation method th
 
 ## Before you install
 
-- [ ] **Python 3.13**: needed only to run the fm tool itself. fm requires `>=3.13,<3.14`; `uv` downloads a matching interpreter for you. Benches use their own Python inside containers, set per bench with `fm create --python`.
+- [ ] **Python 3.13 or 3.14**: needed only to run the fm tool itself. fm requires `>=3.13,<3.15`; `uv` downloads a matching interpreter for you. Benches use their own Python inside containers, set per bench with `fm create --python`.
 - [ ] **Docker**: Docker Desktop (Mac/Windows) or Docker Engine (Linux). Benches run inside Docker containers, and your user needs permission to use Docker without root.
 - [ ] **Git**: fm runs `git ls-remote` on the host to check that every app repo and ref you ask for exists before it starts building. The clones themselves happen inside the container.
 - [ ] **Ports 80 and 443 free**: the global nginx proxy binds both on the host and routes every bench by domain.
@@ -31,28 +31,28 @@ Install the latest stable release from PyPI. This is the recommended option for 
 
     ```bash
     # Run a single command without installing (great for trying it out)
-    uvx --python 3.13 --from frappe-manager fm --help
+    uvx --python 3.14 --from frappe-manager fm --help
 
     # Install permanently
-    uv tool install --python 3.13 frappe-manager
+    uv tool install --python 3.14 frappe-manager
 
     # Upgrade later
     uv tool upgrade frappe-manager
     ```
 
-    `--from` tells `uvx` which package provides the `fm` executable. `--python 3.13` makes uv build the tool environment on 3.13, downloading that interpreter when the system has none.
+    `--from` tells `uvx` which package provides the `fm` executable. `--python 3.14` makes uv build the tool environment on 3.14, downloading that interpreter when the system has none; 3.13 works too.
 
 === "pipx"
 
     ```bash
     # Install stable release
-    pipx install --python 3.13 frappe-manager
+    pipx install --python 3.14 frappe-manager
 
     # Upgrade later
     pipx upgrade frappe-manager
     ```
 
-    Unlike uv, pipx does not download interpreters by default. If 3.13 is not already installed locally, either install it yourself or add `--fetch-python missing`.
+    Unlike uv, pipx does not download interpreters by default. If 3.14 is not already installed locally, either install it yourself or add `--fetch-python missing`.
 
 === "pip"
 
@@ -61,9 +61,9 @@ Install the latest stable release from PyPI. This is the recommended option for 
     pip install frappe-manager
     ```
 
-    This uses whichever interpreter owns that `pip`, so it only gets you current fm if that interpreter is 3.13.
+    This uses whichever interpreter owns that `pip`, so it only gets you current fm if that interpreter is 3.13 or 3.14.
 
-!!! warning "Keep the `--python 3.13`"
+!!! warning "Keep the `--python` pin"
     Installing on an older interpreter does not fail. Every installer here resolves the newest fm release whose `requires-python` that interpreter satisfies, so a 3.12 environment silently gets you **fm 0.18.0** instead of an error, and that build then crashes on import against current dependencies. Pin the interpreter and you get the current release or a clear resolution error.
 
 ## Development Version
@@ -83,13 +83,13 @@ Install the latest development version directly from the GitHub `develop` branch
 
     ```bash
     # Install development version
-    uv tool install --python 3.13 git+https://github.com/rtcamp/frappe-manager@develop
+    uv tool install --python 3.14 git+https://github.com/rtcamp/frappe-manager@develop
 
     # Try without installing
-    uvx --python 3.13 --from git+https://github.com/rtcamp/frappe-manager@develop fm --help
+    uvx --python 3.14 --from git+https://github.com/rtcamp/frappe-manager@develop fm --help
 
     # Pull the latest commits on develop
-    uv tool install --python 3.13 --force --reinstall git+https://github.com/rtcamp/frappe-manager@develop
+    uv tool install --python 3.14 --force --reinstall git+https://github.com/rtcamp/frappe-manager@develop
     ```
 
     `--force` overwrites the existing install; `--reinstall` refreshes uv's cache, which is what actually picks up new commits on the branch.
@@ -98,10 +98,10 @@ Install the latest development version directly from the GitHub `develop` branch
 
     ```bash
     # Install development version
-    pipx install --python 3.13 git+https://github.com/rtcamp/frappe-manager@develop
+    pipx install --python 3.14 git+https://github.com/rtcamp/frappe-manager@develop
 
     # Pull the latest commits on develop
-    pipx install --force --python 3.13 git+https://github.com/rtcamp/frappe-manager@develop
+    pipx install --force --python 3.14 git+https://github.com/rtcamp/frappe-manager@develop
     ```
 
 !!! note "`fm self upgrade` will not move a dev build"

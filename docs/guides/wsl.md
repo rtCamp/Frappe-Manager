@@ -1,6 +1,6 @@
 # Windows / WSL
 
-fm runs on Windows through WSL 2. Install it inside the WSL distro exactly as you would on Linux (`uv tool install --python 3.13 frappe-manager`, or pipx) and use Docker Desktop's WSL 2 backend, with integration enabled for that distro so fm can reach the Docker socket.
+fm runs on Windows through WSL 2. Install it inside the WSL distro exactly as you would on Linux (`uv tool install --python 3.14 frappe-manager`, or pipx) and use Docker Desktop's WSL 2 backend, with integration enabled for that distro so fm can reach the Docker socket.
 
 Tips:
 

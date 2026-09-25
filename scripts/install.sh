@@ -285,7 +285,7 @@ handle_root() {
 
 install_fm_dev() {
 	info_blue "Installing frappe-manager from branch '${BRANCH}'..."
-	uv tool install --python 3.13 --force "git+https://github.com/rtCamp/Frappe-Manager.git@${BRANCH}"
+	uv tool install --python "$PYTHON_VERSION" --force "git+https://github.com/rtCamp/Frappe-Manager.git@${BRANCH}"
 	local version
 	version=$(uv tool list 2>/dev/null | grep "^frappe-manager" | awk '{print $2}')
 	info_green "$(bold "fm $version") (branch: ${BRANCH}) installed."
@@ -306,9 +306,9 @@ install_fm() {
 	else
 		info_blue "Installing frappe-manager..."
 		if [ "$FORCE" = true ]; then
-			uv tool install --python 3.13 --force frappe-manager
+			uv tool install --python "$PYTHON_VERSION" --force frappe-manager
 		else
-			uv tool install --python 3.13 frappe-manager
+			uv tool install --python "$PYTHON_VERSION" frappe-manager
 		fi
 		local version
 		version=$(uv tool list 2>/dev/null | grep "^frappe-manager" | awk '{print $2}')
@@ -516,6 +516,9 @@ handle_shell() {
 
 USERNAME="${FM_USERNAME:-frappe}"
 PASSWORD="${FM_PASSWORD:-frappemanager}"
+# fm supports 3.13 and 3.14; install on the newest by default. uv fetches it if the host has no
+# such interpreter, so this never depends on what the distro ships. Override to pin an older one.
+PYTHON_VERSION="${FM_PYTHON_VERSION:-3.14}"
 DEVELOPMENT=false
 FORCE=false
 NON_INTERACTIVE=false

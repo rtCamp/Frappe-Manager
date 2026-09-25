@@ -17,7 +17,7 @@ On a fresh Ubuntu server:
 ## 2. Install fm
 
 ```bash
-uv tool install --python 3.13 frappe-manager
+uv tool install --python 3.14 frappe-manager
 ```
 
 See [Installation](../getting-started/installation.md) for pipx and other options.
