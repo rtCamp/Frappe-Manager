@@ -14,7 +14,9 @@ from pathlib import Path
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
-from rich.console import Console
+# Capture-only: `rich_object_to_string` renders a rich object into a StringIO so the file log can
+# hold a table as plain text. It never writes to a terminal, which is what the ban protects.
+from rich.console import Console  # noqa: TID251
 from rich.traceback import Traceback
 
 from frappe_manager import CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER

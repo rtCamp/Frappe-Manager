@@ -338,7 +338,9 @@ def app_callback(
     if json_output:
         from frappe_manager.output_manager import JSONOutputHandler
 
-        basic_handler = JSONOutputHandler(verbose=ctx.obj["verbose"], stream=sys.stdout)
+        # Something has to hand the JSON handler its stream, and this is the one place that
+        # chooses it; from there the handler owns every write to it.
+        basic_handler = JSONOutputHandler(verbose=ctx.obj["verbose"], stream=sys.stdout)  # noqa: TID251
     else:
         basic_handler = get_global_output_handler()
     set_global_output_handler(basic_handler)
