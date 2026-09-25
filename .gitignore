@@ -20,3 +20,6 @@ htmlcov/
 # Agent behavior rules: local to each checkout, never shared
 AGENTS.md
 .direnv/
+
+# Design/working notes: local scratch, never part of the repo
+notes/
