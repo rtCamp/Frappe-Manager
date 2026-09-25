@@ -452,9 +452,12 @@ def test_an_address_asks_the_yes_no_question_not_for_a_typed_name(two_sites):
 
 
 def test_declining_the_site_removal_removes_nothing(two_sites):
+    """Declining exits non-zero: the command was asked to delete and did not, and a script must
+    be able to tell that from a completed deletion. The non-interactive refusal already exits 1,
+    so a human saying no cannot exit 0 for the same outcome."""
     run = _run([f"{BENCH}/{SITE_A}"], root=two_sites, sites=[SITE_A, SITE_B], answer="no")
     assert run.index("remove_site") == -1
-    assert run.result.exit_code == 0
+    assert run.result.exit_code == 1
 
 
 def test_the_operator_is_told_the_rest_of_the_bench_survives(two_sites):

@@ -1113,8 +1113,11 @@ class TestPrune:
         }
         ship.output.prompt_ask.return_value = "no"
 
-        self._releases_only(ship, keep_releases=3)
+        with pytest.raises(typer.Exit) as exc:
+            self._releases_only(ship, keep_releases=3)
 
+        # Declining exits non-zero: the prune was asked for and did not happen.
+        assert exc.value.exit_code == 1
         kwargs = ship.output.prompt_ask.call_args.kwargs
         assert kwargs["default"] == "no"
         assert kwargs["required_flag"] == "--yes"

@@ -173,7 +173,7 @@ def prune_services(
         )
         if choice != "yes":
             output.print("Aborted; nothing touched.", emoji_code="")
-            return
+            raise typer.Exit(1)
 
     # ---- execute exactly the plans that were shown.
     reclaimed = 0

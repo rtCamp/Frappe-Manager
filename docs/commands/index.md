@@ -5,12 +5,13 @@ Complete reference for all `fm` CLI commands. Each command page includes usage, 
 
 ## Flag Conventions
 
-Four rules hold across every fm command, so a flag means the same thing everywhere:
+Five rules hold across every fm command, so a flag means the same thing everywhere:
 
 - **`--yes` / `-y`** answers any confirmation prompt: "do the thing I typed, don't ask." It never expands what a command does. Every prompt defaults to **No**: a bare Enter aborts. Under `--non-interactive`, an unanswered prompt refuses and names `--yes`.
 - **Dangerous behaviors are their own named flags** (`--restore-db`, `--delete-backups`, `--skip-db-backup`, `--on-failure`). A decision that changes *what* happens is never buried in a prompt only: the flag names it, and `--yes` never answers it for you.
 - **`--force` selects a stronger action** (recreate containers, interrupt jobs, renew early). It never skips a question.
 - **`--dry-run` prints the plan and changes nothing**: exit 0, never prompts. Available on the plan-first commands (`prune`, `services prune`, `migrate`, `services migrate`, `delete`, `update`, `create`); it is the scriptable way to see a plan, since non-interactive runs without `--yes` refuse instead.
+- **The exit code answers "did the thing I typed happen?"** Declining a confirmation exits **non-zero**, because the command was asked to act and did not. That is the same answer a non-interactive run without `--yes` already gives, so a script cannot tell a human saying no from a refused flag, and neither reads as success. A command that finds nothing to do (`fm migrate` with no stale benches) exits **0**: that one did finish.
 
 ---
 
