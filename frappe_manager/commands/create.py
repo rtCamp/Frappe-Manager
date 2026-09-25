@@ -218,9 +218,8 @@ def _print_resolved_config(output, address: str, bc: BenchConfig) -> None:
 
     # Plain lines, not a rich panel: this is a copy target (see commands/list.py:61 -- rich cells
     # truncate or fold, both of which corrupt a pasted path or an image ref).
-    output.stop()
-    typer.echo(f"# {address}: resolved bench_config.toml (nothing was created)")
-    typer.echo(text.rstrip())
+    output.data_raw(f"# {address}: resolved bench_config.toml (nothing was created)")
+    output.data_raw(text.rstrip())
 
 
 def _refuse_immutable_inputs(bc: BenchConfig) -> None:

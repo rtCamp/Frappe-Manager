@@ -6,7 +6,6 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands.arguments import BenchDomainArgument
-from frappe_manager.output_manager import temporary_stop
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, prompt_for_bench_selection
 
 from .bench_helpers import _prompt_for_domain, _remove_bench_certificate, _resolve_domains
@@ -77,8 +76,7 @@ def remove_certificate(
         if not address:
             output = get_output_handler(ctx)
             output.display_error("Domain is required in standalone mode")
-            with temporary_stop(output):
-                typer.echo(ctx.get_help())
+            output.data_raw(ctx.get_help())
             raise typer.Exit(1)
 
         _remove_external_certificate(ctx, address, yes)
@@ -95,8 +93,7 @@ def remove_certificate(
             "An address of the form BENCH/DOMAIN is required in bench mode, naming the certificate "
             "to delete. 'BENCH/all' deletes every certificate the bench holds."
         )
-        with temporary_stop(output):
-            typer.echo(ctx.get_help())
+        output.data_raw(ctx.get_help())
         raise typer.Exit(1)
 
     for target in _resolve_domains(ctx, address, domain):

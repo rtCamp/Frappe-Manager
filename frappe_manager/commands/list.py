@@ -60,24 +60,24 @@ def list(
         )
 
     if json_output or ctx.obj.get("json"):
+        # One path, not two. Under global --json the JSONL stream owns stdout, so the inventory
+        # rides it as an event; with the --json FLAG on a human terminal it is a pretty dump. Both
+        # go through the data channel, which decides the rendering per handler -- the command used
+        # to branch and emit two different shapes for the same data.
         data = bench_service.list_benches_data()
         if ctx.obj.get("json"):
-            # Global --json mode: the JSONL event stream owns stdout, so the inventory
-            # rides it as ONE print_data event instead of a pretty dump interleaving it.
             output.print_data(data)
-            return
-        output.stop()  # keep stdout clean for piping
-        typer.echo(json_module.dumps(data, indent=2))
+        else:
+            output.data_raw(json_module.dumps(data, indent=2))
         return
 
     if paths:
         # Copy targets get PLAIN lines, not table cells: rich cells truncate or
         # fold (both corrupt a copied path); plain lines soft-wrap and pipe.
-        output.stop()
         data = bench_service.list_benches_data()
         width = max((len(b["name"]) for b in data), default=0)
         for b in data:
-            typer.echo(f"{b['name']:<{width}}  {b['path']}")
+            output.data_raw(f"{b['name']:<{width}}  {b['path']}")
         return
 
     view = bench_service.list_benches_view()

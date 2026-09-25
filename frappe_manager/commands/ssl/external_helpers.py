@@ -9,7 +9,7 @@ from rich.table import Table
 
 from frappe_manager import CLI_BENCHES_DIRECTORY, SSL_RENEW_BEFORE_DAYS
 from frappe_manager.logger import get_logger, set_context
-from frappe_manager.output_manager import spinner, temporary_stop
+from frappe_manager.output_manager import spinner
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.site import Bench
@@ -111,8 +111,7 @@ def _add_external_certificate(
 
     if cname and challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         output.display_error("CNAME delegation (--cname) requires DNS-01 challenge")
-        with temporary_stop(output):
-            typer.echo(ctx.get_help())
+        output.data_raw(ctx.get_help())
         raise typer.Exit(1)
 
     output.change_head(f"Adding SSL certificate for {domain} (standalone mode)")

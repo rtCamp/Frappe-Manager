@@ -6,7 +6,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands.arguments import BenchDomainAllArgument
-from frappe_manager.output_manager import spinner, temporary_stop
+from frappe_manager.output_manager import spinner
 from frappe_manager.site_manager.exceptions import BenchSSLCertificateNotIssued
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager.certificate_exceptions import (
@@ -83,8 +83,7 @@ def renew(
         if not address:
             output = get_output_handler(ctx)
             output.display_error("Domain required for standalone renewal")
-            with temporary_stop(output):
-                typer.echo(ctx.get_help())
+            output.data_raw(ctx.get_help())
             raise typer.Exit(1)
         _renew_external_certificate(ctx, address, test_ca, force)
         return
@@ -96,8 +95,7 @@ def renew(
         if not address:
             output = get_output_handler(ctx)
             output.display_error("Benchname required in bench mode")
-            with temporary_stop(output):
-                typer.echo(ctx.get_help())
+            output.data_raw(ctx.get_help())
             raise typer.Exit(1)
 
     targets = resolve_bench_targets(address)

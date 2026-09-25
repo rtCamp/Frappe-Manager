@@ -8,7 +8,6 @@ from click.core import ParameterSource
 from typer_examples import example
 
 from frappe_manager.commands.arguments import BenchDomainArgument
-from frappe_manager.output_manager import temporary_stop
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, prompt_for_bench_selection
 
@@ -298,8 +297,7 @@ def add_certificate(
         if not address:
             output = get_output_handler(ctx)
             output.display_error("Domain is required in standalone mode")
-            with temporary_stop(output):
-                typer.echo(ctx.get_help())
+            output.data_raw(ctx.get_help())
             raise typer.Exit(1)
 
         _add_external_certificate(ctx, address, challenge, cname, test_ca, skip_dns_check, wait_for_dns)
@@ -316,8 +314,7 @@ def add_certificate(
             "An address of the form BENCH/DOMAIN is required in bench mode, naming the hostname the "
             "certificate is for. 'BENCH/all' issues one for every domain the bench serves."
         )
-        with temporary_stop(output):
-            typer.echo(ctx.get_help())
+        output.data_raw(ctx.get_help())
         raise typer.Exit(1)
 
     for target in _resolve_domains(ctx, address, domain):
