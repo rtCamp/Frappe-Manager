@@ -528,11 +528,11 @@ def test_the_alias_is_matched_as_typed_not_after_normalisation(tmp_path):
 
 def test_maintenance_gets_the_same_alias_pointer(tmp_path):
     """The refusal lives in the shared address callback, so every command that acts on one site
-    gains it: `fm maintenance shop/www.b.example.com` is exactly the invocation that prompted it."""
-    from frappe_manager.commands.maintenance import maintenance
+    gains it: `fm maintenance enable shop/www.b.example.com` is exactly the invocation that prompted it."""
+    from frappe_manager.commands.maintenance.enable import enable
 
     root = _aliased_bench(tmp_path)
     with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
-        result = runner.invoke(_app("maintenance", maintenance), ["multi/www.b.example.com"])
+        result = runner.invoke(_app("maintenance", enable), ["multi/www.b.example.com"])
 
     assert "is an alias of 'b.example.com'" in _said(result)

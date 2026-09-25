@@ -38,14 +38,16 @@ def _group() -> click.Group:
     return group
 
 
-# The 7 sub-apps have no address of their own to derive a panel from; hand-pinned because there
+# The sub-apps have no address of their own to derive a panel from; hand-pinned because there
 # are only a few of them and their bucket is a taxonomy decision, not a derivable fact.
 GROUP_PANELS = {
     "services": _PANEL_GLOBAL,
     "self": _PANEL_GLOBAL,
     "ssl": _PANEL_DOMAIN,
     "apps": _PANEL_SITE,
+    "auth": _PANEL_SITE,
     "domain": _PANEL_DOMAIN,
+    "maintenance": _PANEL_SITE,
     "tools": _PANEL_SITE,
     "telemetry": _PANEL_SITE,
 }

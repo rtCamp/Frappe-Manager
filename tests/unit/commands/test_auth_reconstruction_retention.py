@@ -21,10 +21,12 @@ from unittest.mock import MagicMock, patch
 import tomlkit
 import typer
 
-from frappe_manager.commands.auth import AuthSurface, auth
+from frappe_manager.commands.auth.enable import enable
 from frappe_manager.site_manager.bench_config import BenchConfig
 
-auth_mod = import_module("frappe_manager.commands.auth")
+# `check_bench_migration_required` and `Bench` are resolved inside the shared apply
+# helper, so that is the module a patch has to name -- not the verb module.
+auth_mod = import_module("frappe_manager.commands.auth._helpers")
 
 BENCH_TOML = """\
 name = "mybench"
@@ -71,7 +73,7 @@ def _bench_with_real_config(tmp_path, toml_text: str = BENCH_TOML):
 
 
 def _run_auth(bench, **kwargs):
-    """Call the real `auth` command body against `bench`, with only the bench lookup and the
+    """Call the real `fm auth enable` command body against `bench`, with only the bench lookup and the
     migration gate mocked. `--insecure` defaults on and no nginx conf is written so neither safety
     gate needs its own fixture; they are exercised by the sibling contract test file, not this one.
     """
@@ -79,9 +81,8 @@ def _run_auth(bench, **kwargs):
     ctx.obj = {"services": MagicMock(), "site": kwargs.pop("site", None)}
     params = {
         "address": "mybench",
-        "protect": [],
-        "off": False,
-        "status": False,
+        "web": False,
+        "tools": False,
         "user": None,
         "password": None,
         "rotate": False,
@@ -97,7 +98,7 @@ def _run_auth(bench, **kwargs):
     ):
         bench_cls.get_object.return_value = bench
         try:
-            auth(ctx, **params)
+            enable(ctx, **params)
             raised = None
         except typer.Exit as exc:
             raised = exc
@@ -113,7 +114,7 @@ def _reload(config_path) -> tomlkit.TOMLDocument:
 class TestBenchScopeStrayRetention:
     def test_a_stray_inside_auth_survives_a_bench_wide_rewrite(self, tmp_path):
         bench, config_path = _bench_with_real_config(tmp_path)
-        raised = _run_auth(bench, protect=[AuthSurface.web], user="newuser", password="newpw")
+        raised = _run_auth(bench, web=True, user="newuser", password="newpw")
         assert raised is None
         bench.save_bench_config.assert_called_once()
 
@@ -121,23 +122,32 @@ class TestBenchScopeStrayRetention:
         assert doc["auth"]["stray_bench_auth"] == "operator_typo_value"
 
     def test_the_named_bench_auth_fields_are_still_correctly_updated(self, tmp_path):
-        """The regression risk of preserving too much: the operator's new values must actually
-        land, including a surface being cleared back to False by --protect's declarative semantics
-        (tools was on in the fixture; --protect web alone must turn it back off)."""
+        """The regression risk of preserving too much: the operator's new values must actually land."""
         bench, config_path = _bench_with_real_config(tmp_path)
-        _run_auth(bench, protect=[AuthSurface.web], user="newuser", password="newpw")
+        _run_auth(bench, web=True, user="newuser", password="newpw")
 
         doc = _reload(config_path)
         assert doc["auth"]["user"] == "newuser"
         assert doc["auth"]["password"] == "newpw"
         assert doc["auth"]["web"] is True
-        assert doc["auth"]["tools"] is False
+
+    def test_naming_one_surface_leaves_the_other_alone(self, tmp_path):
+        """Surfaces are additive: `fm auth enable BENCH --web` acts on the web surface and says
+        nothing about the tools surface, which was on in the fixture and must stay on. The
+        replaced `--protect` was declarative and turned tools OFF here, which is the surprise
+        this design removes."""
+        bench, config_path = _bench_with_real_config(tmp_path)
+        _run_auth(bench, web=True)
+
+        doc = _reload(config_path)
+        assert doc["auth"]["web"] is True
+        assert doc["auth"]["tools"] is True
 
 
 class TestSiteScopeStrayRetention:
     def test_a_stray_inside_a_sites_auth_survives_a_per_site_rewrite(self, tmp_path):
         bench, config_path = _bench_with_real_config(tmp_path)
-        raised = _run_auth(bench, site="b.localhost", protect=[AuthSurface.web], user="newsiteuser", password="newsitepw")
+        raised = _run_auth(bench, site="b.localhost", web=True, user="newsiteuser", password="newsitepw")
         assert raised is None
         bench.save_bench_config.assert_called_once()
 
@@ -146,7 +156,7 @@ class TestSiteScopeStrayRetention:
 
     def test_the_named_site_auth_fields_are_still_correctly_updated(self, tmp_path):
         bench, config_path = _bench_with_real_config(tmp_path)
-        _run_auth(bench, site="b.localhost", protect=[AuthSurface.web], user="newsiteuser", password="newsitepw")
+        _run_auth(bench, site="b.localhost", web=True, user="newsiteuser", password="newsitepw")
 
         doc = _reload(config_path)
         site_auth = doc["sites"]["b.localhost"]["auth"]
@@ -166,7 +176,7 @@ class TestSiteScopeStrayRetention:
             "",
         )
         bench, config_path = _bench_with_real_config(tmp_path, toml_text)
-        raised = _run_auth(bench, site="b.localhost", protect=[AuthSurface.web], password="freshpw")
+        raised = _run_auth(bench, site="b.localhost", web=True, password="freshpw")
         assert raised is None
 
         doc = _reload(config_path)

@@ -1,30 +1,28 @@
 """Characterization of the decisions inside `fm auth`, `fm migrate`, `fm shell`
 and `fm maintenance`.
 
-These four commands carry their branch logic in the command body, so the things
+These commands carry their branch logic in the command body, so the things
 worth defending are the guards that refuse an action, the state each flag
 combination *resolves to*, the exact argv handed to the container, and the
 ordering of side effects. In particular:
 
-* `auth --protect` is DECLARATIVE: the surfaces passed become the resulting
-  state, so `--protect tools` alone turns the web surface off again. The two
-  safety gates differ on purpose -- the TLS gate fires only while a surface is
-  newly turned on (an idempotent re-run must not start refusing), the nginx
-  `$fm_upstream_auth` gate fires whenever the result leaves web protected.
+* `fm auth enable`/`fm auth disable` are ADDITIVE: naming a surface (`--web`/`--tools`) acts on
+  that surface only, and naming neither acts on both. The two safety gates differ on purpose --
+  the TLS gate fires only while a surface is newly turned on (an idempotent re-run must not start
+  refusing), the nginx `$fm_upstream_auth` gate fires whenever the result leaves web protected.
 * `migrate` decides its target set and per-bench success by comparing *base* versions so
   `0.19.0.dev0` counts as `0.19.0`. It is BENCH-tier only: a stale global-services tier is
   refused with a pointer at `fm services migrate`, never migrated implicitly.
 * `shell` builds a compose argv and hands it to `os.execvp`. Tests pin the argv
   and the user/workdir decisions; `os.execvp` is always mocked, never run.
-* `maintenance` has a local sitename callback that sniffs `--status` out of
-  `sys.argv` so `fm maintenance --status` works without a bench.
+* `fm maintenance status` takes no bench and lists every domain currently in maintenance,
+  across every bench.
 
 Written as characterization tests: they pin what the code does today, including
 the two oddities noted in the module docstrings of the tests concerned.
 """
 
 import base64
-import sys
 from importlib import import_module
 from io import StringIO
 from types import SimpleNamespace
@@ -35,23 +33,26 @@ import typer
 from rich.console import Console
 from typer.testing import CliRunner
 
-from frappe_manager.commands.auth import (
-    AuthSurface,
-    _print_state,
-    _read_password_from_stdin,
-    _surface_summary,
-    auth,
+from frappe_manager.commands.auth._helpers import (
+    print_state,
+    read_password_from_stdin,
+    surface_summary,
 )
-from frappe_manager.commands.maintenance import (
+from frappe_manager.commands.auth.disable import disable as auth_disable
+from frappe_manager.commands.auth.enable import enable as auth_enable
+from frappe_manager.commands.auth.status import status as auth_status
+from frappe_manager.commands.maintenance._helpers import (
     _DEFAULT_MESSAGE,
     _extract_bench,
     _extract_code,
     _extract_token,
-    _maintenance_sitename_callback,
     _resolve_page_html,
     _vhost_conf,
-    maintenance,
+    optional_bench_site_callback,
 )
+from frappe_manager.commands.maintenance.disable import disable as maintenance_disable
+from frappe_manager.commands.maintenance.enable import enable as maintenance_enable
+from frappe_manager.commands.maintenance.status import status as maintenance_status
 from frappe_manager.commands.migrate import MigrationFailureAction, migrate
 from frappe_manager.commands.shell import (
     _get_default_shell_path,
@@ -65,13 +66,21 @@ from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime, S
 from frappe_manager.site_manager.exceptions import BenchNotFoundError
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 
-# `frappe_manager.commands` re-exports the command FUNCTIONS under the module
-# names, shadowing the submodule attributes, so import_module is the only way to
-# reach the modules themselves (needed to monkeypatch module-level constants).
-auth_mod = import_module("frappe_manager.commands.auth")
+# `frappe_manager.commands` re-exports the `migrate`/`shell` command FUNCTIONS under the module
+# names, shadowing the submodule attributes, so import_module is the only way to reach those two
+# modules themselves (needed to monkeypatch module-level constants). `auth` and `maintenance` are
+# packages now, split into one module per verb: each symbol below is patched on the specific
+# submodule that actually owns it. `check_bench_migration_required` and `Bench` are resolved
+# inside `frappe_manager.commands.auth._helpers` for every auth verb (`resolve_scope` lives
+# there), so that is the one patch target for auth regardless of which verb a test calls.
+# `CLI_BENCHES_DIRECTORY` and `bench_site_callback` are resolved inside
+# `frappe_manager.commands.maintenance._helpers` the same way; `secrets` is only imported into
+# the `enable` verb module, which is the one that mints bypass tokens.
+auth_helpers_mod = import_module("frappe_manager.commands.auth._helpers")
 migrate_mod = import_module("frappe_manager.commands.migrate")
 shell_mod = import_module("frappe_manager.commands.shell")
-maintenance_mod = import_module("frappe_manager.commands.maintenance")
+maint_helpers_mod = import_module("frappe_manager.commands.maintenance._helpers")
+maint_enable_mod = import_module("frappe_manager.commands.maintenance.enable")
 
 # `resolve_bench_targets` reads the benches root from `callbacks`, not from `migrate`, so a test
 # that only redirects the command module's copy would have `all` enumerate the real ~/frappe.
@@ -124,7 +133,6 @@ def render(table) -> str:
     console.print(table)
     return console.file.getvalue()
 
-
 # =========================================================================== #
 # auth.py
 # =========================================================================== #
@@ -160,17 +168,31 @@ def _auth_bench(
     return bench
 
 
-def _run_auth(bench=None, **kwargs):
-    """Call the real `auth` body with the bench lookup and migration gate mocked."""
+def _run_verb(verb, bench=None, **kwargs):
+    """Call one of the real auth verb bodies with the bench lookup and migration gate mocked."""
     ctx = MagicMock()
     # `site` is the SITE half of the address, which `bench_site_callback` stashes here. None means
-    # the whole bench, which is what a bare `fm auth BENCH` does.
+    # the whole bench, which is what a bare `fm auth enable BENCH` does.
     ctx.obj = {"services": MagicMock(), "site": kwargs.pop("site", None)}
+    with (
+        patch.object(auth_helpers_mod, "check_bench_migration_required") as gate,
+        patch.object(auth_helpers_mod, "Bench") as bench_cls,
+    ):
+        bench_cls.get_object.return_value = bench if bench is not None else MagicMock()
+        try:
+            verb(ctx, **kwargs)
+            raised = None
+        except typer.Exit as exc:
+            raised = exc
+    return SimpleNamespace(bench_cls=bench_cls, gate=gate, exit=raised)
+
+
+def _run_enable(bench=None, **kwargs):
+    """Call the real `enable` body with the bench lookup and migration gate mocked."""
     params = {
         "address": "mybench",
-        "protect": [],
-        "off": False,
-        "status": False,
+        "web": False,
+        "tools": False,
         "user": None,
         "password": None,
         "rotate": False,
@@ -180,17 +202,21 @@ def _run_auth(bench=None, **kwargs):
         "insecure": False,
     }
     params.update(kwargs)
-    with (
-        patch.object(auth_mod, "check_bench_migration_required") as gate,
-        patch.object(auth_mod, "Bench") as bench_cls,
-    ):
-        bench_cls.get_object.return_value = bench if bench is not None else MagicMock()
-        try:
-            auth(ctx, **params)
-            raised = None
-        except typer.Exit as exc:
-            raised = exc
-    return SimpleNamespace(bench_cls=bench_cls, gate=gate, exit=raised)
+    return _run_verb(auth_enable, bench, **params)
+
+
+def _run_disable(bench=None, **kwargs):
+    """Call the real `disable` body with the bench lookup and migration gate mocked."""
+    params = {"address": "mybench", "web": False, "tools": False}
+    params.update(kwargs)
+    return _run_verb(auth_disable, bench, **params)
+
+
+def _run_status(bench=None, **kwargs):
+    """Call the real `status` body with the bench lookup and migration gate mocked."""
+    params = {"address": "mybench"}
+    params.update(kwargs)
+    return _run_verb(auth_status, bench, **params)
 
 
 def _saved(bench) -> AuthConfig:
@@ -199,89 +225,42 @@ def _saved(bench) -> AuthConfig:
 
 
 # --- flag guards refuse before the bench is even looked up ----------------- #
-def test_off_with_protect_is_refused_before_touching_the_bench(out):
-    r = _run_auth(off=True, protect=[AuthSurface.web])
-    assert r.exit.exit_code == 1
-    assert "--off cannot be combined with --protect" in joined(out.display_error)
-    r.bench_cls.get_object.assert_not_called()
-    r.gate.assert_not_called()
-
-
-def test_off_with_status_is_refused(out):
-    r = _run_auth(off=True, status=True)
-    assert r.exit.exit_code == 1
-    assert "--status never writes" in joined(out.display_error)
-
-
 def test_rotate_with_explicit_password_is_refused(out):
-    r = _run_auth(rotate=True, password=CHOSEN_PW)
+    r = _run_enable(rotate=True, password=CHOSEN_PW)
     assert r.exit.exit_code == 1
     assert "--rotate cannot be combined with --password" in joined(out.display_error)
 
 
-@pytest.mark.parametrize(
-    "write_flag",
-    [
-        {"protect": [AuthSurface.web]},
-        {"user": "alice"},
-        {"password": "s3cret"},
-        {"rotate": True},
-        {"allow_ip": ["203.0.113.7"]},
-        {"allow_path": ["/api/method/ping"]},
-        {"clear_exemptions": True},
-    ],
-)
-def test_status_refuses_every_writing_flag(out, write_flag):
-    r = _run_auth(status=True, **write_flag)
-    assert r.exit.exit_code == 1
-    assert "--status only reports" in joined(out.display_error)
-
-
-def test_insecure_alone_is_nothing_to_do(out):
-    # --insecure only relaxes a check; on its own there is no action to relax.
-    r = _run_auth(insecure=True)
-    assert r.exit.exit_code == 1
-    assert "Nothing to do" in joined(out.display_error)
-    r.bench_cls.get_object.assert_not_called()
-
-
-@pytest.mark.usefixtures("out")
-def test_insecure_with_status_is_allowed_and_only_reports(tmp_path):
-    bench = _auth_bench(tmp_path, stored=None)
-    r = _run_auth(bench, status=True, insecure=True)
-    assert r.exit is None
-    bench.save_bench_config.assert_not_called()
-
-
 def test_bad_allow_ip_is_refused_with_the_flag_named(out):
-    r = _run_auth(allow_ip=["not-an-ip"])
+    r = _run_enable(allow_ip=["not-an-ip"])
     assert r.exit.exit_code == 1
     assert "--allow-ip: invalid IP range 'not-an-ip'" in joined(out.display_error)
 
 
 def test_relative_allow_path_is_refused(out):
-    r = _run_auth(allow_path=["api/method/ping"])
+    r = _run_enable(allow_path=["api/method/ping"])
     assert r.exit.exit_code == 1
     assert "--allow-path must be an absolute path prefix" in joined(out.display_error)
 
 
 def test_allow_path_is_rejected_when_the_result_leaves_web_unprotected(out, tmp_path):
-    # Path exemptions only exist on the web surface, so asking for one while the
-    # resulting state protects tools only is a user error, not a silent no-op.
+    # Path exemptions only exist on the web surface, so asking for one while the resulting state
+    # protects tools only (--web left unnamed, so it stays at its current, unprotected value) is a
+    # user error, not a silent no-op.
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=True, password=PW))
-    r = _run_auth(bench, allow_path=["/api/method/ping"])
+    r = _run_enable(bench, tools=True, allow_path=["/api/method/ping"])
     assert r.exit.exit_code == 1
     assert "web surface only" in joined(out.display_error)
     bench.save_bench_config.assert_not_called()
 
 
-# --- reporting paths ------------------------------------------------------- #
-def test_bare_invocation_on_an_unconfigured_bench_reports_the_model_defaults(out, tmp_path):
+# --- reporting paths (status) ----------------------------------------------- #
+def test_bare_status_on_an_unconfigured_bench_reports_the_model_defaults(out, tmp_path):
     bench = _auth_bench(tmp_path, stored=None)
-    r = _run_auth(bench)
+    r = _run_status(bench)
     assert r.exit is None
     assert "Basic auth: not configured; bench defaults apply (tools protected, web open)" in texts(out.print)
-    assert "fm auth mybench --protect web" in joined(out.print)
+    assert "fm auth enable mybench --web" in joined(out.print)
     bench.save_bench_config.assert_not_called()
     bench.ensure_fm_nginx_confs.assert_not_called()
 
@@ -289,7 +268,7 @@ def test_bare_invocation_on_an_unconfigured_bench_reports_the_model_defaults(out
 def test_status_reports_stored_state_without_writing(out, tmp_path):
     stored = AuthConfig(user="alice", password=PW, web=True, tools=False, allow_ips=["10.0.0.0/8"])
     bench = _auth_bench(tmp_path, stored=stored)
-    r = _run_auth(bench, status=True)
+    r = _run_status(bench)
     assert r.exit is None
     body = joined(out.print)
     assert "Basic auth on for: web" in body
@@ -301,23 +280,23 @@ def test_status_reports_stored_state_without_writing(out, tmp_path):
 @pytest.mark.usefixtures("out")
 def test_status_runs_the_migration_gate_and_looks_the_bench_up(tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(password=PW))
-    r = _run_auth(bench, status=True)
+    r = _run_status(bench)
     r.gate.assert_called_once_with("mybench")
     r.bench_cls.get_object.assert_called_once()
 
 
-# --- _surface_summary / _print_state -------------------------------------- #
+# --- surface_summary / print_state ------------------------------------------ #
 def test_surface_summary_names_only_the_protected_surfaces_in_order():
-    assert _surface_summary(web=False, tools=False) == "off on both surfaces (web, tools)"
-    assert _surface_summary(web=True, tools=False) == "on for: web"
-    assert _surface_summary(web=False, tools=True) == "on for: tools"
-    assert _surface_summary(web=True, tools=True) == "on for: web, tools"
+    assert surface_summary(web=False, tools=False) == "off on both surfaces (web, tools)"
+    assert surface_summary(web=True, tools=False) == "on for: web"
+    assert surface_summary(web=False, tools=True) == "on for: tools"
+    assert surface_summary(web=True, tools=True) == "on for: web, tools"
 
 
 def test_print_state_hides_inert_credentials_when_both_surfaces_are_off():
     output = MagicMock()
     config = AuthConfig(user="alice", password=PW, web=False, tools=False, allow_ips=["10.0.0.1/32"])
-    _print_state(output, config, hint_when_off=True)
+    print_state(output, config, hint_when_off=True)
     body = joined(output.print)
     assert "off on both surfaces" in body
     assert "credentials and exemptions stay stored" in body
@@ -327,20 +306,20 @@ def test_print_state_hides_inert_credentials_when_both_surfaces_are_off():
 
 def test_print_state_omits_the_stored_hint_when_nothing_is_stored():
     output = MagicMock()
-    _print_state(output, AuthConfig(web=False, tools=False), hint_when_off=True)
+    print_state(output, AuthConfig(web=False, tools=False), hint_when_off=True)
     assert texts(output.print) == ["Basic auth off on both surfaces (web, tools)"]
 
 
 def test_print_state_never_hints_after_a_write():
     output = MagicMock()
     config = AuthConfig(password=PW, web=False, tools=False)
-    _print_state(output, config, hint_when_off=False)
+    print_state(output, config, hint_when_off=False)
     assert "stay stored" not in joined(output.print)
 
 
 def test_print_state_reports_path_exemptions_only_while_web_is_protected():
     tools_only = MagicMock()
-    _print_state(
+    print_state(
         tools_only,
         AuthConfig(password=PW, web=False, tools=True, allow_paths=["/api/method/ping"]),
         hint_when_off=False,
@@ -348,7 +327,7 @@ def test_print_state_reports_path_exemptions_only_while_web_is_protected():
     assert "no prompt on:" not in joined(tools_only.print)
 
     web_on = MagicMock()
-    _print_state(
+    print_state(
         web_on,
         AuthConfig(password=PW, web=True, tools=False, allow_paths=["/api/method/ping"]),
         hint_when_off=False,
@@ -356,35 +335,37 @@ def test_print_state_reports_path_exemptions_only_while_web_is_protected():
     assert "no prompt on: /api/method/ping" in joined(web_on.print)
 
 
-# --- --protect is declarative --------------------------------------------- #
+# --- enable/disable are additive, not declarative --------------------------- #
 @pytest.mark.usefixtures("out")
-def test_protect_tools_alone_turns_the_web_surface_off_again(tmp_path):
-    bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, tools=True, password=PW))
-    r = _run_auth(bench, protect=[AuthSurface.tools])
+def test_naming_tools_alone_leaves_the_web_surface_on(tmp_path):
+    """Additive, not declarative: naming --tools says nothing about --web, so an already-protected
+    web surface stays protected instead of being turned off again."""
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, tools=False, password=PW))
+    r = _run_enable(bench, tools=True)
     assert r.exit is None
-    assert (_saved(bench).web, _saved(bench).tools) == (False, True)
-
-
-@pytest.mark.usefixtures("out")
-def test_protect_web_alone_turns_the_tools_surface_off_again(tmp_path):
-    bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=True, password=PW))
-    r = _run_auth(bench, protect=[AuthSurface.web])
-    assert r.exit is None
-    assert (_saved(bench).web, _saved(bench).tools) == (True, False)
-
-
-@pytest.mark.usefixtures("out")
-def test_both_surfaces_require_both_protect_flags(tmp_path):
-    bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password=PW))
-    _run_auth(bench, protect=[AuthSurface.web, AuthSurface.tools])
     assert (_saved(bench).web, _saved(bench).tools) == (True, True)
 
 
 @pytest.mark.usefixtures("out")
-def test_off_turns_both_surfaces_off_but_keeps_the_credentials(tmp_path):
+def test_naming_web_alone_leaves_the_tools_surface_on(tmp_path):
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=True, password=PW))
+    r = _run_enable(bench, web=True)
+    assert r.exit is None
+    assert (_saved(bench).web, _saved(bench).tools) == (True, True)
+
+
+@pytest.mark.usefixtures("out")
+def test_naming_neither_surface_enables_both(tmp_path):
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password=PW))
+    _run_enable(bench)
+    assert (_saved(bench).web, _saved(bench).tools) == (True, True)
+
+
+@pytest.mark.usefixtures("out")
+def test_disabling_neither_named_turns_both_surfaces_off_but_keeps_the_credentials(tmp_path):
     stored = AuthConfig(user="alice", password=PW, web=True, tools=True, allow_ips=["10.0.0.0/8"])
     bench = _auth_bench(tmp_path, stored=stored)
-    _run_auth(bench, off=True)
+    _run_disable(bench)
     applied = _saved(bench)
     assert (applied.web, applied.tools) == (False, False)
     assert (applied.user, applied.password) == ("alice", "pw")
@@ -392,9 +373,9 @@ def test_off_turns_both_surfaces_off_but_keeps_the_credentials(tmp_path):
 
 
 @pytest.mark.usefixtures("out")
-def test_a_credential_only_change_leaves_the_surfaces_alone(tmp_path):
+def test_a_credential_change_leaves_the_untouched_surface_alone(tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, tools=False, password=PW))
-    _run_auth(bench, user="alice")
+    _run_enable(bench, web=True, user="alice")
     applied = _saved(bench)
     assert (applied.web, applied.tools) == (True, False)
     assert applied.user == "alice"
@@ -402,18 +383,19 @@ def test_a_credential_only_change_leaves_the_surfaces_alone(tmp_path):
 
 @pytest.mark.usefixtures("out")
 def test_an_absent_auth_table_is_treated_as_the_model_defaults(tmp_path):
-    # No [auth] table means the bench serves AuthConfig()'s defaults today
-    # (tools protected, web open), so a credential-only write must preserve them.
+    # No [auth] table means the bench serves AuthConfig()'s defaults today (tools protected, web
+    # open); naming --tools writes that default explicitly while --web, left unnamed, keeps its
+    # default (open).
     bench = _auth_bench(tmp_path, stored=None)
-    _run_auth(bench, user="alice")
+    _run_enable(bench, tools=True, user="alice")
     applied = _saved(bench)
     assert (applied.web, applied.tools) == (False, True)
 
 
-# --- TLS gate -------------------------------------------------------------- #
+# --- TLS gate ---------------------------------------------------------------- #
 def test_enabling_web_without_tls_is_refused(out, tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False), ssl_type=SUPPORTED_SSL_TYPES.none)
-    r = _run_auth(bench, protect=[AuthSurface.web])
+    r = _run_enable(bench, web=True)
     assert r.exit.exit_code == 1
     body = joined(out.display_error)
     assert "has no TLS certificate" in body
@@ -423,7 +405,7 @@ def test_enabling_web_without_tls_is_refused(out, tmp_path):
 
 def test_enabling_tools_without_tls_only_warns_and_proceeds(out, tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False), ssl_type=SUPPORTED_SSL_TYPES.none)
-    r = _run_auth(bench, protect=[AuthSurface.tools])
+    r = _run_enable(bench, tools=True)
     assert r.exit is None
     assert "admin tools credentials are effectively cleartext" in joined(out.warning)
     assert (_saved(bench).web, _saved(bench).tools) == (False, True)
@@ -432,7 +414,7 @@ def test_enabling_tools_without_tls_only_warns_and_proceeds(out, tmp_path):
 
 def test_insecure_lets_the_web_surface_on_without_tls(out, tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False), ssl_type=SUPPORTED_SSL_TYPES.none)
-    r = _run_auth(bench, protect=[AuthSurface.web], insecure=True)
+    r = _run_enable(bench, web=True, insecure=True)
     assert r.exit is None
     assert _saved(bench).web is True
     out.warning.assert_not_called()
@@ -446,7 +428,7 @@ def test_the_tls_gate_never_fires_on_an_idempotent_re_run(out, tmp_path):
         stored=AuthConfig(web=True, tools=True, password=PW),
         ssl_type=SUPPORTED_SSL_TYPES.none,
     )
-    r = _run_auth(bench, protect=[AuthSurface.web, AuthSurface.tools])
+    r = _run_enable(bench, web=True, tools=True)
     assert r.exit is None
     out.display_error.assert_not_called()
     out.warning.assert_not_called()
@@ -455,14 +437,14 @@ def test_the_tls_gate_never_fires_on_an_idempotent_re_run(out, tmp_path):
 @pytest.mark.usefixtures("out")
 def test_the_tls_gate_is_not_consulted_at_all_when_nothing_is_enabled(tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, tools=True, password=PW))
-    _run_auth(bench, off=True)
+    _run_disable(bench)
     bench.bench_config.get_primary_certificate.assert_not_called()
 
 
-# --- nginx $fm_upstream_auth capability gate ------------------------------- #
+# --- nginx $fm_upstream_auth capability gate --------------------------------- #
 def test_a_stale_nginx_conf_blocks_web_auth_and_names_the_bake_remedy(out, tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(password=PW), runtime=BenchRuntime.image, nginx_conf="server {}")
-    r = _run_auth(bench, protect=[AuthSurface.web])
+    r = _run_enable(bench, web=True)
     assert r.exit.exit_code == 1
     body = joined(out.display_error)
     assert "predates the Authorization-header fix" in body
@@ -473,7 +455,7 @@ def test_a_stale_nginx_conf_blocks_web_auth_and_names_the_bake_remedy(out, tmp_p
 
 def test_a_stale_nginx_conf_on_a_mount_bench_names_the_migrate_remedy(out, tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(password=PW), runtime=BenchRuntime.mount, nginx_conf="server {}")
-    r = _run_auth(bench, protect=[AuthSurface.web])
+    r = _run_enable(bench, web=True)
     assert r.exit.exit_code == 1
     body = joined(out.display_error)
     assert "fm migrate" in body
@@ -485,7 +467,7 @@ def test_a_stale_nginx_conf_on_a_mount_bench_names_the_migrate_remedy(out, tmp_p
 def test_an_absent_nginx_conf_does_not_gate(tmp_path):
     # A missing conf is rendered fresh from the current image on next start.
     bench = _auth_bench(tmp_path, stored=AuthConfig(password=PW), nginx_conf=None)
-    r = _run_auth(bench, protect=[AuthSurface.web])
+    r = _run_enable(bench, web=True)
     assert r.exit is None
     assert _saved(bench).web is True
 
@@ -494,7 +476,7 @@ def test_the_nginx_gate_fires_even_when_web_was_already_on(out, tmp_path):
     # Unlike the TLS gate this is about the conf being able to serve web auth at
     # all, so an idempotent re-run over a stale conf is still refused.
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, password=PW), nginx_conf="server {}")
-    r = _run_auth(bench, protect=[AuthSurface.web])
+    r = _run_enable(bench, web=True)
     assert r.exit.exit_code == 1
     assert "predates the Authorization-header fix" in joined(out.display_error)
 
@@ -502,7 +484,7 @@ def test_the_nginx_gate_fires_even_when_web_was_already_on(out, tmp_path):
 @pytest.mark.usefixtures("out")
 def test_the_nginx_gate_never_fires_for_the_tools_surface(tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, password=PW), nginx_conf="server {}")
-    r = _run_auth(bench, protect=[AuthSurface.tools])
+    r = _run_enable(bench, tools=True)
     assert r.exit is None
     assert (_saved(bench).web, _saved(bench).tools) == (False, True)
 
@@ -510,32 +492,32 @@ def test_the_nginx_gate_never_fires_for_the_tools_surface(tmp_path):
 @pytest.mark.usefixtures("out")
 def test_turning_auth_off_over_a_stale_conf_is_allowed(tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, password=PW), nginx_conf="server {}")
-    r = _run_auth(bench, off=True)
+    r = _run_disable(bench)
     assert r.exit is None
     assert (_saved(bench).web, _saved(bench).tools) == (False, False)
 
 
-# --- credentials ----------------------------------------------------------- #
+# --- credentials -------------------------------------------------------------- #
 def test_password_dash_is_read_from_a_pipe_without_the_trailing_newline():
-    with patch.object(auth_mod.sys, "stdin") as stdin:
+    with patch.object(auth_helpers_mod.sys, "stdin") as stdin:
         stdin.isatty.return_value = False
         stdin.readline.return_value = "piped-secret\r\n"
-        assert _read_password_from_stdin() == "piped-secret"
+        assert read_password_from_stdin() == "piped-secret"
 
 
 def test_password_dash_prompts_without_echo_on_a_terminal():
-    with patch.object(auth_mod.sys, "stdin") as stdin, patch.object(auth_mod.typer, "prompt") as prompt:
+    with patch.object(auth_helpers_mod.sys, "stdin") as stdin, patch.object(auth_helpers_mod.typer, "prompt") as prompt:
         stdin.isatty.return_value = True
         prompt.return_value = "typed-secret"
-        assert _read_password_from_stdin() == "typed-secret"
+        assert read_password_from_stdin() == "typed-secret"
     prompt.assert_called_once_with("Password", hide_input=True)
 
 
 @pytest.mark.usefixtures("out")
 def test_password_dash_is_resolved_from_stdin_before_the_bench_is_looked_up(tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=True, password=OLD_PW))
-    with patch.object(auth_mod, "_read_password_from_stdin", return_value=STDIN_PW) as reader:
-        r = _run_auth(bench, password=STDIN_SENTINEL)
+    with patch.object(auth_helpers_mod, "read_password_from_stdin", return_value=STDIN_PW) as reader:
+        r = _run_enable(bench, password=STDIN_SENTINEL)
     assert r.exit is None
     reader.assert_called_once_with()
     assert _saved(bench).password == STDIN_PW
@@ -544,8 +526,8 @@ def test_password_dash_is_resolved_from_stdin_before_the_bench_is_looked_up(tmp_
 @pytest.mark.usefixtures("out")
 def test_rotate_mints_a_new_password_and_keeps_the_surfaces_and_user(tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(user="alice", password=OLD_PW, web=True, tools=False))
-    with patch.object(auth_mod, "generate_password", return_value="fresh") as gen:
-        r = _run_auth(bench, rotate=True)
+    with patch.object(auth_helpers_mod, "generate_password", return_value="fresh") as gen:
+        r = _run_enable(bench, web=True, rotate=True)
     assert r.exit is None
     gen.assert_called_once_with()
     applied = _saved(bench)
@@ -556,26 +538,27 @@ def test_rotate_mints_a_new_password_and_keeps_the_surfaces_and_user(tmp_path):
 @pytest.mark.usefixtures("out")
 def test_the_first_enable_mints_a_password_when_none_is_stored(tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password=None))
-    with patch.object(auth_mod, "generate_password", return_value=MINTED_PW):
-        _run_auth(bench, protect=[AuthSurface.tools])
+    with patch.object(auth_helpers_mod, "generate_password", return_value=MINTED_PW):
+        _run_enable(bench, tools=True)
     assert _saved(bench).password == MINTED_PW
 
 
 @pytest.mark.usefixtures("out")
 def test_an_explicit_password_wins_over_minting(tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password=None))
-    with patch.object(auth_mod, "generate_password", return_value=MINTED_PW) as gen:
-        _run_auth(bench, protect=[AuthSurface.tools], password=CHOSEN_PW)
+    with patch.object(auth_helpers_mod, "generate_password", return_value=MINTED_PW) as gen:
+        _run_enable(bench, tools=True, password=CHOSEN_PW)
     gen.assert_not_called()
     assert _saved(bench).password == CHOSEN_PW
 
 
 @pytest.mark.usefixtures("out")
-def test_no_password_is_minted_when_the_write_leaves_everything_off(tmp_path):
-    # Only exemptions changed and no surface is protected: nothing to mint for.
+def test_no_password_is_minted_when_disable_leaves_everything_off(tmp_path):
+    # Turning surfaces off is never itself a reason to mint a password: only web_on, tools_on, or
+    # an explicit credential flag mints one, and `disable` never touches credentials.
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password=None))
-    with patch.object(auth_mod, "generate_password", return_value=MINTED_PW) as gen:
-        r = _run_auth(bench, clear_exemptions=True)
+    with patch.object(auth_helpers_mod, "generate_password", return_value=MINTED_PW) as gen:
+        r = _run_disable(bench)
     assert r.exit is None
     gen.assert_not_called()
     assert _saved(bench).password is None
@@ -583,22 +566,15 @@ def test_no_password_is_minted_when_the_write_leaves_everything_off(tmp_path):
 
 def test_invalid_credentials_are_refused_before_saving(out, tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=True, password=PW))
-    r = _run_auth(bench, user="has:colon")
+    r = _run_enable(bench, user="has:colon")
     assert r.exit.exit_code == 1
     assert "Invalid credentials: username cannot contain ':'" in joined(out.display_error)
     bench.save_bench_config.assert_not_called()
 
 
-def test_credentials_saved_with_no_surface_protected_warns_that_nothing_enforces_them(out, tmp_path):
-    bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password=PW))
-    r = _run_auth(bench, user="alice")
-    assert r.exit is None
-    assert "Credentials saved but nothing enforces them" in joined(out.warning)
-
-
 def test_no_such_warning_when_a_surface_is_protected(out, tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=True, password=PW))
-    _run_auth(bench, user="alice")
+    _run_enable(bench, user="alice")
     assert "nothing enforces them" not in joined(out.warning)
 
 
@@ -609,7 +585,7 @@ def test_protecting_tools_on_a_bench_without_admin_tools_says_nothing_enforces_i
     # reporting a protected surface that does not exist.
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password=PW))
     bench.bench_config.admin_tools = False
-    r = _run_auth(bench, protect=[AuthSurface.tools])
+    r = _run_enable(bench, tools=True)
     assert r.exit is None
     assert _saved(bench).tools is True
     body = joined(out.warning)
@@ -620,7 +596,7 @@ def test_protecting_tools_on_a_bench_without_admin_tools_says_nothing_enforces_i
 def test_no_admin_tools_warning_when_the_tools_locations_exist(out, tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password=PW))
     bench.bench_config.admin_tools = True
-    _run_auth(bench, protect=[AuthSurface.tools])
+    _run_enable(bench, tools=True)
     assert "Admin tools are disabled" not in joined(out.warning)
 
 
@@ -629,15 +605,15 @@ def test_no_admin_tools_warning_when_only_the_web_surface_is_protected(out, tmp_
     # nothing to do with.
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password=PW))
     bench.bench_config.admin_tools = False
-    _run_auth(bench, protect=[AuthSurface.web])
+    _run_enable(bench, web=True)
     assert "Admin tools are disabled" not in joined(out.warning)
 
 
-# --- exemptions ------------------------------------------------------------ #
+# --- exemptions --------------------------------------------------------------- #
 @pytest.mark.usefixtures("out")
 def test_allow_ip_replaces_the_stored_list_and_is_normalised_to_cidr(tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=True, password=PW, allow_ips=["10.0.0.0/8"]))
-    _run_auth(bench, allow_ip=["203.0.113.7"])
+    _run_enable(bench, allow_ip=["203.0.113.7"])
     assert _saved(bench).allow_ips == ["203.0.113.7/32"]
 
 
@@ -645,7 +621,7 @@ def test_allow_ip_replaces_the_stored_list_and_is_normalised_to_cidr(tmp_path):
 def test_omitting_the_exemption_flags_keeps_the_stored_lists(tmp_path):
     stored = AuthConfig(web=True, tools=True, password=PW, allow_ips=["10.0.0.0/8"], allow_paths=["/assets"])
     bench = _auth_bench(tmp_path, stored=stored)
-    _run_auth(bench, user="alice")
+    _run_enable(bench, user="alice")
     applied = _saved(bench)
     assert applied.allow_ips == ["10.0.0.0/8"]
     assert applied.allow_paths == ["/assets"]
@@ -655,7 +631,7 @@ def test_omitting_the_exemption_flags_keeps_the_stored_lists(tmp_path):
 def test_clear_exemptions_empties_both_lists(tmp_path):
     stored = AuthConfig(web=True, tools=True, password=PW, allow_ips=["10.0.0.0/8"], allow_paths=["/assets"])
     bench = _auth_bench(tmp_path, stored=stored)
-    _run_auth(bench, clear_exemptions=True)
+    _run_enable(bench, clear_exemptions=True)
     applied = _saved(bench)
     assert applied.allow_ips == []
     assert applied.allow_paths == []
@@ -665,7 +641,7 @@ def test_clear_exemptions_empties_both_lists(tmp_path):
 def test_clear_exemptions_combined_with_allow_ip_replaces_ips_and_empties_paths(tmp_path):
     stored = AuthConfig(web=True, tools=True, password=PW, allow_ips=["10.0.0.0/8"], allow_paths=["/assets"])
     bench = _auth_bench(tmp_path, stored=stored)
-    _run_auth(bench, clear_exemptions=True, allow_ip=["203.0.113.0/24"])
+    _run_enable(bench, clear_exemptions=True, allow_ip=["203.0.113.0/24"])
     applied = _saved(bench)
     assert applied.allow_ips == ["203.0.113.0/24"]
     assert applied.allow_paths == []
@@ -675,7 +651,7 @@ def test_clear_exemptions_combined_with_allow_ip_replaces_ips_and_empties_paths(
 @pytest.mark.usefixtures("out")
 def test_the_config_is_saved_before_nginx_is_reconciled(tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=True, password=PW))
-    _run_auth(bench, user="alice")
+    _run_enable(bench, user="alice")
     bench.save_bench_config.assert_called_once_with(print_message=False)
     bench.ensure_fm_nginx_confs.assert_called_once_with()
     names = [c[0] for c in bench.method_calls]
@@ -1548,41 +1524,23 @@ def test_shell_path_with_bench_console_is_refused(out, tmp_path):
 # =========================================================================== #
 # maintenance.py
 # =========================================================================== #
-def test_the_address_callback_lets_status_through_without_a_bench(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["fm", "maintenance", "--status"])
+def test_the_address_callback_lets_a_missing_bench_through_without_delegating():
+    """`fm maintenance status` takes no bench and then lists every domain in maintenance, so a
+    missing address must not be validated (and must not delegate to `bench_site_callback`) at
+    all."""
     ctx = MagicMock()
-    with patch.object(maintenance_mod, "bench_site_callback") as delegate:
-        assert _maintenance_sitename_callback(ctx, None) is None
+    with patch.object(maint_helpers_mod, "bench_site_callback") as delegate:
+        assert optional_bench_site_callback(ctx, None) is None
     delegate.assert_not_called()
 
 
-def test_the_address_callback_still_validates_when_status_is_absent(monkeypatch):
-    """It delegates to `bench_site_callback` now, not `sitename_callback`: the argument grew a SITE
-    half so `fm maintenance BENCH/SITE` can put one site behind the page. The delegate is what
-    refuses a site the bench does not record."""
-    monkeypatch.setattr(sys, "argv", ["fm", "maintenance"])
+def test_the_address_callback_validates_an_explicit_bench():
+    """An explicit bench (or bench/site) still goes through the standard validation, so a bad
+    site is still refused."""
     ctx = MagicMock()
-    with patch.object(maintenance_mod, "bench_site_callback", return_value="cwd.localhost") as delegate:
-        assert _maintenance_sitename_callback(ctx, None) == "cwd.localhost"
-    delegate.assert_called_once_with(ctx, None)
-
-
-def test_the_address_callback_always_validates_an_explicit_bench(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["fm", "maintenance", "mybench", "--status"])
-    ctx = MagicMock()
-    with patch.object(maintenance_mod, "bench_site_callback", return_value="mybench") as delegate:
-        assert _maintenance_sitename_callback(ctx, "mybench") == "mybench"
+    with patch.object(maint_helpers_mod, "bench_site_callback", return_value="mybench") as delegate:
+        assert optional_bench_site_callback(ctx, "mybench") == "mybench"
     delegate.assert_called_once_with(ctx, "mybench")
-
-
-def test_the_address_callback_only_sniffs_the_exact_status_token(monkeypatch):
-    # Abbreviated/attached forms typer would still accept are NOT recognised, so
-    # they fall through to the normal validation. Pinned, not endorsed.
-    monkeypatch.setattr(sys, "argv", ["fm", "maintenance", "--stat"])
-    ctx = MagicMock()
-    with patch.object(maintenance_mod, "bench_site_callback", return_value="cwd.localhost") as delegate:
-        assert _maintenance_sitename_callback(ctx, None) == "cwd.localhost"
-    delegate.assert_called_once_with(ctx, None)
 
 
 def _maint_services(tmp_path):
@@ -1601,15 +1559,23 @@ def _write_bench_config(benches_dir, benchname: str, body: str = "") -> None:
     (bench_dir / "bench_config.toml").write_text(f'name = "{benchname}"\n{body}')
 
 
-def _run_maintenance(services, benches_dir, site=None, **kwargs):
+def _run_maintenance_verb(verb, services, benches_dir, site=None, **kwargs):
     ctx = MagicMock()
     # `site` is the SITE half of the address, which `bench_site_callback` stashes here. None means
-    # the whole bench, which is what a bare `fm maintenance BENCH` does.
+    # the whole bench, which is what a bare `fm maintenance enable BENCH` does.
     ctx.obj = {"services": services, "site": site}
+    with patch.object(maint_helpers_mod, "CLI_BENCHES_DIRECTORY", benches_dir):
+        try:
+            verb(ctx, **kwargs)
+            raised = None
+        except typer.Exit as exc:
+            raised = exc
+    return SimpleNamespace(exit=raised)
+
+
+def _run_maintenance_enable(services, benches_dir, site=None, **kwargs):
     params = {
         "address": "mybench",
-        "off": False,
-        "status": False,
         "response_code": 503,
         "retry_after": 300,
         "allow_ip": [],
@@ -1617,15 +1583,24 @@ def _run_maintenance(services, benches_dir, site=None, **kwargs):
         "message": None,
         "page": None,
         "rotate_token": False,
+        # Confirmation only guards a bench NOT already serving the page; bypassed here since
+        # these tests exercise the write itself, not the interactive confirmation gate.
+        "yes": True,
     }
     params.update(kwargs)
-    with patch.object(maintenance_mod, "CLI_BENCHES_DIRECTORY", benches_dir):
-        try:
-            maintenance(ctx, **params)
-            raised = None
-        except typer.Exit as exc:
-            raised = exc
-    return SimpleNamespace(exit=raised)
+    return _run_maintenance_verb(maintenance_enable, services, benches_dir, site, **params)
+
+
+def _run_maintenance_disable(services, benches_dir, site=None, **kwargs):
+    params = {"address": "mybench"}
+    params.update(kwargs)
+    return _run_maintenance_verb(maintenance_disable, services, benches_dir, site, **params)
+
+
+def _run_maintenance_status(services, benches_dir, site=None, **kwargs):
+    params = {"address": "mybench"}
+    params.update(kwargs)
+    return _run_maintenance_verb(maintenance_status, services, benches_dir, site, **params)
 
 
 # --- global listing (no bench) -------------------------------------------- #
@@ -1637,7 +1612,7 @@ def test_no_bench_lists_every_domain_in_maintenance(out, tmp_path):
     )
     (vhostd / "b.localhost").write_text("client_max_body_size 50m;\n")
     (vhostd / "sub").mkdir()
-    r = _run_maintenance(services, tmp_path / "benches", address=None, status=True)
+    r = _run_maintenance_status(services, tmp_path / "benches", address=None)
     assert r.exit is None
     body = joined(out.print)
     assert "a.localhost: maintenance ON (bench bench-a, code 404, bypass token " + "a" * 32 + ")" in body
@@ -1647,43 +1622,23 @@ def test_no_bench_lists_every_domain_in_maintenance(out, tmp_path):
 def test_no_bench_and_nothing_in_maintenance_says_so(out, tmp_path):
     services, vhostd, _ = _maint_services(tmp_path)
     vhostd.mkdir(parents=True)
-    r = _run_maintenance(services, tmp_path / "benches", address=None, status=True)
+    r = _run_maintenance_status(services, tmp_path / "benches", address=None)
     assert r.exit is None
     assert texts(out.print) == ["No domain is in maintenance"]
 
 
 def test_no_bench_with_a_missing_vhostd_directory_still_reports_cleanly(out, tmp_path):
     services, _, _ = _maint_services(tmp_path)
-    r = _run_maintenance(services, tmp_path / "benches", address=None, status=True)
+    r = _run_maintenance_status(services, tmp_path / "benches", address=None)
     assert r.exit is None
     assert texts(out.print) == ["No domain is in maintenance"]
 
 
-def test_the_bench_less_listing_precedes_every_flag_guard(out, tmp_path):
-    # SUSPICION, pinned not fixed: reachable only via the callback's --status
-    # sniff, the benchname-is-None branch returns before `--off cannot be
-    # combined with --status` is ever evaluated, so a nonsensical flag mix is
-    # silently treated as a listing request.
-    services, vhostd, _ = _maint_services(tmp_path)
-    vhostd.mkdir(parents=True)
-    r = _run_maintenance(services, tmp_path / "benches", address=None, off=True, status=True, response_code=999)
-    assert r.exit is None
-    assert texts(out.print) == ["No domain is in maintenance"]
-    out.display_error.assert_not_called()
-
-
-# --- flag guards ----------------------------------------------------------- #
-def test_maintenance_off_with_status_is_refused(out, tmp_path):
-    services, _, _ = _maint_services(tmp_path)
-    r = _run_maintenance(services, tmp_path / "benches", off=True, status=True)
-    assert r.exit.exit_code == 1
-    assert "--off cannot be combined with --status" in joined(out.display_error)
-
-
+# --- enable flag guards ----------------------------------------------------- #
 @pytest.mark.parametrize("code", [399, 600, 200, 0])
 def test_a_response_code_outside_the_error_range_is_refused(out, tmp_path, code):
     services, _, _ = _maint_services(tmp_path)
-    r = _run_maintenance(services, tmp_path / "benches", response_code=code)
+    r = _run_maintenance_enable(services, tmp_path / "benches", response_code=code)
     assert r.exit.exit_code == 1
     assert f"got {code}" in joined(out.display_error)
 
@@ -1693,7 +1648,7 @@ def test_the_error_range_boundaries_are_accepted(out, tmp_path, code):
     services, _, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")
-    r = _run_maintenance(services, benches, response_code=code, status=True)
+    r = _run_maintenance_enable(services, benches, response_code=code)
     assert r.exit is None
     out.display_error.assert_not_called()
 
@@ -1702,14 +1657,14 @@ def test_message_with_page_is_refused(out, tmp_path):
     services, _, _ = _maint_services(tmp_path)
     page = tmp_path / "page.html"
     page.write_text("<html></html>")
-    r = _run_maintenance(services, tmp_path / "benches", message="down", page=page)
+    r = _run_maintenance_enable(services, tmp_path / "benches", message="down", page=page)
     assert r.exit.exit_code == 1
     assert "--message cannot be combined with --page" in joined(out.display_error)
 
 
 def test_a_missing_page_file_is_refused(out, tmp_path):
     services, _, _ = _maint_services(tmp_path)
-    r = _run_maintenance(services, tmp_path / "benches", page=tmp_path / "nope.html")
+    r = _run_maintenance_enable(services, tmp_path / "benches", page=tmp_path / "nope.html")
     assert r.exit.exit_code == 1
     assert "--page file not found" in joined(out.display_error)
 
@@ -1717,7 +1672,7 @@ def test_a_missing_page_file_is_refused(out, tmp_path):
 @pytest.mark.parametrize("bad_ip", ["203.0.113.0/24", "not-an-ip", ""])
 def test_allow_ip_takes_single_addresses_only(out, tmp_path, bad_ip):
     services, _, _ = _maint_services(tmp_path)
-    r = _run_maintenance(services, tmp_path / "benches", allow_ip=[bad_ip])
+    r = _run_maintenance_enable(services, tmp_path / "benches", allow_ip=[bad_ip])
     assert r.exit.exit_code == 1
     assert "CIDR ranges are not supported here" in joined(out.display_error)
 
@@ -1725,7 +1680,7 @@ def test_allow_ip_takes_single_addresses_only(out, tmp_path, bad_ip):
 @pytest.mark.parametrize("bad_path", ["api/method/ping", "/api/method/ping?x=1", "/api/*/ping", ""])
 def test_allow_path_must_be_absolute_with_an_optional_trailing_star(out, tmp_path, bad_path):
     services, _, _ = _maint_services(tmp_path)
-    r = _run_maintenance(services, tmp_path / "benches", allow_path=[bad_path])
+    r = _run_maintenance_enable(services, tmp_path / "benches", allow_path=[bad_path])
     assert r.exit.exit_code == 1
     assert "--allow-path must be an absolute path" in joined(out.display_error)
 
@@ -1734,10 +1689,9 @@ def test_valid_ipv6_and_starred_paths_pass_validation(out, tmp_path):
     services, _, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")
-    r = _run_maintenance(
+    r = _run_maintenance_enable(
         services,
         benches,
-        status=True,
         allow_ip=["2001:db8::1"],
         allow_path=["/api/method/hook*"],
     )
@@ -1745,7 +1699,7 @@ def test_valid_ipv6_and_starred_paths_pass_validation(out, tmp_path):
     out.display_error.assert_not_called()
 
 
-# --- status per domain ----------------------------------------------------- #
+# --- status per domain ------------------------------------------------------ #
 def test_status_reports_on_off_and_foreign_per_domain_without_reloading(out, tmp_path):
     services, vhostd, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
@@ -1759,7 +1713,7 @@ def test_status_reports_on_off_and_foreign_per_domain_without_reloading(out, tmp
     vhostd.mkdir(parents=True)
     (vhostd / "mybench").write_text(_vhost_conf("mybench", "b" * 32, "/html", 404, 300, [], [], secure_cookie=True))
     (vhostd / "alias.example.com").write_text("client_max_body_size 50m;\n")
-    r = _run_maintenance(services, benches, status=True)
+    r = _run_maintenance_status(services, benches)
     assert r.exit is None
     assert texts(out.print) == [
         "mybench: maintenance ON (code 404, bypass: https://mybench/fm-bypass/" + "b" * 32 + ")",
@@ -1775,23 +1729,23 @@ def test_status_uses_http_for_a_domain_without_its_own_certificate(out, tmp_path
     _write_bench_config(benches, "mybench")
     vhostd.mkdir(parents=True)
     (vhostd / "mybench").write_text(_vhost_conf("mybench", "c" * 32, "/html", 503, 300, [], [], secure_cookie=False))
-    _run_maintenance(services, benches, status=True)
+    _run_maintenance_status(services, benches)
     assert "bypass: http://mybench/fm-bypass/" in joined(out.print)
 
 
-# --- off ------------------------------------------------------------------- #
-def test_off_when_nothing_is_enabled_reports_it_and_does_not_reload(out, tmp_path):
+# --- disable ----------------------------------------------------------------- #
+def test_disable_when_nothing_is_enabled_reports_it_and_does_not_reload(out, tmp_path):
     services, vhostd, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")
     vhostd.mkdir(parents=True)
-    r = _run_maintenance(services, benches, off=True)
+    r = _run_maintenance_disable(services, benches)
     assert r.exit is None
     assert texts(out.print) == ["Maintenance was not enabled"]
     services.nginx_controller.reload.assert_not_called()
 
 
-def test_off_removes_only_the_fm_block_and_keeps_foreign_directives(out, tmp_path):
+def test_disable_removes_only_the_fm_block_and_keeps_foreign_directives(out, tmp_path):
     services, vhostd, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")
@@ -1800,7 +1754,7 @@ def test_off_removes_only_the_fm_block_and_keeps_foreign_directives(out, tmp_pat
     conf.write_text(
         _vhost_conf("mybench", "d" * 32, "/html", 503, 300, [], [], secure_cookie=False) + "client_max_body_size 50m;\n"
     )
-    r = _run_maintenance(services, benches, off=True)
+    r = _run_maintenance_disable(services, benches)
     assert r.exit is None
     assert conf.read_text() == "client_max_body_size 50m;\n"
     services.nginx_controller.reload.assert_called_once_with()
@@ -1808,19 +1762,19 @@ def test_off_removes_only_the_fm_block_and_keeps_foreign_directives(out, tmp_pat
 
 
 @pytest.mark.usefixtures("out")
-def test_off_deletes_the_file_when_only_the_fm_block_was_in_it(tmp_path):
+def test_disable_deletes_the_file_when_only_the_fm_block_was_in_it(tmp_path):
     services, vhostd, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")
     vhostd.mkdir(parents=True)
     conf = vhostd / "mybench"
     conf.write_text(_vhost_conf("mybench", "e" * 32, "/html", 503, 300, [], [], secure_cookie=False))
-    _run_maintenance(services, benches, off=True)
+    _run_maintenance_disable(services, benches)
     assert not conf.exists()
     services.nginx_controller.reload.assert_called_once_with()
 
 
-def test_off_reloads_once_for_all_domains(out, tmp_path):
+def test_disable_reloads_once_for_all_domains(out, tmp_path):
     services, vhostd, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     # `alias.example.com` is an alias of the site `mybench`.
@@ -1828,18 +1782,18 @@ def test_off_reloads_once_for_all_domains(out, tmp_path):
     vhostd.mkdir(parents=True)
     for domain in ("mybench", "alias.example.com"):
         (vhostd / domain).write_text(_vhost_conf("mybench", "f" * 32, "/html", 503, 300, [], [], secure_cookie=False))
-    _run_maintenance(services, benches, off=True)
+    _run_maintenance_disable(services, benches)
     services.nginx_controller.reload.assert_called_once_with()
     assert "Maintenance disabled for: mybench, alias.example.com" in joined(out.print)
 
 
-# --- enable ---------------------------------------------------------------- #
+# --- enable ------------------------------------------------------------------- #
 def test_enable_writes_the_page_and_block_for_every_domain_then_reloads(out, tmp_path):
     services, vhostd, html = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     # `alias.example.com` is an alias of the site `mybench`.
     _write_bench_config(benches, "mybench", '[sites."mybench"]\nalias_domains = ["alias.example.com"]\n')
-    r = _run_maintenance(services, benches, response_code=404, allow_ip=["203.0.113.7"], allow_path=["/hook*"])
+    r = _run_maintenance_enable(services, benches, response_code=404, allow_ip=["203.0.113.7"], allow_path=["/hook*"])
     assert r.exit is None
     assert (html / "fm-maintenance-mybench.html").is_file()
     for domain in ("mybench", "alias.example.com"):
@@ -1863,7 +1817,7 @@ def test_enable_prepends_its_block_and_preserves_foreign_directives(tmp_path):
     _write_bench_config(benches, "mybench")
     vhostd.mkdir(parents=True)
     (vhostd / "mybench").write_text("client_max_body_size 50m;\n")
-    _run_maintenance(services, benches)
+    _run_maintenance_enable(services, benches)
     text = (vhostd / "mybench").read_text()
     assert text.startswith("# fm:maintenance BEGIN")
     assert text.endswith("client_max_body_size 50m;\n")
@@ -1877,7 +1831,7 @@ def test_re_enabling_reuses_the_existing_bypass_token(out, tmp_path):
     vhostd.mkdir(parents=True)
     token = "1" * 32
     (vhostd / "mybench").write_text(_vhost_conf("mybench", token, "/html", 503, 300, [], [], secure_cookie=False))
-    _run_maintenance(services, benches, response_code=404)
+    _run_maintenance_enable(services, benches, response_code=404)
     text = (vhostd / "mybench").read_text()
     assert _extract_token(text) == token
     assert _extract_code(text) == 404
@@ -1892,7 +1846,7 @@ def test_rotate_token_replaces_the_existing_token(tmp_path):
     vhostd.mkdir(parents=True)
     token = "2" * 32
     (vhostd / "mybench").write_text(_vhost_conf("mybench", token, "/html", 503, 300, [], [], secure_cookie=False))
-    _run_maintenance(services, benches, rotate_token=True)
+    _run_maintenance_enable(services, benches, rotate_token=True)
     assert _extract_token((vhostd / "mybench").read_text()) != token
 
 
@@ -1901,8 +1855,8 @@ def test_a_fresh_enable_mints_a_token(tmp_path):
     services, vhostd, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")
-    with patch.object(maintenance_mod.secrets, "token_hex", return_value="3" * 32) as gen:
-        _run_maintenance(services, benches)
+    with patch.object(maint_enable_mod.secrets, "token_hex", return_value="3" * 32) as gen:
+        _run_maintenance_enable(services, benches)
     gen.assert_called_once_with(16)
     assert _extract_token((vhostd / "mybench").read_text()) == "3" * 32
 
@@ -1917,7 +1871,7 @@ def test_the_bypass_cookie_gets_secure_only_on_the_domains_that_have_tls(out, tm
         '[sites."mybench"]\nalias_domains = ["plain.example.com"]\n'
         '\n[[ssl.certificates]]\ndomain = "mybench"\nssl_type = "letsencrypt"\n',
     )
-    _run_maintenance(services, benches)
+    _run_maintenance_enable(services, benches)
     assert "; Secure" in (vhostd / "mybench").read_text()
     assert "; Secure" not in (vhostd / "plain.example.com").read_text()
     assert "Bypass (sets a cookie so you see the real site): https://mybench/fm-bypass/" in joined(out.print)
@@ -1927,15 +1881,15 @@ def test_enable_omits_the_allow_list_lines_when_no_exemption_was_given(out, tmp_
     services, _, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")
-    _run_maintenance(services, benches)
+    _run_maintenance_enable(services, benches)
     body = joined(out.print)
     assert "Allowed IPs" not in body
     assert "Allowed paths" not in body
 
 
-# --- page resolution ------------------------------------------------------- #
+# --- page resolution ---------------------------------------------------------- #
 def test_page_resolution_order_is_page_then_message_then_bench_file_then_default(tmp_path, monkeypatch):
-    monkeypatch.setattr(maintenance_mod, "CLI_BENCHES_DIRECTORY", tmp_path)
+    monkeypatch.setattr(maint_helpers_mod, "CLI_BENCHES_DIRECTORY", tmp_path)
     bench_page = tmp_path / "mybench" / "configs" / "maintenance.html"
     bench_page.parent.mkdir(parents=True)
     bench_page.write_text("BENCH PAGE")
@@ -1951,14 +1905,14 @@ def test_page_resolution_order_is_page_then_message_then_bench_file_then_default
 
 
 def test_page_wins_over_message_in_the_resolver_even_though_the_command_refuses_both(tmp_path, monkeypatch):
-    monkeypatch.setattr(maintenance_mod, "CLI_BENCHES_DIRECTORY", tmp_path)
+    monkeypatch.setattr(maint_helpers_mod, "CLI_BENCHES_DIRECTORY", tmp_path)
     explicit = tmp_path / "explicit.html"
     explicit.write_text("EXPLICIT PAGE")
     assert _resolve_page_html("mybench", explicit, "ignored") == "EXPLICIT PAGE"
 
 
 def test_a_custom_message_is_html_escaped(tmp_path, monkeypatch):
-    monkeypatch.setattr(maintenance_mod, "CLI_BENCHES_DIRECTORY", tmp_path)
+    monkeypatch.setattr(maint_helpers_mod, "CLI_BENCHES_DIRECTORY", tmp_path)
     html = _resolve_page_html("mybench", None, "<script>alert('x')</script>")
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
@@ -1972,11 +1926,11 @@ def test_the_bench_page_is_picked_up_by_the_enable_path(tmp_path):
     bench_page = benches / "mybench" / "configs" / "maintenance.html"
     bench_page.parent.mkdir(parents=True)
     bench_page.write_text("BENCH PAGE")
-    _run_maintenance(services, benches)
+    _run_maintenance_enable(services, benches)
     assert (html_dir / "fm-maintenance-mybench.html").read_text() == "BENCH PAGE"
 
 
-# --- conf readers and renderer -------------------------------------------- #
+# --- conf readers and renderer ------------------------------------------------- #
 @pytest.mark.usefixtures("out")
 def test_the_conf_readers_fall_back_when_the_text_holds_nothing():
     assert _extract_token("nothing here") is None
@@ -2013,24 +1967,23 @@ def test_the_bypass_url_and_the_page_path_carry_the_token_and_bench_name():
     assert "try_files /fm-maintenance-mybench.html =502;" in conf
     assert "root /usr/share/nginx/html;" in conf
 
-
 # --- the site half of the address ------------------------------------------ #
-def test_protect_tools_with_a_site_part_is_refused(out, tmp_path):
+def test_tools_with_a_site_part_is_refused(out, tmp_path):
     """One Adminer and one Mailpit serve the whole bench, on every hostname it has.
 
     Protecting them for one site would leave the SAME tools reachable unprotected on its
     neighbours: one of two doors into the same room. Refused rather than silently applied
     bench-wide, which is the version an operator only finds out about when it matters."""
     bench = _auth_bench(tmp_path)
-    r = _run_auth(bench=bench, site="b.example.com", protect=[AuthSurface.tools])
+    r = _run_enable(bench, site="b.example.com", tools=True)
     assert r.exit.exit_code == 1
-    assert "--protect tools cannot take a site part" in joined(out.display_error)
+    assert "--tools cannot take a site part" in joined(out.display_error)
     bench.save_bench_config.assert_not_called()
 
 
-def test_protect_web_with_a_site_part_writes_the_sites_entry_not_the_benchs(out, tmp_path):
+def test_enabling_web_with_a_site_part_writes_the_sites_entry_not_the_benchs(out, tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=True, password="benchpass"))
-    r = _run_auth(bench=bench, site="b.example.com", protect=[AuthSurface.web])
+    r = _run_enable(bench, site="b.example.com", web=True)
     assert r.exit is None
     # The bench's own table is untouched: its other sites keep serving exactly as before.
     assert bench.bench_config.auth.web is False
@@ -2039,7 +1992,7 @@ def test_protect_web_with_a_site_part_writes_the_sites_entry_not_the_benchs(out,
 
 def test_a_site_gets_its_own_password_not_the_benchs(out, tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, password="benchpass"))
-    _run_auth(bench=bench, site="b.example.com", protect=[AuthSurface.web])
+    _run_enable(bench, site="b.example.com", web=True)
     # Per-site credentials are the point: a password handed out for one site must not open another.
     assert bench.bench_config.sites["b.example.com"].auth.password != "benchpass"
 
@@ -2047,7 +2000,7 @@ def test_a_site_gets_its_own_password_not_the_benchs(out, tmp_path):
 def test_an_unrecorded_site_is_refused_rather_than_stored_nowhere(out, tmp_path):
     bench = _auth_bench(tmp_path)
     bench.bench_config.sites = {"mybench": SiteConfig()}
-    r = _run_auth(bench=bench, site="b.example.com", protect=[AuthSurface.web])
+    r = _run_enable(bench, site="b.example.com", web=True)
     assert r.exit.exit_code == 1
     assert "records no entry for site" in joined(out.display_error)
     bench.save_bench_config.assert_not_called()
@@ -2059,16 +2012,16 @@ def test_the_tls_gate_asks_about_the_named_site_not_the_primary(out, tmp_path):
     Answering from the primary would hand out a site's credentials in cleartext."""
     bench = _auth_bench(tmp_path, ssl_type=SUPPORTED_SSL_TYPES.le)
     bench.bench_config.certificate_for.return_value = SimpleNamespace(ssl_type=SUPPORTED_SSL_TYPES.none)
-    r = _run_auth(bench=bench, site="b.example.com", protect=[AuthSurface.web])
+    r = _run_enable(bench, site="b.example.com", web=True)
     assert r.exit.exit_code == 1
     assert "b.example.com' has no TLS certificate" in joined(out.display_error)
     bench.bench_config.certificate_for.assert_called_once_with("b.example.com")
 
 
-def test_off_with_a_site_part_leaves_the_benchs_tools_alone(out, tmp_path):
+def test_disabling_a_site_part_leaves_the_benchs_tools_alone(out, tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, tools=True, password="benchpass"))
-    _run_auth(bench=bench, site="b.example.com", off=True)
-    # `--off` on a site turns that site's prompt off. The tools surface is bench-wide, so it is not
+    _run_disable(bench, site="b.example.com")
+    # Disabling a site turns that site's prompt off. The tools surface is bench-wide, so it is not
     # a thing a site-scoped call may switch off.
     assert bench.bench_config.auth.tools is True
     assert bench.bench_config.sites["b.example.com"].auth.web is False
@@ -2076,7 +2029,7 @@ def test_off_with_a_site_part_leaves_the_benchs_tools_alone(out, tmp_path):
 
 def test_a_bare_site_address_reports_that_it_inherits(out, tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, password="benchpass"))
-    r = _run_auth(bench=bench, site="b.example.com")
+    r = _run_status(bench, site="b.example.com")
     assert r.exit is None
     # Not "unconfigured": the site IS protected, by the bench's setting. Saying where the answer
     # came from is what stops an operator turning it on twice.
@@ -2092,7 +2045,7 @@ def test_a_site_scoped_write_is_refused_when_the_nginx_conf_predates_per_site_bl
     the bench, and --status reports a prompt nobody serves."""
     bench = _auth_bench(tmp_path)
     bench.nginx_conf_serves_per_site.return_value = False
-    r = _run_auth(bench=bench, site="b.example.com", protect=[AuthSurface.web])
+    r = _run_enable(bench, site="b.example.com", web=True)
     assert r.exit.exit_code == 1
     assert "predates one server block per site" in joined(out.display_error)
     bench.save_bench_config.assert_not_called()
@@ -2103,39 +2056,24 @@ def test_reading_a_site_is_still_allowed_on_an_older_conf(out, tmp_path):
     an operator finds out the bench needs its nginx image updated."""
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, password="bp"))
     bench.nginx_conf_serves_per_site.return_value = False
-    r = _run_auth(bench=bench, site="b.example.com")
+    r = _run_status(bench, site="b.example.com")
     assert r.exit is None
     assert "inherited from bench" in joined(out.print)
 
 
 # --- what the report says about credentials nothing is enforcing ------------ #
-# Three mutants survived here: `credentials_touched`'s `or` chain and both `hint_when_off`
-# arguments. All three decide whether the operator is told that stored credentials are inert,
-# which is the one thing separating "saved" from "in effect".
-
-
-def test_setting_only_a_username_with_both_surfaces_off_says_nothing_enforces_it(out, tmp_path):
-    """`credentials_touched` is an OR of three flags, so ANY one of them alone has to reach the
-    warning. Collapsing it to AND kept the warning for `--user alice --password - --rotate` and
-    silently dropped it for each flag on its own."""
-    bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password="stored"))
-    r = _run_auth(bench=bench, user="alice")
-    assert r.exit is None
-    assert "nothing enforces them" in joined(out.warning)
-
-
-def test_rotating_alone_with_both_surfaces_off_says_the_same(out, tmp_path):
-    bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password="stored"))
-    _run_auth(bench=bench, rotate=True)
-    assert "nothing enforces them" in joined(out.warning)
-
-
+# `credentials_touched` is an OR of three flags (`user`/`password`/`rotate`) that, combined with
+# both surfaces being off, warns that saved credentials are inert. Bench-wide this warning is now
+# unreachable through the CLI: `enable` always turns at least one surface on (naming neither turns
+# both on), and `disable` never touches credentials, so the two are deleted rather than re-pinned.
+# The site-scoped path stays reachable, since a site inherits the bench's surfaces without ever
+# writing to them.
 def test_a_write_does_not_repeat_the_stored_credentials_hint(out, tmp_path):
-    """The hint belongs to a REPORT: it tells you the credentials survive an --off. Printing it
+    """The hint belongs to a REPORT: it tells you the credentials survive a disable. Printing it
     again on the way out of the write that just turned them off is the command explaining its own
     input back."""
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, tools=True, password="stored"))
-    _run_auth(bench=bench, off=True)
+    _run_disable(bench)
     assert "stay stored" not in joined(out.print)
 
 
@@ -2143,7 +2081,7 @@ def test_a_bare_site_address_says_the_inherited_credentials_are_inert(out, tmp_p
     """The site inherits a bench whose surfaces are both off, so it serves no prompt. Without the
     hint the report reads as if the password shown were doing something."""
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password="stored"))
-    r = _run_auth(bench=bench, site="b.example.com")
+    r = _run_status(bench, site="b.example.com")
     assert r.exit is None
     printed = joined(out.print)
     assert "inherited from bench" in printed

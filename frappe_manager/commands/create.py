@@ -19,7 +19,7 @@ from frappe_manager import (
     STABLE_APP_BRANCH_MAPPING_LIST,
     EnableDisableOptionsEnum,
 )
-from frappe_manager.commands.auth import _read_password_from_stdin
+from frappe_manager.commands.auth._helpers import read_password_from_stdin
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.services_manager.services import ServicesManager
@@ -410,7 +410,7 @@ def _resolve_secret(value: str | None, flag: str) -> str | None:
     """'-' means read the secret from stdin, exactly as ``fm auth --password -`` does."""
     if value != "-":
         return value
-    secret = _read_password_from_stdin()
+    secret = read_password_from_stdin()
     if not secret:
         raise typer.BadParameter(f"{flag} -: nothing was read from stdin.")
     return secret
