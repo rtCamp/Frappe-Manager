@@ -62,6 +62,10 @@ def make_manager(
         if containers is not None
         else {"mariadb": "fm-mariadb", "nginx-proxy": "fm-nginx-proxy"}
     )
+    # init() installs proxy_storage; start_service reconciles the standalone vhosts from it. The
+    # directory is deliberately absent so that reconcile is a no-op here.
+    manager.proxy_storage = mock.MagicMock()
+    manager.proxy_storage.dirs.confd.host = path / "confd"
     manager.compose_file_manager = mock.MagicMock()
     manager.compose_file_manager.get_services_list.return_value = list(services)
     manager.compose_file_manager.get_container_names.return_value = containers
@@ -519,6 +523,63 @@ def test_a_declared_service_with_no_container_row_is_reported_not_running(tmp_pa
     manager = make_manager(tmp_path, containers={"mariadb": "fm-mariadb"}, statuses=[])
 
     assert manager.is_service_running("mariadb") is False
+
+
+# --- standalone vhost reconcile ---
+
+
+def _standalone_world(tmp_path, *, linked: bool):
+    """A services manager whose proxy dirs are real, with one registered external domain."""
+    manager = make_manager(tmp_path)
+    proxy = tmp_path / "nginx-proxy"
+    for name in ("confd", "certs"):
+        (proxy / name).mkdir(parents=True, exist_ok=True)
+    manager.proxy_storage.dirs.confd.host = proxy / "confd"
+    manager.proxy_storage.dirs.certs.host = proxy / "certs"
+    manager.proxy_storage.dirs.certs.container = Path("/etc/nginx/certs")
+    manager.proxy_storage.dirs.html.container = Path("/usr/share/nginx/html")
+    if linked:
+        # Exactly how fm links a certificate: the target is the CONTAINER path, so this symlink
+        # never resolves on the host.
+        (proxy / "certs" / "app.example.com.crt").symlink_to("/usr/share/nginx/ssl/acmesh/app.example.com/fullchain.pem")
+
+    (proxy / "external_domains.toml").parent.mkdir(parents=True, exist_ok=True)
+    (manager.path / "nginx-proxy").mkdir(parents=True, exist_ok=True)
+    (manager.path / "nginx-proxy" / "external_domains.toml").write_text(
+        '[domains.app_example_com]\ndomain = "app.example.com"\nssl_type = "letsencrypt"\n'
+        'added_at = "2026-01-01T00:00:00"\nchallenge_type = "http01"\nacme_client = "acme.sh"\n'
+    )
+    return manager, proxy
+
+
+def test_reconcile_treats_a_container_path_symlink_as_a_present_certificate(tmp_path):
+    """certs/<domain>.crt points into the CONTAINER filesystem, so it never resolves on the host.
+    Testing it with exists() instead of lexists() answers False for every certificate fm has ever
+    issued, which downgrades a working HTTPS vhost to the challenge-only block on the next start."""
+    manager, proxy = _standalone_world(tmp_path, linked=True)
+
+    assert manager.reconcile_standalone_vhosts() == ["app.example.com"]
+    assert "listen 443" in (proxy / "confd" / "zz-fm-standalone-app.example.com.conf").read_text()
+
+
+def test_reconcile_writes_the_challenge_only_block_when_no_certificate_is_linked(tmp_path):
+    """An HTTPS block naming absent certificate files is a fatal nginx config error for the whole
+    shared proxy, not just this domain."""
+    manager, proxy = _standalone_world(tmp_path, linked=False)
+
+    assert manager.reconcile_standalone_vhosts() == ["app.example.com"]
+    assert "listen 443" not in (proxy / "confd" / "zz-fm-standalone-app.example.com.conf").read_text()
+
+
+def test_starting_the_stack_reconciles_standalone_vhosts_first(tmp_path):
+    """Written before the proxy reads conf.d; afterwards would need an extra reload and would have
+    served 503 in the meantime."""
+    manager, proxy = _standalone_world(tmp_path, linked=True)
+
+    manager.start_service()
+
+    assert (proxy / "confd" / "zz-fm-standalone-app.example.com.conf").exists()
+    manager.docker_client.compose.up.assert_called_once()
 
 
 # --- start / stop / restart ---

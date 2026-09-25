@@ -201,6 +201,45 @@ class ServicesManager:
 
         self.fm_headers_path.write_text(desired)
 
+    def reconcile_standalone_vhosts(self) -> list[str]:
+        """Rebuild the standalone (non-bench) vhosts from external_domains.toml. Returns what changed.
+
+        Runs before the proxy comes up, so a conf.d that lost these files -- recreated container,
+        restored services directory -- serves the external domains again instead of 503, and their
+        HTTP-01 renewals keep working. Nothing else rebuilds them: fm_headers.conf is rewritten
+        above and default.conf belongs to docker-gen.
+        """
+        from frappe_manager.ssl_manager.external_domain_manager import ExternalDomainConfigManager
+        from frappe_manager.ssl_manager.standalone_nginx_config_manager import (
+            StandaloneNginxConfigManager,
+            reconcile_standalone_configs,
+        )
+
+        dirs = self.proxy_storage.dirs
+        if not dirs.confd.host.exists():
+            return []
+
+        external_manager = ExternalDomainConfigManager(self.path / "nginx-proxy" / "external_domains.toml")
+        domains = external_manager.list_domains()
+        if not domains:
+            return []
+
+        certs_dir = Path(dirs.certs.host)
+        manager = StandaloneNginxConfigManager(
+            conf_dir=dirs.confd.host,
+            webroot_dir_container=dirs.html.container,
+            certs_dir_container=dirs.certs.container,
+        )
+
+        def certificate_linked(domain: str) -> bool:
+            # `lexists`, NOT `exists`: certs/<domain>.crt is a symlink whose target is the
+            # CONTAINER path (/usr/share/nginx/ssl/...), so it never resolves on the host and
+            # `exists()` answers False for every certificate fm has ever issued -- which would
+            # downgrade a working HTTPS vhost to the challenge-only one on the next start.
+            return os.path.lexists(certs_dir / f"{domain}.crt")
+
+        return reconcile_standalone_configs(manager, {entry.domain: certificate_linked(entry.domain) for entry in domains})
+
     def create(self, backup: bool = False, clean_install: bool = True):
         envs = {
             "mariadb": {
@@ -410,6 +449,9 @@ class ServicesManager:
 
     def start_service(self, services: list[str] | None = None, force_recreate: bool = False):
         services = services or []
+        # Before the proxy reads conf.d, not after: a vhost written afterwards needs an extra
+        # reload, and a missing one would already have served 503 in the meantime.
+        self.reconcile_standalone_vhosts()
         self.docker_client.compose.up(
             services=services,
             detach=True,
