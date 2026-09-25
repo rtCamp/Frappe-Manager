@@ -22,7 +22,7 @@ class TestLogLevelFlagParsing:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=False, log_level=None, version=None)
 
         assert ctx.obj.get("log_level") == "WARNING"
@@ -34,7 +34,7 @@ class TestLogLevelFlagParsing:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=True, log_level=None, version=None)
 
         assert ctx.obj.get("log_level") == "INFO"
@@ -46,7 +46,7 @@ class TestLogLevelFlagParsing:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=True, log_level=None, version=None)
 
         assert ctx.obj.get("log_level") == "INFO"
@@ -58,7 +58,7 @@ class TestLogLevelFlagParsing:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=True, log_level=None, version=None)
 
         assert ctx.obj.get("log_level") == "INFO"
@@ -74,7 +74,7 @@ class TestExplicitLogLevelFlag:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=False, log_level="debug", version=None)
 
         assert ctx.obj.get("log_level") == "DEBUG"
@@ -86,7 +86,7 @@ class TestExplicitLogLevelFlag:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=False, log_level="info", version=None)
 
         assert ctx.obj.get("log_level") == "INFO"
@@ -98,7 +98,7 @@ class TestExplicitLogLevelFlag:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=False, log_level="warning", version=None)
 
         assert ctx.obj.get("log_level") == "WARNING"
@@ -110,7 +110,7 @@ class TestExplicitLogLevelFlag:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=False, log_level="error", version=None)
 
         assert ctx.obj.get("log_level") == "ERROR"
@@ -123,17 +123,17 @@ class TestExplicitLogLevelFlag:
         ctx.invoked_subcommand = "list"
 
         # Test lowercase
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=False, log_level="debug", version=None)
         assert ctx.obj.get("log_level") == "DEBUG"
 
         ctx.obj = {}
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=False, log_level="DEBUG", version=None)
         assert ctx.obj.get("log_level") == "DEBUG"
 
         ctx.obj = {}
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=False, log_level="DeBuG", version=None)
         assert ctx.obj.get("log_level") == "DEBUG"
 
@@ -147,7 +147,7 @@ class TestFlagInteractionPrecedence:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=True, log_level="warning", version=None)
 
         assert ctx.obj.get("log_level") == "WARNING"
@@ -159,7 +159,7 @@ class TestFlagInteractionPrecedence:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=True, log_level="warning", version=None)
 
         assert ctx.obj.get("log_level") == "WARNING"
@@ -171,7 +171,7 @@ class TestFlagInteractionPrecedence:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=False, log_level="debug", version=None)
 
         assert ctx.obj.get("log_level") == "DEBUG"
@@ -188,7 +188,7 @@ class TestInvalidLogLevel:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             from frappe_manager import output_manager
 
             original_get = output_manager.get_global_output_handler
@@ -215,12 +215,12 @@ class TestVerboseFlag:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=False, log_level=None, version=None)
         assert ctx.obj.get("verbose") is False
 
         ctx.obj = {}
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=False, log_level="error", version=None)
         assert ctx.obj.get("verbose") is False
 
@@ -230,17 +230,17 @@ class TestVerboseFlag:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=True, log_level=None, version=None)
         assert ctx.obj.get("verbose") is True
 
         ctx.obj = {}
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=False, log_level="info", version=None)
         assert ctx.obj.get("verbose") is True
 
         ctx.obj = {}
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+        with patch("frappe_manager.commands.will_print_help", return_value=True):
             app_callback(ctx, verbose=False, log_level="debug", version=None)
         assert ctx.obj.get("verbose") is True
 
@@ -254,7 +254,7 @@ class TestLoggerConfiguration:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=False):
+        with patch("frappe_manager.commands.will_print_help", return_value=False):
             with patch("frappe_manager.commands.CLI_DIR") as mock_cli_dir:
                 with patch("frappe_manager.commands.CLI_BENCHES_DIRECTORY"):
                     with patch("frappe_manager.commands.spinner"):

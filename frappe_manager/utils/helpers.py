@@ -72,41 +72,6 @@ def generate_random_text(length=50):
     return "".join(random.choice(alphanumeric_chars) for _ in range(length))
 
 
-def is_cli_help_called(ctx):
-    """
-    Checks if the help is called for the CLI command.
-
-    Args:
-        ctx (object): The context object representing the CLI command.
-
-    Returns:
-        bool: True if the help command is called, False otherwise.
-    """
-    help_called = False
-
-    if "--help" in " ".join(sys.argv[1:]):
-        return True
-
-    try:
-        subcommand = ctx.command.commands.get(ctx.invoked_subcommand)
-        if not subcommand:
-            return False
-
-        if hasattr(subcommand, "commands"):
-            check_command = " ".join(sys.argv[2:])
-            if check_command in subcommand.commands:
-                sub_sub_command = subcommand.commands[check_command]
-                if sub_sub_command.params and sub_sub_command.no_args_is_help:
-                    help_called = True
-        elif subcommand.params and ctx.invoked_subcommand == " ".join(sys.argv[1:]):
-            if subcommand.no_args_is_help:
-                help_called = True
-
-    except (AttributeError, KeyError):
-        help_called = False
-
-    return help_called
-
 
 def get_current_fm_version():
     """

@@ -23,7 +23,13 @@ from frappe_manager import (
     STOCK_IMAGE_PREFETCH_SKIP_COMMANDS,
     EnableDisableOptionsEnum,
 )
-from frappe_manager.commands.gating import FMGroup, command_args, command_path, tolerates_broken_host
+from frappe_manager.commands.gating import (
+    FMGroup,
+    command_args,
+    command_path,
+    tolerates_broken_host,
+    will_print_help,
+)
 from frappe_manager.commands.self import self_app
 from frappe_manager.commands.services import services_app
 from frappe_manager.commands.ssl import ssl_app
@@ -57,10 +63,7 @@ from frappe_manager.utils.callbacks import (
     sites_autocompletion_callback,
     version_callback,
 )
-from frappe_manager.utils.helpers import (
-    get_current_fm_version,
-    is_cli_help_called,
-)
+from frappe_manager.utils.helpers import get_current_fm_version
 from frappe_manager.utils.site import pull_docker_images, validate_sitename
 
 
@@ -345,7 +348,7 @@ def app_callback(
     output = get_global_output_handler()
     output.set_interactive_mode(non_interactive_flag=non_interactive or json_output)
 
-    help_called = is_cli_help_called(ctx)
+    help_called = will_print_help(ctx)
     ctx.obj["is_help_called"] = help_called
 
     if not help_called:

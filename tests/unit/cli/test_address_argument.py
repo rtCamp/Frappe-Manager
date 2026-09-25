@@ -404,11 +404,11 @@ def _usage(argv: list[str]) -> str:
     argument inside a sentence like "fm update BENCHNAME --runtime mount". What must not say it is
     the interface itself, and the docstring sits between the usage line and the arguments panel.
 
-    `is_cli_help_called` reads sys.argv, which under CliRunner is pytest's own and never carries
-    `--help`; without the patch the root callback runs the REAL docker/migration gate against the
-    developer's ~/frappe, and these usage assertions start failing on the state of that machine.
+    The patch keeps these assertions off the developer's own ~/frappe: it short-circuits the root
+    callback's docker and migration gates so a usage line is compared against the app, never
+    against the state of the machine running the suite.
     """
-    with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
+    with patch("frappe_manager.commands.will_print_help", return_value=True):
         result = runner.invoke(fm_app, [*argv, "--help"])
     assert result.exit_code == 0, result.output
     for line in result.output.splitlines():

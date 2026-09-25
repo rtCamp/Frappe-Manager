@@ -209,7 +209,7 @@ def gate(tmp_path, monkeypatch):
         p(patch("frappe_manager.commands.CLI_DIR", harness.cli_dir))
         p(patch("frappe_manager.commands.CLI_BENCHES_DIRECTORY", harness.benches_dir))
         p(patch("frappe_manager.commands.CLI_FM_CONFIG_PATH", harness.fm_config_path))
-        p(patch("frappe_manager.commands.is_cli_help_called", return_value=False))
+        p(patch("frappe_manager.commands.will_print_help", return_value=False))
         p(patch("frappe_manager.commands.spinner", _fake_spinner))
         p(patch("frappe_manager.commands.DockerClient", docker_client))
         p(patch("frappe_manager.commands.FMConfigManager", fm_config_cls))

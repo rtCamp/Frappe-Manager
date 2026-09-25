@@ -34,6 +34,7 @@ from frappe_manager.commands.gating import (
     command_path,
     record_command_chain,
     tolerates_broken_host,
+    will_print_help,
 )
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager.base import OutputHandler
@@ -293,6 +294,42 @@ class TestBrokenHostDeclaration:
         record_command_chain(group, ctx)
 
         assert tolerates_broken_host(ctx) is tolerated
+
+
+class TestWillPrintHelp:
+    """Whether the callback skips its setup because click is about to print help instead.
+
+    Skipping means no docker check, no migration gate, no host lock and no services init, so a
+    false positive runs a real command with every guard off. The old check searched the joined
+    argv for the text "--help", which a passthrough argument merely CONTAINING it tripped.
+    """
+
+    @pytest.mark.parametrize(
+        ("argv", "is_help"),
+        [
+            (["fm", "start", "--help"], True),
+            (["fm", "ssl", "add", "--help"], True),
+            (["fm", "--json", "ssl", "ca", "status", "--help"], True),
+            # Groups and commands that declare they show help when given nothing.
+            (["fm", "ssl"], True),
+            (["fm", "ssl", "ca"], True),
+            (["fm", "create"], True),
+            # `--help` inside an argument is not a help request: this one ran `docker compose ps`
+            # on a real bench with every gate skipped.
+            (["fm", "compose", BENCH, "ps", "--format", "{{.Name}} --help"], False),
+            (["fm", "bake", BENCH, "--tag", "img:--help-v2"], False),
+            # After `--` everything is an argument; the container gets the help, not fm.
+            (["fm", "shell", BENCH, "--", "--help"], False),
+            (["fm", "start", BENCH], False),
+            (["fm", "ssl", "ca", "status"], False),
+        ],
+    )
+    def test_help_detection(self, argv, is_help):
+        group = typer.main.get_command(app)
+        ctx = group.make_context("fm", argv[1:], resilient_parsing=True)
+        record_command_chain(group, ctx)
+
+        assert will_print_help(ctx) is is_help
 
 
 class TestTheGlobalStackIsGatedOnTheCommand:
