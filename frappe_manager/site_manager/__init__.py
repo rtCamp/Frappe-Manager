@@ -1,19 +1,37 @@
 """Site Manager Module - Configuration and Constants"""
 
 import json
+from functools import cache
 from importlib.resources import files
 
 __all__ = [
-    "VSCODE_LAUNCH_JSON",
-    "VSCODE_TASKS_JSON",
-    "VSCODE_SETTINGS_JSON",
+    "get_vscode_launch_json",
+    "get_vscode_tasks_json",
+    "get_vscode_settings_json",
     "NON_BASH_SUPPORTED_SERVICES",
 ]
 
-_vscode_templates = files("frappe_manager.templates.vscode")
 
-VSCODE_LAUNCH_JSON: dict = json.loads((_vscode_templates / "launch.json").read_text())
-VSCODE_TASKS_JSON: dict = json.loads((_vscode_templates / "tasks.json").read_text())
-VSCODE_SETTINGS_JSON: dict = json.loads((_vscode_templates / "settings.json").read_text())
+def _load_vscode_template(filename: str) -> dict:
+    # importlib.resources + json parsing on every `fm` invocation was measurable; these are
+    # only needed by the `fm code` devtools path, so loading is deferred to first use.
+    templates = files("frappe_manager.templates.vscode")
+    return json.loads((templates / filename).read_text())
+
+
+@cache
+def get_vscode_launch_json() -> dict:
+    return _load_vscode_template("launch.json")
+
+
+@cache
+def get_vscode_tasks_json() -> dict:
+    return _load_vscode_template("tasks.json")
+
+
+@cache
+def get_vscode_settings_json() -> dict:
+    return _load_vscode_template("settings.json")
+
 
 NON_BASH_SUPPORTED_SERVICES = ["redis-cache", "redis-queue", "adminer", "mailpit"]

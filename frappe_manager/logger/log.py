@@ -4,6 +4,7 @@ import logging.handlers
 import os
 import re
 import shutil
+from pathlib import Path
 
 from rich.logging import RichHandler
 
@@ -275,6 +276,21 @@ def _resolve_level(name: str) -> int:
     return level
 
 
+class _LazyRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """A rotating file handler that touches the disk only when a record is actually written.
+
+    Four modules acquire a logger at MODULE scope, so creating the file eagerly meant importing
+    `frappe_manager.commands` created ~/frappe/logs/fm.log -- on a machine that had never run fm,
+    for a command that only printed help, and even when the command was about to be refused. With
+    `delay=True` the directory and the file appear on the first record instead, which is also the
+    first moment an unwritable home is worth complaining about.
+    """
+
+    def _open(self):
+        Path(self.baseFilename).parent.mkdir(parents=True, exist_ok=True)
+        return super()._open()
+
+
 def get_logger(
     log_dir=CLI_LOG_DIRECTORY,
     log_file_name="fm",
@@ -297,12 +313,6 @@ def get_logger(
     """
     logPath = log_dir / f"{log_file_name}.log"
 
-    try:
-        log_dir.mkdir(parents=True, exist_ok=True)
-    except PermissionError as e:
-        # Use print since logger hasn't been initialized yet
-        print(f"FATAL: Logging not working. {e}")
-        raise ConfigurationError(f"Logging not working: {e}", details={"log_dir": str(log_dir)})
 
     logger_exists = loggers.get(log_file_name) is not None
     if logger_exists:
@@ -315,9 +325,9 @@ def get_logger(
         logging.setLoggerClass(FMLOGGER)
         logger: logging.Logger | None = logging.getLogger(log_file_name)
         logger.setLevel(logging.DEBUG)
-
         # configured to rotate after 10 mb; backups are gzipped (namer adds .gz)
-        handler = logging.handlers.RotatingFileHandler(logPath, "a+", maxBytes=10485760, backupCount=3)
+
+        handler = _LazyRotatingFileHandler(logPath, "a+", maxBytes=10485760, backupCount=3, delay=True)
         handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s:%(fm_ctx)s %(message)s"))
         handler.setLevel(_resolve_level(file_level or "DEBUG"))
         handler.rotator = rotator

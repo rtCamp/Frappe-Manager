@@ -106,14 +106,23 @@ class TestPrefetchIsSkipped:
 
 class TestPrefetchStillHappens:
     def test_a_command_that_runs_the_stack_still_prefetches(self, cli):
-        """`fm list` is not exempt, so the first-install warmup keeps working."""
-        cli.invoke(["list"])
+        """`fm start` needs the stock images, so the first-install warmup keeps working."""
+        cli.invoke(["start", "mybench"])
 
         assert cli.prefetched
 
+    def test_an_observer_does_not_prefetch(self, cli):
+        """`fm list` on a fresh host has nothing to list and must not spend minutes pulling.
+
+        It used to: the exemption only covered `bake`, so the first read-only command on a new
+        machine pulled all eight stock images, and a failed pull then deleted the whole fm home.
+        """
+        cli.invoke(["list"])
+
+        assert not cli.prefetched
+
     def test_every_command_outside_the_exemption_prefetches(self, cli):
         """Guards against the exemption widening by accident to commands that need images."""
-        assert "list" not in STOCK_IMAGE_PREFETCH_SKIP_COMMANDS
         assert "create" not in STOCK_IMAGE_PREFETCH_SKIP_COMMANDS
         assert "start" not in STOCK_IMAGE_PREFETCH_SKIP_COMMANDS
 

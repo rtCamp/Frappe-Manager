@@ -43,7 +43,6 @@ from frappe_manager.migration_manager.bench_migration_state import (
 )
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.migration_manager.version import Version
-from frappe_manager.ngrok import create_tunnel
 from frappe_manager.output_manager import OutputHandler, get_global_output_handler, spinner, temporary_stop
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 from frappe_manager.services_manager.services import ServicesManager
@@ -342,8 +341,7 @@ def app_callback(
         basic_handler = JSONOutputHandler(verbose=ctx.obj["verbose"], stream=sys.stdout)
     else:
         basic_handler = get_global_output_handler()
-    upgraded_handler = LoggingOutputHandler(basic_handler)
-    set_global_output_handler(upgraded_handler)
+    set_global_output_handler(basic_handler)
 
     output = get_global_output_handler()
     output.set_interactive_mode(non_interactive_flag=non_interactive or json_output)
@@ -352,14 +350,23 @@ def app_callback(
     ctx.obj["is_help_called"] = help_called
 
     if not help_called:
+        # The file-logging wrapper is built HERE, not above: constructing it opens
+        # CLI_DIR/logs/fm.log, which creates the fm home as a side effect. Doing that before the
+        # help gate meant `fm start --help` wrote a log directory onto a machine that had never
+        # run fm -- and, because CLI_DIR then existed, the creation branch below never ran and
+        # the benches directory was never made.
+        set_global_output_handler(LoggingOutputHandler(basic_handler))
         output = get_global_output_handler()
+        output.set_interactive_mode(non_interactive_flag=non_interactive or json_output)
+
         with spinner(output, "Working"):
-            if not CLI_DIR.exists():
-                CLI_DIR.mkdir(parents=True, exist_ok=True)
-                CLI_BENCHES_DIRECTORY.mkdir(parents=True, exist_ok=True)
+            created_home = not CLI_DIR.exists()
+            if not CLI_DIR.is_dir():
+                if CLI_DIR.exists():
+                    output.exit(f"{CLI_DIR} exists but is not a directory! Aborting!")
                 output.print(f"fm directory doesn't exists! Created at -> {CLI_DIR!s}")
-            elif not CLI_DIR.is_dir():
-                output.exit("Sites directory is not a directory! Aborting!")
+            CLI_DIR.mkdir(parents=True, exist_ok=True)
+            CLI_BENCHES_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
             global logger
             console_level = level_name if ctx.obj["verbose"] else None
@@ -411,15 +418,23 @@ def app_callback(
             # prefetching the stack is pure waste, and on a CI runner it is waste that gets
             # paid on every job. The teardown commands are exempt for a sharper reason: after a
             # successful uninstall there is no fm_config.toml, so running one again would read as
-            # a first install and PULL the entire stack on the way to removing it.
-            first_install = not CLI_FM_CONFIG_PATH.exists() and not tolerates_broken_host(ctx)
+            # a first install and PULL the entire stack on the way to removing it. Observers are
+            # exempt because they answer a question about state that does not exist yet: `fm list`
+            # on a fresh host has nothing to list and must not spend minutes pulling images first.
+            first_install = (
+                not CLI_FM_CONFIG_PATH.exists()
+                and not tolerates_broken_host(ctx)
+                and command_path(ctx) not in OBSERVE_ONLY_COMMANDS
+            )
             if first_install and invoked_command not in STOCK_IMAGE_PREFETCH_SKIP_COMMANDS:
                 output.print("First installation detected. Pulling docker images...️", "🔍")
 
                 completed_status = pull_docker_images()
 
                 if not completed_status:
-                    if CLI_DIR.exists():
+                    # Only the home THIS run created is cleaned up. Wiping CLI_DIR unconditionally
+                    # deleted an existing install's logs and backups because one image pull failed.
+                    if created_home and CLI_DIR.exists():
                         shutil.rmtree(CLI_DIR)
                     output.exit("Aborting. Not able to pull all required Docker images")
 

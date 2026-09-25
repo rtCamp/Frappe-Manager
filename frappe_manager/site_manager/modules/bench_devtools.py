@@ -23,11 +23,6 @@ from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.site_manager import (
-    VSCODE_LAUNCH_JSON,
-    VSCODE_SETTINGS_JSON,
-    VSCODE_TASKS_JSON,
-)
 from frappe_manager.site_manager.exceptions import (
     BenchAttachTocontainerFailed,
     BenchFailedToInstallDevPackages,
@@ -193,13 +188,15 @@ class BenchDevTools:
 
     def _update_container_config(self, user: str, extensions: list[str]) -> None:
         """Update container configuration with user and extensions."""
+        from frappe_manager.site_manager import get_vscode_settings_json
+
         base_config = [
             {
                 "remoteUser": user,
                 "remoteEnv": {"SHELL": "/bin/bash"},
                 "customizations": {
                     "vscode": {
-                        "settings": VSCODE_SETTINGS_JSON,
+                        "settings": get_vscode_settings_json(),
                     },
                 },
             },
@@ -266,11 +263,17 @@ class BenchDevTools:
 
     def _sync_vscode_config_files(self, workdir: str) -> None:
         """Sync VS Code configuration files."""
+        from frappe_manager.site_manager import get_vscode_launch_json, get_vscode_settings_json, get_vscode_tasks_json
+
         workdir = workdir.strip("/")
         vscode_dir = self.bench_path / workdir / ".vscode"
         vscode_dir.mkdir(exist_ok=True, parents=True)
 
-        config_files = {"tasks": VSCODE_TASKS_JSON, "launch": VSCODE_LAUNCH_JSON, "settings": VSCODE_SETTINGS_JSON}
+        config_files = {
+            "tasks": get_vscode_tasks_json(),
+            "launch": get_vscode_launch_json(),
+            "settings": get_vscode_settings_json(),
+        }
 
         for filename, content in config_files.items():
             file_path = vscode_dir / f"{filename}.json"

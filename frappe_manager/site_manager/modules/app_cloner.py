@@ -16,8 +16,6 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from git import GitCommandError, Repo  # type: ignore
-
 from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.logger import ctx_submit, get_logger
 from frappe_manager.output_manager import OutputHandler
@@ -273,6 +271,7 @@ class AppCloner:
 
         auth_methods = self._get_auth_methods(app)
         last_error = None
+        from git import GitCommandError
 
         for method_name, repo_url in auth_methods:
             try:
@@ -338,6 +337,8 @@ class AppCloner:
             clone_path: Destination path for clone
             app: AppConfig object with clone options
         """
+        from git import Repo
+
         clone_kwargs = {
             "branch": app.ref if app.ref and not app.is_commit else None,
             "depth": 1 if app.shallow_clone and not app.is_commit else None,

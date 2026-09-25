@@ -1,7 +1,6 @@
 import json
 from typing import Annotated
 
-import requests
 import typer
 from typer_examples import example
 
@@ -26,6 +25,8 @@ def upgrade(
 
     An install already ahead of PyPI, such as a dev or pre-release build, is reported as up to date and left alone: fm is never downgraded under benches whose on-disk state a newer fm wrote.
     """
+    import requests
+
     output = get_global_output_handler()
     output.change_head("Checking for updates")
     url = "https://pypi.org/pypi/frappe-manager/json"

@@ -249,7 +249,7 @@ def run_upgrade(published: str, current: str, *, yes: bool = True):
     payload = MagicMock()
     payload.text = json.dumps({"info": {"version": published}})
     with (
-        patch("frappe_manager.commands.self.upgrade.requests.get", return_value=payload),
+        patch("requests.get", return_value=payload),
         patch("frappe_manager.commands.self.upgrade.get_current_fm_version", return_value=current),
         patch("frappe_manager.commands.self.upgrade.install_package") as install,
     ):

@@ -39,9 +39,9 @@ from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.site_manager import (
-    VSCODE_LAUNCH_JSON,
-    VSCODE_SETTINGS_JSON,
-    VSCODE_TASKS_JSON,
+    get_vscode_launch_json,
+    get_vscode_settings_json,
+    get_vscode_tasks_json,
 )
 from frappe_manager.site_manager.bench_config import AppConfig
 from frappe_manager.site_manager.exceptions import (
@@ -50,7 +50,6 @@ from frappe_manager.site_manager.exceptions import (
     BenchFailedToRemoveDevPackages,
     BenchNotRunning,
 )
-from frappe_manager.site_manager.modules import app_cloner as app_cloner_module
 from frappe_manager.site_manager.modules import bench_devtools as devtools_module
 from frappe_manager.site_manager.modules.app_cloner import AppCloner, AppClonerError
 from frappe_manager.site_manager.modules.bench_devtools import BenchDevTools
@@ -93,7 +92,7 @@ def _fake_clone_from(monkeypatch, *, fails: set[str] | None = None, populate=Non
             populate(target)
         return MagicMock(name=f"Repo({url})")
 
-    monkeypatch.setattr(app_cloner_module, "Repo", SimpleNamespace(clone_from=clone_from))
+    monkeypatch.setattr("git.Repo", SimpleNamespace(clone_from=clone_from))
     return calls
 
 
@@ -382,7 +381,7 @@ def test_a_commit_ref_clones_fully_then_checks_the_commit_out(tmp_path, monkeypa
         repos.append(repo)
         return repo
 
-    monkeypatch.setattr(app_cloner_module, "Repo", SimpleNamespace(clone_from=clone_from))
+    monkeypatch.setattr("git.Repo", SimpleNamespace(clone_from=clone_from))
     app = _app("erpnext", "frappe/erpnext", ref=COMMIT_SHA)
     assert app.is_commit
 
@@ -401,7 +400,7 @@ def test_a_branch_clone_does_not_check_anything_out(tmp_path, monkeypatch):
         repos.append(repo)
         return repo
 
-    monkeypatch.setattr(app_cloner_module, "Repo", SimpleNamespace(clone_from=clone_from))
+    monkeypatch.setattr("git.Repo", SimpleNamespace(clone_from=clone_from))
 
     cloner._git_clone(
         "https://github.com/frappe/erpnext.git",
@@ -920,7 +919,7 @@ def test_the_devcontainer_label_carries_the_user_shell_settings_and_sorted_exten
     assert config[0]["remoteUser"] == "frappe"
     assert config[0]["remoteEnv"] == {"SHELL": "/bin/bash"}
     assert config[0]["customizations"]["vscode"]["extensions"] == ["a.ext", "b.ext"]
-    assert config[0]["customizations"]["vscode"]["settings"] == VSCODE_SETTINGS_JSON
+    assert config[0]["customizations"]["vscode"]["settings"] == get_vscode_settings_json()
 
 
 def test_attach_sorts_the_requested_extensions_before_they_reach_the_label(devtools, monkeypatch):
@@ -1021,9 +1020,9 @@ def test_debugger_config_writes_the_three_vscode_files_and_installs_ruff(devtool
     tools._setup_debugger_config("/workspace/frappe-bench/")
 
     vscode_dir = tools.bench_path / "workspace" / "frappe-bench" / ".vscode"
-    assert json.loads((vscode_dir / "tasks.json").read_text()) == VSCODE_TASKS_JSON
-    assert json.loads((vscode_dir / "launch.json").read_text()) == VSCODE_LAUNCH_JSON
-    assert json.loads((vscode_dir / "settings.json").read_text()) == VSCODE_SETTINGS_JSON
+    assert json.loads((vscode_dir / "tasks.json").read_text()) == get_vscode_tasks_json()
+    assert json.loads((vscode_dir / "launch.json").read_text()) == get_vscode_launch_json()
+    assert json.loads((vscode_dir / "settings.json").read_text()) == get_vscode_settings_json()
     # stream=False is load-bearing: the call site discards the return, and a discarded
     # stream=True iterator is lazy -- the pip install silently never executed.
     tools.docker_client.compose.exec.assert_called_once_with(
@@ -1058,7 +1057,7 @@ def test_an_existing_config_file_is_backed_up_before_being_replaced(devtools):
     backups = list(vscode_dir.glob("launch.*.json"))
     assert len(backups) == 1
     assert backups[0].read_text() == '{"mine": true}'
-    assert json.loads((vscode_dir / "launch.json").read_text()) == VSCODE_LAUNCH_JSON
+    assert json.loads((vscode_dir / "launch.json").read_text()) == get_vscode_launch_json()
     assert not list(vscode_dir.glob("tasks.*.json"))  # nothing to back up
 
 

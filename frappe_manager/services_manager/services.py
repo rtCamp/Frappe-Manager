@@ -181,11 +181,25 @@ class ServicesManager:
         self.set_frappe_headers_conf()
 
     def set_frappe_headers_conf(self):
-        if self.fm_headers_path.parent.exists():
-            template_path: Path = get_template_path("fm_headers.conf.tmpl")
-            template = Template(template_path.read_text())
-            output = template.render(current_version=f"v{get_current_fm_version()}")
-            self.fm_headers_path.write_text(output)
+        """Refresh nginx-proxy's fm_headers.conf, but only when its content actually changes.
+
+        `init()` runs on every fm invocation, so an unconditional write touched a file inside a
+        running proxy's config directory for read-only commands like `fm list` and `fm info` --
+        enough to fail on a read-only mount or under a second user, and to make the file's mtime
+        lie about when the proxy config last changed. The content tracks fm's version, so the
+        comparison (not a move to create/migrate) is what keeps `fm self upgrade` refreshing it.
+        """
+        if not self.fm_headers_path.parent.exists():
+            return
+
+        template_path: Path = get_template_path("fm_headers.conf.tmpl")
+        template = Template(template_path.read_text())
+        desired = template.render(current_version=f"v{get_current_fm_version()}")
+
+        if self.fm_headers_path.exists() and self.fm_headers_path.read_text() == desired:
+            return
+
+        self.fm_headers_path.write_text(desired)
 
     def create(self, backup: bool = False, clean_install: bool = True):
         envs = {
