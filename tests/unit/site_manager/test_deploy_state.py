@@ -254,27 +254,27 @@ class TestSwitchResolvers:
         assert target is None
         assert "not an image reference" in error
 
-    def test_a_digest_reference_is_refused_before_any_docker_call(self):
-        """A digest reference used to slip through (`has_explicit_tag` mistook the digest's
-        colon for a tag's), reaching `nginx_image_tag`'s malformed rpartition and dying on a
-        confusing pull error since #00c2ccfb made that fatal. The resolver now refuses it up
-        front -- a pure function, so 'before any Docker call' just means the daemon is never
-        touched by this path -- with a message naming the shape and the reason."""
+    def test_a_digest_reference_is_a_valid_switch_target(self):
+        """A digest was refused while the companion image was DERIVED from the app image's name,
+        because no second image's digest is derivable from another's. The companion is read from
+        the recorded pair now, so the reason is spent -- and a digest is the reference production
+        wants, since a tag can be moved under a running bench and a digest cannot."""
         from frappe_manager.commands.deploy import _resolve_switch_image
 
-        target, error = _resolve_switch_image(self._state(), "ghcr.io/acme/mybench@sha256:" + "a" * 64, False)
-        assert target is None
-        assert "digest reference" in error
-        assert "content hash of ONE image" in error
+        digest_ref = "ghcr.io/acme/mybench@sha256:" + "a" * 64
+        target, error = _resolve_switch_image(self._state(), digest_ref, False)
+        assert error is None
+        assert target == digest_ref
 
-    def test_a_digest_reference_is_refused_even_when_it_also_carries_a_tag(self):
-        """`repo:tag@sha256:...` has an explicit tag, so a naive `has_explicit_tag`-only guard
-        would let it through; the digest still makes it unusable, so this must refuse too."""
+    def test_a_reference_carrying_both_a_tag_and_a_digest_is_accepted(self):
+        """Docker allows `repo:tag@sha256:...`, and the digest wins; fm must not refuse a shape
+        docker itself resolves."""
         from frappe_manager.commands.deploy import _resolve_switch_image
 
-        target, error = _resolve_switch_image(self._state(), "ghcr.io/acme/mybench:v1@sha256:" + "a" * 64, False)
-        assert target is None
-        assert "digest reference" in error
+        both = "ghcr.io/acme/mybench:v1@sha256:" + "a" * 64
+        target, error = _resolve_switch_image(self._state(), both, False)
+        assert error is None
+        assert target == both
 
     def test_backups_found_for_current_deploy(self):
         # Every site's dump, not just the primary's: a rollback that restored one schema

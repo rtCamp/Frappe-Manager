@@ -174,11 +174,10 @@ class TestNginxCompanionBuild:
         assert seen["assets_json"] == "{}"
 
 
-class TestNginxImageRef:
-    """`BakeManager.nginx_image_ref` (renamed from `nginx_image_tag`, #digest-refs): derives
-    the companion image reference from the app image reference BY NAME, so it refuses rather
-    than mangles when that cannot work -- a digest reference (no second image's digest is
-    derivable from another image's) or a reference with no explicit tag at all.
+class TestDefaultNginxImage:
+    """`BakeManager.default_nginx_image`: the companion reference bake uses when the operator
+    names none. Bake CHOOSING a name for an image it is about to create is the one derivation
+    fm still performs; everything downstream reads the pair that was recorded instead.
     """
 
     @pytest.mark.parametrize(
@@ -191,27 +190,18 @@ class TestNginxImageRef:
             ("localhost:5000/app:v1", "localhost:5000/app-nginx:v1"),
         ],
     )
-    def test_tagged_references_derive_the_companion_by_name(self, image, expected):
-        assert BakeManager.nginx_image_ref(image) == expected
+    def test_a_tagged_reference_names_the_companion_after_it(self, image, expected):
+        assert BakeManager.default_nginx_image(image) == expected
 
     @pytest.mark.parametrize("image", ["app", "org/app", "ghcr.io/org/app", "ghcr.io/org/team/app"])
-    def test_a_bare_repo_with_no_tag_is_refused(self, image):
-        with pytest.raises(BakeError, match="missing an explicit"):
-            BakeManager.nginx_image_ref(image)
+    def test_a_reference_with_no_version_is_refused(self, image):
+        with pytest.raises(BakeError, match="carries no version"):
+            BakeManager.default_nginx_image(image)
 
     def test_an_untagged_host_port_reference_is_refused_not_mangled(self):
         """Regression: `rpartition(":")` used to split on the registry PORT colon here,
         silently returning 'localhost-nginx:5000/app' -- a different, wrong repository --
         instead of raising anything. `localhost:5000/app` has no tag at all; ImageRef knows
         the host:port colon does not name one, so this must refuse like any other bare repo."""
-        with pytest.raises(BakeError, match="missing an explicit"):
-            BakeManager.nginx_image_ref("localhost:5000/app")
-
-    @pytest.mark.parametrize("image", ["app@sha256:abc", "ghcr.io/org/app:v1@sha256:abc"])
-    def test_a_digest_reference_is_refused_with_the_reason(self, image):
-        """A digest reference used to be silently mangled ('app@sha256-nginx:abc') instead of
-        refused. The companion is a DIFFERENT image, so its digest cannot be derived from the
-        app image's; the message says exactly that."""
-        with pytest.raises(BakeError, match="content hash of ONE image") as excinfo:
-            BakeManager.nginx_image_ref(image)
-        assert image in str(excinfo.value)
+        with pytest.raises(BakeError, match="carries no version"):
+            BakeManager.default_nginx_image("localhost:5000/app")

@@ -109,7 +109,7 @@ def test_image_runtime_requires_a_prebuilt_image():
     with pytest.raises(typer.BadParameter, match="needs a pre-built image") as excinfo:
         _resolve(runtime=BenchRuntime.image)
 
-    assert "base_image" in str(excinfo.value)
+    assert "app_image" in str(excinfo.value)
     assert "current.app_image" in str(excinfo.value), "the --config spelling must be offered too"
 
 
@@ -128,15 +128,17 @@ def test_image_runtime_requires_tag():
         _resolve(runtime=BenchRuntime.image, app_image="ghcr.io/acme/mybench")
 
 
-def test_image_runtime_base_image_refuses_a_digest_with_the_reason():
-    """`fm create --runtime image --base-image <digest>` used to sail through:
-    `_apply_base_image` wrote a malformed `bc.image` and the old `has_explicit_tag` bug let
-    the digest-carrying `deployments.current.app_image` past `assert_runtime_coherent` -- reaching
-    `nginx_image_tag`'s malformed derivation. Now refused up front, naming the reason: the
-    companion is derived by name and a digest cannot supply one."""
+def test_image_runtime_accepts_a_digest_pinned_app_image():
+    """A digest used to be refused here, because the companion was derived from the app image's
+    name and no second image's digest is derivable from another's. The companion is read from the
+    recorded pair now, so the reason is spent, and a digest is the reference production wants: a
+    tag can be moved under a running bench, a digest cannot."""
     digest_ref = "ghcr.io/acme/mybench@sha256:" + "a" * 64
-    with pytest.raises(typer.BadParameter, match="content hash of ONE image"):
-        _resolve(runtime=BenchRuntime.image, app_image=digest_ref)
+    mode, image_repo, current_image, _base = _resolve(runtime=BenchRuntime.image, app_image=digest_ref)
+
+    assert mode == BenchRuntime.image
+    assert image_repo == "ghcr.io/acme/mybench"
+    assert current_image == digest_ref
 
 
 def test_image_runtime_rejects_apps():

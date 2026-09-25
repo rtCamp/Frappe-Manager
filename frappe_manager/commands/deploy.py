@@ -9,7 +9,7 @@ from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_config import BenchRuntime
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError, DeployOrchestrator
 from frappe_manager.site_manager.site import Bench
-from frappe_manager.utils.helpers import digest_pinned_refusal, has_explicit_tag, is_digest_pinned
+from frappe_manager.utils.helpers import ImageRef
 from frappe_manager.utils.process_lock import bench_lock
 
 
@@ -32,22 +32,21 @@ def _switch_target_shape_error(image: str) -> str | None:
 
     Docker has two words and they are not interchangeable: a REPOSITORY
     (``ghcr.io/acme/app``) names where an image lives, an image REFERENCE adds the version,
-    a ``:tag`` or an ``@digest``. "Not a full image reference: pass repo:tag" named neither
-    mistake and excluded a digest, which is a perfectly good reference.
+    a ``:tag`` or an ``@digest``. Both are accepted, and a digest is the one production
+    should prefer: a tag can be moved under a running bench, a digest cannot.
 
     A value with no version is reported as the repository it is. Which MISTAKE produced it
     is deliberately not guessed: a single bare word is as likely a tag the operator passed
     alone as it is a Docker Hub repository (``nginx`` is a real one), and a wrong guess sends
     the reader after the wrong half of their command.
     """
-    if is_digest_pinned(image):
-        return digest_pinned_refusal(image)
-    if not has_explicit_tag(image):
+    if not ImageRef.parse(image).is_pinned:
         return (
             f"'{image}' is a repository, not an image reference: it names no version, so fm "
             f"cannot tell which build to deploy. An image reference is a repository plus a "
-            f"version, e.g. ghcr.io/acme/mybench:v15.2.1. If you passed a tag on its own, pass "
-            f"the repository with it."
+            f"version, e.g. ghcr.io/acme/mybench:v15.2.1 or "
+            f"ghcr.io/acme/mybench@sha256:3f8a... If you passed a tag on its own, pass the "
+            f"repository with it."
         )
     return None
 

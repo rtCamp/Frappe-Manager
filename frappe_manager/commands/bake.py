@@ -337,6 +337,18 @@ def bake(
             raise typer.Exit(1) from e
         bench_config = BenchConfig.import_from_toml(bench_config_path)
 
+    # A digest is a hash of content that does not exist until the image is built, so it can name
+    # an image to RUN but never one to produce. The inverse of everywhere else, where a digest is
+    # the preferred way to name an image.
+    for flag, value in (("--app-image", app_image), ("--nginx-image", nginx_image)):
+        if value and ImageRef.parse(value).is_digest_pinned:
+            output.display_error(
+                f"{flag} {value} is a digest reference, which names content that already exists. A "
+                f"bake produces the image, so its output is named with a repository or a "
+                f"repository and a tag.",
+            )
+            raise typer.Exit(1)
+
     explicit_tag: str | None = None
     if app_image:
         if has_explicit_tag(app_image):

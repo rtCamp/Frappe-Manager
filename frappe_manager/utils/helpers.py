@@ -471,25 +471,6 @@ class ImageRef:
         return f"{self.domain}/{self.path}" if self.domain else self.path
 
 
-def digest_pinned_refusal(image_ref: str) -> str:
-    """Why ``image_ref`` (a digest reference) cannot serve as an image-runtime app image.
-
-    The one explanation, reused verbatim by every refusal path (the ``fm switch``
-    guard, ``fm create --base-image`` on image runtime, ``nginx_image_ref``'s own
-    boundary check) so an operator sees identical reasoning wherever they hit it.
-    Image runtime derives the nginx companion image from the app image's reference
-    BY NAME (``<repo>-nginx:<tag>``), and a digest is a content hash of exactly one
-    image, so no second image's digest is derivable from the app image's -- this is
-    not a validation gap to widen, it is impossible in principle.
-    """
-    return (
-        f"{image_ref!r} is a digest reference: image runtime derives the nginx companion image "
-        f"by NAME (<repo>-nginx:<tag>), and a digest is a content hash of ONE image, so the "
-        f"companion's digest cannot be derived from the app image's. Pass a tag reference instead "
-        f"(e.g. ghcr.io/acme/mybench:v15.2.1)."
-    )
-
-
 def has_explicit_tag(image_ref: str) -> bool:
     """True when ``image_ref`` carries an explicit ``:tag`` in its final path segment.
 

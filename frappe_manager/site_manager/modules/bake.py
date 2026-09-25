@@ -34,7 +34,7 @@ from frappe_manager.site_manager.modules.bench_app import BenchAppManager
 from frappe_manager.site_manager.modules.transport import push_images
 from frappe_manager.site_manager.provisioner import provision
 from frappe_manager.utils.docker import host_run_cp, run_command_with_exit_code
-from frappe_manager.utils.helpers import ImageRef, digest_pinned_refusal
+from frappe_manager.utils.helpers import ImageRef
 from frappe_manager.utils.site import (
     host_bench_dir,
     read_bench_app_refs,
@@ -279,24 +279,27 @@ class BakeManager:
         )
 
     @staticmethod
-    def nginx_image_ref(image: str) -> str:
-        """Derive the nginx companion image reference from the app image reference.
+    def default_nginx_image(image: str) -> str:
+        """The companion reference bake uses when the operator does not name one.
 
-        ``image`` is a FULL reference (``name:tag``), not a bare tag -- docker's ``name``
-        already folds in any domain and leading path segments, and they pass through
-        untouched. ``name:tag`` -> ``name-nginx:tag``.
+        ``name:tag`` -> ``name-nginx:tag``. Docker's ``name`` already folds in any domain and
+        leading path segments, and they pass through untouched.
 
-        Refuses rather than mangles when the input cannot produce a valid result:
-        a digest reference (``name@sha256:...``) can never work here in principle
-        (the companion is a DIFFERENT image, and a digest is a content hash of one
-        specific image, so its digest is not derivable from another image's), and a
-        reference with no explicit tag has nothing for the companion to share.
+        This is bake CHOOSING a name for an image it is about to create, which is the one place
+        in fm that may: everywhere downstream reads the pair that was recorded (the
+        ``fm.nginx.image`` label, or ``[deployments]``) instead of reconstructing it, because a
+        name reconstructed from another image's name is a guess about somebody else's artifact.
+
+        A digest cannot be an output -- it is a hash of content that does not exist until the
+        image is built -- so bake refuses one before it ever reaches here; a reference with no
+        version has nothing for the companion to share.
         """
         ref = ImageRef.parse(image)
-        if ref.is_digest_pinned:
-            raise BakeError(digest_pinned_refusal(image))
         if not ref.has_tag:
-            raise BakeError(f"Malformed image reference (missing an explicit ':tag'): {image}")
+            raise BakeError(
+                f"Cannot name a companion for {image!r}: it carries no version for the companion "
+                f"to share. Pass --nginx-image to name one outright.",
+            )
         return f"{ref.name}-nginx:{ref.tag}"
 
     def _seed_bench_skeleton(self, frappe_bench_dir: Path, base_image: str) -> None:
@@ -479,7 +482,7 @@ class BakeManager:
         self._assert_buildx()
         tag = tag or self.resolve_tag()
         # Before the app image is built, because it is stamped INTO that image.
-        nginx_tag = nginx_tag or self.nginx_image_ref(tag)
+        nginx_tag = nginx_tag or self.default_nginx_image(tag)
         dockerfile = self._runtime_dockerfile()
 
         self.output.print(f"Baking image {tag}")

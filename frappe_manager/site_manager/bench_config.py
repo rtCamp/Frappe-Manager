@@ -24,11 +24,9 @@ from frappe_manager.utils import toml_document
 from frappe_manager.utils.config_keys import collect_unknown_keys, unwrap_toml_value
 from frappe_manager.utils.helpers import (
     ImageRef,
-    digest_pinned_refusal,
     get_bench_connection_config,
     get_container_name_prefix,
     get_current_fm_version,
-    has_explicit_tag,
 )
 from frappe_manager.utils.site import host_bench_dir
 
@@ -1892,12 +1890,15 @@ class BenchConfig(BaseModel):
         current_app_image = self.deployments.current.app_image if self.deployments and self.deployments.current else None
         if not current_app_image:
             raise ValueError(
-                "image runtime needs a pre-built image: set base_image <repo:tag>, or top-level image plus [deployments].current.app_image."
+                "image runtime needs a pre-built image: set app_image <repo:tag>, or top-level image plus [deployments].current.app_image."
             )
-        if ImageRef.parse(current_app_image).is_digest_pinned:
-            raise ValueError(digest_pinned_refusal(current_app_image))
-        if not has_explicit_tag(current_app_image):
-            raise ValueError(f"the image runtime image must be a full reference with a tag (got {current_app_image!r}).")
+        # A version, either spelling. A digest is the stronger one and is now first class: the
+        # companion is READ from the recorded pair, so nothing has to derive a second image's
+        # reference from this one, which was the only reason a digest could not be used here.
+        if not ImageRef.parse(current_app_image).is_pinned:
+            raise ValueError(
+                f"the image runtime image must name a version, a ':tag' or an '@sha256:...' digest (got {current_app_image!r})."
+            )
         if self.developer_mode:
             raise ValueError(
                 "developer_mode is not supported with image runtime: DocType authoring writes app files into the ephemeral container layer (lost on the next deploy, never re-derivable from the DB). Use runtime = 'mount'."
