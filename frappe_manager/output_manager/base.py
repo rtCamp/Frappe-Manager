@@ -7,6 +7,7 @@ allowing business logic to be independent of the presentation layer.
 
 import sys
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from collections.abc import Iterable, Sequence
 from typing import Any
 
@@ -329,6 +330,29 @@ class OutputHandler(ABC):
         caller will copy or pipe.
         """
         self.print_data(text)
+
+    def relay(self, text: str, *, stream: str = "stdout") -> None:
+        """One line of ANOTHER program's output, passed through verbatim.
+
+        Distinct from `data_raw`, which is fm's own result: a relayed line keeps the child's own
+        stdout/stderr split, and rich must not touch it -- a docker log containing `[INFO]` is
+        not markup, and a colourised path is not a path any more. Call sites used to reach for
+        `print()` here, which wrote past the file log and the --json stream, and (because rich
+        redirects both streams while a spinner runs) landed on stderr or stdout depending on
+        whether a spinner happened to be active.
+        """
+        self.data_raw(text)
+
+    @contextmanager
+    def handoff(self):
+        """Release the terminal for a child process that takes it over.
+
+        For `os.execvp` and inherited-stdio subprocesses: fm is about to stop existing, or stop
+        drawing, so the spinner must be torn down and the cursor restored FIRST. `fm compose`
+        exec'd docker with the live spinner still running and left the cursor hidden.
+        """
+        self.stop()
+        yield
 
     @abstractmethod
     def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:

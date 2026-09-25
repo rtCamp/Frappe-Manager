@@ -393,6 +393,9 @@ class JSONOutputHandler(OutputHandler):
     def data_raw(self, text: str) -> None:
         self._add_event(OutputEvent("data_raw", {"text": text}))
 
+    def relay(self, text: str, *, stream: str = "stdout") -> None:
+        self._add_event(OutputEvent("relay", {"text": text, "stream": stream}))
+
     def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
         self._add_event(OutputEvent("print_status", {"text": text, "emoji_code": emoji_code, "kwargs": kwargs}))
 

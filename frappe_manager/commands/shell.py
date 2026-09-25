@@ -62,7 +62,8 @@ def _handle_bench_console(
             exec_cmd += ["--workdir", CONTAINER_BENCH_DIR]
             exec_cmd += ["frappe", "bench", "--site", site, "console"]
 
-        os.execvp(exec_cmd[0], exec_cmd)
+        with output.handoff():
+            os.execvp(exec_cmd[0], exec_cmd)
 
     frappe_init_wrapper = f"""import sys
 import os
@@ -267,7 +268,8 @@ def shell(
             exec_cmd += [service, shell_path, "-c", " ".join(passthrough_args)]
 
         if is_interactive:
-            os.execvp(exec_cmd[0], exec_cmd)
+            with output.handoff():
+                os.execvp(exec_cmd[0], exec_cmd)
         else:
             command_str = " ".join(passthrough_args)
             exit_code = bench.execute_command(

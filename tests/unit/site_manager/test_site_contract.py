@@ -1959,7 +1959,7 @@ class TestHostSideLogFiles:
         assert "No log files found" in printed
 
     @pytest.mark.timeout(15)
-    def test_files_are_printed_whole_one_after_another_not_interleaved(self, harness, capsys):
+    def test_files_are_printed_whole_one_after_another_not_interleaved(self, harness):
         a = harness.path / "a.log"
         b = harness.path / "b.log"
         a.write_text("a1\na2\n")
@@ -1969,7 +1969,7 @@ class TestHostSideLogFiles:
 
         harness.bench.handle_frappe_server_file_logs(follow=False)
 
-        assert capsys.readouterr().out == "a1\na2\nb1\nb2\n"
+        assert [c.args[0] for c in harness.bench.output.data_raw.call_args_list] == ["a1", "a2", "b1", "b2"]
 
     @pytest.mark.timeout(15)
     def test_host_log_files_that_do_not_exist_warn_instead_of_raising(self, harness):
@@ -1988,7 +1988,7 @@ class TestHostSideLogFiles:
         assert "No log files found" in printed
 
     @pytest.mark.timeout(15)
-    def test_only_the_log_files_present_on_disk_are_printed(self, harness, capsys):
+    def test_only_the_log_files_present_on_disk_are_printed(self, harness):
         """The dev log exists, so it is read: the filter drops absent paths, not real ones."""
         logs = harness.path / "workspace" / "frappe-bench" / "logs"
         logs.mkdir(parents=True)
@@ -1996,7 +1996,7 @@ class TestHostSideLogFiles:
 
         harness.bench.logs(follow=False)
 
-        assert capsys.readouterr().out == "dev1\ndev2\n"
+        assert [c.args[0] for c in harness.bench.output.data_raw.call_args_list] == ["dev1", "dev2"]
 
 
 class TestServiceRouting:
