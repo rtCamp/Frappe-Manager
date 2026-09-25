@@ -75,6 +75,7 @@ This is the 1.0.0 cycle. Versions 0.20.0 and 0.21.0 were never published: their 
 - **deploy:** A failed auto-rollback is halted, not aborted, so the operator is told the bench is in a known-bad state rather than left guessing. Tag-era `[deploy_state]` keys are migrated to the image spelling, and a deploy state fm can no longer read is announced instead of ignored
 - **bake:** Temporary trees stay off `/tmp`, and a bench-mode bake of an image bench is refused
 - **backup:** The database dump is handed across the container boundary in a way both runtimes can mount
+- **migrate:** A migration stopped inventing a site the bench does not serve. It recorded `[sites."<bench name>"]` on every run, but a bench `shop` serves `shop.localhost`, so any bench whose name is not its site's name collected an entry with no directory behind it, re-added each time a migration ran. `fm list` counted it as a site, `fm info` printed it with a default password beside the real one, and `fm switch` walked it into a database lookup that failed mid-deploy, with the site already in maintenance mode and the workers already drained. Entries already written are removed, but only when they record nothing at all: one naming a database, real aliases or auth is kept even with its directory gone
 
 ### Documentation
 

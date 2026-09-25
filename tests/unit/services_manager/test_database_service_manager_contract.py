@@ -298,11 +298,29 @@ def test_bench_import_defaults_to_a_fm_owned_endpoint_but_honours_an_explicit_ex
     assert DatabaseServerServiceInfo.import_from_bench("test.local", tmp_path, external=True).external is True
 
 
-def test_bench_import_raises_a_bench_error_when_asked_to_and_no_password_is_recorded(tmp_path):
+def test_bench_import_refuses_a_site_with_no_site_config_and_names_the_file(tmp_path):
+    """A site recorded in bench_config.toml with nothing on disk behind it. It used to come out of
+    here as a three-field pydantic ValidationError naming the model, mid-deploy; the operator needs
+    the site, the path and the repair."""
     _write_bench_configs(tmp_path, "test.local", site=None, common={"db_host": "h"})
 
-    with pytest.raises(BenchException):
-        DatabaseServerServiceInfo.import_from_bench("test.local", tmp_path, raise_exception=True)
+    with pytest.raises(BenchException) as excinfo:
+        DatabaseServerServiceInfo.import_from_bench("test.local", tmp_path)
+
+    message = str(excinfo.value)
+    assert "site_config.json" in message
+    assert "fm migrate" in message
+
+
+def test_bench_import_refuses_an_empty_site_config(tmp_path):
+    """Present but carrying nothing: still no database to act on, and the message must not claim
+    the file is missing when it is sitting right there."""
+    _write_bench_configs(tmp_path, "test.local", site={}, common={"db_host": "h"})
+
+    with pytest.raises(BenchException) as excinfo:
+        DatabaseServerServiceInfo.import_from_bench("test.local", tmp_path)
+
+    assert "does not exist" not in str(excinfo.value)
 
 
 def test_bench_import_tolerates_an_empty_common_config_object(tmp_path):

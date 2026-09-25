@@ -114,6 +114,7 @@ from frappe_manager.services_manager.database_service_manager import DatabaseSer
 from frappe_manager.site_manager.bench_config import (
     REMOVED_CONFIG_KEYS,
     REMOVED_CONFIG_TABLES,
+    read_sites_on_disk,
     resolve_primary_site,
 )
 from frappe_manager.ssl_manager.dns_provider import DNSProviderConfig
@@ -361,6 +362,10 @@ class MigrationV100(MigrationBase):
         # Also ahead of it, and for the same reason: this moves `[database]` rather than dropping
         # it, so it has to run while the table is still there.
         self._write_sites_table(bench)
+        # Immediately after it, and before anything else reads `[sites]`: an earlier revision of
+        # the step above left an entry for a site that never existed, and every step below resolves
+        # a primary site out of this table.
+        self._drop_phantom_sites(bench)
         # Before the backups reshape below: a tag-era file gets its keys renamed first, so a
         # config carrying BOTH old shapes leaves this method fully current.
         self._rename_deploy_tag_keys(bench)
@@ -717,18 +722,40 @@ class MigrationV100(MigrationBase):
                     moved.append(site_name)
             del doc["database"]
 
-        # The bench's own site, named after the bench. Runs whether or not there was a `[database]`
-        # table, because this is the entry a global-db bench never had.
-        created = bench.name not in sites
-        primary = site_entry(bench.name)
+        # The bench's own site. NOT unconditionally `bench.name`: since 1.0.0 a bench `shop` serves
+        # `shop.localhost`, so seeding the bench's name onto a bench that ALREADY records its sites
+        # added a second entry with no directory behind it, and every caller that iterates `[sites]`
+        # then looked for a `site_config.json` that was never there -- `fm switch` died on one
+        # mid-deploy, after maintenance mode was already up.
+        #
+        # So seeding is for the shape this step was written for: no `[sites]` table at all, where
+        # the bench name IS the site name because that is what the bench was created under. A table
+        # that exists is the record, and nothing is added to it.
+        on_disk = read_sites_on_disk(bench.path)
+        if sites:
+            primary_name = resolve_primary_site(bench.name, {name: {} for name in sites}, on_disk=on_disk)
+        elif on_disk:
+            primary_name = resolve_primary_site(bench.name, {name: {} for name in on_disk}, on_disk=on_disk)
+        elif (host_bench_dir(bench.path) / "sites").is_dir():
+            # Readable and holds no site: a `--bench-only` bench genuinely serves none, and
+            # inventing one here is the same phantom by another route.
+            primary_name = None
+        else:
+            # Cannot tell (no workspace yet, unreadable): the pre-decoupling assumption is the only
+            # answer available, and it is the right one for every bench this migration predates.
+            primary_name = bench.name
+        created = bool(primary_name) and primary_name not in sites
+        primary = site_entry(primary_name) if primary_name else None
 
         # `alias_domains` was bench-level, so it had no site to belong to and the routing table had
         # to send every alias to the primary site. The bench's own site IS that primary, so moving
         # the list there preserves exactly the routing the bench had, with the attribution now
-        # recorded instead of inferred.
+        # recorded instead of inferred. With no resolvable primary the key STAYS: dropping it would
+        # lose the routing with nowhere to put it, and the loader builds its input explicitly, so a
+        # leftover top-level key is inert rather than fatal.
         aliases = doc.get("alias_domains")
         moved_aliases = False
-        if isinstance(aliases, MutableSequence):
+        if isinstance(aliases, MutableSequence) and primary is not None:
             # An existing per-site list wins, same rule as `database`: overwriting it would undo a
             # previous run of this step.
             if aliases and "alias_domains" not in primary:
@@ -743,11 +770,56 @@ class MigrationV100(MigrationBase):
         if moved:
             self.output.print(f"Moved \\[database] under \\[sites] for {', '.join(moved)}")
         elif created:
-            self.output.print(f"Recorded site {bench.name} under \\[sites]")
+            self.output.print(f"Recorded site {primary_name} under \\[sites]")
         elif not moved_aliases:
             self.output.print(f"Dropped the empty \\[database] table for {bench.name}")
         if moved_aliases:
-            self.output.print(f'Moved alias_domains under \\[sites."{bench.name}"]')
+            self.output.print(f'Moved alias_domains under \\[sites."{primary_name}"]')
+
+    def _drop_phantom_sites(self, bench: MigrationBench):
+        """Remove `[sites."<name>"]` entries for sites that do not exist, left by this migration.
+
+        An earlier revision of `_write_sites_table` seeded the entry under `bench.name`, which
+        since 1.0.0 is the BENCH, not its site: a bench `shop` serving `shop.localhost` came out of
+        every migration carrying a second, empty `[sites.shop]` that no directory ever backed. It
+        is not cosmetic. `fm list` reported it as a site, `fm info` printed it with a default
+        password, and `fm switch` iterated it into a DB lookup that raised mid-deploy, with the
+        site already in maintenance mode and the workers already drained.
+
+        Deliberately narrow, because this DELETES recorded state: an absent entry goes only when it
+        RECORDS NOTHING -- no keys, or keys that are all empty. `alias_domains = []` is the shape
+        the phantom actually has on disk, and treating "has a key" as "carries information" left
+        every real one in place. An entry naming a `[database]`, real aliases or auth is something
+        someone wrote down, and a site whose directory is merely missing keeps its record so the
+        operator sees it (`fm info` already reports that case). Runs only when at least one recorded
+        site DOES exist on disk, so a bench whose sites directory is unreadable -- which reads as
+        "nothing exists" -- is never emptied out.
+        """
+        config_path = bench.path / "bench_config.toml"
+        if not config_path.exists():
+            return
+
+        doc = tomlkit.parse(config_path.read_text())
+        sites = doc.get("sites")
+        if not isinstance(sites, MutableMapping):
+            return
+
+        on_disk = read_sites_on_disk(bench.path)
+        if not on_disk & set(sites):
+            return
+
+        phantoms = [
+            name
+            for name, entry in sites.items()
+            if name not in on_disk and isinstance(entry, MutableMapping) and not any(entry.values())
+        ]
+        if not phantoms:
+            return
+
+        for name in phantoms:
+            del sites[name]
+        toml_document.save(config_path, doc)
+        self.output.print(f"Dropped \\[sites] entries for {', '.join(phantoms)} (no such site on disk)")
 
     def _backfill_default_site(self, bench: MigrationBench):
         """Write `default_site` when the bench has none, so the answer stops being a guess.
