@@ -6,6 +6,7 @@ providing a single source of truth for debugging.
 """
 
 import logging
+from contextlib import contextmanager
 import sys
 from collections.abc import Iterable, Sequence
 from typing import Any
@@ -330,6 +331,16 @@ class LoggingOutputHandler(OutputHandler):
     def data_raw(self, text: str) -> None:
         self._log_message(logging.INFO, f"DATA: {text}")
         self.delegate.data_raw(text)
+
+    def relay(self, text: str, *, stream: str = "stdout") -> None:
+        self._log_message(logging.INFO, f"{stream.upper()}: {text}")
+        self.delegate.relay(text, stream=stream)
+
+    @contextmanager
+    def handoff(self):
+        self._log_message(logging.INFO, "HANDOFF: releasing the terminal to a child process")
+        with self.delegate.handoff():
+            yield
 
     def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
         self._log_message(logging.INFO, f"STATUS: {text}")

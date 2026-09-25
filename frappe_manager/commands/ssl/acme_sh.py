@@ -78,8 +78,7 @@ def acmesh_passthrough(
 
     for source, line in stream_with_exit_tracking():
         if source in ("stdout", "stderr"):
-            decoded = line.decode()
-            print(decoded, flush=True)
+            output.relay(line.decode(), stream=source)
 
     if exit_code_holder[0] != 0:
         output.print("")

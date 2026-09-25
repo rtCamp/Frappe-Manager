@@ -1110,7 +1110,8 @@ class Bench:
     def handle_frappe_server_file_logs(self, follow: bool):
         """Print (and optionally follow) the bench's host-side log files.
 
-        Raw print() by design: this is a passthrough stream (pipe/grep-able).
+        Through the data channel, not print(): these lines are fm's own result (it reads the
+        files itself), so they belong on stdout verbatim AND in the log and the --json stream.
         Non-follow prints each file sequentially; follow then polls all files
         in one loop -- draining every available line per cycle and sleeping
         only when idle (plain files are always select()-readable, so polling
@@ -1132,7 +1133,7 @@ class Bench:
             # unrelated files, which zip_longest used to do).
             for handle in files:
                 for line in handle:
-                    print(line.rstrip("\n"))
+                    self.output.data_raw(line.rstrip("\n"))
 
             if not follow:
                 return
@@ -1141,7 +1142,7 @@ class Bench:
                 idle = True
                 for handle in files:
                     while line := handle.readline():
-                        print(line.rstrip("\n"))
+                        self.output.data_raw(line.rstrip("\n"))
                         idle = False
                 if idle:
                     time.sleep(0.5)
@@ -1174,7 +1175,7 @@ class Bench:
                 ops.logs(services=[service], follow=follow)
 
         except KeyboardInterrupt:
-            print("Detected CTRL+C. Exiting..")
+            self.output.print("Detected CTRL+C. Exiting..")
 
     def attach_to_bench(self, user: str, extensions: list[str], workdir: str, debugger: bool = False) -> None:
         """

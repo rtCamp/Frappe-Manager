@@ -566,6 +566,13 @@ class RichOutputHandler(OutputHandler):
         # render it byte-for-byte. `soft_wrap` stops the console breaking a long path mid-token.
         self._emit(self.stdout, text, markup=False, highlight=False, soft_wrap=True)
 
+    def relay(self, text: str, *, stream: str = "stdout") -> None:
+        # The child's own stream split is preserved: its stdout is fm's stdout, its stderr is
+        # fm's stderr. Same no-markup, no-highlight, no-wrap rendering as data_raw -- this text
+        # belongs to another program and fm must not reinterpret it.
+        console = self.stdout if stream == "stdout" else self.stderr
+        self._emit(console, text, markup=False, highlight=False, soft_wrap=True)
+
     def _print_data_impl(self, data: Any, **kwargs) -> None:
         import json
 

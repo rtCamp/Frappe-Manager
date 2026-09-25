@@ -64,6 +64,16 @@ def _docker_exception(*lines: str) -> DockerException:
 # =============================================================== BenchDockerOps
 
 
+def _relayed(output, stream: str) -> list[str]:
+    """The child's lines the handler was asked to pass through, per stream.
+
+    Asserted on the handler rather than on captured stdout: a raw write would be invisible to
+    the file log and would corrupt the --json stream, so "it reached the terminal" is the weaker
+    property.
+    """
+    return [c.args[0] for c in output.relay.call_args_list if c.kwargs.get("stream", "stdout") == stream]
+
+
 def _ops(
     tmp_path,
     *,
@@ -1070,18 +1080,17 @@ class TestExecuteCommandOutputAndExitCodes:
         return ops
 
     @pytest.mark.timeout(15)
-    def test_captured_output_is_replayed_on_the_right_streams(self, tmp_path, capsys):
+    def test_captured_output_is_replayed_on_the_right_streams(self, tmp_path):
         ops = self._ops_with_running_frappe(tmp_path)
         ops.docker_client.compose.exec.return_value = SimpleNamespace(stdout=["out-1"], stderr=["err-1"], exit_code=0)
 
         assert ops.execute_command("frappe", "true") == 0
 
-        captured = capsys.readouterr()
-        assert captured.out.splitlines() == ["out-1"]
-        assert captured.err.splitlines() == ["err-1"]
+        assert _relayed(ops.output, "stdout") == ["out-1"]
+        assert _relayed(ops.output, "stderr") == ["err-1"]
 
     @pytest.mark.timeout(15)
-    def test_a_failing_command_propagates_the_container_exit_code(self, tmp_path, capsys):
+    def test_a_failing_command_propagates_the_container_exit_code(self, tmp_path):
         """`fm shell -c` is used in scripts; swallowing the exit code would make
         every failure look like success."""
         ops = self._ops_with_running_frappe(tmp_path)
@@ -1091,12 +1100,11 @@ class TestExecuteCommandOutputAndExitCodes:
 
         assert ops.execute_command("frappe", "false") == 42
 
-        captured = capsys.readouterr()
-        assert captured.out.splitlines() == ["partial"]
-        assert captured.err.splitlines() == ["boom"]
+        assert _relayed(ops.output, "stdout") == ["partial"]
+        assert _relayed(ops.output, "stderr") == ["boom"]
 
     @pytest.mark.timeout(15)
-    def test_run_mode_replays_output_on_success(self, tmp_path, capsys):
+    def test_run_mode_replays_output_on_success(self, tmp_path):
         ops = self._ops_with_running_frappe(tmp_path)
         ops.docker_client.compose.run.return_value = SimpleNamespace(
             stdout=["run-out"], stderr=["run-err"], exit_code=0
@@ -1104,12 +1112,11 @@ class TestExecuteCommandOutputAndExitCodes:
 
         assert ops.execute_command("frappe", "true", use_run=True) == 0
 
-        captured = capsys.readouterr()
-        assert captured.out.splitlines() == ["run-out"]
-        assert captured.err.splitlines() == ["run-err"]
+        assert _relayed(ops.output, "stdout") == ["run-out"]
+        assert _relayed(ops.output, "stderr") == ["run-err"]
 
     @pytest.mark.timeout(15)
-    def test_run_mode_also_propagates_the_exit_code_and_output(self, tmp_path, capsys):
+    def test_run_mode_also_propagates_the_exit_code_and_output(self, tmp_path):
         ops = self._ops_with_running_frappe(tmp_path)
         ops.docker_client.compose.run.side_effect = DockerException(
             ["docker"], SubprocessOutput(["r-out"], ["r-err"], ["r-out", "r-err"], 7)
@@ -1117,9 +1124,8 @@ class TestExecuteCommandOutputAndExitCodes:
 
         assert ops.execute_command("frappe", "false", use_run=True) == 7
 
-        captured = capsys.readouterr()
-        assert captured.out.splitlines() == ["r-out"]
-        assert captured.err.splitlines() == ["r-err"]
+        assert _relayed(ops.output, "stdout") == ["r-out"]
+        assert _relayed(ops.output, "stderr") == ["r-err"]
 
     @pytest.mark.timeout(15)
     def test_run_mode_lands_in_the_bench_directory_like_exec_does(self, tmp_path):

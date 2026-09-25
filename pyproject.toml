@@ -108,10 +108,6 @@ unfixable = []
 # 48 pre-existing ones. Delete a path from this list as its file is migrated, and delete the list
 # when it is empty. Never add a path here. See notes/output-layer-design.md.
 "frappe_manager/commands/__init__.py" = ["T20", "TID251"]
-"frappe_manager/commands/ssl/acme_sh.py" = ["T20", "TID251"]
-"frappe_manager/ngrok.py" = ["T20", "TID251"]
-"frappe_manager/site_manager/modules/bench_docker.py" = ["T20", "TID251"]
-"frappe_manager/site_manager/site.py" = ["T20", "TID251"]
 "frappe_manager/utils/helpers.py" = ["T20", "TID251"]
 # Test-only relaxations. These are idioms of the test suite, not defects, and they are scoped to
 # tests/ so the production ruleset above is untouched. Characterization tests in particular exist to

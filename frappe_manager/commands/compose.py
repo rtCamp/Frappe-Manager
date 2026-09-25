@@ -141,4 +141,7 @@ def compose(
     import os
 
     os.chdir(bench_path)
-    os.execvp(compose_cmd[0], compose_cmd)
+    # The spinner must be torn down and the cursor restored BEFORE the process is replaced:
+    # exec'ing with a transient Live still running left the cursor hidden for good.
+    with output.handoff():
+        os.execvp(compose_cmd[0], compose_cmd)

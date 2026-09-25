@@ -527,7 +527,8 @@ class BenchDockerOps:
 
             import os
 
-            os.execvp(run_cmd[0], run_cmd)
+            with self.output.handoff():
+                os.execvp(run_cmd[0], run_cmd)
         else:
             exec_cmd = self.docker_client.compose.docker_compose_cmd + ["exec"]
 
@@ -544,7 +545,8 @@ class BenchDockerOps:
 
             import os
 
-            os.execvp(exec_cmd[0], exec_cmd)
+            with self.output.handoff():
+                os.execvp(exec_cmd[0], exec_cmd)
 
     def execute_command(
         self,
@@ -606,19 +608,19 @@ class BenchDockerOps:
 
                 if result.stdout:
                     for line in result.stdout:
-                        print(line)
+                        self.output.relay(line)
                 if result.stderr:
                     for line in result.stderr:
-                        print(line, file=sys.stderr)
+                        self.output.relay(line, stream="stderr")
 
                 return result.exit_code
             except DockerException as e:
                 if e.output.stdout:
                     for line in e.output.stdout:
-                        print(line)
+                        self.output.relay(line)
                 if e.output.stderr:
                     for line in e.output.stderr:
-                        print(line, file=sys.stderr)
+                        self.output.relay(line, stream="stderr")
                 return e.output.exit_code
         else:
             exec_args: dict[str, Any] = {
@@ -643,19 +645,19 @@ class BenchDockerOps:
 
                 if result.stdout:
                     for line in result.stdout:
-                        print(line)
+                        self.output.relay(line)
                 if result.stderr:
                     for line in result.stderr:
-                        print(line, file=sys.stderr)
+                        self.output.relay(line, stream="stderr")
 
                 return result.exit_code
             except DockerException as e:
                 if e.output.stdout:
                     for line in e.output.stdout:
-                        print(line)
+                        self.output.relay(line)
                 if e.output.stderr:
                     for line in e.output.stderr:
-                        print(line, file=sys.stderr)
+                        self.output.relay(line, stream="stderr")
                 return e.output.exit_code
 
     def logs(self, services: list | None = None, follow: bool = False) -> None:
