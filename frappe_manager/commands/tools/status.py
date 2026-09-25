@@ -39,8 +39,5 @@ def status(
         routed = bench.bench_config.serves_admin_tools(site_name)
         lines.append(f"{site_name}: {'routed' if routed else 'not routed'}")
 
-    # Copy targets get PLAIN lines, not rich cells (commands/list.py:61): rich cells truncate or
-    # fold, plain lines soft-wrap and pipe.
-    output.stop()
     for line in lines:
-        typer.echo(line)
+        output.data_raw(line)

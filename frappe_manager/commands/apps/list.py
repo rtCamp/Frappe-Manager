@@ -31,24 +31,20 @@ def list_apps(
 
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
-    # Copy target, not a table: plain lines survive copying and piping, the same rule
-    # `commands/list.py`'s --paths form follows.
-    output.stop()
-
     apps = bench.bench_config.apps_list
-    typer.echo(f"{bench.name} recorded apps:")
+    output.data_raw(f"{bench.name} recorded apps:")
     if not apps:
-        typer.echo("  (none)")
+        output.data_raw("  (none)")
     else:
         width = max(len(app.name) for app in apps)
         for app in apps:
-            typer.echo(f"  {app.name:<{width}}  {app.repo}:{app.ref or 'default'}")
+            output.data_raw(f"  {app.name:<{width}}  {app.repo}:{app.ref or 'default'}")
 
     apps_txt = host_bench_dir(bench.path) / "sites" / "apps.txt"
     if apps_txt.exists():
         installed = [line.strip() for line in apps_txt.read_text().splitlines() if line.strip()]
-        typer.echo(f"{bench.name} installed on disk:")
+        output.data_raw(f"{bench.name} installed on disk:")
         for name in installed:
-            typer.echo(f"  {name}")
+            output.data_raw(f"  {name}")
     else:
-        typer.echo(f"{bench.name} has no workspace on disk (image runtime) -- installed apps unknown")
+        output.data_raw(f"{bench.name} has no workspace on disk (image runtime) -- installed apps unknown")

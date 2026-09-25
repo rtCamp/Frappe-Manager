@@ -255,7 +255,7 @@ class TestListApps:
         ctx.obj = {"services": world.services}
         return ctx
 
-    def test_lists_recorded_and_installed_apps(self, world, capsys):
+    def test_lists_recorded_and_installed_apps(self, world):
         world.bench.bench_config.apps_list = [
             SimpleNamespace(name="frappe", repo="frappe/frappe", ref="version-15"),
             SimpleNamespace(name="erpnext", repo="frappe/erpnext", ref=None),
@@ -270,13 +270,13 @@ class TestListApps:
         ):
             list_apps(self._ctx(world), benchname=BENCH)
 
-        out = capsys.readouterr().out
+        out = "\n".join(call.args[0] for call in world.output.data_raw.call_args_list)
         assert "frappe   frappe/frappe:version-15" in out
         assert "erpnext  frappe/erpnext:default" in out
         assert "installed on disk" in out
         assert "erpnext" in out
 
-    def test_degrades_gracefully_with_no_workspace(self, world, capsys):
+    def test_degrades_gracefully_with_no_workspace(self, world):
         world.bench.bench_config.apps_list = []
 
         with (
@@ -285,7 +285,7 @@ class TestListApps:
         ):
             list_apps(self._ctx(world), benchname=BENCH)
 
-        out = capsys.readouterr().out
+        out = "\n".join(call.args[0] for call in world.output.data_raw.call_args_list)
         assert "(none)" in out
         assert "no workspace on disk (image runtime)" in out
 

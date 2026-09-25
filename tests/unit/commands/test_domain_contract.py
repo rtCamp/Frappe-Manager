@@ -216,16 +216,16 @@ class TestDomainRemove:
 
 
 class TestDomainList:
-    def test_prints_plain_lines_not_a_table(self, world, capsys):
+    def test_prints_plain_lines_through_the_data_channel(self, world):
+        """Plain lines, and through the handler: a rich cell would truncate a long hostname, and
+        a raw write would be invisible to the file log and corrupt the --json stream."""
         world.bench.bench_config.sites = {BENCH: SiteConfig(alias_domains=["www.example.com"])}
         world.bench.bench_config.site_names = [BENCH]
 
         world.list()
 
-        world.output.stop.assert_called_once()
         world.output.print_data.assert_not_called()
-        lines = capsys.readouterr().out.splitlines()
-        assert lines == [
+        assert [call.args[0] for call in world.output.data_raw.call_args_list] == [
             f"{BENCH}  primary",
             f"{BENCH}  www.example.com",
         ]

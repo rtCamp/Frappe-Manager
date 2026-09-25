@@ -48,8 +48,5 @@ def status(
     if enabled and not has_key:
         lines.append("  NOTE: enabled without a key sends nothing; pass --license-key to fm telemetry enable.")
 
-    # Plain lines, not a rich table: these are copy targets and rich cells truncate or fold
-    # (commands/list.py:61).
-    output.stop()
     for line in lines:
-        typer.echo(line)
+        output.data_raw(line)

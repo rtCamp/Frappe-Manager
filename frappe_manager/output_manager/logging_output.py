@@ -327,6 +327,10 @@ class LoggingOutputHandler(OutputHandler):
         self._log_message(logging.INFO, f"DATA: {self._format_data_for_log(data)}")
         self.delegate.print_data(data, **kwargs)
 
+    def data_raw(self, text: str) -> None:
+        self._log_message(logging.INFO, f"DATA: {text}")
+        self.delegate.data_raw(text)
+
     def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
         self._log_message(logging.INFO, f"STATUS: {text}")
         self.delegate.print_status(text, emoji_code, **kwargs)
