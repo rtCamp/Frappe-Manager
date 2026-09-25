@@ -323,7 +323,7 @@ class TestSiteScopeRouting:
 
 
 class TestStatus:
-    def test_reports_configured_enabled_and_per_site_routing(self, world, capsys):
+    def test_reports_configured_enabled_and_per_site_routing(self, world):
         world.sites(["shop.localhost", "b.example.com"], serve_admin_tools=False)
         world.config.admin_tools = True
         world.config.serves_admin_tools = MagicMock(
@@ -333,20 +333,20 @@ class TestStatus:
 
         world.run_status()
 
-        out = capsys.readouterr().out
+        out = "\n".join(c.args[0] for c in world.output.data_raw.call_args_list if c.args)
         assert "containers: configured" in out
         assert "admin tools: enabled" in out
         assert "shop.localhost: routed" in out
         assert "b.example.com: not routed" in out
 
-    def test_reports_unconfigured_and_disabled(self, world, capsys):
+    def test_reports_unconfigured_and_disabled(self, world):
         world.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = False
         world.config.admin_tools = False
         world.config.serves_admin_tools = MagicMock(return_value=False)
 
         world.run_status()
 
-        out = capsys.readouterr().out
+        out = "\n".join(c.args[0] for c in world.output.data_raw.call_args_list if c.args)
         assert "containers: not configured" in out
         assert "admin tools: disabled" in out
 

@@ -28,9 +28,6 @@ def list_domains(
 
     services_manager = ctx.obj["services"]
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
-
-    output.stop()
-
     site_names = bench.bench_config.site_names
     sites = bench.bench_config.sites or {}
     primary = bench.bench_config.primary_site_or_none()
@@ -38,7 +35,7 @@ def list_domains(
 
     for site_name in site_names:
         role = "primary" if site_name == primary else "site"
-        typer.echo(f"{site_name:<{width}}  {role}")
+        output.data_raw(f"{site_name:<{width}}  {role}")
         entry = sites.get(site_name)
         for alias in (entry.alias_domains if entry else []) or []:
-            typer.echo(f"{site_name:<{width}}  {alias}")
+            output.data_raw(f"{site_name:<{width}}  {alias}")

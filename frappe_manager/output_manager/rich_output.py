@@ -550,6 +550,12 @@ class RichOutputHandler(OutputHandler):
         with self._pause_live():
             self._print_data_impl(data, **kwargs)
 
+    def data_raw(self, text: str) -> None:
+        # No markup, no highlighting, no wrapping: this text is copied and piped, so rich must
+        # render it byte-for-byte. `soft_wrap` stops the console breaking a long path mid-token.
+        with self._pause_live():
+            self.stdout.print(text, markup=False, highlight=False, soft_wrap=True)
+
     def _print_data_impl(self, data: Any, **kwargs) -> None:
         import json
 

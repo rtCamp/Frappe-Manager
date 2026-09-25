@@ -246,36 +246,33 @@ class TestDisable:
 
 
 class TestStatus:
-    def _lines(self, echo) -> list[str]:
-        return [c.args[0] for c in echo.call_args_list if c.args]
+    def _lines(self, world) -> list[str]:
+        return [c.args[0] for c in world.output.data_raw.call_args_list if c.args]
 
     def test_both_halves_must_hold_to_report_as_reporting(self, world):
         world.store(enabled=True, license_key="stored-key")
 
-        with patch("frappe_manager.commands.telemetry.status.typer.echo") as echo:
-            world.status()
+        world.status()
 
-        assert "newrelic: reporting" in self._lines(echo)
+        assert "newrelic: reporting" in self._lines(world)
 
     def test_enabled_without_a_key_is_not_reporting_and_says_why(self, world):
         """The state that looks fine and sends nothing: the exporter emits no env vars without a
         key, so the wrapper runs plain gunicorn."""
         world.store(enabled=True, license_key=None)
 
-        with patch("frappe_manager.commands.telemetry.status.typer.echo") as echo:
-            world.status()
+        world.status()
 
-        lines = self._lines(echo)
+        lines = self._lines(world)
         assert "newrelic: not reporting" in lines
         assert any("sends nothing" in line for line in lines)
 
     def test_a_key_without_the_flag_is_not_reporting(self, world):
         world.store(enabled=False, license_key="stored-key")
 
-        with patch("frappe_manager.commands.telemetry.status.typer.echo") as echo:
-            world.status()
+        world.status()
 
-        lines = self._lines(echo)
+        lines = self._lines(world)
         assert "newrelic: not reporting" in lines
         assert any("license key:  stored" in line for line in lines)
 
@@ -283,15 +280,13 @@ class TestStatus:
         world.store(enabled=True, license_key="stored-key")
         world.seed_agent_config()
 
-        with patch("frappe_manager.commands.telemetry.status.typer.echo") as echo:
-            world.status()
+        world.status()
 
-        assert any("agent config: present" in line for line in self._lines(echo))
+        assert any("agent config: present" in line for line in self._lines(world))
 
     def test_an_unseeded_agent_config_is_reported_as_absent(self, world):
         world.store(enabled=True, license_key="stored-key")
 
-        with patch("frappe_manager.commands.telemetry.status.typer.echo") as echo:
-            world.status()
+        world.status()
 
-        assert any("agent config: not seeded" in line for line in self._lines(echo))
+        assert any("agent config: not seeded" in line for line in self._lines(world))

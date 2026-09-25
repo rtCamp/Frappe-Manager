@@ -318,6 +318,18 @@ class OutputHandler(ABC):
             **kwargs: Format-specific options
         """
 
+    def data_raw(self, text: str) -> None:
+        """A command's own result as EXACT bytes, one call per line, on stdout.
+
+        The channel for copy targets and pipeable text: paths, hostnames, JSON dumps. Rich must
+        not touch these -- a table cell truncates or folds a long path, and markup eats anything
+        shaped like `[INFO]` -- which is why call sites used to reach for `typer.echo` and so
+        wrote straight past the stream contract, the file log and the --json stream. Use
+        `print_data` when the result is a structure fm renders, and this when it is text the
+        caller will copy or pipe.
+        """
+        self.print_data(text)
+
     @abstractmethod
     def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
         """
