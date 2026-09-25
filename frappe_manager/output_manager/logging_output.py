@@ -56,6 +56,21 @@ class LoggingOutputHandler(OutputHandler):
         self.log_prefix = log_prefix
         self._last_logged_head: str | None = None
 
+    def __getattr__(self, name: str):
+        """Forward anything this wrapper does not explicitly mirror.
+
+        Without it the wrapper is a hand-maintained copy of the contract, and a method added to
+        `OutputHandler` is silently not forwarded until someone notices. That already happened
+        to `emit_exit`, which `main.py` had to reach by unwrapping `handler.delegate`.
+
+        Only reached for names Python did not find on the wrapper, so every explicit mirror above
+        still wins. `delegate` itself is set in __init__, so there is no recursion risk once the
+        instance is built; before that, an attribute lookup would recurse, hence the guard.
+        """
+        if name == "delegate":
+            raise AttributeError(name)
+        return getattr(self.delegate, name)
+
     def _log_message(self, level: int, message: str) -> None:
         """
         Helper to log with prefix.
