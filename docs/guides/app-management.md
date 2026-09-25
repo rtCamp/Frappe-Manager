@@ -26,7 +26,7 @@ fm apps add mybench/SITE erpnext
 FM always clones the app, installs its Python and Node dependencies, and builds that app's assets. A bare `BENCH` stops there: the app is recorded on the bench but installed into nothing, so any site created afterwards picks it up. Naming a site with `BENCH/SITE` or `BENCH/all` also installs the app into that site's database, runs `bench migrate`, and cycles the web and worker processes so the new code is live; `BENCH/all` reports a per-site failure and keeps going instead of stopping at the first.
 
 !!! note "Mount benches only"
-    `fm apps add` needs an editable workspace (the default `mount` runtime). On an `image` bench, app code is baked into the image: ship changes with `fm bake` then `fm switch`, or demote first with `fm update mybench --runtime mount`. See the [Deployment guide](../deploy/index.md).
+    `fm apps add` needs an editable workspace (the default `mount` runtime). On an `image` bench, app code is baked into the image: ship changes with `fm bake` then `fm switch`. Runtime is fixed at create time; if you need an editable copy of what an image bench runs, create a new bench with `fm create NAME --seed-image REPO:TAG`. See the [Deployment guide](../deploy/index.md).
 
 Install a private app by passing a token (or `GITHUB_TOKEN` in the environment):
 

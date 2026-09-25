@@ -269,7 +269,7 @@ developer_mode = true
 ```
 
 !!! warning "Refused on image runtime"
-    `developer_mode = true` cannot be combined with `runtime = "image"`. DocType authoring writes app *source* files, and standard doctypes only sync files into the database, never back, so those writes would land in the container's ephemeral layer and be lost on the next deploy. `fm create` rejects both the flag and a config overlay that sets it; demote with `fm update BENCH --runtime mount` first.
+    `developer_mode = true` cannot be combined with `runtime = "image"`. DocType authoring writes app *source* files, and standard doctypes only sync files into the database, never back, so those writes would land in the container's ephemeral layer and be lost on the next deploy. `fm create` rejects both the flag and a config overlay that sets it. Runtime is fixed at create time, so an image bench cannot gain developer mode: create a mount bench instead, seeding it from the same release with `fm create NAME --seed-image REPO:TAG` if you want the same code.
 
 **Change via:** `fm update BENCH --developer-mode enable|disable` (needs an editable workspace: mount runtime)
 
@@ -746,7 +746,7 @@ Bench runtime model:
 | `mount` | App code lives in `workspace/frappe-bench/` on the host and is live-mounted into the containers. Editable; the default for development. |
 | `image` | App code is baked into an immutable image (built by `fm bake`); the workspace holds only sites/config. Deploys happen by switching image tags. |
 
-**Change via:** `fm update BENCH --runtime mount` (image → mount). Going mount → image is done with `fm switch` onto a baked image.
+**Change via:** `fm create --runtime`, at create time only. `fm update` does not accept `--runtime`, and there is no command that changes a bench's runtime afterwards; see [Runtimes](../concepts/runtimes.md) for what to do instead.
 
 **See also:** [Deployment](../deploy/index.md)
 
