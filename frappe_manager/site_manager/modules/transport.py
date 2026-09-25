@@ -146,7 +146,7 @@ def _push_failure_message(image: str, error: object, pushed: list[str]) -> str:
             f"and holds none itself, so run `docker login {host}` here and retry"
         ),
     )
-    repo = image.rpartition(":")[0]
+    repo = ImageRef.parse(image).name
     if repo.endswith("-nginx"):
         base_repo = repo.removesuffix("-nginx")
         cause += (

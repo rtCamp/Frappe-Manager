@@ -45,8 +45,8 @@ from frappe_manager.utils.callbacks import (
     create_command_sitename_callback,
 )
 from frappe_manager.utils.helpers import ImageRef
-from frappe_manager.utils.site import validate_sitename
 from frappe_manager.utils.process_lock import bench_lock
+from frappe_manager.utils.site import validate_sitename
 
 # Help-panel rules for `fm create --help`:
 # 1. A title's FIRST word names the `BENCH/SITE` address segment the flags act on; scope is where
@@ -911,7 +911,7 @@ def create(
         str | None,
         typer.Option(
             "--base-image",
-            help="The image the bench's containers run (repo:tag). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another image.",
+            help="The image the bench's containers run, as an image reference (repository plus a version, e.g. ghcr.io/acme/mybench:v15.2.1). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another image.",
             show_default=False,
             rich_help_panel=_PANEL_RUNTIME,
         ),
@@ -920,7 +920,7 @@ def create(
         str | None,
         typer.Option(
             "--seed-image",
-            help="Mount runtime: seed the workspace from a baked app image (repo:tag) instead of cloning and installing apps. --apps, --python and --node then override what it carries. This is a one-time copy, not what the containers run: see --base-image.",
+            help="Mount runtime: seed the workspace from a baked app image, named by an image reference (repository plus a version), instead of cloning and installing apps. --apps, --python and --node then override what it carries. This is a one-time copy, not what the containers run: see --base-image.",
             show_default=False,
             rich_help_panel=_PANEL_MOUNT,
         ),

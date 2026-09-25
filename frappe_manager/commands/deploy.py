@@ -28,13 +28,26 @@ def _load_image_bench(ctx: typer.Context, benchname: str) -> Bench:
 
 
 def _switch_target_shape_error(image: str) -> str | None:
-    """Why ``image`` cannot be a switch target, or ``None`` when it is a valid full reference."""
+    """Why ``image`` cannot be a switch target, or ``None`` when it is a valid reference.
+
+    Docker has two words and they are not interchangeable: a REPOSITORY
+    (``ghcr.io/acme/app``) names where an image lives, an image REFERENCE adds the version,
+    a ``:tag`` or an ``@digest``. "Not a full image reference: pass repo:tag" named neither
+    mistake and excluded a digest, which is a perfectly good reference.
+
+    A value with no version is reported as the repository it is. Which MISTAKE produced it
+    is deliberately not guessed: a single bare word is as likely a tag the operator passed
+    alone as it is a Docker Hub repository (``nginx`` is a real one), and a wrong guess sends
+    the reader after the wrong half of their command.
+    """
     if is_digest_pinned(image):
         return digest_pinned_refusal(image)
     if not has_explicit_tag(image):
         return (
-            f"'{image}' is not a full image reference: pass repo:tag (e.g. "
-            f"ghcr.io/acme/mybench:v15.2.1), not a bare tag."
+            f"'{image}' is a repository, not an image reference: it names no version, so fm "
+            f"cannot tell which build to deploy. An image reference is a repository plus a "
+            f"version, e.g. ghcr.io/acme/mybench:v15.2.1. If you passed a tag on its own, pass "
+            f"the repository with it."
         )
     return None
 
@@ -133,7 +146,7 @@ def switch(
     image: Annotated[
         str | None,
         typer.Argument(
-            help="Image to switch to: a full reference such as ghcr.io/acme/mybench:v15.2.1. Omit when using --previous.",
+            help="Image to switch to: an image reference, which is a repository plus a version, such as ghcr.io/acme/mybench:v15.2.1. Omit when using --previous.",
             show_default=False,
         ),
     ] = None,

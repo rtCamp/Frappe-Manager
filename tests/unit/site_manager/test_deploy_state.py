@@ -206,17 +206,26 @@ class TestSwitchResolvers:
         assert target is None
         assert "Missing target" in error
 
-    def test_a_bare_tag_without_a_repo_is_refused_before_any_docker_call(self):
+    def test_a_target_with_no_version_is_refused_before_any_docker_call(self):
         """``fm switch mybench v15`` used to sail through with no validation and die on a
-        generic ``docker pull`` error naming the bare tag as if it were a repository. The
-        resolver now refuses a target with no explicit ``repo:tag`` shape up front, via the
-        same ``has_explicit_tag`` check ``create``/``bake`` already use."""
+        generic ``docker pull`` error naming the bare tag as if it were a repository. It is
+        refused up front, in docker's own words: what was passed is a REPOSITORY, and an image
+        reference is a repository plus a version."""
         from frappe_manager.commands.deploy import _resolve_switch_image
 
         target, error = _resolve_switch_image(self._state(), "v15", False)
         assert target is None
-        assert "not a full image reference" in error
-        assert "repo:tag" in error
+        assert "not an image reference" in error
+        assert "names no version" in error
+
+    def test_the_refusal_does_not_guess_which_half_is_missing(self):
+        """A single bare word is as likely a tag passed alone as a Docker Hub repository
+        (``nginx`` is a real one), so the message states what was given and covers both,
+        rather than sending the reader after the wrong half of their command."""
+        from frappe_manager.commands.deploy import _resolve_switch_image
+
+        _, error = _resolve_switch_image(self._state(), "v15", False)
+        assert "If you passed a tag on its own" in error
 
     def test_a_registry_host_port_without_a_tag_is_still_refused(self):
         """A registry host:port (``localhost:5000/repo``) is not a tag: the colon has to come
@@ -226,7 +235,7 @@ class TestSwitchResolvers:
 
         target, error = _resolve_switch_image(self._state(), "localhost:5000/repo", False)
         assert target is None
-        assert "not a full image reference" in error
+        assert "not an image reference" in error
 
     def test_a_digest_reference_is_refused_before_any_docker_call(self):
         """A digest reference used to slip through (`has_explicit_tag` mistook the digest's

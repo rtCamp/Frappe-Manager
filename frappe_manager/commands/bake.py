@@ -29,10 +29,14 @@ from frappe_manager.utils.process_lock import bench_lock
 
 
 def _bake_name(image: str | None) -> str:
-    """A provisioning/container name for a standalone bake, derived from the
-    image repo basename (``ghcr.io/acme/mysite`` -> ``mysite``)."""
+    """A provisioning/container name for a standalone bake, from the repository's last path
+    segment (``ghcr.io/acme/mysite:v42`` -> ``mysite``).
+
+    Through ``ImageRef`` rather than splitting by hand: the reference may carry a registry
+    ``host:port`` and a digest, and a naive split lands on either.
+    """
     if image:
-        name = image.rsplit("/", 1)[-1].split(":")[0]
+        name = ImageRef.parse(image).name.rsplit("/", 1)[-1]
         if name:
             return name
     return "fm-bake"
