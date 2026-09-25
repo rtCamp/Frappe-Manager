@@ -24,6 +24,7 @@ def _handler(*, interactive: bool) -> RichOutputHandler:
     handler = RichOutputHandler()
     handler._interactive = interactive  # direct: set_interactive_mode takes a NON-interactive flag
     handler.stderr = Console(file=StringIO(), theme=build_theme(), force_terminal=interactive)
+    handler.stdout = Console(file=StringIO(), theme=build_theme(), force_terminal=interactive)
     return handler
 
 
@@ -124,4 +125,4 @@ def test_stop_clears_spinner_state_so_later_output_is_not_treated_as_live():
     handler.live.stop.reset_mock()
     handler.print_data("payload")  # routed through _pause_live
     handler.live.stop.assert_not_called()  # nothing to pause: the spinner is gone
-    assert "payload" in handler.stderr.file.getvalue()
+    assert "payload" in handler.stdout.file.getvalue()  # data stream, not diagnostics
