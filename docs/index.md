@@ -55,7 +55,7 @@ hide:
 ## Install
 
 ```bash
-uv tool install --python 3.13 frappe-manager
+uv tool install --python 3.14 frappe-manager
 ```
 
 Other methods (pipx, uvx, dev builds): see the [Installation guide](getting-started/installation.md).

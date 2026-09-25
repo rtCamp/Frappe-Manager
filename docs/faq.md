@@ -5,7 +5,7 @@
 ### How do I install Frappe Manager?
 
 ```bash
-uv tool install --python 3.13 frappe-manager
+uv tool install --python 3.14 frappe-manager
 ```
 
 `uv` owns that command, not fm. For pipx, uvx, dev builds, and the prerequisites, see the [Installation guide](getting-started/installation.md).

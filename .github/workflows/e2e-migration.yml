@@ -157,6 +157,8 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
+        # Stays on 3.13, unlike the unit matrix: this job installs fm v0.18.0 (the minimum
+        # supported version) to migrate FROM, and that release's requires-python excludes 3.14.
         python-ver: ["3.13"]
         os: [ubuntu-latest]
 
