@@ -401,7 +401,7 @@ def _usage(argv: list[str]) -> str:
     """The one physical usage line, nothing else.
 
     Scoped deliberately: `BENCHNAME` still appears in help PROSE, where it names the command's own
-    argument inside a sentence like "fm update BENCHNAME --runtime mount". What must not say it is
+    argument inside a sentence like "fm update BENCHNAME --upload-limit 500M". What must not say it is
     the interface itself, and the docstring sits between the usage line and the arguments panel.
 
     The patch keeps these assertions off the developer's own ~/frappe: it short-circuits the root

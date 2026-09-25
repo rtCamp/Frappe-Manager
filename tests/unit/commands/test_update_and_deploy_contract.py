@@ -15,9 +15,8 @@ Apps (``fm apps add``), admin tools (``fm tools enable``/``disable``), alias dom
 (``fm domain add``/``remove``) and APM telemetry (``fm telemetry enable``/``disable``) used to live
 here as flags on this command; they now have their own contract files (``test_apps_contract.py``,
 ``test_tools_contract.py``, ``test_domain_contract.py``, ``test_telemetry_contract.py``) and are not
-re-pinned in this one. The runtime conversion (``--runtime mount``/``--runtime image``)
-is still a flag on this command; its own decision table lives in
-``test_update_runtime_demotion.py`` and is not re-pinned in this one either.
+re-pinned in this one. Runtime is fixed at create time and is no longer a flag on this command at
+all (``fm create --runtime`` is the only place it is chosen).
 
 ``fm switch``/``fm prune`` ship an already-built image. What is pinned here is how the TARGET TAG
 is resolved (``--previous`` reads deploy state; ``--restore-db`` needs a recorded dump that still
@@ -262,8 +261,7 @@ def world(tmp_path):
 
 IMMUTABLE_REFUSAL = (
     f"{BENCH} is image runtime; code, apps, Python/Node and developer mode are immutable -- "
-    "ship changes with 'fm bake' then 'fm switch', install apps with 'fm apps add', or demote to "
-    f"an editable workspace first with 'fm update {BENCH} --runtime mount'. "
+    "ship changes with 'fm bake' then 'fm switch', install apps with 'fm apps add'. "
     "'fm update' on an image bench still changes environment, restart policy and the database CA, "
     "and APM is 'fm telemetry enable'."
 )
@@ -812,10 +810,9 @@ class TestNoOptions:
 # ---------------------------------------------------------------------------
 
 NOT_IMAGE_RUNTIME_REFUSAL = (
-    f"Bench '{BENCH}' is not in image runtime. To convert it: set runtime = 'image' "
-    f"and a top-level image in its bench_config.toml, then re-run "
-    f"fm switch {BENCH} <repo:tag> -- the switch migrates the existing site onto the "
-    f"baked image (site data and DB carry over)."
+    f"Bench '{BENCH}' is not image runtime. Runtime is fixed at create time: an image "
+    "bench is created with 'fm create NAME --runtime image --base-image REPO:TAG', and an "
+    "editable copy of an image's workspace is 'fm create NAME --seed-image REPO:TAG'."
 )
 
 

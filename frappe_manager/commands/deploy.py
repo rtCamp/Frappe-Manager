@@ -19,10 +19,9 @@ def _load_image_bench(ctx: typer.Context, benchname: str) -> Bench:
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
     if bench.bench_config.runtime != BenchRuntime.image:
         output.display_error(
-            f"Bench '{benchname}' is not in image runtime. To convert it: set runtime = 'image' "
-            f"and a top-level image in its bench_config.toml, then re-run "
-            f"fm switch {benchname} <repo:tag> -- the switch migrates the existing site onto the "
-            f"baked image (site data and DB carry over).",
+            f"Bench '{benchname}' is not image runtime. Runtime is fixed at create time: an image "
+            "bench is created with 'fm create NAME --runtime image --base-image REPO:TAG', and an "
+            "editable copy of an image's workspace is 'fm create NAME --seed-image REPO:TAG'.",
         )
         raise typer.Exit(1)
     return bench

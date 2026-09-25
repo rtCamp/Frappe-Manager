@@ -1087,7 +1087,7 @@ def create(
 
     Which half of the address a flag acts on is written on its help panel: Bench Options apply either way, Site Options describe the site being created and are refused when there is no site to apply them to.
 
-    Image runtime (--runtime image) refuses --apps, --python, --node and developer mode, which the image already carries; 'fm update BENCH --runtime mount' converts a bench to an editable workspace.
+    Image runtime (--runtime image) refuses --apps, --python, --node and developer mode, which the image already carries.
     """
 
     services_manager: ServicesManager = ctx.obj["services"]
