@@ -16,23 +16,18 @@ from frappe_manager.output_manager.rich_output import RichOutputHandler
 class TestStreamSeparation:
     """Test stream separation between stdout (data) and stderr (status)."""
 
-    def test_print_data_uses_stdout_in_transition_mode(self):
+    def test_print_data_uses_stdout(self):
+        """Data goes to stdout so `fm ... > file` and `fm ... | jq` work.
+
+        This was behind FM_STREAM_SEPARATION and defaulted to stderr, so the piping this method
+        exists for only worked for whoever knew to set the variable.
+        """
         output = RichOutputHandler()
 
         with patch.object(output.stdout, "print") as mock_stdout:
-            with patch.dict("os.environ", {"FM_STREAM_SEPARATION": "transition"}):
-                output.print_data("test data")
+            output.print_data("test data")
 
-                mock_stdout.assert_called_once()
-
-    def test_print_data_uses_stderr_in_legacy_mode(self):
-        output = RichOutputHandler()
-
-        with patch.object(output.stderr, "print") as mock_stderr:
-            with patch.dict("os.environ", {"FM_STREAM_SEPARATION": "legacy"}):
-                output.print_data("test data")
-
-                mock_stderr.assert_called_once()
+            mock_stdout.assert_called_once()
 
     def test_print_status_always_uses_stderr(self):
         output = RichOutputHandler()
@@ -51,37 +46,34 @@ class TestStreamSeparation:
         table.add_row("test")
 
         with patch.object(output.stdout, "print") as mock_stdout:
-            with patch.dict("os.environ", {"FM_STREAM_SEPARATION": "transition"}):
-                output.print_data(table)
+            output.print_data(table)
 
-                mock_stdout.assert_called_once()
-                assert isinstance(mock_stdout.call_args[0][0], Table)
+            mock_stdout.assert_called_once()
+            assert isinstance(mock_stdout.call_args[0][0], Table)
 
     def test_print_data_serializes_dict_to_json(self):
         output = RichOutputHandler()
         data = {"key": "value", "number": 42}
 
         with patch.object(output.stdout, "print") as mock_stdout:
-            with patch.dict("os.environ", {"FM_STREAM_SEPARATION": "transition"}):
-                output.print_data(data)
+            output.print_data(data)
 
-                mock_stdout.assert_called_once()
-                printed_text = mock_stdout.call_args[0][0]
-                parsed = json.loads(printed_text)
-                assert parsed == data
+            mock_stdout.assert_called_once()
+            printed_text = mock_stdout.call_args[0][0]
+            parsed = json.loads(printed_text)
+            assert parsed == data
 
     def test_print_data_serializes_list_to_json(self):
         output = RichOutputHandler()
         data = ["item1", "item2", "item3"]
 
         with patch.object(output.stdout, "print") as mock_stdout:
-            with patch.dict("os.environ", {"FM_STREAM_SEPARATION": "transition"}):
-                output.print_data(data)
+            output.print_data(data)
 
-                mock_stdout.assert_called_once()
-                printed_text = mock_stdout.call_args[0][0]
-                parsed = json.loads(printed_text)
-                assert parsed == data
+            mock_stdout.assert_called_once()
+            printed_text = mock_stdout.call_args[0][0]
+            parsed = json.loads(printed_text)
+            assert parsed == data
 
 
 class TestRichOutputHandlerStreamSeparation:

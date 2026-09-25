@@ -9,7 +9,6 @@ within this handler, implementing the OutputHandler interface.
 import contextlib
 import re
 import threading
-import warnings
 from collections import deque
 from collections.abc import Iterable, Sequence
 from typing import Any
@@ -23,17 +22,9 @@ from rich.text import Text
 
 from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.output_manager.console_singleton import get_stderr_console, get_stdout_console
-from frappe_manager.output_manager.flags import OutputRefactoringFlags
 
 EMOJI_WORKING = "⚙️"
 EMOJI_WARNING = "⚠️"
-
-# Cache deprecation flag at module load (performance optimization)
-_DEPRECATION_WARNINGS_ENABLED = False
-try:
-    _DEPRECATION_WARNINGS_ENABLED = OutputRefactoringFlags.use_context_managers()
-except ImportError:
-    pass
 
 
 class RichOutputHandler(OutputHandler):
@@ -87,25 +78,13 @@ class RichOutputHandler(OutputHandler):
         """
         Start a new operation with a status message.
 
+        Prefer the ``spinner`` context manager, which pairs this with its ``stop``; call it
+        directly only where the two halves genuinely cannot sit in one scope.
+
         Args:
             text: The initial status message to display
         """
         with self._lock:
-            if _DEPRECATION_WARNINGS_ENABLED:
-                warnings.warn(
-                    "Direct output.start() is deprecated. Use context managers instead:\n"
-                    "    from frappe_manager.output_manager import spinner\n"
-                    "    with spinner(output, 'text'): ...",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-
-                if OutputRefactoringFlags.strict_mode():
-                    raise RuntimeError(
-                        "Direct output.start() is not allowed in strict mode. "
-                        "Use context managers: with spinner(output, 'text'): ...",
-                    )
-
             super().start(text)
 
             self.current_head = self.previous_head = Text(text=text, style="fm.accent")
@@ -169,26 +148,13 @@ class RichOutputHandler(OutputHandler):
         self.spinner.update(text=Text(self.current_head, style="fm.accent"), style="fm.accent")
 
     def stop(self) -> None:
-        """Stop the current operation status display."""
-        if _DEPRECATION_WARNINGS_ENABLED:
-            warnings.warn(
-                "Direct output.stop() is deprecated. Use context managers instead:\n"
-                "    from frappe_manager.output_manager import spinner\n"
-                "    with spinner(output, 'text'): ...",
-                DeprecationWarning,
-                stacklevel=2,
-            )
+        """Stop the spinner so the next write is not corrupted by it.
 
-            if OutputRefactoringFlags.strict_mode():
-                raise RuntimeError(
-                    "Direct output.stop() is not allowed in strict mode. "
-                    "Use context managers: with spinner(output, 'text'): ...",
-                )
-
-        self._stop_impl()
-
-    def _stop_impl(self) -> None:
-        """Stop the spinner/live display (internal: no deprecation gating)."""
+        A LONE stop is the normal case and not a lesser form of the ``spinner`` context manager:
+        31 call sites turn the spinner off before printing pipeable data or handing the terminal
+        to a prompt, with no matching start in the same scope to pair it with. A deprecation
+        warning used to sit here saying otherwise, behind an env var nothing ever set.
+        """
         with self._lock:
             super().stop()
 
@@ -271,7 +237,7 @@ class RichOutputHandler(OutputHandler):
             emoji_code: Emoji code to display (e.g., ":no_entry:")
         """
         if self._spinner_active:
-            self._stop_impl()
+            self.stop()
         self.stderr.print(f"{emoji_code} {text}")
 
     def error(self, text: str, exception: Exception, emoji_code: str = ":no_entry:") -> None:
@@ -589,16 +555,13 @@ class RichOutputHandler(OutputHandler):
 
         from rich.console import ConsoleRenderable
 
-        mode = OutputRefactoringFlags.stream_separation_mode()
-
+        # Data on stdout, diagnostics on stderr, so `fm info mybench > file` and `... | jq` work.
+        # This used to sit behind FM_STREAM_SEPARATION, defaulting to everything-on-stderr: the
+        # piping this method exists for only worked for whoever knew to set the variable.
+        #
         # ConsoleRenderable covers Table, Group, Panel, Text, ... -- anything rich
         # can render goes through the console instead of str()'s repr.
-        if mode == "legacy":
-            if isinstance(data, ConsoleRenderable):
-                self.stderr.print(data)
-            else:
-                self.stderr.print(str(data))
-        elif isinstance(data, ConsoleRenderable):
+        if isinstance(data, ConsoleRenderable):
             self.stdout.print(data)
         elif isinstance(data, (dict, list)):
             json_str = json.dumps(data, indent=2, default=str)
@@ -619,7 +582,7 @@ class RichOutputHandler(OutputHandler):
             os_exit: If True, the program will exit with status code 1 (default: False)
             error_msg: The error message to be displayed after the text (default: None)
         """
-        self._stop_impl()
+        self.stop()
 
         to_print = f"{emoji_code} {text}"
         if error_msg:
