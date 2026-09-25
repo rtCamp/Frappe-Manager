@@ -59,9 +59,10 @@ ignore = [
     "S101",    # Assert statement (standard in pytest)
     "PT011",   # pytest.raises() too broad (acceptable for integration tests)
     
-    # CLI tool patterns
-    "T201",    # Print statements (CLI tool requires them for output)
-    
+    # NOTE: T201 (print) is deliberately NOT ignored. Printing is the output layer's job, and a
+    # bare print bypasses the stream contract, the file log and the --json stream. The remaining
+    # offenders are grandfathered by path in per-file-ignores below; that list only shrinks.
+
     # Code organization
     "G004",    # F-string in logging (more readable than % formatting)
     "PLC0415", # Import outside top-level (lazy/conditional imports for performance)
@@ -84,13 +85,53 @@ ignore = [
 fixable = ["ALL"]
 unfixable = []
 
+# The output layer owns the terminal. Nothing else may write to it directly: a bypass skips the
+# stdout/stderr contract, the spinner pause, the file log and the --json event stream -- the last
+# of which is how `fm --json` ended up emitting lines that are not JSON. The message on each entry
+# names the channel to use instead, so the rule teaches the API rather than only refusing.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"typer.echo" = { msg = "output layer only: use output.data_raw() for verbatim results, output.diagnostic() for messages" }
+"typer.secho" = { msg = "output layer only: use output.diagnostic()" }
+"click.echo" = { msg = "output layer only: use output.data_raw() / output.diagnostic()" }
+"rich.console.Console" = { msg = "output layer only: the handler owns the consoles" }
+"rich.print" = { msg = "output layer only: use output.diagnostic()" }
+"sys.stdout" = { msg = "output layer only: use output.data() / output.data_raw()" }
+"sys.stderr" = { msg = "output layer only: use output.diagnostic()" }
+
 [tool.ruff.lint.per-file-ignores]
+
+# The output layer itself is the one place allowed to touch a console or a stream.
+"frappe_manager/output_manager/*" = ["T20", "TID251"]
+
+# GRANDFATHERED, SHRINKING ONLY. Each of these files still writes to the terminal without going
+# through the output layer. The rule above is live so no NEW bypass can be added; these are the
+# 48 pre-existing ones. Delete a path from this list as its file is migrated, and delete the list
+# when it is empty. Never add a path here. See notes/output-layer-design.md.
+"frappe_manager/commands/__init__.py" = ["T20", "TID251"]
+"frappe_manager/commands/apps/list.py" = ["T20", "TID251"]
+"frappe_manager/commands/create.py" = ["T20", "TID251"]
+"frappe_manager/commands/domain/list.py" = ["T20", "TID251"]
+"frappe_manager/commands/list.py" = ["T20", "TID251"]
+"frappe_manager/commands/migrate.py" = ["T20", "TID251"]
+"frappe_manager/commands/ssl/acme_sh.py" = ["T20", "TID251"]
+"frappe_manager/commands/ssl/add.py" = ["T20", "TID251"]
+"frappe_manager/commands/ssl/external_helpers.py" = ["T20", "TID251"]
+"frappe_manager/commands/ssl/list.py" = ["T20", "TID251"]
+"frappe_manager/commands/ssl/remove.py" = ["T20", "TID251"]
+"frappe_manager/commands/ssl/renew.py" = ["T20", "TID251"]
+"frappe_manager/commands/telemetry/status.py" = ["T20", "TID251"]
+"frappe_manager/commands/tools/status.py" = ["T20", "TID251"]
+"frappe_manager/ngrok.py" = ["T20", "TID251"]
+"frappe_manager/site_manager/modules/bench_docker.py" = ["T20", "TID251"]
+"frappe_manager/site_manager/site.py" = ["T20", "TID251"]
+"frappe_manager/utils/helpers.py" = ["T20", "TID251"]
 # Test-only relaxations. These are idioms of the test suite, not defects, and they are scoped to
 # tests/ so the production ruleset above is untouched. Characterization tests in particular exist to
 # pin the behaviour of INTERNAL functions before a refactor, which is what makes SLF001 unavoidable
 # here: asserting only through public surfaces is exactly the gap those tests were written to close.
 "tests/**" = [
     "SLF001",  # Private member access -- the point of a characterization test
+    "TID251",  # Banned APIs -- a rendering test must build its own Console to assert output
     "ARG001",  # Unused function argument -- mock/stub signatures must match the real callable
     "ARG002",  # Unused method argument -- same, for fakes standing in for collaborators
     "ARG005",  # Unused lambda argument -- same, for inline stubs
