@@ -694,14 +694,14 @@ def test_remove_rejects_unknown_domain(h):
     h.SSLStorageConfig.assert_not_called()
 
 
-def test_remove_prompts_when_not_confirmed_and_cancels_with_exit_zero(h):
+def test_remove_prompts_when_not_confirmed_and_cancels_non_zero(h):
     h.external_manager.domain_exists.return_value = True
     h.output.prompt_ask.return_value = "no"
 
     with pytest.raises(typer.Exit) as exc:
         external_helpers._remove_external_certificate(h.ctx, DOMAIN, yes=False)
 
-    assert exc.value.exit_code == 0
+    assert exc.value.exit_code == 1
     h.output.prompt_ask.assert_called_once_with(
         prompt=f"Remove SSL certificate for {DOMAIN}?",
         choices=["yes", "no"],

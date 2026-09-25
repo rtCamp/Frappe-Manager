@@ -222,7 +222,7 @@ def delete(
             )
             if choice != "yes":
                 output.print("Cancelled.", emoji_code=":x:")
-                raise typer.Exit(0)
+                raise typer.Exit(1)
 
         bench.remove_site(
             site, delete_db_from_mariadb=delete_db_from_mariadb, delete_backups=delete_backups

@@ -183,11 +183,12 @@ def test_declining_the_confirmation_resets_nothing():
     assert "reset" not in result.events
 
 
-def test_declining_is_not_an_error():
-    """A cancelled destroy is the operator changing their mind, not a failure."""
+def test_declining_exits_non_zero_because_the_reset_did_not_happen():
+    """The exit code answers "did the thing I asked for happen", and it did not. fm's
+    non-interactive refusal already exits 1; the interactive decline now agrees."""
     result = _run(answer="no")
     assert isinstance(result.raised, typer.Exit)
-    assert result.raised.exit_code == 0
+    assert result.raised.exit_code == 1
 
 
 def test_an_unrecognised_answer_is_not_taken_as_consent():

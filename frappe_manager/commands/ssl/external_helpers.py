@@ -328,7 +328,7 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
         )
         if choice != "yes":
             output.print("Cancelled.", emoji_code=":x:")
-            raise typer.Exit(0)
+            raise typer.Exit(1)
 
     output.change_head(f"Removing SSL certificate for {domain}")
 

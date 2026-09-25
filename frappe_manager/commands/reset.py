@@ -99,7 +99,7 @@ def reset(
         )
         if choice != "yes":
             output.print("Cancelled.", emoji_code=":x:")
-            raise typer.Exit(0)
+            raise typer.Exit(1)
 
     with spinner(output, f"Resetting {site}"):
         bench.reset(admin_pass, site=site)

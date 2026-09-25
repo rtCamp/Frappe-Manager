@@ -21,6 +21,7 @@ This is the 1.0.0 cycle. Versions 0.20.0 and 0.21.0 were never published: their 
 - **ssl:** `fm ssl add`/`fm ssl renew --dry-run` is renamed `--test-ca`. It always selected Let's Encrypt's staging CA and issued a real (untrusted) certificate, which is the opposite of what `--dry-run` means everywhere else in the CLI
 - **delete:** `--delete-db-from-mariadb` is renamed `--delete-db-from-fm-mariadb`, naming the only database fm will ever drop. An external database is never touched
 - **compose:** `fm self compose` is promoted to `fm compose`, with canonical bench selection and an explicit `fm compose -- ARGS` form for omitting the bench
+- **cli:** Declining a confirmation now exits non-zero. The exit code answers "did the thing I typed happen?", and a decline means it did not, which is the same answer `--non-interactive` without `--yes` already gave; previously a human saying no to `fm delete`, `fm reset`, `fm prune`, `fm services prune`, `fm ssl remove` or `fm ssl ca remove` exited 0 and was indistinguishable from a completed run. A command that finds nothing to do still exits 0
 - **services:** Global-services commands moved off the bench command surface into `fm services` (`fm services info`, `fm services real-ip`)
 - **config:** The `[registry]` table is removed. fm performs no registry login of its own; authentication is the docker daemon's ambient `docker login`, and the registry host is parsed from the image reference
 

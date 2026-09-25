@@ -269,8 +269,10 @@ class RichOutputHandler(OutputHandler):
         """
         self.display_error(text, emoji_code)
 
-        if exception:
-            raise exception
+        # The contract above says ALWAYS. Tolerating a falsy exception here made this handler the
+        # only one that returns instead of raising -- JSON and Silent raise unconditionally, so
+        # swapping the handler changed whether the program continued past an error.
+        raise exception
 
     def warning(self, text: str, emoji_code: str = ":warning:") -> None:
         """

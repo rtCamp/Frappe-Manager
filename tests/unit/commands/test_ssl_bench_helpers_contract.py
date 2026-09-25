@@ -872,14 +872,15 @@ def test_remove_asks_for_confirmation_when_yes_was_not_passed(h):
 
 @pytest.mark.timeout(15)
 @pytest.mark.parametrize("answer", ["no", "", "YES", "y"])
-def test_remove_aborts_with_exit_zero_on_anything_but_a_literal_yes(h, answer):
-    """Only the exact string ``yes`` proceeds; declining is a success exit, not a failure."""
+def test_remove_aborts_non_zero_on_anything_but_a_literal_yes(h, answer):
+    """Only the exact string ``yes`` proceeds, and declining exits non-zero: the removal was
+    asked for and did not happen, which is what the exit code reports."""
     h.output.prompt_ask.return_value = answer
 
     with pytest.raises(typer.Exit) as exc:
         _remove(h, yes=False)
 
-    assert exc.value.exit_code == 0
+    assert exc.value.exit_code == 1
     assert h.prints() == ["Cancelled."]
     assert h.print_emojis() == [":x:"]
     h.cert_manager.remove_certificate_by_domain.assert_not_called()

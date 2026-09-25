@@ -74,7 +74,7 @@ def ca_remove(
         )
         if choice != "yes":
             output.print("Aborted; nothing touched.", emoji_code="")
-            return
+            raise typer.Exit(1)
 
     removed, failures = manager.uninstall()
 
