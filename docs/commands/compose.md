@@ -1,4 +1,4 @@
-## `fm compose`
+# `fm compose`
 
 Run docker compose against a bench with all of its compose files already wired up.
 
@@ -17,7 +17,6 @@ $ fm compose BENCH
 **Arguments**:
 
 * `BENCH`: Bench to act on. Omit to pick from the benches you have; 'fm compose -- ARGS' also picks, passing ARGS to docker compose.
-
 
 ## Examples
 
@@ -52,4 +51,3 @@ fm compose mybench exec frappe bash
 ```bash
 fm compose mybench restart frappe
 ```
-

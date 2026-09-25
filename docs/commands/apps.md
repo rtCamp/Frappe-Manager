@@ -1,24 +1,19 @@
-## `fm apps`
+# `fm apps`
 
-Apps commands.
+Manage the apps installed on a bench.
 
 **Usage**:
 
 ```console
-$ fm apps [OPTIONS] COMMAND [ARGS]...
+$ fm apps COMMAND [ARGS]...
 ```
 
-**Options**:
+| Command | Description |
+|---|---|
+| [`fm apps add`](#fm-apps-add) | Fetch app code onto a bench and install it into its site(s). |
+| [`fm apps list`](#fm-apps-list) | List the apps a bench has recorded, and what is actually on disk. |
 
-* `--help`: Show this message and exit.
-
-**Commands**:
-
-* `add`: Fetch app code onto a bench and install it into its site(s).
-* `list`: List the apps a bench has recorded, and what is actually on disk.
-
-
-### `fm apps add`
+## `fm apps add`
 
 Fetch app code onto a bench and install it into its site(s).
 
@@ -39,12 +34,11 @@ $ fm apps add BENCH(/SITE|all) APP:REF... [OPTIONS]
 
 **Options**:
 
-* `--drain/--no-drain`: Suspend RQ workers and wait for in-flight jobs before migrating; --no-drain interrupts them instead.
+* `--drain/--no-drain`: Suspend RQ workers and wait for in-flight jobs before migrating; --no-drain interrupts them instead.  [default: true]
 
+### Examples
 
-## Examples
-
-### Fetch an app's code onto the bench
+#### Fetch an app's code onto the bench
 
 Records the app on the bench and installs it into nothing; any site created afterwards picks it up. Install it into an existing site with 'fm apps add mybench/SITE ...' or 'fm apps add mybench/all ...'.
 
@@ -52,7 +46,7 @@ Records the app on the bench and installs it into nothing; any site created afte
 fm apps add mybench erpnext:version-15
 ```
 
-### Install into one site
+#### Install into one site
 
 Fetches the code, installs it into SITE, then runs bench migrate and restarts.
 
@@ -60,7 +54,7 @@ Fetches the code, installs it into SITE, then runs bench migrate and restarts.
 fm apps add mybench/SITE erpnext:version-15
 ```
 
-### Install into every site the bench serves
+#### Install into every site the bench serves
 
 A site that fails to install or migrate is reported and the rest still run; the command exits non-zero if any site failed.
 
@@ -68,7 +62,7 @@ A site that fails to install or migrate is reported and the rest still run; the 
 fm apps add mybench/all hrms:version-15
 ```
 
-### Install without draining in-flight RQ jobs
+#### Install without draining in-flight RQ jobs
 
 Interrupted jobs land in the failed-jobs registry (SIGUSR1, force-stop after [workers].kill_timeout).
 
@@ -76,8 +70,7 @@ Interrupted jobs land in the failed-jobs registry (SIGUSR1, force-stop after [wo
 fm apps add mybench/all erpnext:version-15 --no-drain
 ```
 
-
-### `fm apps list`
+## `fm apps list`
 
 List the apps a bench has recorded, and what is actually on disk.
 
@@ -93,12 +86,10 @@ $ fm apps list BENCH
 
 * `BENCH`: Bench to act on. Omit to pick from the benches you have.
 
+### Examples
 
-## Examples
-
-### List a bench's apps
+#### List a bench's apps
 
 ```bash
 fm apps list mybench
 ```
-

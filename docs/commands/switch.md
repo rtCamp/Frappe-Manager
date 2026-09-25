@@ -1,4 +1,4 @@
-## `fm switch`
+# `fm switch`
 
 Switch a bench to an already-built image, or roll back.
 
@@ -17,13 +17,12 @@ $ fm switch BENCH IMAGE [OPTIONS]
 
 **Options**:
 
-* `--previous`: Roll back to the previously deployed image, with migrate disabled.
+* `--previous`: Roll back to the previously deployed image, with migrate disabled.  [default: false]
 * `--migrate/--no-migrate`: Force or skip bench migrate for this run, overriding the bench config.
-* `--restore-db`: Also restore the DB dump taken during the deploy you are undoing. This REPLACES the current database: the dump drops and recreates every table, so everything written since that deploy is lost. fm asks you to confirm before importing.
-* `-y, --yes`: Accept the --restore-db overwrite without being asked. The only way to restore a dump unattended, and the only thing this flag skips.
-* `--keep`: After a successful deploy, prune old releases keeping the newest N (minimum 1; see fm prune).
+* `--restore-db`: Also restore the DB dump taken during the deploy you are undoing. This REPLACES the current database: the dump drops and recreates every table, so everything written since that deploy is lost. fm asks you to confirm before importing.  [default: false]
+* `-y, --yes`: Accept the --restore-db overwrite without being asked. The only way to restore a dump unattended, and the only thing this flag skips.  [default: false]
+* `--keep INTEGER`: After a successful deploy, prune old releases keeping the newest N (minimum 1; see fm prune).
 * `--rolling/--no-rolling`: Force or disable the rolling web swap; the default is automatic whenever the overlap is safe. Forcing it is only safe when both versions run against the same database schema.
-
 
 ## Examples
 
@@ -73,7 +72,7 @@ fm switch mybench --previous --restore-db --yes
 fm switch mybench local/mybench:20260718-9f21e0 --no-migrate
 ```
 
-## Related
+## See also
 
-- [Deployment guide](../deploy/index.md)
-- [Rolling back](../deploy/rollback.md)
+- [Deployment](../deploy/index.md)
+- [Rollback](../deploy/rollback.md)

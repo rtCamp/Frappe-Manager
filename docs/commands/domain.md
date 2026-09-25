@@ -1,25 +1,20 @@
-## `fm domain`
+# `fm domain`
 
-Domain commands.
+Manage a bench's alias domains.
 
 **Usage**:
 
 ```console
-$ fm domain [OPTIONS] COMMAND [ARGS]...
+$ fm domain COMMAND [ARGS]...
 ```
 
-**Options**:
+| Command | Description |
+|---|---|
+| [`fm domain add`](#fm-domain-add) | Add alias domains to a bench's site. |
+| [`fm domain remove`](#fm-domain-remove) | Remove an alias domain from whichever site of the bench serves it. |
+| [`fm domain list`](#fm-domain-list) | List every site's primary domain and its alias domains, one per line. |
 
-* `--help`: Show this message and exit.
-
-**Commands**:
-
-* `add`: Add alias domains to a bench's site.
-* `remove`: Remove an alias domain from whichever site of the bench serves it.
-* `list`: List every site's primary domain and its alias domains, one per line.
-
-
-### `fm domain add`
+## `fm domain add`
 
 Add alias domains to a bench's site.
 
@@ -40,12 +35,11 @@ $ fm domain add BENCH(/SITE) DOMAIN... [OPTIONS]
 
 **Options**:
 
-* `--allow-domain-conflicts`: Skip the uniqueness check against every other bench's domains.
+* `--allow-domain-conflicts`: Skip the uniqueness check against every other bench's domains.  [default: false]
 
+### Examples
 
-## Examples
-
-### Add an alias domain to a bench's primary site
+#### Add an alias domain to a bench's primary site
 
 No certificate is issued yet; run fm ssl add afterwards.
 
@@ -53,26 +47,25 @@ No certificate is issued yet; run fm ssl add afterwards.
 fm domain add mybench www.example.com
 ```
 
-### Add several aliases in one call
+#### Add several aliases in one call
 
 ```bash
 fm domain add mybench www.example.com api.example.com
 ```
 
-### Add an alias to one site of a multi-site bench
+#### Add an alias to one site of a multi-site bench
 
 ```bash
 fm domain add mybench/shop.example.com www.shop.example.com
 ```
 
-### Add a domain another bench already serves, deliberately
+#### Add a domain another bench already serves, deliberately
 
 ```bash
 fm domain add mybench shared.example.com --allow-domain-conflicts
 ```
 
-
-### `fm domain remove`
+## `fm domain remove`
 
 Remove an alias domain from whichever site of the bench serves it.
 
@@ -88,17 +81,15 @@ $ fm domain remove BENCH(/DOMAIN)
 
 * `BENCH(/DOMAIN)`: Bench, or BENCH/DOMAIN to reach one hostname it serves. Without a domain part, the bench's primary site is used.
 
+### Examples
 
-## Examples
-
-### Remove an alias from a bench
+#### Remove an alias from a bench
 
 ```bash
 fm domain remove mybench/www.example.com
 ```
 
-
-### `fm domain list`
+## `fm domain list`
 
 List every site's primary domain and its alias domains, one per line.
 
@@ -114,12 +105,10 @@ $ fm domain list BENCH
 
 * `BENCH`: Bench to act on. Omit to pick from the benches you have.
 
+### Examples
 
-## Examples
-
-### List a bench's domains
+#### List a bench's domains
 
 ```bash
 fm domain list mybench
 ```
-

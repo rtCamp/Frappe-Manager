@@ -2,7 +2,7 @@
 
 How fm's containers, networks and volumes fit together, and the path a request takes to reach your code.
 
-## Overview
+## The two runtimes
 
 fm runs a **two-tier Docker layout**:
 
@@ -62,7 +62,7 @@ flowchart TB
 Only the `frappe` container differs between environments:
 
 - **dev:** `bench serve` (Werkzeug, one process with a thread per request, no worker pool) plus `bench watch` for asset hot-reload.
-- **prod:** gunicorn with `gthread` workers, sized automatically. See [Web Serving & Concurrency](../concepts/web-serving.md#gunicorn-workers-and-threads).
+- **prod:** gunicorn with `gthread` workers, sized automatically. See [Web serving and concurrency](../concepts/web-serving.md#gunicorn-workers-and-threads).
 
 ---
 
@@ -241,7 +241,7 @@ fm keeps everything under a single root directory (default `~/frappe/`).
 21. **Frappe workspace**: the standard bench directory layout.
 22. **Installed apps**: frappe, erpnext and your own. Live-mounted in `mount` runtime, baked into the image in `image` runtime.
 23. **Site files**: frappe site configuration and data.
-24. **Application logs**: web, worker and scheduler output. See [Logs & Debugging](logs.md).
+24. **Application logs**: web, worker and scheduler output. See [Logs and debugging](logs.md).
 25. **Process config**: the split `*.fm.supervisor.conf` files fm generates, plus the `fm-web-server.sh` gunicorn wrapper.
 26. **Python virtualenv**: this bench's packages.
 
@@ -278,7 +278,7 @@ A bench can be pointed at an external server instead; see the [external database
 
 Access logs use the same JSON format as bench nginx, so both hops feed one ingestion pipeline.
 
-**See also:** [SSL guide](../guides/ssl.md), [Domains guide](../guides/domains.md), [`fm ssl`](../commands/ssl.md).
+**See also:** [HTTPS certificates](../guides/ssl.md), [Domains guide](../guides/domains.md), [`fm ssl`](../commands/ssl.md).
 
 ---
 
@@ -288,7 +288,7 @@ Container names are prefixed `fm__<benchname>__`, with dots in the bench name re
 
 **Core stack** (`docker-compose.yml`): `frappe`, `nginx`, `socketio`, `schedule`, `redis-cache`, `redis-queue`. The frappe and nginx images are fm's own; Redis is `redis:8-alpine`.
 
-**Workers** (`docker-compose.workers.yml`): one container per RQ queue, generated from the supervisor configs in the bench's `config/` directory rather than hard-coded. `short-worker` consumes `short,default` and `long-worker` consumes `long,default,short`, so a `default` job is picked up by whichever is free. Extra queues come from the `workers` key of `common_site_config.json`, each getting its own container. Each container runs `background_workers` RQ processes (default 1, also from `common_site_config.json`); see [Workers & Background Jobs](../concepts/background-jobs.md).
+**Workers** (`docker-compose.workers.yml`): one container per RQ queue, generated from the supervisor configs in the bench's `config/` directory rather than hard-coded. `short-worker` consumes `short,default` and `long-worker` consumes `long,default,short`, so a `default` job is picked up by whichever is free. Extra queues come from the `workers` key of `common_site_config.json`, each getting its own container. Each container runs `background_workers` RQ processes (default 1, also from `common_site_config.json`); see [Background jobs and workers](../concepts/background-jobs.md).
 
 **Admin tools** (`docker-compose.admin-tools.yml`, only when [`admin_tools`](configuration.md#admin-tools) is true, which is the default in `dev`): mailpit at `/mailpit/` catching all outgoing mail, adminer at `/adminer/` for the database. Toggle with `fm tools enable|disable <bench>`; see the [Admin Tools guide](../guides/admin-tools.md).
 
@@ -367,7 +367,7 @@ fm logs mybench                      # the bench web server log, from disk
 fm logs mybench --service nginx -f   # a container's log, from docker
 ```
 
-See [Logs & Debugging](logs.md).
+See [Logs and debugging](logs.md).
 
 ---
 
@@ -393,7 +393,7 @@ supervisord
         --graceful-timeout 30 frappe.app:application --preload
 ```
 
-`<N>` defaults to `min(cpu_count, RAM_MB / 256)` and `<T>` to `max(2, min(cpu_count, 4))`; both, plus `max_requests`, are overridable in `common_site_config.json`. See [Web Serving & Concurrency](../concepts/web-serving.md#gunicorn-workers-and-threads). When New Relic is enabled the wrapper runs gunicorn under `newrelic-admin` with a `post_fork` hook, because `--preload` forks after the agent loads.
+`<N>` defaults to `min(cpu_count, RAM_MB / 256)` and `<T>` to `max(2, min(cpu_count, 4))`; both, plus `max_requests`, are overridable in `common_site_config.json`. See [Web serving and concurrency](../concepts/web-serving.md#gunicorn-workers-and-threads). When New Relic is enabled the wrapper runs gunicorn under `newrelic-admin` with a `post_fork` hook, because `--preload` forks after the agent loads.
 
 **Worker containers:** `bench worker --queue <queues>`, at `numprocs = background_workers`.
 
@@ -405,7 +405,7 @@ supervisord
 
 ## See also
 
-- [Configuration Files](configuration.md): every key in `fm_config.toml` and `bench_config.toml`
-- [Web Serving & Concurrency](../concepts/web-serving.md): how requests are served and sized
-- [Workers & Background Jobs](../concepts/background-jobs.md): queues and worker configuration
-- [Environments](../guides/environments.md): what changes between `dev` and `prod`
+- [Configuration files](configuration.md): every key in `fm_config.toml` and `bench_config.toml`
+- [Web serving and concurrency](../concepts/web-serving.md): how requests are served and sized
+- [Background jobs and workers](../concepts/background-jobs.md): queues and worker configuration
+- [Environments](../concepts/environments.md): what changes between `dev` and `prod`

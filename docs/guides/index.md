@@ -1,36 +1,38 @@
 # Guides
 
-Everyday bench workflows, for any bench: dev or prod, on your laptop or a server. New here? Read [Concepts](../concepts/index.md) first, then [Environments: Dev vs Prod](environments.md) for what those two words actually change. For immutable releases and rolling swaps instead, see [Deployment](../deploy/index.md).
+Task-shaped instructions for a bench that already exists, dev or prod, laptop or server. If you have not read [How fm works](../concepts/index.md) yet, start there: most of these pages assume you know what a runtime and an environment are.
+
+For immutable releases and rolling swaps, see [Deployment](../deploy/index.md) instead.
 
 ## The daily loop
 
 <div class="grid cards" markdown>
 
--   :lucide-code-2:{ .lg .middle } &nbsp; **[VSCode Integration](vscode.md)**
-
-    ---
-
-    Attach VS Code to a bench's running container: fm's extension set, and a Frappe debug config that steps into framework code.
-
--   :lucide-puzzle:{ .lg .middle } &nbsp; **[App Management](app-management.md)**
+-   :lucide-puzzle:{ .lg .middle } &nbsp; **[App management](app-management.md)**
 
     ---
 
     Install, update and pin Frappe apps at create time or later with `fm apps add`, private repos and monorepo subdirectories included.
 
--   :lucide-package:{ .lg .middle } &nbsp; **[Python & Node Versions](python-node-versions.md)**
+-   :lucide-package:{ .lg .middle } &nbsp; **[Python and Node versions](python-node-versions.md)**
 
     ---
 
     Pin toolchain versions per bench, or let fm auto-detect them from Frappe's requirements.
 
--   :lucide-wrench:{ .lg .middle } &nbsp; **[Admin Tools](admin-tools.md)**
+-   :lucide-code-2:{ .lg .middle } &nbsp; **[VS Code integration](vscode.md)**
+
+    ---
+
+    Attach VS Code to a bench's running container: fm's extension set, and a Frappe debug config that steps into framework code.
+
+-   :lucide-wrench:{ .lg .middle } &nbsp; **[Admin tools](admin-tools.md)**
 
     ---
 
     Mailpit for mail and Adminer for the database, plus the `fm auth` basic auth prompt that can front either the tools or the whole site.
 
--   :lucide-cpu:{ .lg .middle } &nbsp; **[fmx: In-Container Services](fmx.md)**
+-   :lucide-cpu:{ .lg .middle } &nbsp; **[fmx: in-container services](fmx.md)**
 
     ---
 
@@ -38,35 +40,35 @@ Everyday bench workflows, for any bench: dev or prod, on your laptop or a server
 
 </div>
 
-## Domains, security & data
+## Domains, security and data
 
 <div class="grid cards" markdown>
 
--   :lucide-globe-2:{ .lg .middle } &nbsp; **[Domains & Remote Access](domains.md)**
+-   :lucide-globe-2:{ .lg .middle } &nbsp; **[Domains and remote access](domains.md)**
 
     ---
 
     How routing works, serving a bench on multiple domains, and tunneling a local bench to the internet.
 
--   :lucide-server:{ .lg .middle } &nbsp; **[Hosting on a Server](hosting.md)**
-
-    ---
-
-    The end-to-end runbook: fresh server to HTTPS-served production benches, one domain per client.
-
--   :lucide-shield-check:{ .lg .middle } &nbsp; **[SSL / HTTPS](ssl.md)**
+-   :lucide-shield-check:{ .lg .middle } &nbsp; **[HTTPS certificates](ssl.md)**
 
     ---
 
     Let's Encrypt over HTTP-01 or Cloudflare DNS-01, fm's own CA for locally trusted development certificates, or a certificate you bring yourself.
 
--   :lucide-archive:{ .lg .middle } &nbsp; **[Backup & Restore](backup-restore.md)**
+-   :lucide-server:{ .lg .middle } &nbsp; **[Hosting on a server](hosting.md)**
+
+    ---
+
+    The end-to-end runbook: fresh server to HTTPS-served production benches, one domain per client.
+
+-   :lucide-archive:{ .lg .middle } &nbsp; **[Backup and restore](backup-restore.md)**
 
     ---
 
     Three overlapping tools (fm, `bench`, the Frappe UI), which one owns what, where backups land, and how to restore.
 
--   :lucide-database:{ .lg .middle } &nbsp; **[External Database](external-database.md)**
+-   :lucide-database:{ .lg .middle } &nbsp; **[External database](external-database.md)**
 
     ---
 
@@ -74,20 +76,12 @@ Everyday bench workflows, for any bench: dev or prod, on your laptop or a server
 
 </div>
 
-## Platform & tuning
+## Elsewhere
 
-<div class="grid cards" markdown>
+A few tasks are documented where the thing they change lives:
 
--   :lucide-upload:{ .lg .middle } &nbsp; **[Upload Limits](upload-limits.md)**
-
-    ---
-
-    Raise the maximum file upload size for a bench.
-
--   :lucide-monitor:{ .lg .middle } &nbsp; **[Windows / WSL](wsl.md)**
-
-    ---
-
-    Run fm on Windows under WSL 2: where to keep the bench directory, and how `.localhost` resolves.
-
-</div>
+| I want to | Page |
+|---|---|
+| Switch a bench between `dev` and `prod` | [Environments](../concepts/environments.md) |
+| Raise the file upload limit | [`upload_limit` reference](../reference/configuration.md#upload-limit) |
+| Run fm on Windows | [Installation](../getting-started/installation.md#windows) |

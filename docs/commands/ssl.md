@@ -1,27 +1,24 @@
-## `fm ssl`
+# `fm ssl`
 
-Ssl commands.
+Issue, import, renew, list and remove certificates, and manage DNS credentials and the dev CA.
 
 **Usage**:
 
 ```console
-$ fm ssl [OPTIONS] COMMAND [ARGS]...
+$ fm ssl COMMAND [ARGS]...
 ```
 
-**Options**:
+| Command | Description |
+|---|---|
+| [`fm ssl renew`](#fm-ssl-renew) | Renew SSL certificates before they expire. |
+| [`fm ssl list`](#fm-ssl-list) | List SSL certificates with their expiry and renewal status. |
+| [`fm ssl add`](#fm-ssl-add) | Issue or import an SSL certificate for a domain and point nginx at it. |
+| [`fm ssl remove`](#fm-ssl-remove) | Delete an SSL certificate and go back to serving the domain over plain HTTP. |
+| [`fm ssl acme-sh`](#fm-ssl-acme-sh) | Run the bundled acme.sh directly, against fm's certificate home. |
+| [`fm ssl dns-config`](#fm-ssl-dns-config) | Store DNS provider credentials for DNS-01 challenges. |
+| [`fm ssl ca`](#fm-ssl-ca) | Inspect, install or remove fm's dev CA in this host's trust stores. |
 
-* `--help`: Show this message and exit.
-
-**Commands**:
-
-* `renew`: Renew SSL certificates before they expire.
-* `list`: List SSL certificates with their expiry and renewal status.
-* `add`: Issue or import an SSL certificate for a domain and point nginx at it.
-* `remove`: Delete an SSL certificate and go back to serving the domain over plain HTTP.
-* `acme-sh`: Run the bundled acme.sh directly, against fm's certificate home.
-
-
-### `fm ssl renew`
+## `fm ssl renew`
 
 Renew SSL certificates before they expire.
 
@@ -43,32 +40,31 @@ $ fm ssl renew BENCH(/DOMAIN)|all [OPTIONS]
 
 **Options**:
 
-* `--standalone`: Renew an external (non-bench) domain.
-* `--test-ca`: Renew against Let's Encrypt's test CA (staging): real challenges and issuance, no production rate-limit cost; the live certificate and system stay untouched.
-* `--force`: Renew even when the certificate is not due.
+* `--standalone`: Renew an external (non-bench) domain.  [default: false]
+* `--test-ca`: Renew against Let's Encrypt's test CA (staging): real challenges and issuance, no production rate-limit cost; the live certificate and system stay untouched.  [default: false]
+* `--force`: Renew even when the certificate is not due.  [default: false]
 
+### Examples
 
-## Examples
-
-### Renew every certificate on a bench
+#### Renew every certificate on a bench
 
 ```bash
 fm ssl renew mybench
 ```
 
-### Renew one domain
+#### Renew one domain
 
 ```bash
 fm ssl renew mybench/example.com
 ```
 
-### Renew every certificate on one bench, named explicitly
+#### Renew every certificate on one bench, named explicitly
 
 ```bash
 fm ssl renew mybench/all
 ```
 
-### Renew every bench
+#### Renew every bench
 
 'all' goes where a bench name goes. One bench failing is reported and the rest still renew.
 
@@ -76,7 +72,7 @@ fm ssl renew mybench/all
 fm ssl renew all
 ```
 
-### Renew an external domain
+#### Renew an external domain
 
 An external domain belongs to no bench, so it is named bare rather than as an address.
 
@@ -84,14 +80,13 @@ An external domain belongs to no bench, so it is named bare rather than as an ad
 fm ssl renew example.com --standalone
 ```
 
-### Renew one that is not due yet
+#### Renew one that is not due yet
 
 ```bash
 fm ssl renew mybench/example.com --force
 ```
 
-
-### `fm ssl list`
+## `fm ssl list`
 
 List SSL certificates with their expiry and renewal status.
 
@@ -111,24 +106,23 @@ $ fm ssl list BENCH|all [OPTIONS]
 
 **Options**:
 
-* `--standalone`: List external (non-bench) domains instead of a bench.
+* `--standalone`: List external (non-bench) domains instead of a bench.  [default: false]
 
+### Examples
 
-## Examples
-
-### List a bench's certificates
+#### List a bench's certificates
 
 ```bash
 fm ssl list mybench
 ```
 
-### List the external domains
+#### List the external domains
 
 ```bash
 fm ssl list --standalone
 ```
 
-### List every certificate fm manages
+#### List every certificate fm manages
 
 Every bench and the external domains together. A bench fm cannot read is reported in place, not fatal.
 
@@ -136,8 +130,7 @@ Every bench and the external domains together. A bench fm cannot read is reporte
 fm ssl list all
 ```
 
-
-### `fm ssl add`
+## `fm ssl add`
 
 Issue or import an SSL certificate for a domain and point nginx at it.
 
@@ -155,24 +148,23 @@ $ fm ssl add BENCH(/DOMAIN) [OPTIONS]
 
 **Options**:
 
-* `-c, --challenge`: ACME validation method.
-* `--cname`: Delegated zone for _acme-challenge. dns01 only.
-* `--dns-provider`: Label of the \[ssl.dns_providers] credential set that authenticates this domain, from fm ssl dns-config cloudflare --name. Omit for the default account. dns01 only.
-* `--test-ca`: Rehearse against Let's Encrypt staging. Nothing is kept: no certificate, no nginx change.
-* `--standalone`: For an external Docker project on the fm-frontend-network network.
-* `--dev`: Issue from fm's local CA, so no internet or public DNS is needed. Bench mode only.
-* `--skip-dns-check`: Skip the DNS pre-check. Standalone mode only.
-* `--wait-for-dns`: Wait up to 5 min for the CNAME. Standalone only.
-* `--custom`: Import an operator-supplied certificate instead of issuing one. Needs --cert and --key. Bench mode only.
-* `--cert`: Certificate file (PEM). --custom only.
-* `--key`: Private key file (PEM), unencrypted. --custom only.
-* `--ca`: CA bundle file (PEM). Optional; when given, bench containers trust it for outbound self-calls once you run 'fm start BENCH' to apply the updated compose. --custom only.
-* `--edge-tls, --behind-proxy`: For an origin behind an external TLS terminator (e.g. Cloudflare Flexible: browser to edge over HTTPS, edge to origin over plain HTTP). Keys the origin's HTTP->HTTPS redirect off the forwarded proto instead of its own always-http connection, so it stops looping. Also makes the bench's gunicorn trust that header for inbound requests -- bench-wide, for every domain the bench serves, not just this one, so every certificate on a bench must agree on this flag. Still issues a certificate: needs an explicit method (--dev, --custom, or --challenge), since the mode's own point is a locally trusted certificate for the origin's own :443. Bench mode only.
+* `-c, --challenge [dns01|http01]`: ACME validation method.  [default: http01]
+* `--cname TEXT`: Delegated zone for _acme-challenge. dns01 only.
+* `--dns-provider TEXT`: Label of the \[ssl.dns_providers] credential set that authenticates this domain, from fm ssl dns-config cloudflare --name. Omit for the default account. dns01 only.
+* `--test-ca`: Rehearse against Let's Encrypt staging. Nothing is kept: no certificate, no nginx change.  [default: false]
+* `--standalone`: For an external Docker project on the fm-frontend-network network.  [default: false]
+* `--dev`: Issue from fm's local CA, so no internet or public DNS is needed. Bench mode only.  [default: false]
+* `--skip-dns-check`: Skip the DNS pre-check. Standalone mode only.  [default: false]
+* `--wait-for-dns`: Wait up to 5 min for the CNAME. Standalone only.  [default: false]
+* `--custom`: Import an operator-supplied certificate instead of issuing one. Needs --cert and --key. Bench mode only.  [default: false]
+* `--cert PATH`: Certificate file (PEM). --custom only.
+* `--key PATH`: Private key file (PEM), unencrypted. --custom only.
+* `--ca PATH`: CA bundle file (PEM). Optional; when given, bench containers trust it for outbound self-calls once you run 'fm start BENCH' to apply the updated compose. --custom only.
+* `--edge-tls, --behind-proxy`: For an origin behind an external TLS terminator (e.g. Cloudflare Flexible: browser to edge over HTTPS, edge to origin over plain HTTP). Keys the origin's HTTP->HTTPS redirect off the forwarded proto instead of its own always-http connection, so it stops looping. Also makes the bench's gunicorn trust that header for inbound requests -- bench-wide, for every domain the bench serves, not just this one, so every certificate on a bench must agree on this flag. Still issues a certificate: needs an explicit method (--dev, --custom, or --challenge), since the mode's own point is a locally trusted certificate for the origin's own :443. Bench mode only.  [default: false]
 
+### Examples
 
-## Examples
-
-### Issue a certificate for a bench domain
+#### Issue a certificate for a bench domain
 
 Naming just the bench with no domain offers its configured domains to pick from interactively.
 
@@ -180,7 +172,7 @@ Naming just the bench with no domain offers its configured domains to pick from 
 fm ssl add mybench/example.com
 ```
 
-### Issue one when the domain has no public A record
+#### Issue one when the domain has no public A record
 
 DNS-01 needs provider credentials, see fm ssl dns-config.
 
@@ -188,13 +180,13 @@ DNS-01 needs provider credentials, see fm ssl dns-config.
 fm ssl add mybench/example.com --challenge dns01
 ```
 
-### Rehearse against the staging server first
+#### Rehearse against the staging server first
 
 ```bash
 fm ssl add mybench/example.com --test-ca
 ```
 
-### Issue for every domain the bench serves
+#### Issue for every domain the bench serves
 
 One certificate per hostname, each site's own name and its aliases. Bare 'all' is refused here: issuing across every bench at once can cross Let's Encrypt's rate limit.
 
@@ -202,13 +194,13 @@ One certificate per hostname, each site's own name and its aliases. Bare 'all' i
 fm ssl add mybench/all
 ```
 
-### Issue for an external Docker project
+#### Issue for an external Docker project
 
 ```bash
 fm ssl add example.com --standalone
 ```
 
-### Import an operator-issued certificate
+#### Import an operator-issued certificate
 
 No issuance: fm copies the files in, links them into the global proxy, and restarts it. Add --ca to also trust a private CA for outbound self-calls once you run 'fm start BENCH' to apply the updated compose.
 
@@ -216,7 +208,7 @@ No issuance: fm copies the files in, links them into the global proxy, and resta
 fm ssl add mybench/example.com --custom --cert ./example.com.crt --key ./example.com.key
 ```
 
-### Validate through a delegated zone
+#### Validate through a delegated zone
 
 acme.sh looks for _acme-challenge.acme.example.net instead of the bench's own zone.
 
@@ -224,7 +216,7 @@ acme.sh looks for _acme-challenge.acme.example.net instead of the bench's own zo
 fm ssl add mybench/example.com --challenge dns01 --cname acme.example.net
 ```
 
-### Authenticate DNS-01 against a second Cloudflare account
+#### Authenticate DNS-01 against a second Cloudflare account
 
 acct-b is a label stored by fm ssl dns-config cloudflare --name acct-b, at either global or bench scope.
 
@@ -232,7 +224,7 @@ acct-b is a label stored by fm ssl dns-config cloudflare --name acct-b, at eithe
 fm ssl add mybench/example.com --challenge dns01 --dns-provider acct-b
 ```
 
-### Issue behind Cloudflare's proxy
+#### Issue behind Cloudflare's proxy
 
 The redirect keys on the forwarded proto so it stops looping; pair with Cloudflare SSL mode Full (strict).
 
@@ -240,8 +232,7 @@ The redirect keys on the forwarded proto so it stops looping; pair with Cloudfla
 fm ssl add mybench/example.com --challenge dns01 --behind-proxy
 ```
 
-
-### `fm ssl remove`
+## `fm ssl remove`
 
 Delete an SSL certificate and go back to serving the domain over plain HTTP.
 
@@ -259,13 +250,12 @@ $ fm ssl remove BENCH(/DOMAIN) [OPTIONS]
 
 **Options**:
 
-* `-y, --yes`: Delete without asking for confirmation.
-* `--standalone`: Target an external (non-bench) domain.
+* `-y, --yes`: Delete without asking for confirmation.  [default: false]
+* `--standalone`: Target an external (non-bench) domain.  [default: false]
 
+### Examples
 
-## Examples
-
-### Delete a bench certificate
+#### Delete a bench certificate
 
 Naming just the bench with no domain offers its domains to pick from interactively.
 
@@ -273,13 +263,13 @@ Naming just the bench with no domain offers its domains to pick from interactive
 fm ssl remove mybench/example.com
 ```
 
-### Delete without the confirmation prompt
+#### Delete without the confirmation prompt
 
 ```bash
 fm ssl remove mybench/example.com --yes
 ```
 
-### Delete every certificate the bench holds
+#### Delete every certificate the bench holds
 
 Back to plain HTTP on every domain of that bench. Bare 'all' is refused here.
 
@@ -287,14 +277,13 @@ Back to plain HTTP on every domain of that bench. Bare 'all' is refused here.
 fm ssl remove mybench/all
 ```
 
-### Delete an external domain's certificate
+#### Delete an external domain's certificate
 
 ```bash
 fm ssl remove example.com --standalone
 ```
 
-
-### `fm ssl acme-sh`
+## `fm ssl acme-sh`
 
 Run the bundled acme.sh directly, against fm's certificate home.
 
@@ -308,28 +297,27 @@ acme.sh is installed the first time fm ssl add issues a Let's Encrypt certificat
 $ fm ssl acme-sh
 ```
 
+### Examples
 
-## Examples
-
-### Show acme.sh's own help
+#### Show acme.sh's own help
 
 ```bash
 fm ssl acme-sh
 ```
 
-### List the certificates acme.sh holds
+#### List the certificates acme.sh holds
 
 ```bash
 fm ssl acme-sh --list
 ```
 
-### Inspect one certificate
+#### Inspect one certificate
 
 ```bash
 fm ssl acme-sh --info -d example.com
 ```
 
-### Force a renewal acme.sh's own way
+#### Force a renewal acme.sh's own way
 
 Bypasses fm's not-due check and its bookkeeping. fm ssl renew --force is the supported route.
 
@@ -337,27 +325,21 @@ Bypasses fm's not-due check and its bookkeeping. fm ssl renew --force is the sup
 fm ssl acme-sh --renew -d example.com --force
 ```
 
+## `fm ssl dns-config`
 
-### `fm ssl dns-config`
-
-Dns-Config commands.
+Store DNS provider credentials for DNS-01 challenges.
 
 **Usage**:
 
 ```console
-$ fm ssl dns-config [OPTIONS] COMMAND [ARGS]...
+$ fm ssl dns-config COMMAND [ARGS]...
 ```
 
-**Options**:
+| Command | Description |
+|---|---|
+| [`fm ssl dns-config cloudflare`](#fm-ssl-dns-config-cloudflare) | Store Cloudflare API credentials for DNS-01 certificate issuance. |
 
-* `--help`: Show this message and exit.
-
-**Commands**:
-
-* `cloudflare`: Store Cloudflare API credentials for DNS-01 certificate issuance.
-
-
-#### `fm ssl dns-config cloudflare`
+### `fm ssl dns-config cloudflare`
 
 Store Cloudflare API credentials for DNS-01 certificate issuance.
 
@@ -377,23 +359,22 @@ $ fm ssl dns-config cloudflare BENCH [OPTIONS]
 
 **Options**:
 
-* `--api-token`: Cloudflare API token, scoped to the zones you issue for.
-* `--api-key`: Legacy Global API Key, which grants full account access. Requires --email.
-* `--email`: Cloudflare account email. Required with --api-key only.
-* `-n, --name`: Label for this credential set, e.g. an account name. Omit for the default account.
-* `-s, --show`: Print the stored credentials, secrets masked. Writes nothing.
-* `-r, --remove`: Delete the stored credentials.
+* `--api-token TEXT`: Cloudflare API token, scoped to the zones you issue for.
+* `--api-key TEXT`: Legacy Global API Key, which grants full account access. Requires --email.
+* `--email TEXT`: Cloudflare account email. Required with --api-key only.
+* `-n, --name TEXT`: Label for this credential set, e.g. an account name. Omit for the default account.
+* `-s, --show`: Print the stored credentials, secrets masked. Writes nothing.  [default: false]
+* `-r, --remove`: Delete the stored credentials.  [default: false]
 
+#### Examples
 
-## Examples
-
-### Store a global API token
+##### Store a global API token
 
 ```bash
 fm ssl dns-config cloudflare --api-token cf_AbCdEf1234567890
 ```
 
-### Store a second account under a label
+##### Store a second account under a label
 
 Labelled sets go to [ssl.dns_providers.acct-b]; bind one with fm ssl add BENCH DOMAIN --challenge dns01 --dns-provider acct-b.
 
@@ -401,25 +382,25 @@ Labelled sets go to [ssl.dns_providers.acct-b]; bind one with fm ssl add BENCH D
 fm ssl dns-config cloudflare --api-token cf_ZyXwVu0987654321 --name acct-b
 ```
 
-### Override the token for one bench
+##### Override the token for one bench
 
 ```bash
 fm ssl dns-config cloudflare mybench --api-token cf_ZyXwVu0987654321
 ```
 
-### Store a labelled set for one bench only
+##### Store a labelled set for one bench only
 
 ```bash
 fm ssl dns-config cloudflare mybench --api-token cf_QqRrSs1122334455 --name acct-b
 ```
 
-### Use a legacy Global API Key instead
+##### Use a legacy Global API Key instead
 
 ```bash
 fm ssl dns-config cloudflare --api-key 1234567890abcdef1234 --email admin@example.com
 ```
 
-### Show what is stored
+##### Show what is stored
 
 Lists every labelled set at both scopes, secrets masked. With a bench name, prints that bench's sets as well as the global ones, and --name narrows to one label.
 
@@ -427,7 +408,7 @@ Lists every labelled set at both scopes, secrets masked. With a bench name, prin
 fm ssl dns-config cloudflare --show
 ```
 
-### Drop one labelled set
+##### Drop one labelled set
 
 Without --name, a scope holding more than one set is refused rather than guessed at.
 
@@ -435,29 +416,23 @@ Without --name, a scope holding more than one set is refused rather than guessed
 fm ssl dns-config cloudflare --remove --name acct-b
 ```
 
+## `fm ssl ca`
 
-### `fm ssl ca`
-
-Ca commands.
+Inspect, install or remove fm's dev CA in this host's trust stores.
 
 **Usage**:
 
 ```console
-$ fm ssl ca [OPTIONS] COMMAND [ARGS]...
+$ fm ssl ca COMMAND [ARGS]...
 ```
 
-**Options**:
+| Command | Description |
+|---|---|
+| [`fm ssl ca status`](#fm-ssl-ca-status) | Show fm's dev CA and every trust store on this host that currently trusts it. |
+| [`fm ssl ca install`](#fm-ssl-ca-install) | Install fm's dev CA into this host's OS and browser trust stores. |
+| [`fm ssl ca remove`](#fm-ssl-ca-remove) | Remove fm's dev CA from every trust store on this host that has it. |
 
-* `--help`: Show this message and exit.
-
-**Commands**:
-
-* `status`: Show fm's dev CA and every trust store on this host that currently trusts it.
-* `install`: Install fm's dev CA into this host's OS and browser trust stores.
-* `remove`: Remove fm's dev CA from every trust store on this host that has it.
-
-
-#### `fm ssl ca status`
+### `fm ssl ca status`
 
 Show fm's dev CA and every trust store on this host that currently trusts it.
 
@@ -469,17 +444,15 @@ Each store is asked directly (the keychain, the system CA directories, each brow
 $ fm ssl ca status
 ```
 
+#### Examples
 
-## Examples
-
-### Is fm's dev CA trusted on this host?
+##### Is fm's dev CA trusted on this host?
 
 ```bash
 fm ssl ca status
 ```
 
-
-#### `fm ssl ca install`
+### `fm ssl ca install`
 
 Install fm's dev CA into this host's OS and browser trust stores.
 
@@ -493,17 +466,15 @@ A CA that does not exist yet is not created here: it is minted the first time a 
 $ fm ssl ca install
 ```
 
+#### Examples
 
-## Examples
-
-### Trust the dev CA on this host
+##### Trust the dev CA on this host
 
 ```bash
 fm ssl ca install
 ```
 
-
-#### `fm ssl ca remove`
+### `fm ssl ca remove`
 
 Remove fm's dev CA from every trust store on this host that has it.
 
@@ -519,25 +490,24 @@ $ fm ssl ca remove [OPTIONS]
 
 **Options**:
 
-* `-y, --yes`: Remove without asking for confirmation.
-* `--dry-run`: Print the stores that would be touched and exit; never prompts.
-* `--delete-ca`: Also delete the CA key and certificate from disk.
+* `-y, --yes`: Remove without asking for confirmation.  [default: false]
+* `--dry-run`: Print the stores that would be touched and exit; never prompts.  [default: false]
+* `--delete-ca`: Also delete the CA key and certificate from disk.  [default: false]
 
+#### Examples
 
-## Examples
-
-### Stop trusting the dev CA
+##### Stop trusting the dev CA
 
 ```bash
 fm ssl ca remove
 ```
 
-### See which stores would be touched, change nothing
+##### See which stores would be touched, change nothing
 
 ```bash
 fm ssl ca remove --dry-run
 ```
 
-## Related
+## See also
 
-- [SSL / HTTPS guide](../guides/ssl.md)
+- [HTTPS certificates](../guides/ssl.md)

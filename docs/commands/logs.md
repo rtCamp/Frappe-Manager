@@ -1,4 +1,4 @@
-## `fm logs`
+# `fm logs`
 
 Show a bench's web server log, or a container's log with --service.
 
@@ -16,9 +16,8 @@ $ fm logs BENCH [OPTIONS]
 
 **Options**:
 
-* `--service`: Compose service whose container logs to show (frappe, nginx, redis-cache, ...).
-* `-f, --follow`: Keep streaming new lines until Ctrl+C.
-
+* `--service TEXT`: Compose service whose container logs to show (frappe, nginx, redis-cache, ...).
+* `-f, --follow`: Keep streaming new lines until Ctrl+C.  [default: false]
 
 ## Examples
 
@@ -40,6 +39,6 @@ fm logs mybench -f
 fm logs mybench --service nginx -f
 ```
 
-## Related
+## See also
 
-- [Logs & Debugging](../reference/logs.md)
+- [Logs and debugging](../reference/logs.md)

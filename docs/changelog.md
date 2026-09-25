@@ -75,6 +75,16 @@ This is the 1.0.0 cycle. Versions 0.20.0 and 0.21.0 were never published: their 
 - **bake:** Temporary trees stay off `/tmp`, and a bench-mode bake of an image bench is refused
 - **backup:** The database dump is handed across the container boundary in a way both runtimes can mount
 
+### Documentation
+
+- **docs:** The site is reorganised so one topic has one owner: environments moves under Concepts so its URL matches its section, architecture is listed once instead of twice, the Windows and upload-limit guides fold into Installation and the `upload_limit` reference, and the command index stops restating every command page it links to. Page and section titles are sentence case throughout
+- **docs:** `fm auth` was documented against an API that no longer exists (`--protect web|tools`, `--status`, `--off`). The real surface is `fm auth enable|disable|status` with `--web`/`--tools`, and the semantics differ: naming one surface no longer turns the other off. The install page also pinned Python 3.14 while the README pinned 3.13
+- **cli:** `fm services`, `fm self` and `fm ssl` had placeholder group help ("Perform operations related to ssl."); each now says what the group does, in `--help` and in the generated docs
+
+### Build
+
+- **docs-gen:** Generated command pages were missing every option default, because an `Annotated` parameter carries its default on the signature rather than on the `OptionInfo` the generator read. Options now show their default and their value placeholder (`TEXT`, `INTEGER`, a choice list), pages start at a heading level 1, `## Examples` nests under the subcommand it belongs to instead of beside the group, group pages carry a linked subcommand table, the example template reads the default app branch from `STABLE_APP_BRANCH_MAPPING_LIST` instead of a hardcoded `version-15`, and regenerating is idempotent
+
 ## v0.19.0.dev0 - 2026-04-14
 
 ### Bug Fixes

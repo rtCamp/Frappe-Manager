@@ -74,7 +74,9 @@ DOC = Path(__file__).resolve().parents[3] / "docs" / "reference" / "configuratio
 
 
 def _documented_bench_config() -> str:
-    after = DOC.read_text().split("### Bench Config (`bench_config.toml`)", 1)[1]
+    # Anchored on the heading's explicit `{#bench-config-example}` id, not its wording: docslint
+    # already guards the anchor, so retitling the section cannot silently unhook this test.
+    after = DOC.read_text().split("{#bench-config-example}", 1)[1]
     return after.split("```toml", 1)[1].split("```", 1)[0]
 
 

@@ -1,4 +1,4 @@
-# Runtimes: Mount vs Image
+# Runtimes: mount vs image
 
 The runtime is the most consequential property of a bench: it decides **where the code lives** and therefore what you can do with the bench.
 
@@ -59,7 +59,7 @@ The backing keys ([`runtime`](../reference/configuration.md#runtime), [`image` a
 
 ## How runtime and environment combine
 
-Runtime says where code lives; [environment](../guides/environments.md) says how the web process runs. All four combinations are valid; see the [Concepts overview](index.md) for the 2x2 matrix.
+Runtime says where code lives; [environment](environments.md) says how the web process runs. All four combinations are valid; see the [How fm works](index.md) for the 2x2 matrix.
 
 The one asymmetry: developer mode is refused on an image bench even in a `dev` environment, because DocType authoring writes app source files into the container layer that the next deploy throws away.
 

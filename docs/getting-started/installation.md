@@ -1,13 +1,11 @@
 # Installation
 
-This page shows how to install Frappe Manager. Choose the installation method that matches your needs.
-
 ## Before you install
 
 - [ ] **Python 3.13 or 3.14**: needed only to run the fm tool itself. fm requires `>=3.13,<3.15`; `uv` downloads a matching interpreter for you. Benches use their own Python inside containers, set per bench with `fm create --python`.
-- [ ] **Docker**: Docker Desktop (Mac/Windows) or Docker Engine (Linux). Benches run inside Docker containers, and your user needs permission to use Docker without root.
+- [ ] **Docker**: Docker Desktop (macOS/Windows) or Docker Engine (Linux). Benches run inside Docker containers, and your user needs permission to use Docker without root. fm checks the daemon on every command and exits if it is down.
 - [ ] **Git**: fm runs `git ls-remote` on the host to check that every app repo and ref you ask for exists before it starts building. The clones themselves happen inside the container.
-- [ ] **Ports 80 and 443 free**: the global nginx proxy binds both on the host and routes every bench by domain.
+- [ ] **Ports 80 and 443 free**: the shared nginx proxy binds both on the host and routes every bench by domain.
 
 !!! tip "Quick checks"
     ```bash
@@ -16,108 +14,101 @@ This page shows how to install Frappe Manager. Choose the installation method th
     git --version
     ```
 
-On Windows, see the [WSL guide](../guides/wsl.md).
-
 !!! note "Which tool owns which flag"
-    fm does not install itself. That first install belongs to `uv`, `pipx`, or `pip`, so `--python`, `--from`, `--reinstall`, `--force`, and `--upgrade` on this page are **their** flags, not fm's. Once fm is on your PATH, `fm --version` and `fm self upgrade` are fm's own.
+    fm does not install itself. That first install belongs to `uv`, `pipx`, or `pip`, so `--python`, `--from`, `--reinstall`, `--force`, and `--upgrade` on this page are **their** flags, not fm's. Once fm is on your `PATH`, `fm --version` and `fm self upgrade` are fm's own.
 
-## Stable Release (Recommended)
+## Install a stable release
 
-📦 **For production use and general development**
-
-Install the latest stable release from PyPI. This is the recommended option for most users.
-
-=== "uv (Recommended)"
-
-    ```bash
-    # Run a single command without installing (great for trying it out)
-    uvx --python 3.14 --from frappe-manager fm --help
-
-    # Install permanently
-    uv tool install --python 3.14 frappe-manager
-
-    # Upgrade later
-    uv tool upgrade frappe-manager
-    ```
-
-    `--from` tells `uvx` which package provides the `fm` executable. `--python 3.14` makes uv build the tool environment on 3.14, downloading that interpreter when the system has none; 3.13 works too.
-
-=== "pipx"
-
-    ```bash
-    # Install stable release
-    pipx install --python 3.14 frappe-manager
-
-    # Upgrade later
-    pipx upgrade frappe-manager
-    ```
-
-    Unlike uv, pipx does not download interpreters by default. If 3.14 is not already installed locally, either install it yourself or add `--fetch-python missing`.
-
-=== "pip"
-
-    ```bash
-    # Not recommended for system installs; prefer uv or pipx
-    pip install frappe-manager
-    ```
-
-    This uses whichever interpreter owns that `pip`, so it only gets you current fm if that interpreter is 3.13 or 3.14.
-
-!!! warning "Keep the `--python` pin"
-    Installing on an older interpreter does not fail. Every installer here resolves the newest fm release whose `requires-python` that interpreter satisfies, so a 3.12 environment silently gets you **fm 0.18.0** instead of an error, and that build then crashes on import against current dependencies. Pin the interpreter and you get the current release or a clear resolution error.
-
-## Development Version
-
-🚧 **For testing unreleased features and contributing**
-
-Install the latest development version directly from the GitHub `develop` branch.
-
-!!! warning "Unstable code"
-    The development version contains unreleased features and may be unstable. Only use this if you're:
-
-    - Testing new features before release
-    - Contributing to Frappe Manager development
-    - Reporting bugs that may already be fixed
+📦 **For production use and general development.** The latest release from PyPI, and what most people want.
 
 === "uv"
 
     ```bash
-    # Install development version
-    uv tool install --python 3.14 git+https://github.com/rtcamp/frappe-manager@develop
-
-    # Try without installing
-    uvx --python 3.14 --from git+https://github.com/rtcamp/frappe-manager@develop fm --help
-
-    # Pull the latest commits on develop
-    uv tool install --python 3.14 --force --reinstall git+https://github.com/rtcamp/frappe-manager@develop
+    uv tool install --python 3.13 frappe-manager
     ```
 
-    `--force` overwrites the existing install; `--reinstall` refreshes uv's cache, which is what actually picks up new commits on the branch.
+    To try it without installing:
+
+    ```bash
+    uvx --python 3.13 --from frappe-manager fm --help
+    ```
+
+    `--from` tells `uvx` which package provides the `fm` executable. Upgrade later with `uv tool upgrade frappe-manager`.
 
 === "pipx"
 
     ```bash
-    # Install development version
-    pipx install --python 3.14 git+https://github.com/rtcamp/frappe-manager@develop
-
-    # Pull the latest commits on develop
-    pipx install --force --python 3.14 git+https://github.com/rtcamp/frappe-manager@develop
+    pipx install --python 3.13 frappe-manager
     ```
+
+    Unlike uv, pipx does not download interpreters. If 3.13 is not already on the machine, install it yourself or add `--fetch-python missing`. Upgrade later with `pipx upgrade frappe-manager`.
+
+=== "pip"
+
+    ```bash
+    pip install frappe-manager
+    ```
+
+    Not recommended for a system install. This uses whichever interpreter owns that `pip`, so it only gets you current fm if that interpreter is 3.13 or 3.14.
+
+!!! warning "Keep the `--python` pin"
+    Installing on an older interpreter does not fail. Every installer here resolves the newest fm release whose `requires-python` that interpreter satisfies, so a 3.12 environment silently gets you **fm 0.18.0** instead of an error, and that build then crashes on import against current dependencies. Pin the interpreter and you get the current release or a clear resolution error.
+
+## Install the development version
+
+🚧 **For testing unreleased features and contributing.** The `develop` branch carries unreleased, possibly broken code.
+
+!!! warning "Unstable code"
+    A dev build can break in ways a release will not. Only use it if you are testing an unreleased feature, contributing to fm, or chasing a bug that may already be fixed.
+
+=== "uv"
+
+    ```bash
+    uv tool install --python 3.13 git+https://github.com/rtcamp/frappe-manager@develop
+    ```
+
+    To pull later commits on the branch:
+
+    ```bash
+    uv tool install --python 3.13 --force --reinstall git+https://github.com/rtcamp/frappe-manager@develop
+    ```
+
+    `--force` overwrites the existing install; `--reinstall` refreshes uv's cache, which is what actually picks up new commits.
+
+=== "pipx"
+
+    ```bash
+    pipx install --python 3.13 git+https://github.com/rtcamp/frappe-manager@develop
+    ```
+
+    To pull later commits, repeat the command with `--force`.
 
 !!! note "`fm self upgrade` will not move a dev build"
     A dev build is ahead of the released version on PyPI, so `fm self upgrade` reports it as up to date and leaves it alone rather than downgrade the CLI under benches a newer fm wrote. Re-run the install command above instead.
 
-## Verify the install
+## Verify
 
 ```bash
 fm --version
 ```
 
-If the command is not found, the tool's bin directory is not on your `PATH`. Fix it with `uv tool update-shell` or `pipx ensurepath`, then open a new shell.
+If the command is not found, the tool's bin directory is not on your `PATH`. Run `uv tool update-shell` or `pipx ensurepath`, then open a new shell.
+
+## Windows
+
+fm runs on Windows through WSL 2. Install it inside the WSL distro exactly as you would on Linux, and use Docker Desktop's WSL 2 backend with integration enabled for that distro so fm can reach the Docker socket.
+
+Keep `~/frappe/` on the Linux filesystem (`/home/youruser/frappe`), never under `/mnt/c/`. Bench workspaces are bind-mounted into containers and cross-filesystem mounts are slow.
+
+Windows 11 resolves `*.localhost` on its own. Windows 10 may need an entry in `C:\Windows\System32\drivers\etc\hosts`:
+
+```text
+127.0.0.1 mybench.localhost
+```
 
 ## What gets installed where
 
-Frappe Manager keeps everything under `~/frappe/`. Set `FRAPPE_MANAGER_HOME` to move that workspace somewhere else.
+Everything lives under `~/frappe/`. Set `FRAPPE_MANAGER_HOME` to move that workspace.
 
 | Directory | What lives there |
 |---|---|
@@ -130,7 +121,7 @@ Frappe Manager keeps everything under `~/frappe/`. Set `FRAPPE_MANAGER_HOME` to 
 
 ## Upgrading fm
 
-Run these three commands, in this order. The first updates the CLI; the second brings fm's own config and the global services up to match it; the third brings your benches up to match those.
+Run these three commands in this order. The first updates the CLI, the second brings fm's own config and the shared services up to match it, the third brings your benches up to match those.
 
 ```bash
 fm self upgrade
@@ -138,9 +129,4 @@ fm services migrate
 fm migrate all
 ```
 
-Do not skip a step: `fm migrate` refuses to run while the global services & configuration are behind, and every other bench command refuses to run against a bench that is behind the installed fm. See [Migrations](../reference/migrations.md) for what each command does and how its backups and rollback work.
-
-## Next steps
-
-- [Quick Start](quick-start.md): create your first bench.
-- [Concepts](../concepts/index.md): five minutes on the mental model.
+Do not skip a step. `fm migrate` refuses to run while the shared services and configuration are behind, and every other bench command refuses to run against a bench that is behind the installed fm. [Migrations](../reference/migrations.md) covers what each command does and how its backups and rollback work.

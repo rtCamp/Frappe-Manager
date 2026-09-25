@@ -16,20 +16,20 @@ console = Console()
 # Related-guide links appended to generated command pages.
 # Keyed by the output file stem in docs/commands/; URLs are relative to docs/commands/.
 RELATED_GUIDES: dict[str, list[tuple[str, str]]] = {
-    "switch": [("Deployment guide", "../deploy/index.md"), ("Rolling back", "../deploy/rollback.md")],
-    "bake": [("Deployment guide", "../deploy/index.md")],
-    "prune": [("Deployment guide", "../deploy/index.md")],
-    "ssl": [("SSL / HTTPS guide", "../guides/ssl.md")],
-    "ssl-dns-config-cloudflare": [("SSL / HTTPS guide", "../guides/ssl.md")],
-    "ngrok": [("Domains & Remote Access", "../guides/domains.md")],
-    "create": [("Runtimes: Mount vs Image", "../concepts/runtimes.md")],
-    "restart": [("fmx: In-Container Service Manager", "../guides/fmx.md")],
+    "switch": [("Deployment", "../deploy/index.md"), ("Rollback", "../deploy/rollback.md")],
+    "bake": [("Deployment", "../deploy/index.md")],
+    "prune": [("Deployment", "../deploy/index.md")],
+    "ssl": [("HTTPS certificates", "../guides/ssl.md")],
+    "ssl-dns-config-cloudflare": [("HTTPS certificates", "../guides/ssl.md")],
+    "ngrok": [("Domains and remote access", "../guides/domains.md")],
+    "create": [("Runtimes: mount vs image", "../concepts/runtimes.md")],
+    "restart": [("fmx: in-container services", "../guides/fmx.md")],
     "update": [
-        ("App Management", "../guides/app-management.md"),
-        ("Python & Node Versions", "../guides/python-node-versions.md"),
+        ("App management", "../guides/app-management.md"),
+        ("Python and Node versions", "../guides/python-node-versions.md"),
     ],
     "migrate": [("Migrations", "../reference/migrations.md")],
-    "logs": [("Logs & Debugging", "../reference/logs.md")],
+    "logs": [("Logs and debugging", "../reference/logs.md")],
 }
 
 
@@ -38,7 +38,7 @@ def append_related_section(md: str, name: str) -> str:
     if not links:
         return md
     lines = "".join(f"- [{label}]({url})\n" for label, url in links)
-    return md.rstrip("\n") + f"\n\n## Related\n\n{lines}"
+    return md.rstrip("\n") + f"\n\n## See also\n\n{lines}"
 
 
 def load_examples(app: typer.Typer) -> dict:
@@ -67,6 +67,34 @@ def load_examples(app: typer.Typer) -> dict:
         return {}
 
 
+def value_metavar(annotation: Any) -> str | None:
+    """The placeholder `--help` shows after an option that takes a value; None for bare flags."""
+    import enum
+    import types
+
+    origin = get_origin(annotation)
+    if origin in (list, set, tuple):
+        args = get_args(annotation)
+        return value_metavar(args[0]) if args else "TEXT"
+    if origin is types.UnionType or str(origin) == "typing.Union":
+        for arg in get_args(annotation):
+            if arg is not type(None):
+                return value_metavar(arg)
+        return None
+    if isinstance(annotation, type):
+        if issubclass(annotation, bool):
+            return None
+        if issubclass(annotation, enum.Enum):
+            return "[" + "|".join(str(m.value) for m in annotation) + "]"
+        if issubclass(annotation, int):
+            return "INTEGER"
+        if issubclass(annotation, float):
+            return "FLOAT"
+        if annotation.__name__ in ("Path", "PosixPath", "WindowsPath"):
+            return "PATH"
+    return "TEXT"
+
+
 def extract_param_info(param_name: str, param: inspect.Parameter) -> dict[str, Any]:
     annotation = param.annotation
     default_val = param.default
@@ -80,6 +108,7 @@ def extract_param_info(param_name: str, param: inspect.Parameter) -> dict[str, A
         "is_option": False,
         "is_argument": False,
         "metavar": None,
+        "value_metavar": None,
         "option_names": [],
     }
 
@@ -104,6 +133,7 @@ def extract_param_info(param_name: str, param: inspect.Parameter) -> dict[str, A
 
             if "OptionInfo" in class_name or "Option" in class_name:
                 info["is_option"] = True
+                info["value_metavar"] = getattr(typer_info, "metavar", None) or value_metavar(actual_type)
                 if hasattr(typer_info, "help"):
                     info["help"] = typer_info.help or ""
 
@@ -124,11 +154,25 @@ def extract_param_info(param_name: str, param: inspect.Parameter) -> dict[str, A
 
                 info["option_names"] = option_names
 
+                # Annotated params carry their default on the signature (`x: Annotated[...] = False`),
+                # never on the OptionInfo, whose own `default` is Ellipsis. Reading only the latter
+                # dropped the default off every option on every generated page.
+                raw_default = None
                 if hasattr(typer_info, "default") and typer_info.default is not None:
-                    default_value = typer_info.default
-                    if not isinstance(default_value, str) or not default_value.startswith("--"):
-                        if default_value is not ... and str(default_value) != "Ellipsis":
-                            info["default"] = str(default_value)
+                    candidate = typer_info.default
+                    if not (isinstance(candidate, str) and candidate.startswith("--")):
+                        if candidate is not ... and str(candidate) != "Ellipsis":
+                            raw_default = candidate
+                if raw_default is None and default_val is not inspect.Parameter.empty:
+                    if default_val is not ... and str(default_val) != "Ellipsis" and default_val is not None:
+                        raw_default = default_val
+                if raw_default is not None and not isinstance(raw_default, typer.models.ParameterInfo):
+                    if isinstance(raw_default, bool):
+                        info["default"] = "true" if raw_default else "false"
+                    elif hasattr(raw_default, "value"):
+                        info["default"] = str(raw_default.value)
+                    else:
+                        info["default"] = str(raw_default)
 
             elif "ArgumentInfo" in class_name or "Argument" in class_name:
                 info["is_argument"] = True
@@ -206,10 +250,17 @@ def extract_typer_structure(app: typer.Typer, path: list[str] | None = None) -> 
         group_path = path + [group_name]
 
         sub_structure = extract_typer_structure(group_typer, group_path)
+        group_help = group.help or ""
+        if not group_help and group_typer.info.help:
+            group_help = group_typer.info.help
+        if not group_help and group_typer.registered_callback is not None:
+            group_help = inspect.getdoc(group_typer.registered_callback.callback) or ""
+
         structure["groups"].append(
             {
                 "name": group_name,
                 "path": group_path,
+                "help": group_help.strip(),
                 "structure": sub_structure,
             }
         )
@@ -231,11 +282,13 @@ def get_examples_for_command(examples_data: dict, command_path: list[str]) -> li
     return None
 
 
-def format_examples(examples: list[dict], command_path: list[str], benchname: str = "mybench") -> str:
+def format_examples(examples: list[dict], command_path: list[str], level: int, benchname: str = "mybench") -> str:
     if not examples:
         return ""
 
-    md = "\n## Examples\n\n"
+    from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
+
+    md = "\n" + "#" * level + " Examples\n\n"
 
     for example in examples:
         desc = example.get("desc", "")
@@ -246,11 +299,11 @@ def format_examples(examples: list[dict], command_path: list[str], benchname: st
         template_vars = {
             "benchname": custom_benchname,
             "domain": "example.com",
-            "default_version": "version-15",
+            "default_version": STABLE_APP_BRANCH_MAPPING_LIST["frappe"],
         }
 
         desc_formatted = desc.format(**template_vars)
-        md += f"### {desc_formatted}\n\n"
+        md += "#" * (level + 1) + f" {desc_formatted}\n\n"
 
         if detail:
             detail_formatted = detail.format(**template_vars)
@@ -266,7 +319,7 @@ def format_examples(examples: list[dict], command_path: list[str], benchname: st
     return md
 
 
-def generate_command_markdown(cmd_info: dict, examples_data: dict, level: int = 2) -> str:
+def generate_command_markdown(cmd_info: dict, examples_data: dict, level: int = 1) -> str:
     heading = "#" * level
     command_path = cmd_info["path"]
     full_command = "fm " + " ".join(command_path)
@@ -305,11 +358,16 @@ def generate_command_markdown(cmd_info: dict, examples_data: dict, level: int = 
         md += "**Options**:\n\n"
         for opt in options:
             opt_names = opt.get("option_names", [f"--{opt['name'].replace('_', '-')}"])
-            opt_text = f"* `{', '.join(opt_names)}`"
+            signature = ", ".join(opt_names)
+            metavar = opt.get("value_metavar")
+            if metavar:
+                signature += f" {metavar}"
+            opt_text = f"* `{signature}`"
             if opt["help"]:
                 opt_text += f": {opt['help']}"
-            if opt["default"] and opt["default"] != "None":
-                opt_text += f"  [default: {opt['default']}]"
+            default = opt["default"]
+            if default and default not in ("None", "[]", "()", "{}"):
+                opt_text += f"  [default: {default}]"
             md += f"{opt_text}\n"
         md += "\n"
 
@@ -327,30 +385,46 @@ def generate_command_markdown(cmd_info: dict, examples_data: dict, level: int = 
         examples = get_examples_for_command(examples_data, command_path)
 
     if examples:
-        md += format_examples(examples, command_path)
+        md += format_examples(examples, command_path, level=level + 1)
 
     return md
 
 
-def generate_group_markdown(group_info: dict, examples_data: dict, level: int = 2) -> str:
+def _subcommand_rows(structure: dict, prefix: str) -> list[tuple[str, str]]:
+    rows = []
+    for cmd in structure["commands"]:
+        desc = cmd["description"].split("\n")[0] if cmd["description"] else ""
+        rows.append((f"{prefix} {cmd['name']}", desc))
+    for sub in structure["groups"]:
+        desc = sub.get("help", "").split("\n")[0]
+        rows.append((f"{prefix} {sub['name']}", desc))
+    return rows
+
+
+def _anchor(command: str) -> str:
+    return "#" + command.replace(" ", "-")
+
+
+def generate_group_markdown(group_info: dict, examples_data: dict, level: int = 1) -> str:
     heading = "#" * level
     group_path = group_info["path"]
     full_command = "fm " + " ".join(group_path)
 
     md = f"{heading} `{full_command}`\n\n"
-    md += f"{group_info['name'].title()} commands.\n\n"
+
+    group_help = group_info.get("help", "").strip()
+    if group_help:
+        md += f"{group_help}\n\n"
+
     md += "**Usage**:\n\n```console\n"
-    md += f"$ {full_command} [OPTIONS] COMMAND [ARGS]...\n```\n\n"
-    md += "**Options**:\n\n* `--help`: Show this message and exit.\n\n"
+    md += f"$ {full_command} COMMAND [ARGS]...\n```\n\n"
 
     structure = group_info["structure"]
-
-    if structure["commands"]:
-        md += "**Commands**:\n\n"
-        for cmd in structure["commands"]:
-            cmd_name = cmd["name"]
-            desc = cmd["description"].split("\n")[0] if cmd["description"] else f"{cmd_name.title()} command"
-            md += f"* `{cmd_name}`: {desc}\n"
+    rows = _subcommand_rows(structure, full_command)
+    if rows:
+        md += "| Command | Description |\n|---|---|\n"
+        for command, desc in rows:
+            md += f"| [`{command}`]({_anchor(command)}) | {desc} |\n"
         md += "\n"
 
     for cmd in structure["commands"]:
@@ -499,6 +573,13 @@ def update_readme_command_reference(readme_path: Path, structure: dict) -> bool:
     return True
 
 
+def normalize_markdown(md: str) -> str:
+    """Collapse the blank-line runs the section builders leave behind, so a regenerate is a no-op."""
+    import re
+
+    return re.sub(r"\n{3,}", "\n\n", md).rstrip("\n") + "\n"
+
+
 def generate_all_docs(output_dir: Path, update_readme: bool = False) -> dict:
     console.print("[bold blue]Generating CLI documentation...[/bold blue]")
 
@@ -524,8 +605,8 @@ def generate_all_docs(output_dir: Path, update_readme: bool = False) -> dict:
 
     for cmd_info in structure["commands"]:
         cmd_name = cmd_info["name"]
-        md_content = generate_command_markdown(cmd_info, examples_data, level=2)
-        md_content = append_related_section(md_content, cmd_name)
+        md_content = generate_command_markdown(cmd_info, examples_data, level=1)
+        md_content = normalize_markdown(append_related_section(md_content, cmd_name))
 
         output_file = commands_dir / f"{cmd_name}.md"
         output_file.write_text(md_content)
@@ -534,8 +615,8 @@ def generate_all_docs(output_dir: Path, update_readme: bool = False) -> dict:
 
     for group_info in structure["groups"]:
         group_name = group_info["name"]
-        md_content = generate_group_markdown(group_info, examples_data, level=2)
-        md_content = append_related_section(md_content, group_name)
+        md_content = generate_group_markdown(group_info, examples_data, level=1)
+        md_content = normalize_markdown(append_related_section(md_content, group_name))
 
         output_file = commands_dir / f"{group_name}.md"
         output_file.write_text(md_content)

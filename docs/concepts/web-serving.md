@@ -1,4 +1,4 @@
-# Web Serving & Concurrency
+# Web serving and concurrency
 
 How a request reaches your site, and how many requests a bench can handle at once.
 
@@ -18,7 +18,7 @@ A miss falls through to the web process, and that rescues a `dev` bench only: `b
 
 ## The web process: dev server vs Gunicorn
 
-Which web process runs is decided by the bench's [environment](../guides/environments.md):
+Which web process runs is decided by the bench's [environment](environments.md):
 
 | | `dev` | `prod` |
 |---|---|---|
@@ -27,7 +27,7 @@ Which web process runs is decided by the bench's [environment](../guides/environ
 | Hot reload | yes (Werkzeug's reloader for Python, `bench watch` for assets) | no |
 | On crash | stays down: supervisor does not restart the dev server | restarted by supervisor |
 
-Switching is a settings change: `fm update mybench --environment prod` (see [Environments](../guides/environments.md)).
+Switching is a settings change: `fm update mybench --environment prod` (see [Environments](environments.md)).
 
 ## Gunicorn workers and threads
 
@@ -79,6 +79,6 @@ TLS terminates at the global proxy, so the bench's nginx and Frappe both speak p
 
 ## See also
 
-- [Background Jobs & Workers](background-jobs.md): the other kind of "worker"
-- [Environments](../guides/environments.md): switching dev/prod
+- [Background jobs and workers](background-jobs.md): the other kind of "worker"
+- [Environments](environments.md): switching dev/prod
 - [Architecture](../reference/architecture.md): containers and networking

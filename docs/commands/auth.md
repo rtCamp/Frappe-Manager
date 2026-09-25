@@ -1,17 +1,33 @@
-## `fm auth`
+# `fm auth`
 
 Put an HTTP basic auth prompt in front of a bench: the site, the admin tools, or both.
 
---protect is declarative: the surfaces you pass become the resulting state, and a bench starts with the admin tools prompting and the site open, so --protect web alone also turns the tools prompt off; name both surfaces to keep both. Credentials and allow lists are kept when a surface goes off, so re-enabling asks for nothing. A bare fm auth BENCH reports the state.
+**Usage**:
 
-BENCH/SITE protects the web surface of one site, with credentials of its own, and leaves the bench's other sites serving as before. A site with no auth of its own follows the bench, so fm auth BENCH still covers every site. --protect tools takes no site part: one Adminer and one Mailpit serve the whole bench, on every hostname it has.
+```console
+$ fm auth COMMAND [ARGS]...
+```
+
+| Command | Description |
+|---|---|
+| [`fm auth enable`](#fm-auth-enable) | Put an HTTP basic auth prompt in front of a bench: the site, the admin tools, or both. |
+| [`fm auth disable`](#fm-auth-disable) | Stop a surface asking for a password, keeping the credentials for later. |
+| [`fm auth status`](#fm-auth-status) | Report which surfaces are protected, with the credentials and allow lists while a surface is protected. |
+
+## `fm auth enable`
+
+Put an HTTP basic auth prompt in front of a bench: the site, the admin tools, or both.
+
+--web and --tools select which surfaces this acts on, and naming one says nothing about the other: 'fm auth enable BENCH --web' leaves the admin tools exactly as they were. Naming neither acts on both. Credentials and allow lists are kept when a surface goes off, so re-enabling asks for nothing.
+
+BENCH/SITE protects the web surface of one site, with credentials of its own, and leaves the bench's other sites serving as before. A site with no auth of its own follows the bench, so 'fm auth enable BENCH' still covers every site. --tools takes no site part: one Adminer and one Mailpit serve the whole bench, on every hostname it has.
 
 Basic auth sends credentials base64-encoded, not encrypted, so on a bench without TLS they are effectively cleartext: protecting the web surface there needs --insecure. The certificate checked is the one for the hostname you named.
 
 **Usage**:
 
 ```console
-$ fm auth BENCH(/SITE) [OPTIONS]
+$ fm auth enable BENCH(/SITE) [OPTIONS]
 ```
 
 **Arguments**:
@@ -20,65 +36,133 @@ $ fm auth BENCH(/SITE) [OPTIONS]
 
 **Options**:
 
-* `--protect`: Surface that asks for the password (repeatable). web = frappe and socketio, tools = /adminer/ and /mailpit/.
-* `--off`: Turn the prompt off on both surfaces, keeping the credentials.
-* `--status`: Report which surfaces are protected, with the credentials and allow lists while a surface is protected. Writes nothing.
-* `--user`: Basic auth username for the scope you named: both surfaces of the bench, or that one site. Defaults to 'admin'.
-* `--password`: Basic auth password. Pass - to read it from stdin, keeping it out of the shell history. A random one is minted on the first enable.
-* `--rotate`: Replace the password with a fresh random one, invalidating browser sessions that cached the old one.
-* `--allow-ip`: Address or CIDR that skips the prompt (repeatable; replaces the stored list). Behind a CDN this needs real-IP forwarding, see fm services real-ip.
-* `--allow-path`: Absolute path prefix served without a prompt, e.g. /api/method/payment_webhook (repeatable; replaces the stored list). Web surface only.
-* `--clear-exemptions`: Empty both allow lists. Applied before any --allow-ip/--allow-path in the same call.
-* `--insecure`: Protect the web surface on a bench without TLS anyway, and silence the same warning on the tools surface.
+* `--web`: Act on the web surface: frappe and socketio.  [default: false]
+* `--tools`: Act on the admin tools surface: /adminer/ and /mailpit/. Bench-wide, so it takes no site part.  [default: false]
+* `--user TEXT`: Basic auth username for the scope you named: both surfaces of the bench, or that one site. Defaults to 'admin'.
+* `--password TEXT`: Basic auth password. Pass - to read it from stdin, keeping it out of the shell history. A random one is minted on the first enable.
+* `--rotate`: Replace the password with a fresh random one, invalidating browser sessions that cached the old one.  [default: false]
+* `--allow-ip TEXT`: Address or CIDR that skips the prompt (repeatable; replaces the stored list). Behind a CDN this needs real-IP forwarding, see fm services real-ip.
+* `--allow-path TEXT`: Absolute path prefix served without a prompt, e.g. /api/method/payment_webhook (repeatable; replaces the stored list). Web surface only.
+* `--clear-exemptions`: Empty both allow lists. Applied before any --allow-ip/--allow-path in the same call.  [default: false]
+* `--insecure`: Protect the web surface on a bench without TLS anyway, and silence the same warning on the tools surface.  [default: false]
 
+### Examples
 
-## Examples
+#### Password-protect the whole bench
 
-### Password-protect the whole bench
-
-Prompts for frappe and socketio, and prints the credentials. Turns the admin tools prompt off: add --protect tools to keep both.
+Both surfaces prompt: frappe and socketio, and /adminer/ and /mailpit/. Prints the credentials.
 
 ```bash
-fm auth mybench --protect web
+fm auth enable mybench
 ```
 
-### Protect the admin tools only
+#### Protect the site, leaving the admin tools as they are
 
-Leaves the site open. This is a bench's default state.
+Naming a surface acts on that surface only; the other keeps whatever state it had.
 
 ```bash
-fm auth mybench --protect tools
+fm auth enable mybench --web
 ```
 
-### Protect one site of a bench
+#### Protect one site of a bench
 
-That site's hostnames prompt with credentials of its own; the bench's other sites keep serving exactly as before. A site with no auth of its own follows the bench, so a plain 'fm auth mybench --protect web' still covers every site.
+That site's hostnames prompt with credentials of its own; the bench's other sites keep serving exactly as before. A site with no auth of its own follows the bench, so 'fm auth enable mybench --web' still covers every site.
 
 ```bash
-fm auth mybench/b.example.com --protect web
+fm auth enable mybench/b.example.com --web
 ```
 
-### Set your own credentials
+#### Set your own credentials
 
 Reads the password from stdin, so it never lands in the shell history.
 
 ```bash
-fm auth mybench --protect web --protect tools --user alice --password -
+fm auth enable mybench --user alice --password -
 ```
 
-### Let a webhook through
+#### Let a webhook through
 
 Exempt paths replace the stored list; omitting the flag keeps it.
 
 ```bash
-fm auth mybench --protect web --allow-path /api/method/payment_webhook
+fm auth enable mybench --web --allow-path /api/method/payment_webhook
 ```
 
-### Show the state, or remove the prompt
+## `fm auth disable`
 
---off turns both surfaces off and keeps the credentials for later.
+Stop a surface asking for a password, keeping the credentials for later.
+
+--web and --tools select which surfaces this acts on, and naming one says nothing about the other: 'fm auth disable BENCH --web' leaves the admin tools prompting. Naming neither acts on both.
+
+Credentials and allow lists are kept, so 'fm auth enable' afterwards asks for nothing.
+
+**Usage**:
+
+```console
+$ fm auth disable BENCH(/SITE) [OPTIONS]
+```
+
+**Arguments**:
+
+* `BENCH(/SITE)`: Bench, or BENCH/SITE for one of its sites. Without a site part the whole bench is addressed: every site that has no auth of its own follows it.
+
+**Options**:
+
+* `--web`: Act on the web surface: frappe and socketio.  [default: false]
+* `--tools`: Act on the admin tools surface: /adminer/ and /mailpit/. Bench-wide, so it takes no site part.  [default: false]
+
+### Examples
+
+#### Stop asking for a password anywhere on the bench
+
+Both surfaces stop prompting. The credentials stay stored and apply again on the next enable.
 
 ```bash
-fm auth mybench --status
+fm auth disable mybench
 ```
 
+#### Open the site, keeping the admin tools protected
+
+Naming a surface acts on that surface only; the other keeps whatever state it had.
+
+```bash
+fm auth disable mybench --web
+```
+
+#### Stop one site prompting
+
+```bash
+fm auth disable mybench/b.example.com
+```
+
+## `fm auth status`
+
+Report which surfaces are protected, with the credentials and allow lists while a surface is protected.
+
+Writes nothing. A site with no auth of its own follows the bench, and is reported as inherited.
+
+**Usage**:
+
+```console
+$ fm auth status BENCH(/SITE)
+```
+
+**Arguments**:
+
+* `BENCH(/SITE)`: Bench, or BENCH/SITE for one of its sites. Without a site part the whole bench is addressed: every site that has no auth of its own follows it.
+
+### Examples
+
+#### Show which surfaces of a bench ask for a password
+
+```bash
+fm auth status mybench
+```
+
+#### Show one site's own auth
+
+A site with no auth of its own reports the bench's, and says so.
+
+```bash
+fm auth status mybench/b.example.com
+```

@@ -1,4 +1,4 @@
-## `fm create`
+# `fm create`
 
 Create a new bench, or add a site to one that already exists.
 
@@ -20,37 +20,36 @@ $ fm create BENCH(/SITE) [OPTIONS]
 
 **Options**:
 
-* `-e, --environment`: Bench environment; sets the dev-mode and restart defaults.
-* `-a, --apps`: App to install: appname or owner/repo, optional :branch (repeatable). Frappe is always first.
-* `--developer-mode`: Let DocType edits write app source files. Already on for a dev-environment bench.
-* `--bench-only`: Create the bench (config, directory, workspace or image, and containers) with no site in it. 'fm create BENCH/SITE' adds a site afterwards, into the workspace and containers already there. Every Site Option is ignored: there is no site yet for them to describe.
-* `--remove-on-failure`: On failure, skip the removal prompt and remove the bench directory and its containers, interactively or not, instead of asking (interactive) or declining and reporting (non-interactive). The command still exits non-zero either way: this cleans up, it does not turn the failure into success. Never drops a schema on an external database (--db-host); that stays declined whether this is passed or not.
-* `--dry-run`: Print the bench_config.toml this invocation would write, after --config and the flags are merged, and exit without creating anything.
-* `-t, --github-token`: Token for cloning private app repos.
-* `--python`: Python version, e.g. '3.11'. Auto-detected by default.
-* `--node`: Node version, e.g. '20'. Auto-detected by default.
-* `--restart-policy`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
-* `--runtime`: 'mount' (default) live-mounts an editable workspace; 'image' runs a pre-built app image, moved to a new image with 'fm switch'.
-* `--base-image`: The image the bench's containers run (repo:tag). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another image.
-* `--seed-image`: Mount runtime: seed the workspace from a baked app image (repo:tag) instead of cloning and installing apps. --apps, --python and --node then override what it carries. This is a one-time copy, not what the containers run: see --base-image.
-* `--config`: TOML base config: file path or inline. Explicit flags win; later --config wins.
-* `--redis-cache`: External redis URL for the framework cache, e.g. redis://r.example:6379/0. Independent of the queue: either side may stay on fm's own container.
-* `--redis-queue`: External redis URL for the queue and realtime. Use a different logical index from --redis-cache: a restore mass-deletes the cache index.
-* `--admin-pass`: Administrator password for sites created on this bench.
-* `--allow-domain-conflicts`: Skip the domain uniqueness check.
-* `--alias-domains`: Extra domains THIS SITE answers on (comma-separated). Certificates come from 'fm ssl add'.
-* `--db-host`: External MariaDB host, replacing fm's mariadb container. MySQL is not a supported backend.
-* `--db-port`: Port of the external database server.
-* `--db-name`: Schema on that server this site lives in. Required with --db-host.
-* `--db-user`: Login user for the schema. Defaults to the schema name, and must equal it on a v15 bench.
-* `--db-password`: Password of the site's database login. Pass - for stdin; omit with --db-admin-user to generate one.
-* `--db-admin-user`: Administrative login, used once at create time to create the schema, the site user and the grant. Never stored.
-* `--db-admin-password`: Password for --db-admin-user. Pass - to read it from stdin.
-* `--db-ca`: Host path to the CA bundle signing the server certificate. Required whenever the server enforces TLS.
-* `--db-no-verify-hostname`: Check the certificate chain but not that the certificate names the host dialled.
-* `--attach-existing-site`: The schema already holds a Frappe site: build the bench around it and write nothing to the database.
-* `--encryption-key`: The attached site's encryption_key, - to read from stdin. Without it Frappe mints a new one and existing encrypted secrets stop being readable.
-
+* `-e, --environment [prod|dev]`: Bench environment; sets the dev-mode and restart defaults.  [default: dev]
+* `-a, --apps TEXT`: App to install: appname or owner/repo, optional :branch (repeatable). Frappe is always first.
+* `--developer-mode [enable|disable]`: Let DocType edits write app source files. Already on for a dev-environment bench.  [default: disable]
+* `--bench-only`: Create the bench (config, directory, workspace or image, and containers) with no site in it. 'fm create BENCH/SITE' adds a site afterwards, into the workspace and containers already there. Every Site Option is ignored: there is no site yet for them to describe.  [default: false]
+* `--remove-on-failure`: On failure, skip the removal prompt and remove the bench directory and its containers, interactively or not, instead of asking (interactive) or declining and reporting (non-interactive). The command still exits non-zero either way: this cleans up, it does not turn the failure into success. Never drops a schema on an external database (--db-host); that stays declined whether this is passed or not.  [default: false]
+* `--dry-run`: Print the bench_config.toml this invocation would write, after --config and the flags are merged, and exit without creating anything.  [default: false]
+* `-t, --github-token TEXT`: Token for cloning private app repos.
+* `--python TEXT`: Python version, e.g. '3.11'. Auto-detected by default.
+* `--node TEXT`: Node version, e.g. '20'. Auto-detected by default.
+* `--restart-policy [no|always|on-failure|unless-stopped]`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
+* `--runtime [mount|image]`: 'mount' (default) live-mounts an editable workspace; 'image' runs a pre-built app image, moved to a new image with 'fm switch'.
+* `--base-image TEXT`: The image the bench's containers run (repo:tag). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another image.
+* `--seed-image TEXT`: Mount runtime: seed the workspace from a baked app image (repo:tag) instead of cloning and installing apps. --apps, --python and --node then override what it carries. This is a one-time copy, not what the containers run: see --base-image.
+* `--config TEXT`: TOML base config: file path or inline. Explicit flags win; later --config wins.
+* `--redis-cache TEXT`: External redis URL for the framework cache, e.g. redis://r.example:6379/0. Independent of the queue: either side may stay on fm's own container.
+* `--redis-queue TEXT`: External redis URL for the queue and realtime. Use a different logical index from --redis-cache: a restore mass-deletes the cache index.
+* `--admin-pass TEXT`: Administrator password for sites created on this bench.  [default: admin]
+* `--allow-domain-conflicts`: Skip the domain uniqueness check.  [default: false]
+* `--alias-domains TEXT`: Extra domains THIS SITE answers on (comma-separated). Certificates come from 'fm ssl add'.
+* `--db-host TEXT`: External MariaDB host, replacing fm's mariadb container. MySQL is not a supported backend.
+* `--db-port INTEGER`: Port of the external database server.  [default: 3306]
+* `--db-name TEXT`: Schema on that server this site lives in. Required with --db-host.
+* `--db-user TEXT`: Login user for the schema. Defaults to the schema name, and must equal it on a v15 bench.
+* `--db-password TEXT`: Password of the site's database login. Pass - for stdin; omit with --db-admin-user to generate one.
+* `--db-admin-user TEXT`: Administrative login, used once at create time to create the schema, the site user and the grant. Never stored.
+* `--db-admin-password TEXT`: Password for --db-admin-user. Pass - to read it from stdin.
+* `--db-ca PATH`: Host path to the CA bundle signing the server certificate. Required whenever the server enforces TLS.
+* `--db-no-verify-hostname`: Check the certificate chain but not that the certificate names the host dialled.  [default: false]
+* `--attach-existing-site`: The schema already holds a Frappe site: build the bench around it and write nothing to the database.  [default: false]
+* `--encryption-key TEXT`: The attached site's encryption_key, - to read from stdin. Without it Frappe mints a new one and existing encrypted secrets stop being readable.
 
 ## Examples
 
@@ -112,6 +111,6 @@ Pair with fm's own global -n: fm -n create mybench --apps erpnext --remove-on-fa
 fm create mybench --apps erpnext --remove-on-failure
 ```
 
-## Related
+## See also
 
-- [Runtimes: Mount vs Image](../concepts/runtimes.md)
+- [Runtimes: mount vs image](../concepts/runtimes.md)

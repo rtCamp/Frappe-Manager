@@ -1,4 +1,4 @@
-## `fm delete`
+# `fm delete`
 
 Delete a whole bench, or one site out of one.
 
@@ -20,12 +20,11 @@ $ fm delete BENCH(/SITE) [OPTIONS]
 
 **Options**:
 
-* `--all-sites`: Required to delete a bench that serves more than one site, and it means every one of them. A single-site bench does not need it, and a bench/site address refuses it because that address already names exactly one site.
-* `-y, --yes`: Delete without the removal confirmation, including the typed-name confirmation a multi-site bench asks for. The database question is asked anyway, and --all-sites is still required.
+* `--all-sites`: Required to delete a bench that serves more than one site, and it means every one of them. A single-site bench does not need it, and a bench/site address refuses it because that address already names exactly one site.  [default: false]
+* `-y, --yes`: Delete without the removal confirmation, including the typed-name confirmation a multi-site bench asks for. The database question is asked anyway, and --all-sites is still required.  [default: false]
 * `--delete-db-from-fm-mariadb/--no-delete-db-from-fm-mariadb`: Drop the schema and user from fm's own mariadb container, or keep them. Applies to every site being deleted that is on that container, and never touches a database on an external server. fm asks when neither is passed.
-* `--delete-backups`: Also delete the removed site's recorded database dumps. Off by default: a dump is the last copy of something, and once its history row is gone fm can no longer offer to prune it, so the paths are printed instead.
-* `--dry-run`: Print the deletion plan and exit without deleting anything; never prompts.
-
+* `--delete-backups`: Also delete the removed site's recorded database dumps. Off by default: a dump is the last copy of something, and once its history row is gone fm can no longer offer to prune it, so the paths are printed instead.  [default: false]
+* `--dry-run`: Print the deletion plan and exit without deleting anything; never prompts.  [default: false]
 
 ## Examples
 
@@ -72,4 +71,3 @@ fm delete mybench --yes --delete-db-from-fm-mariadb
 ```bash
 fm delete mybench --all-sites --yes --delete-db-from-fm-mariadb
 ```
-

@@ -1,4 +1,4 @@
-## `fm restart`
+# `fm restart`
 
 Restart bench services: web and workers by default, redis and nginx on request.
 
@@ -18,16 +18,15 @@ $ fm restart BENCH [OPTIONS]
 
 **Options**:
 
-* `--web`: Restart the web tier (frappe and socketio).
-* `--workers`: Restart the worker tier (schedule and the RQ workers).
-* `--redis`: Restart redis too; this briefly disconnects every consumer.
-* `--nginx`: Restart the bench nginx service, e.g. after a proxy or TLS config change.
-* `--container`: Restart whole containers instead of supervisor processes: slower, and it starts a stopped bench.
-* `--force`: Kill everything fast instead of restarting it gracefully. Implies --no-drain; conflicts with --drain and --rolling.
-* `--rolling`: Zero-downtime recreate of the web tier on the current image tag; image benches only. Web-only, so it conflicts with --redis, --nginx and --no-web.
-* `--drain/--no-drain`: Wait for in-flight RQ jobs before restarting workers, and abort the restart if they outlast \[workers].drain_timeout.
-* `--service`: Restart only the named service (repeatable); overrides the group flags and skips the drain.
-
+* `--web`: Restart the web tier (frappe and socketio).  [default: true]
+* `--workers`: Restart the worker tier (schedule and the RQ workers).  [default: true]
+* `--redis`: Restart redis too; this briefly disconnects every consumer.  [default: false]
+* `--nginx`: Restart the bench nginx service, e.g. after a proxy or TLS config change.  [default: false]
+* `--container`: Restart whole containers instead of supervisor processes: slower, and it starts a stopped bench.  [default: false]
+* `--force`: Kill everything fast instead of restarting it gracefully. Implies --no-drain; conflicts with --drain and --rolling.  [default: false]
+* `--rolling`: Zero-downtime recreate of the web tier on the current image tag; image benches only. Web-only, so it conflicts with --redis, --nginx and --no-web.  [default: false]
+* `--drain/--no-drain`: Wait for in-flight RQ jobs before restarting workers, and abort the restart if they outlast \[workers].drain_timeout.  [default: true]
+* `--service TEXT`: Restart only the named service (repeatable); overrides the group flags and skips the drain.
 
 ## Examples
 
@@ -65,6 +64,6 @@ fm restart mybench --service socketio
 fm restart mybench --rolling
 ```
 
-## Related
+## See also
 
-- [fmx: In-Container Service Manager](../guides/fmx.md)
+- [fmx: in-container services](../guides/fmx.md)

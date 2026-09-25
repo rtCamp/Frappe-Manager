@@ -1,4 +1,4 @@
-# Python & Node Versions
+# Python and Node versions
 
 Every Frappe bench needs a specific Python version for its virtual environment and a specific Node version for asset compilation. Frappe Manager handles both automatically, but you can pin exact versions if you need to.
 
@@ -114,4 +114,4 @@ The first reports the uv default interpreter; the second reports the one the ben
 Every Python dependency install runs `uv pip install` against the bench venv (`/workspace/frappe-bench/env/bin/python`), and a failed install is retried once with the same command. There is no pip path and no `use_uv` key in `bench_config.toml`.
 
 !!! info "See also"
-    [App Management](app-management.md): the same `fm update` command also adds apps or switches an app to another branch/ref.
+    [App management](app-management.md): the same `fm update` command also adds apps or switches an app to another branch/ref.

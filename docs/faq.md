@@ -1,6 +1,6 @@
 # FAQ
 
-## Getting Started
+## Getting started
 
 ### How do I install Frappe Manager?
 
@@ -8,7 +8,7 @@
 uv tool install --python 3.14 frappe-manager
 ```
 
-`uv` owns that command, not fm. For pipx, uvx, dev builds, and the prerequisites, see the [Installation guide](getting-started/installation.md).
+`uv` owns that command, not fm. For pipx, uvx, dev builds, and the prerequisites, see the [Installation](getting-started/installation.md).
 
 ### How do I update FM itself?
 
@@ -30,7 +30,7 @@ Yes. Each bench gets its own containers, workspace, apps and database schema. Tw
 
 ### How do I install ERPNext?
 
-At create time, `fm create mybench --apps erpnext`. On an existing `mount` bench, `fm apps add mybench erpnext`. Refs, private repos and monorepo layouts: [App Management](guides/app-management.md).
+At create time, `fm create mybench --apps erpnext`. On an existing `mount` bench, `fm apps add mybench erpnext`. Refs, private repos and monorepo layouts: [App management](guides/app-management.md).
 
 ### How do I check installed apps and versions?
 
@@ -40,7 +40,7 @@ fm info mybench
 
 ### How do I use a private GitHub repo for an app?
 
-Pass `--github-token YOUR_TOKEN` to `fm create`, or export `GITHUB_TOKEN` before running it. fm stores the token in the bench config, so a later `fm apps add` reuses it; `fm apps add` has no `--github-token` flag of its own. Either way fm checks the repo and ref with `git ls-remote` before it starts building, so a bad token fails early. See [App Management](guides/app-management.md).
+Pass `--github-token YOUR_TOKEN` to `fm create`, or export `GITHUB_TOKEN` before running it. fm stores the token in the bench config, so a later `fm apps add` reuses it; `fm apps add` has no `--github-token` flag of its own. Either way fm checks the repo and ref with `git ls-remote` before it starts building, so a bad token fails early. See [App management](guides/app-management.md).
 
 ### How do I change the Administrator password?
 
@@ -64,7 +64,7 @@ Backups are Frappe's job; fm just runs the command for you. `bench backup --with
 fm shell mybench -c "bench backup --with-files"
 ```
 
-Where the files land, scheduled backups, and restoring: [Backup & Restore](guides/backup-restore.md).
+Where the files land, scheduled backups, and restoring: [Backup and restore](guides/backup-restore.md).
 
 ### How do I run bench commands like migrate or build?
 
@@ -113,7 +113,7 @@ Work through these in order:
 - Docker is running: `docker ps`
 - The bench is listed and running: `fm list`
 - The global nginx proxy came up. It needs ports 80 and 443 on the host, so anything else already bound there will have stopped it: `fm services start all`
-- On Windows 10, `*.localhost` may not resolve; add a `hosts` entry as described in the [WSL guide](guides/wsl.md)
+- On Windows 10, `*.localhost` may not resolve; add a `hosts` entry as described in the [Installation](getting-started/installation.md#windows)
 - Still stuck? Read the log: `fm logs mybench -f`, then [Reading logs](reference/logs.md)
 
 ### Docker images fail to pull from GHCR. What can I try?
@@ -137,7 +137,7 @@ The default HTTP-01 challenge needs the domain's A record pointing at this serve
 
 Behind Cloudflare's proxy (orange cloud), add `--behind-proxy` to whichever method you pick, otherwise the origin's own redirect loops ([details](guides/ssl.md#behind-proxy)).
 
-Renewal is not automatic: run `fm ssl renew all` from a daily cron. A certificate imported with `--custom` is the one exception; fm never rotates it, re-import a fresh one instead. The [SSL guide](guides/ssl.md) has step-by-step instructions for all of it.
+Renewal is not automatic: run `fm ssl renew all` from a daily cron. A certificate imported with `--custom` is the one exception; fm never rotates it, re-import a fresh one instead. The [HTTPS certificates](guides/ssl.md) has step-by-step instructions for all of it.
 
 ### `fm info` says a site is `missing` or `unmanaged`. What do they mean?
 

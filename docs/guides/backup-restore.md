@@ -1,4 +1,4 @@
-# Backup & Restore
+# Backup and restore
 
 Three tools, three surfaces. Knowing which one you are talking to is most of this page.
 
@@ -71,7 +71,7 @@ bench --site mybench.localhost restore \
 `--with-public-files` and `--with-private-files` are `bench restore` flags, and both take the path to a tar file. At the `MySQL root password:` prompt, the user is `root` and the password is in `~/frappe/services/secrets/db_root_password.txt` on the host, which is where fm keeps the `mariadb` root credential. For a scripted restore, pass `--db-root-username` and `--db-root-password` on the command line instead of waiting for the prompt.
 
 !!! danger "An external database has no root credential to hand it"
-    On a bench with a `[database]` entry the schema lives on a server fm does not own. `bench restore` will still try to drop the schema and the login and recreate them, and fm holds no administrative credential for that server: `--db-admin-user` is create-time only and is never written to disk. Restoring there is between you and your database provider. See [External Database](external-database.md).
+    On a bench with a `[database]` entry the schema lives on a server fm does not own. `bench restore` will still try to drop the schema and the login and recreate them, and fm holds no administrative credential for that server: `--db-admin-user` is create-time only and is never written to disk. Restoring there is between you and your database provider. See [External database](external-database.md).
 
 ## fm's own backups
 
@@ -85,7 +85,7 @@ These exist so fm can undo fm. Neither of them contains your uploaded files, so 
 ~/frappe/sites/<benchname>/backups/migrations/<DD-Mon-YY--HH-MM-SS>/<fm version>/
 ```
 
-with `bench_config.toml`, `docker-compose.yml`, `common_site_config.json`, `site_config.json` and a gzipped `db-<benchname>-<date>.sql.gz`. The global services' `docker-compose.yml` is copied to `~/frappe/backups/migrations/<timestamp>/<fm version>/`. Individual migration versions back up extra files they rewrite; those are listed in the [Migration History](../reference/migration-history.md#version-backups). Timestamps within one run that would collide get microseconds appended.
+with `bench_config.toml`, `docker-compose.yml`, `common_site_config.json`, `site_config.json` and a gzipped `db-<benchname>-<date>.sql.gz`. The global services' `docker-compose.yml` is copied to `~/frappe/backups/migrations/<timestamp>/<fm version>/`. Individual migration versions back up extra files they rewrite; those are listed in the [Migration history](../reference/migration-history.md#version-backups). Timestamps within one run that would collide get microseconds appended.
 
 When a bench fails to migrate, fm restores **the copied configuration files only**. The SQL dump is never imported automatically; it is there for you to restore by hand with `bench restore` if a migration damaged data. `--on-failure` picks the policy: `prompt` (default) asks, `archive` sets the failed benches aside and keeps the rest migrated, `rollback` reverts every bench. A single-bench run always rolls back.
 
