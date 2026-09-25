@@ -118,13 +118,19 @@ class JSONOutputHandler(OutputHandler):
         self._add_event(OutputEvent("start", {"text": text}))
 
     def change_head(self, text: str, style: str | None = None) -> None:
-        """
-        Update the current operation status message.
+        """The current operation's status: last write wins, so a repeat is not an event.
+
+        Status is a COALESCING channel -- on a terminal it overwrites one line in place. Recording
+        every call turned a poll loop into one event per poll: `fm update`'s queue drain
+        (commands/update.py:487) emits the same sentence every few seconds while it waits, and a
+        consumer saw dozens of identical events for one unchanged state.
 
         Args:
             text: The new status message
             style: Optional style hint (ignored in JSON output)
         """
+        if text == self._current_head:
+            return
         previous_head = self._current_head
         self._current_head = text
         self._add_event(

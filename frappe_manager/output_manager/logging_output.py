@@ -56,6 +56,7 @@ class LoggingOutputHandler(OutputHandler):
 
         self.logger = get_logger(component="output")
         self.log_prefix = log_prefix
+        self._last_logged_head: str | None = None
 
     def _log_message(self, level: int, message: str) -> None:
         """
@@ -90,14 +91,19 @@ class LoggingOutputHandler(OutputHandler):
         super().start(text)
 
     def change_head(self, text: str, style: str | None = None) -> None:
-        """
-        Change head (logged at DEBUG level).
+        """Change head, logged at DEBUG.
+
+        Status is a coalescing channel: the terminal overwrites one line in place, so a repeat of
+        the same text is not a new fact. Logging every call turned a poll loop into one log line
+        per poll (see `fm update`'s queue drain).
 
         Args:
             text: New status message
             style: Optional style hint
         """
-        self._log_message(logging.DEBUG, f"CHANGE_HEAD: {text}")
+        if text != self._last_logged_head:
+            self._last_logged_head = text
+            self._log_message(logging.DEBUG, f"CHANGE_HEAD: {text}")
         self.delegate.change_head(text, style)
 
     def update_head(self, text: str) -> None:
