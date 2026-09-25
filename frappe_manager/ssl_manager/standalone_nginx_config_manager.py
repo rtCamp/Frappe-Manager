@@ -64,8 +64,11 @@ server {{
     
     # Default response for all other requests
     location / {{
-        return 503 '<html><head><title>503 Backend Not Connected</title></head><body><h1>503 Backend Not Connected</h1><p>This domain is managed by Frappe Manager but no backend service is configured.</p><p>To connect your Docker service:</p><ol><li>Add to your docker-compose.yml:</li><pre>services:\n  your-app:\n    environment:\n      VIRTUAL_HOST: {domain}\n      VIRTUAL_PORT: 80\n    networks:\n      - fm-frontend-network\n\nnetworks:\n  fm-frontend-network:\n    external: true</pre><li>Start your service: <code>docker compose up -d</code></li></ol></body></html>';
-        add_header Content-Type text/html;
+        return 503 '<html><head><title>503 Service Unavailable</title></head><body><h1>503 Service Unavailable</h1><p>This site is not available.</p></body></html>';
+        # default_type, NOT add_header: add_header applies to 2xx/3xx only unless marked `always`,
+        # so the placeholder went out as application/octet-stream and browsers downloaded it
+        # instead of rendering it.
+        default_type text/html;
     }}
 }}
 """
@@ -112,8 +115,11 @@ server {{
     
     # Default response for all other requests
     location / {{
-        return 503 '<html><head><title>503 Backend Not Connected</title></head><body><h1>503 Backend Not Connected</h1><p>This domain has a valid SSL certificate but no backend service is configured.</p><p>To connect your Docker service:</p><ol><li>Add to your docker-compose.yml:</li><pre>services:\n  your-app:\n    environment:\n      VIRTUAL_HOST: {domain}\n      VIRTUAL_PORT: 80\n    networks:\n      - fm-frontend-network\n\nnetworks:\n  fm-frontend-network:\n    external: true</pre><li>Start your service: <code>docker compose up -d</code></li><li>Access at: https://{domain}</li></ol></body></html>';
-        add_header Content-Type text/html;
+        return 503 '<html><head><title>503 Service Unavailable</title></head><body><h1>503 Service Unavailable</h1><p>This site is not available.</p></body></html>';
+        # default_type, NOT add_header: add_header applies to 2xx/3xx only unless marked `always`,
+        # so the placeholder went out as application/octet-stream and browsers downloaded it
+        # instead of rendering it.
+        default_type text/html;
     }}
 }}
 """
@@ -191,6 +197,27 @@ server {{
                 return "https" if "listen 443" in path.read_text() else "http"
         return None
 
+    def render(self, domain: str, *, https: bool) -> str:
+        """The exact content this domain's config should have.
+
+        Exposed so the reconcile can compare against what is on disk. Comparing only the KIND
+        (http vs https) would pin every existing standalone vhost to the template it was first
+        written with, so a change to the placeholder page -- or to the challenge location -- would
+        never reach a domain already configured.
+        """
+        if https:
+            return self.HTTPS_SERVER_TEMPLATE.format(
+                marker=STANDALONE_MARKER,
+                domain=domain,
+                webroot_dir=self.webroot_dir,
+                certs_dir=self.certs_dir,
+            )
+        return self.HTTP_SERVER_TEMPLATE.format(
+            marker=STANDALONE_MARKER,
+            domain=domain,
+            webroot_dir=self.webroot_dir,
+        )
+
     def _write(self, domain: str, content: str) -> Path:
         config_file = self.config_path(domain)
         config_file.write_text(content)
@@ -214,14 +241,7 @@ server {{
         Returns:
             Path to created config file
         """
-        return self._write(
-            domain,
-            self.HTTP_SERVER_TEMPLATE.format(
-                marker=STANDALONE_MARKER,
-                domain=domain,
-                webroot_dir=self.webroot_dir,
-            ),
-        )
+        return self._write(domain, self.render(domain, https=False))
 
     def create_https_config(self, domain: str) -> Path:
         """
@@ -236,15 +256,7 @@ server {{
         Returns:
             Path to created config file
         """
-        return self._write(
-            domain,
-            self.HTTPS_SERVER_TEMPLATE.format(
-                marker=STANDALONE_MARKER,
-                domain=domain,
-                webroot_dir=self.webroot_dir,
-                certs_dir=self.certs_dir,
-            ),
-        )
+        return self._write(domain, self.render(domain, https=True))
 
     def remove_config(self, domain: str) -> bool:
         """
@@ -283,9 +295,12 @@ def reconcile_standalone_configs(
     """
     changed: list[str] = []
     for domain, has_certificate in certificates.items():
-        desired = "https" if has_certificate else "http"
-        stale_name = manager.owns(manager.legacy_config_path(domain))
-        if manager.config_state(domain) == desired and not stale_name:
+        desired = manager.render(domain, https=has_certificate)
+        path = manager.config_path(domain)
+        # Compared by CONTENT, not by "does an https block exist": otherwise every domain stays
+        # pinned to the template it was first written with, and a change to the placeholder page or
+        # the challenge location never reaches a domain that is already configured.
+        if path.is_file() and path.read_text() == desired and not manager.owns(manager.legacy_config_path(domain)):
             continue
         if has_certificate:
             manager.create_https_config(domain)

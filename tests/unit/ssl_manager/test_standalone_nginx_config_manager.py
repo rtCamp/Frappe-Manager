@@ -147,3 +147,31 @@ def test_reconcile_migrates_a_legacy_named_config_even_when_its_content_is_right
     assert reconcile_standalone_configs(manager, {DOMAIN: True}) == [DOMAIN]
     assert not legacy.exists()
     assert manager.config_path(DOMAIN).name.startswith(FILENAME_PREFIX)
+
+
+def test_reconcile_rewrites_a_block_whose_content_is_stale(tmp_path):
+    """Comparing only "is there an https block" pins every existing domain to the template it was
+    first written with, so a change to the placeholder page (or to the challenge location) would
+    never reach a domain already configured -- which is exactly how the old 503 page, naming the
+    internal docker network, survived being replaced."""
+    manager = _manager(tmp_path)
+    manager.create_https_config(DOMAIN)
+    stale = manager.config_path(DOMAIN)
+    stale.write_text(stale.read_text().replace("503 Service Unavailable", "503 Backend Not Connected"))
+
+    assert reconcile_standalone_configs(manager, {DOMAIN: True}) == [DOMAIN]
+    assert "503 Backend Not Connected" not in stale.read_text()
+
+
+def test_the_placeholder_page_names_nothing_internal(tmp_path):
+    """It is served to the public internet for a parked domain. It used to publish the compose
+    snippet, the VIRTUAL_HOST/VIRTUAL_PORT wiring and the internal network name, which told any
+    scanner the stack, the orchestration and that the hostname was unconfigured."""
+    manager = _manager(tmp_path)
+
+    for https in (False, True):
+        body = manager.render(DOMAIN, https=https)
+        served = [line for line in body.splitlines() if "return 503" in line]
+        assert served, "the placeholder must still answer 503"
+        for leak in ("VIRTUAL_HOST", "VIRTUAL_PORT", "docker", "compose", "fm-frontend-network", "Frappe"):
+            assert leak not in served[0], f"{leak} is served to the public internet"
