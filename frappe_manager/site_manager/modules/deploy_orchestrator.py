@@ -44,6 +44,7 @@ from frappe_manager.site_manager.bench_config import (
     DeployStateEntry,
     SwitchConfig,
     WorkersConfig,
+    read_sites_on_disk,
 )
 from frappe_manager.site_manager.hooks import hook_env, hook_script
 from frappe_manager.site_manager.modules import db_probe, db_tls
@@ -1304,13 +1305,26 @@ class DeployOrchestrator:
         self.config.export_to_toml(self._config_path())
 
 
-    def _warn_unmanaged_sites(self) -> None:
-        """Name the site directories this deploy will NOT migrate, before it starts.
+    def _check_sites_before_deploy(self) -> None:
+        """Reconcile `[sites]` against the disk, before anything is fetched or stopped.
 
-        Same rule `fm delete` follows: a site fm never provisioned is reported and left alone,
-        because migrating a schema fm disclaimed ownership of turns any breakage into damage fm
-        caused. The warning is louder here than at delete, though: an unmigrated site keeps
-        serving, now against new code, so it is the operator's to migrate by hand.
+        The two directions are not symmetric, which is why one warns and the other refuses.
+
+        On disk but unrecorded: warned and left alone, the same rule `fm delete` follows, because
+        migrating a schema fm disclaimed ownership of turns any breakage into damage fm caused.
+        The deploy is still valid for the sites fm does own, so it continues; the warning is louder
+        than at delete, since an unmigrated site keeps serving, now against new code.
+
+        Recorded but absent: refused, because every per-site step below -- dump, migrate, restore --
+        addresses a site by name and cannot skip one. The deploy WILL fail; the only question is
+        how much downtime is spent first, and reaching the backup step means maintenance mode is
+        already up and the workers are already drained. This is what an interrupted
+        `fm delete BENCH/SITE` leaves behind, and re-running that command finishes the removal
+        (`Bench.remove_site` treats an absent site as the record being all that is left), so the
+        refusal names a repair that works rather than one that happens to fit some cases.
+
+        An empty `on_disk` means "cannot tell" (unreadable directory), never "nothing exists", so
+        it refuses nothing -- the same rule `resolve_primary_site` follows.
         """
         for site in self.bench.unmanaged_site_dirs():
             self.output.warning(
@@ -1318,6 +1332,20 @@ class DeployOrchestrator:
                 f"NOT migrate it, so it will run the new image against its old schema. Migrate it "
                 f"yourself with: fm shell {self.bench.name} -c 'bench --site {site} migrate'",
             )
+
+        on_disk = read_sites_on_disk(self.bench_path)
+        if not on_disk:
+            return
+        absent = [site for site in self.sites if site not in on_disk]
+        if not absent:
+            return
+        repairs = " ".join(f"fm delete {self.bench.name}/{site}" for site in absent)
+        raise DeployError(
+            f"{self.bench.name} records {', '.join(absent)} in bench_config.toml, but "
+            f"sites/<name>/site_config.json does not exist. Every deploy step runs per site, so "
+            f"this would fail partway through -- after maintenance mode is up and the workers are "
+            f"drained. That is what an interrupted removal leaves behind; finish it with: {repairs}",
+        )
 
     def deploy(
         self,
@@ -1383,7 +1411,7 @@ class DeployOrchestrator:
         ``aborted``. ``old_image`` is the pre-deploy image, captured by ``deploy`` before ``_record``.
         """
         self._require_image_mode()
-        self._warn_unmanaged_sites()
+        self._check_sites_before_deploy()
 
         # 0. Redis identity preflight: cheapest point to refuse in the whole pipeline, because
         # nothing below has mutated anything yet. See `_refuse_redis_identity_collision`.
