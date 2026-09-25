@@ -74,7 +74,7 @@ def _refused_keys(doc) -> list[str]:
     candidate.setdefault("environment", "dev")
     candidate.setdefault("root_path", "/")
     try:
-        _config, unknown, _stale = BenchConfig.collect_from_data(candidate)
+        _config, unknown = BenchConfig.collect_from_data(candidate)
     except ValidationError:
         return []
     return unknown

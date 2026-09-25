@@ -159,7 +159,8 @@ class BenchInfo:
         Mount runtime: from git under the workspace ``apps/``.
         """
         if self.bench_config.runtime == BenchRuntime.image:
-            image = self.bench_config.deploy_state.current_image if self.bench_config.deploy_state else None
+            deployments = self.bench_config.deployments
+            image = deployments.current.app_image if deployments and deployments.current else None
             if not image or self.docker_client is None:
                 return []
             raw = self.docker_client.image_labels(image).get("fm.apps")
@@ -236,8 +237,9 @@ class BenchInfo:
         return read_bench_node_version(host_bench_dir(self.bench_path)) or "N/A"
 
     def _image_label(self, key: str) -> str:
-        """Read ``key`` off the pinned image (deploy_state.current_image); ``N/A`` if absent."""
-        image = self.bench_config.deploy_state.current_image if self.bench_config.deploy_state else None
+        """Read ``key`` off the pinned image (deployments.current.app_image); ``N/A`` if absent."""
+        deployments = self.bench_config.deployments
+        image = deployments.current.app_image if deployments and deployments.current else None
         if not image or self.docker_client is None:
             return "N/A"
         return self.docker_client.image_labels(image).get(key) or "N/A"
@@ -431,11 +433,11 @@ class BenchInfo:
             commit = app.get("commit") or ""
             card.fact(label, f"{app.get('name', '?')}  [fm.muted]{ref}  {commit}[/fm.muted]")
         if config.runtime == BenchRuntime.image:
-            deploy_state = config.deploy_state
-            image = deploy_state.current_image if deploy_state and deploy_state.current_image else None
+            deployments = config.deployments
+            image = deployments.current.app_image if deployments and deployments.current else None
             card.fact("image", image or "[fm.muted]N/A (not yet deployed)[/fm.muted]")
-            if deploy_state and deploy_state.previous_image:
-                card.fact("previous", deploy_state.previous_image)
+            if deployments and deployments.previous:
+                card.fact("previous", deployments.previous.app_image)
         else:
             if config.base_image:
                 card.fact("base", config.base_image)
@@ -443,11 +445,14 @@ class BenchInfo:
                 card.fact("seeded", config.seed_image)
 
         # ---- deploys (image deploy history, newest first)
-        deploy_state = config.deploy_state if config.runtime == BenchRuntime.image else None
-        if deploy_state and deploy_state.history:
+        deployments = config.deployments if config.runtime == BenchRuntime.image else None
+        if deployments and deployments.history:
             card.section("deploys")
             current_marked = False
-            for i, entry in enumerate(reversed(deploy_state.history)):
+            # Matched by `deployed_at` (the record's identity), not `app_image`: the same image
+            # deployed twice (a rollback, then forward again) would otherwise mark two rows.
+            current_at = deployments.current.deployed_at if deployments.current else None
+            for i, entry in enumerate(reversed(deployments.history)):
                 label = "history" if i == 0 else ""
                 status = entry.migrate_status
                 status_markup = f"[fm.error]{status}[/fm.error]" if status == "failed" else status
@@ -456,11 +461,11 @@ class BenchInfo:
                 n = len(entry.backups)
                 dump = f"  [fm.muted]·[/fm.muted] {n} db-dump{'s' if n > 1 else ''}" if n else ""
                 marker = ""
-                if not current_marked and entry.image == deploy_state.current_image:
+                if not current_marked and entry.deployed_at == current_at:
                     marker = "  [fm.ok]● current[/fm.ok]"
                     current_marked = True
                 when = self._short_ts(entry.deployed_at)
-                card.fact(label, f"{entry.image}  [fm.muted]{when} · {status_markup}{dump}[/fm.muted]{marker}")
+                card.fact(label, f"{entry.app_image}  [fm.muted]{when} · {status_markup}{dump}[/fm.muted]{marker}")
 
         # ---- access
         card.section("access")
@@ -567,9 +572,9 @@ class BenchInfo:
             return value if value is not None else getattr(host_prune, name)
 
         releases_beyond = 0
-        if config.runtime == BenchRuntime.image and config.deploy_state and config.deploy_state.history:
+        if config.runtime == BenchRuntime.image and config.deployments and config.deployments.history:
             keep_releases = config.switch.keep_releases if config.switch else 7
-            releases_beyond = max(0, len(config.deploy_state.history) - keep_releases)
+            releases_beyond = max(0, len(config.deployments.history) - keep_releases)
 
         summary, actionable = summarize_disk_status(
             session_roots=[self.bench_path / "backups" / "migrations", self.bench_path / "backups" / "workers"],

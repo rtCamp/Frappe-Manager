@@ -1,8 +1,8 @@
 """Contract tests for the image deploy-state round-trip on BenchConfig.
 
-`deploy_state` mirrors `schema`: it is exported via `export_to_toml`
+`deployments` mirrors `schema`: it is exported via `export_to_toml`
 (model_dump) and re-parsed explicitly by `import_from_toml`. These tests assert
-that current/previous images and the deploy history survive the round-trip.
+that current/previous records and the deploy history survive the round-trip.
 """
 
 from pathlib import Path
@@ -13,8 +13,8 @@ from pydantic import ValidationError
 from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     BenchRuntime,
-    DeployState,
-    DeployStateEntry,
+    Deployment,
+    Deployments,
     FMBenchEnvType,
 )
 
@@ -31,24 +31,28 @@ def _image_bench(path):
     )
 
 
-def test_deploy_state_defaults_to_none(tmp_path):
+def test_deployments_defaults_to_none(tmp_path):
     bc = _image_bench(tmp_path / "bench_config.toml")
-    assert bc.deploy_state is None
+    assert bc.deployments is None
 
 
-def test_deploy_state_roundtrip(tmp_path):
+def test_deployments_roundtrip(tmp_path):
     path = tmp_path / "bench_config.toml"
     bc = _image_bench(path)
-    bc.deploy_state = DeployState(
-        current_image="local/x:20260721-abc",
-        previous_image="local/x:20260720-def",
-        last_deploy_at="2026-07-21T10:00:00+00:00",
+    bc.deployments = Deployments(
+        current=Deployment(
+            app_image="local/x:20260721-abc", deployed_at="2026-07-21T10:00:00+00:00", migrate_status="skipped"
+        ),
+        previous=Deployment(
+            app_image="local/x:20260720-def", deployed_at="2026-07-20T09:00:00+00:00", migrate_status="migrated"
+        ),
+        last_at="2026-07-21T10:00:00+00:00",
         history=[
-            DeployStateEntry(
-                image="local/x:20260720-def", deployed_at="2026-07-20T09:00:00+00:00", migrate_status="migrated"
+            Deployment(
+                app_image="local/x:20260720-def", deployed_at="2026-07-20T09:00:00+00:00", migrate_status="migrated"
             ),
-            DeployStateEntry(
-                image="local/x:20260721-abc", deployed_at="2026-07-21T10:00:00+00:00", migrate_status="skipped"
+            Deployment(
+                app_image="local/x:20260721-abc", deployed_at="2026-07-21T10:00:00+00:00", migrate_status="skipped"
             ),
         ],
     )
@@ -56,39 +60,47 @@ def test_deploy_state_roundtrip(tmp_path):
     bc.export_to_toml(path)
 
     reloaded = BenchConfig.import_from_toml(path)
-    assert reloaded.deploy_state is not None
-    assert reloaded.deploy_state.current_image == "local/x:20260721-abc"
-    assert reloaded.deploy_state.previous_image == "local/x:20260720-def"
-    assert reloaded.deploy_state.last_deploy_at == "2026-07-21T10:00:00+00:00"
-    assert [e.image for e in reloaded.deploy_state.history] == [
+    assert reloaded.deployments is not None
+    assert reloaded.deployments.current.app_image == "local/x:20260721-abc"
+    assert reloaded.deployments.previous.app_image == "local/x:20260720-def"
+    assert reloaded.deployments.last_at == "2026-07-21T10:00:00+00:00"
+    assert [e.app_image for e in reloaded.deployments.history] == [
         "local/x:20260720-def",
         "local/x:20260721-abc",
     ]
-    assert reloaded.deploy_state.history[1].migrate_status == "skipped"
+    assert reloaded.deployments.history[1].migrate_status == "skipped"
 
 
-def test_deploy_state_absent_roundtrip(tmp_path):
-    # A bench without deploy_state must round-trip with deploy_state None.
+def test_deployments_absent_roundtrip(tmp_path):
+    # A bench without deployments must round-trip with deployments None.
     path = tmp_path / "bench_config.toml"
     bc = _image_bench(path)
     bc.export_to_toml(path)
     reloaded = BenchConfig.import_from_toml(path)
-    assert reloaded.deploy_state is None
+    assert reloaded.deployments is None
 
 
-def test_deploy_state_backups_roundtrip(tmp_path):
+def test_deployments_backups_roundtrip(tmp_path):
     # The pre-migrate dump paths recorded during deploy must survive the round-trip
     # (they are what `fm switch --restore-db` consumes). One entry per SITE: a bench
     # serving several sites dumps every schema, and a rollback restores all of them.
     path = tmp_path / "bench_config.toml"
     bc = _image_bench(path)
-    bc.deploy_state = DeployState(
-        current_image="local/x:t2",
-        previous_image="local/x:t1",
+    bc.deployments = Deployments(
+        current=Deployment(
+            app_image="local/x:t2",
+            deployed_at="2026-07-21T10:00:00+00:00",
+            migrate_status="migrated",
+            backups={
+                "x.localhost": "/benches/x/backups/deploy-20260721/db-fm_x.sql",
+                "shop.x.localhost": "/benches/x/backups/deploy-20260721/db-fm_shop_x.sql",
+            },
+        ),
+        previous=Deployment(app_image="local/x:t1", deployed_at="2026-07-20T09:00:00+00:00", migrate_status="skipped"),
         history=[
-            DeployStateEntry(image="local/x:t1", deployed_at="2026-07-20T09:00:00+00:00", migrate_status="skipped"),
-            DeployStateEntry(
-                image="local/x:t2",
+            Deployment(app_image="local/x:t1", deployed_at="2026-07-20T09:00:00+00:00", migrate_status="skipped"),
+            Deployment(
+                app_image="local/x:t2",
                 deployed_at="2026-07-21T10:00:00+00:00",
                 migrate_status="migrated",
                 backups={
@@ -100,22 +112,22 @@ def test_deploy_state_backups_roundtrip(tmp_path):
     )
     bc.export_to_toml(path)
     reloaded = BenchConfig.import_from_toml(path)
-    assert reloaded.deploy_state.history[0].backups == {}  # old entries tolerate absence
-    assert reloaded.deploy_state.history[1].backups == {
+    assert reloaded.deployments.history[0].backups == {}  # old entries tolerate absence
+    assert reloaded.deployments.history[1].backups == {
         "x.localhost": "/benches/x/backups/deploy-20260721/db-fm_x.sql",
         "shop.x.localhost": "/benches/x/backups/deploy-20260721/db-fm_shop_x.sql",
     }
 
 
-def test_deploy_state_backups_rejects_non_string_dump_paths():
+def test_deployment_backups_rejects_non_string_dump_paths():
     # `backups` is declared dict[str, str] on purpose: the values are host dump paths that
     # get written straight into bench_config.toml, and tomlkit cannot serialise a PosixPath.
     # `_record` does str(path) for exactly this reason; the model REJECTS (never coerces) a
     # Path, so a future caller that forgets the str() fails loudly at record time instead of
     # writing a bench config that no later `fm` run can read back.
     with pytest.raises(ValidationError) as excinfo:
-        DeployStateEntry(
-            image="local/x:t1",
+        Deployment(
+            app_image="local/x:t1",
             deployed_at="2026-07-21T10:00:00+00:00",
             migrate_status="migrated",
             backups={"x.localhost": Path("/benches/x/backups/deploy-20260721/db-fm_x.sql")},
@@ -124,20 +136,20 @@ def test_deploy_state_backups_rejects_non_string_dump_paths():
 
     # Same for any other non-string dump value.
     with pytest.raises(ValidationError):
-        DeployStateEntry(
-            image="local/x:t1",
+        Deployment(
+            app_image="local/x:t1",
             deployed_at="2026-07-21T10:00:00+00:00",
             migrate_status="migrated",
             backups={"x.localhost": 5},
         )
 
 
-def test_deploy_state_backups_rejects_non_string_site_keys():
+def test_deployment_backups_rejects_non_string_site_keys():
     # The keys are SITE names. A non-string key would become a TOML table name that no
     # site lookup in `fm switch --restore-db` could ever match.
     with pytest.raises(ValidationError) as excinfo:
-        DeployStateEntry(
-            image="local/x:t1",
+        Deployment(
+            app_image="local/x:t1",
             deployed_at="2026-07-21T10:00:00+00:00",
             migrate_status="migrated",
             backups={1: "/benches/x/backups/deploy-20260721/db-fm_x.sql"},
@@ -145,11 +157,11 @@ def test_deploy_state_backups_rejects_non_string_site_keys():
     assert excinfo.value.errors()[0]["type"] == "string_type"
 
 
-def test_deploy_state_backups_rejects_non_mapping():
+def test_deployment_backups_rejects_non_mapping():
     # backups is a per-site mapping, never a bare path or a sequence of pairs.
     with pytest.raises(ValidationError) as excinfo:
-        DeployStateEntry(
-            image="local/x:t1",
+        Deployment(
+            app_image="local/x:t1",
             deployed_at="2026-07-21T10:00:00+00:00",
             migrate_status="migrated",
             backups="/benches/x/backups/deploy-20260721/db-fm_x.sql",
@@ -161,13 +173,18 @@ class TestSwitchResolvers:
     """`fm switch` target + dump resolution (pure helpers in commands/deploy.py)."""
 
     def _state(self):
-        return DeployState(
-            current_image="local/x:t3",
-            previous_image="local/x:t2",
+        return Deployments(
+            current=Deployment(
+                app_image="local/x:t3",
+                deployed_at="d3",
+                migrate_status="migrated",
+                backups={"x.localhost": "/b/db.sql", "shop.x.localhost": "/b/db-shop.sql"},
+            ),
+            previous=Deployment(app_image="local/x:t2", deployed_at="d2", migrate_status="skipped"),
             history=[
-                DeployStateEntry(image="local/x:t2", deployed_at="d2", migrate_status="skipped"),
-                DeployStateEntry(
-                    image="local/x:t3",
+                Deployment(app_image="local/x:t2", deployed_at="d2", migrate_status="skipped"),
+                Deployment(
+                    app_image="local/x:t3",
                     deployed_at="d3",
                     migrate_status="migrated",
                     backups={"x.localhost": "/b/db.sql", "shop.x.localhost": "/b/db-shop.sql"},
@@ -272,7 +289,7 @@ class TestSwitchResolvers:
         from frappe_manager.commands.deploy import _find_current_deploy_backups
 
         state = self._state()
-        state.history[1].backups = {}
+        state.current.backups = {}
         dumps, error = _find_current_deploy_backups(state)
         assert dumps == {}
         assert "No DB backup recorded for the current deploy (local/x:t3)" in error
@@ -284,6 +301,40 @@ class TestSwitchResolvers:
         assert dumps == {}
         assert "No current deploy recorded" in error
 
+    def test_the_same_image_deployed_twice_is_no_longer_ambiguous(self):
+        """The exact defect full records fix: history can hold two rows for the same image (a
+        rollback, then forward again), which used to force `_find_current_deploy_backups` to
+        SEARCH history and guess which row was "current" by taking the last match. Reading
+        `current.backups` directly has no search and no guess to get wrong."""
+        from frappe_manager.commands.deploy import _find_current_deploy_backups
+
+        state = Deployments(
+            current=Deployment(
+                app_image="local/x:t1",
+                deployed_at="d3",
+                migrate_status="rollback",
+                backups={"x.localhost": "/b/third.sql"},
+            ),
+            history=[
+                Deployment(
+                    app_image="local/x:t1",
+                    deployed_at="d1",
+                    migrate_status="migrated",
+                    backups={"x.localhost": "/b/first.sql"},
+                ),
+                Deployment(app_image="local/x:t2", deployed_at="d2", migrate_status="migrated"),
+                Deployment(
+                    app_image="local/x:t1",
+                    deployed_at="d3",
+                    migrate_status="rollback",
+                    backups={"x.localhost": "/b/third.sql"},
+                ),
+            ],
+        )
+        dumps, error = _find_current_deploy_backups(state)
+        assert error is None
+        assert dumps == {"x.localhost": "/b/third.sql"}
+
 
 class TestReleasePrunePlanner:
     """Retention + artifact-safety contracts (pure fns in deploy_orchestrator)."""
@@ -291,7 +342,7 @@ class TestReleasePrunePlanner:
     def _hist(self, *tags, backups=None):
         backups = backups or {}
         return [
-            DeployStateEntry(image=t, deployed_at=f"d{i}", migrate_status="skipped", backups=backups.get(i) or {})
+            Deployment(app_image=t, deployed_at=f"d{i}", migrate_status="skipped", backups=backups.get(i) or {})
             for i, t in enumerate(tags)
         ]
 
@@ -299,14 +350,14 @@ class TestReleasePrunePlanner:
         from frappe_manager.site_manager.modules.deploy_orchestrator import plan_release_prune
 
         kept, pruned = plan_release_prune(self._hist("a", "b", "c", "d", "e"), 2)
-        assert [e.image for e in kept] == ["d", "e"]
-        assert [e.image for e in pruned] == ["a", "b", "c"]
+        assert [e.app_image for e in kept] == ["d", "e"]
+        assert [e.app_image for e in pruned] == ["a", "b", "c"]
 
     def test_rows_keep_clamped_to_at_least_one(self):
         from frappe_manager.site_manager.modules.deploy_orchestrator import plan_release_prune
 
         kept, pruned = plan_release_prune(self._hist("a", "b"), 0)
-        assert [e.image for e in kept] == ["b"]
+        assert [e.app_image for e in kept] == ["b"]
 
     def test_rows_short_history_prunes_nothing(self):
         from frappe_manager.site_manager.modules.deploy_orchestrator import plan_release_prune

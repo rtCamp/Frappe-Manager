@@ -247,6 +247,64 @@
 # default]
 # queue = ...
 
+# ---- [deployments] -------------------------------------------------------------------------
+
+# Image deploy state tracking (managed by the deploy orchestrator)
+# [deployments]
+# ISO timestamp of the last successful deploy. [optional, unset by default]
+# last_at = ...
+#
+# One recorded image deploy: the SAME record used three times by :class:`Deployments`
+# [deployments.current]
+# App image deployed (full reference, e.g. repo:tag). [required]
+# app_image = ...
+# Its nginx companion (full reference). Nothing writes this outside the 1.0.0 migration yet, which
+# backfills it on every existing record by the same rule BakeManager.nginx_image_ref applies --
+# captured while that derivation still exists. [optional, unset by default]
+# nginx_image = ...
+# ISO timestamp of the deploy; also this record's identity. [required]
+# deployed_at = ...
+# Migrate outcome: 'migrated', 'skipped', 'failed', or 'rollback'. [required]
+# migrate_status = ...
+# Pre-migrate DB dumps taken during this deploy, keyed by SITE: every site the bench serves gets
+# its own dump, because every site has its own schema (consumed by `fm switch --previous
+# --restore-db`, which reads them straight off `current`). [optional, empty by default]
+# backups = ...
+#
+# One recorded image deploy: the SAME record used three times by :class:`Deployments`
+# [deployments.previous]
+# App image deployed (full reference, e.g. repo:tag). [required]
+# app_image = ...
+# Its nginx companion (full reference). Nothing writes this outside the 1.0.0 migration yet, which
+# backfills it on every existing record by the same rule BakeManager.nginx_image_ref applies --
+# captured while that derivation still exists. [optional, unset by default]
+# nginx_image = ...
+# ISO timestamp of the deploy; also this record's identity. [required]
+# deployed_at = ...
+# Migrate outcome: 'migrated', 'skipped', 'failed', or 'rollback'. [required]
+# migrate_status = ...
+# Pre-migrate DB dumps taken during this deploy, keyed by SITE: every site the bench serves gets
+# its own dump, because every site has its own schema (consumed by `fm switch --previous
+# --restore-db`, which reads them straight off `current`). [optional, empty by default]
+# backups = ...
+#
+# One recorded image deploy: the SAME record used three times by :class:`Deployments`
+# [deployments.history]
+# App image deployed (full reference, e.g. repo:tag). [required]
+# app_image = ...
+# Its nginx companion (full reference). Nothing writes this outside the 1.0.0 migration yet, which
+# backfills it on every existing record by the same rule BakeManager.nginx_image_ref applies --
+# captured while that derivation still exists. [optional, unset by default]
+# nginx_image = ...
+# ISO timestamp of the deploy; also this record's identity. [required]
+# deployed_at = ...
+# Migrate outcome: 'migrated', 'skipped', 'failed', or 'rollback'. [required]
+# migrate_status = ...
+# Pre-migrate DB dumps taken during this deploy, keyed by SITE: every site the bench serves gets
+# its own dump, because every site has its own schema (consumed by `fm switch --previous
+# --restore-db`, which reads them straight off `current`). [optional, empty by default]
+# backups = ...
+
 # ---- [telemetry] ---------------------------------------------------------------------------
 
 # Telemetry backends ([telemetry]).

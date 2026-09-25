@@ -6,7 +6,7 @@ There is no `--image` on create. `--base-image` is the image the containers RUN 
 runtimes: on mount the base frappe image under the editable workspace, on image runtime
 the app image itself. `--image` means the image PRODUCED, which only `fm bake` does, and
 one word cannot point both ways. The runtimes persist it differently: image runtime keeps
-the tag-stripped repo in top-level `image` and the ref in `[deploy_state].current_image`,
+the tag-stripped repo in top-level `image` and the ref in `[deployments].current.app_image`,
 which `fm switch` later rewrites, while mount keeps the whole ref in `base_image` and
 nothing rewrites it.
 
@@ -27,7 +27,8 @@ from frappe_manager.site_manager.bench_config import (
     AppConfig,
     BenchConfig,
     BenchRuntime,
-    DeployState,
+    Deployment,
+    Deployments,
     FMBenchEnvType,
 )
 from frappe_manager.utils.helpers import has_explicit_tag
@@ -65,7 +66,7 @@ def _resolve(runtime=None, base_image=None, apps=None, python=None, node=None):
     return (
         bc.runtime,
         bc.image,
-        bc.deploy_state.current_image if bc.deploy_state else None,
+        bc.deployments.current.app_image if bc.deployments and bc.deployments.current else None,
         bc.base_image,
     )
 
@@ -108,7 +109,7 @@ def test_image_runtime_requires_a_prebuilt_image():
         _resolve(runtime=BenchRuntime.image)
 
     assert "base_image" in str(excinfo.value)
-    assert "current_image" in str(excinfo.value), "the --config spelling must be offered too"
+    assert "current.app_image" in str(excinfo.value), "the --config spelling must be offered too"
 
 
 def test_base_image_serves_both_runtimes_from_one_flag():
@@ -118,7 +119,7 @@ def test_base_image_serves_both_runtimes_from_one_flag():
 
     assert (mount[0], mount[3]) == (BenchRuntime.mount, "ghcr.io/acme/frappe:v16")
     assert (image[0], image[1], image[2]) == (BenchRuntime.image, "ghcr.io/acme/app", "ghcr.io/acme/app:v42")
-    assert image[3] is None, "image runtime routes the ref to image + deploy_state, not base_image"
+    assert image[3] is None, "image runtime routes the ref to image + deployments, not base_image"
 
 
 def test_image_runtime_requires_tag():
@@ -129,7 +130,7 @@ def test_image_runtime_requires_tag():
 def test_image_runtime_base_image_refuses_a_digest_with_the_reason():
     """`fm create --runtime image --base-image <digest>` used to sail through:
     `_apply_base_image` wrote a malformed `bc.image` and the old `has_explicit_tag` bug let
-    the digest-carrying `deploy_state.current_image` past `assert_runtime_coherent` -- reaching
+    the digest-carrying `deployments.current.app_image` past `assert_runtime_coherent` -- reaching
     `nginx_image_tag`'s malformed derivation. Now refused up front, naming the reason: the
     companion is derived by name and a digest cannot supply one."""
     digest_ref = "ghcr.io/acme/mybench@sha256:" + "a" * 64
@@ -191,15 +192,15 @@ def test_created_image_bench_persists_deploy_fields(tmp_path):
         runtime=mode,
         image=image_repo,
         base_image=base_image,
-        deploy_state=DeployState(current_image=current_image),
+        deployments=Deployments(current=Deployment(app_image=current_image, deployed_at="t0", migrate_status="migrated")),
     )
     bc.export_to_toml(path)
 
     reloaded = BenchConfig.import_from_toml(path)
     assert reloaded.runtime == BenchRuntime.image
     assert reloaded.image == "ghcr.io/acme/mybench"
-    assert reloaded.deploy_state is not None
-    assert reloaded.deploy_state.current_image == "ghcr.io/acme/mybench:fm-1"
+    assert reloaded.deployments is not None
+    assert reloaded.deployments.current.app_image == "ghcr.io/acme/mybench:fm-1"
     assert reloaded.base_image is None
 
 
@@ -323,7 +324,7 @@ def test_developer_mode_enable_refused_on_image_runtime():
 def test_a_dev_image_bench_is_not_refused_for_asking_nothing():
     """A --config declaring `runtime = "image"` used to be refused in a dev environment, because
     create forced developer_mode on for dev and then refused the value it had just set."""
-    bc = _build(config=['runtime = "image"\n[deploy_state]\ncurrent_image = "ghcr.io/acme/app:v1"'])
+    bc = _build(config=['runtime = "image"\n[deployments.current]\napp_image = "ghcr.io/acme/app:v1"\ndeployed_at = "t0"\nmigrate_status = "migrated"'])
     assert bc.runtime == BenchRuntime.image
     assert bc.developer_mode is False
 
@@ -341,7 +342,7 @@ def test_mount_only_inputs_are_refused_whichever_way_the_runtime_was_spelled(mou
         _build(runtime=BenchRuntime.image, base_image="ghcr.io/acme/app:v1", **mount_only)
 
     with pytest.raises(typer.BadParameter, match="image runtime carries its own"):
-        _build(config=['runtime = "image"\n[deploy_state]\ncurrent_image = "ghcr.io/acme/app:v1"'], **mount_only)
+        _build(config=['runtime = "image"\n[deployments.current]\napp_image = "ghcr.io/acme/app:v1"\ndeployed_at = "t0"\nmigrate_status = "migrated"'], **mount_only)
 
 
 @pytest.mark.parametrize(

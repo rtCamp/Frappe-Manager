@@ -1496,15 +1496,21 @@ class Bench:
         garbage. When asked, a dump is deleted only if no REMAINING row references it, which is the
         same rule prune uses, so a dump shared with another release survives.
         """
-        state = self.bench_config.deploy_state
-        if state is None or not state.history:
+        state = self.bench_config.deployments
+        if state is None:
+            return
+        # `current`/`previous` are full records now too (not just history rows), so both have to be
+        # walked alongside history or a site removed right after its deploy (before any pruning ever
+        # touches that row) would leave its dump orphaned in `current`/`previous` alone.
+        records = [r for r in (state.current, state.previous, *state.history) if r is not None]
+        if not records:
             return
 
-        orphaned = [row.backups.pop(site) for row in state.history if site in row.backups]
+        orphaned = [row.backups.pop(site) for row in records if site in row.backups]
         if not orphaned:
             return
 
-        still_referenced = {path for row in state.history for path in row.backups.values()}
+        still_referenced = {path for row in records for path in row.backups.values()}
         unreferenced = [path for path in dict.fromkeys(orphaned) if path not in still_referenced]
         if not unreferenced:
             return

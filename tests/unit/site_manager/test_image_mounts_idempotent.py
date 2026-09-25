@@ -37,7 +37,7 @@ def _workers(tmp_path, site="s.localhost", sites=None):
         runtime=BenchRuntime.image,
         name=site,
         base_image=None,
-        deploy_state=None,
+        deployments=None,
         sites=None,
         site_names=list(sites) if sites else [site],
         redis=None,

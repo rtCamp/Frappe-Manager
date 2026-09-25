@@ -159,7 +159,7 @@ def update_world(tmp_path):
     bench.running = True
     cfg = bench.bench_config
     cfg.runtime = BenchRuntime.mount
-    cfg.deploy_state = None
+    cfg.deployments = None
     cfg.get_telemetry_config.return_value = None
     cfg.get_database_config.return_value = MagicMock(name="database_config")
 

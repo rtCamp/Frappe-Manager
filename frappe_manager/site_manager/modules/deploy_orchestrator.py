@@ -7,7 +7,7 @@ Implements the decomposed image deploy (recreate-swap) that ``fmx restart
     -> maintenance(if migrate) -> drain(old) -> backup (at
     the quiesced point) -> migrate(one-shot, new image) -> swap (rolling when
     the overlap is safe, else recreate) -> finalize(resume + site DB ops +
-    maintenance off) -> record deploy_state
+    maintenance off) -> record deployments
 
 Rolling scale-2 is the default web swap whenever the overlap is
 safe (no migrate, additive-asserted, or a maintenance window covering the
@@ -40,8 +40,8 @@ from frappe_manager.services_manager.database_service_manager import (
 from frappe_manager.site_manager.bench_config import (
     BenchRuntime,
     DatabaseConfig,
-    DeployState,
-    DeployStateEntry,
+    Deployment,
+    Deployments,
     SwitchConfig,
     WorkersConfig,
     read_sites_on_disk,
@@ -227,8 +227,8 @@ def plan_artifact_removal(kept: list, pruned: list, protected_images: set[str]) 
     """
     kept_backups = {path for entry in kept for path in entry.backups.values()}
     backups = sorted({path for entry in pruned for path in entry.backups.values()} - kept_backups)
-    kept_images = {entry.image for entry in kept} | protected_images
-    images = sorted({entry.image for entry in pruned} - kept_images)
+    kept_images = {entry.app_image for entry in kept} | protected_images
+    images = sorted({entry.app_image for entry in pruned} - kept_images)
     return backups, images
 
 
@@ -1276,32 +1276,35 @@ class DeployOrchestrator:
                 self.output.warning(f"{phase} hook failed (continuing): {e}")
 
     def _current_deployed_image(self) -> str | None:
-        state = self.config.deploy_state
-        if state and state.current_image:
-            return state.current_image
+        deployments = self.config.deployments
+        if deployments and deployments.current:
+            return deployments.current.app_image
         return None
 
     def _record(self, new_image: str, migrate_status: str, backups: dict[str, Path] | None = None) -> None:
         now = datetime.now(UTC).isoformat()
-        state = self.config.deploy_state or DeployState()
-        # Re-recording the image that is ALREADY current (the health-gate rollback
-        # re-pins the running old image) must not rotate it into previous_image:
-        # previous would collapse onto current, turning the operator's next
-        # escape hatch (`fm switch --previous`) into a redeploy of what is
-        # already live and stranding the genuinely older release.
-        if state.current_image != new_image:
-            state.previous_image = state.current_image
-        state.current_image = new_image
-        state.last_deploy_at = now
-        state.history.append(
-            DeployStateEntry(
-                image=new_image,
-                deployed_at=now,
-                migrate_status=migrate_status,
-                backups={site: str(path) for site, path in (backups or {}).items()},
-            ),
+        deployments = self.config.deployments or Deployments()
+        entry = Deployment(
+            app_image=new_image,
+            deployed_at=now,
+            migrate_status=migrate_status,
+            backups={site: str(path) for site, path in (backups or {}).items()},
         )
-        self.config.deploy_state = state
+        # Re-recording the image that is ALREADY current (the health-gate rollback
+        # re-pins the running old image) must not rotate it into previous: previous
+        # would collapse onto current, turning the operator's next escape hatch
+        # (`fm switch --previous`) into a redeploy of what is already live and
+        # stranding the genuinely older release.
+        current = deployments.current
+        if not current or current.app_image != new_image:
+            deployments.previous = current
+        deployments.current = entry
+        deployments.last_at = now
+        # The SAME record for both `current` and the appended history row, not a copy: one
+        # object written by exactly one function is the kind that cannot drift (see
+        # notes/image-pairing-design.md, "Why current/previous carry the whole record").
+        deployments.history.append(entry)
+        self.config.deployments = deployments
         self.config.export_to_toml(self._config_path())
 
 
@@ -1711,7 +1714,7 @@ class DeployOrchestrator:
         Invoked by ``fm prune``, or after a successful deploy/switch when
         ``--keep N`` was passed. ``dry_run`` only reports.
         """
-        state = self.config.deploy_state
+        state = self.config.deployments
         summary: dict = {"entries": 0, "backups": [], "images": [], "kept": 0}
         if not state or not state.history:
             return summary
@@ -1720,8 +1723,8 @@ class DeployOrchestrator:
         protected = {
             image
             for image in (
-                state.current_image,
-                state.previous_image,
+                state.current.app_image if state.current else None,
+                state.previous.app_image if state.previous else None,
                 self.config.seed_image,
                 getattr(self.config, "base_image", None),
             )
@@ -1754,7 +1757,7 @@ class DeployOrchestrator:
                 self.docker.rmi(image, stream=False)
 
         state.history = kept
-        self.config.deploy_state = state
+        self.config.deployments = state
         self.config.export_to_toml(self._config_path())
         self.output.print(
             f"Pruned {summary['entries']} old release(s): {len(summary['backups'])} backup dir(s), "
@@ -1795,7 +1798,7 @@ class DeployOrchestrator:
 
         if not self._health_check():
             # The compose IS pinned to previous_image at this point; record reality
-            # so deploy_state matches what a later `compose up` would run.
+            # so deployments matches what a later `compose up` would run.
             self._record(previous_image, "rollback")
             raise DeployError(
                 f"Rollback to {previous_image} failed health check; bench halted. Investigate the containers.",
@@ -1809,10 +1812,10 @@ class DeployOrchestrator:
             self.output.warning(f"Could not clear maintenance mode (continuing): {e}")
 
         self._record(previous_image, "rollback")
-        state = self.config.deploy_state
-        if state and state.previous_image:
+        state = self.config.deployments
+        if state and state.previous:
             self.output.print(
-                f"Previous image is now {state.previous_image} -- running `fm rollback` again would re-deploy it.",
+                f"Previous image is now {state.previous.app_image} -- running `fm rollback` again would re-deploy it.",
                 emoji_code=":information:",
             )
         self.output.print(f"Rolled back to {previous_image}", emoji_code=":rewind:")

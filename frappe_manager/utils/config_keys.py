@@ -29,7 +29,7 @@ its declared annotation -- which is what makes it skip free-form regions on its 
 naming convention or an exclude list. A `dict[str, Any]` field like `switch.common_site_config`
 holds plain values (strings, ints, nested plain dicts), never `BaseModel` instances, so the walk
 never descends into it: there is no schema on the other side to check its keys against. The same
-is true of `deploy_state.history[].backups` (`dict[str, str]`, keyed by site name) and of a
+is true of `deployments.history[].backups` (`dict[str, str]`, keyed by site name) and of a
 `dict[str, str]` like `[output.colors]` in the global config, whose keys are rich style tokens that
 already CONTAIN dots (e.g. `'fm.env.prod'`). That last shape is exactly why paths are built by
 joining known segments as the walk descends, never by splitting a key string: a naive path-splitter
@@ -135,7 +135,7 @@ def unwrap_toml_value(value: Any) -> Any:
     that coincidence for every value it touches, instead of hoping it keeps holding.
 
     Called at every hand-built retained-extra dict: in `site_manager/bench_config.py`, the
-    top-level remainder, the `[ssl]` hand-read remainder, the `[deploy_state]` remainder, and the
+    top-level remainder, the `[ssl]` hand-read remainder, the `[deployments]` remainder, and the
     per-site remainder; in `metadata_manager.py`, the top-level remainder and the pre-1.0.0
     `[cloudflare]` legacy splat. It is NOT called on a splat into a typed field
     (`AuthConfig(**dict(...))`, `AppConfig(**dict(...))`, and similar elsewhere in

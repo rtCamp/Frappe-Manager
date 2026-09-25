@@ -34,7 +34,7 @@ from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.migrations import migrate_1_0_0 as migrate_mod
 from frappe_manager.migration_manager.migrations.migrate_1_0_0 import MigrationV100
 from frappe_manager.site_manager.bench_config import BenchConfig
-from frappe_manager.utils.config_keys import collect_unknown_keys
+from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.utils.helpers import get_template_path
 
 SITE = "shop.localhost"
@@ -390,10 +390,11 @@ def test_a_row_with_no_dump_key_is_left_alone(step, tmp_path):
     bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + HISTORY)
 
     step._rewrite_deploy_history(bench)
+    step._reshape_deploy_state_to_deployments(bench)
 
-    rows = tomlkit.parse(path.read_text())["deploy_state"]["history"]
+    rows = tomlkit.parse(path.read_text())["deployments"]["history"]
     assert "backups" not in rows[2]
-    assert BenchConfig.import_from_toml(path).deploy_state.history[2].backups == {}
+    assert BenchConfig.import_from_toml(path).deployments.history[2].backups == {}
 
 
 def test_the_rewritten_history_loads(step, tmp_path):
@@ -401,26 +402,12 @@ def test_the_rewritten_history_loads(step, tmp_path):
     bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + HISTORY)
 
     step._rewrite_deploy_history(bench)
+    step._reshape_deploy_state_to_deployments(bench)
 
     config = BenchConfig.import_from_toml(path)
-    assert config.deploy_state.history[0].backups == {SITE: "/backups/deploy-1/db-one.sql"}
-    assert config.deploy_state.history[1].backups == {}
-    assert config.deploy_state.history[2].backups == {}
-
-
-def test_the_old_spelling_no_longer_prevents_loading_but_is_retained_as_unknown(tmp_path):
-    # `DeployStateEntry` moved to extra="allow": a surviving `backup` key is retained rather than
-    # taking the whole bench config down. The rewrite step is still what makes it disappear.
-    path = tmp_path / "bench_config.toml"
-    path.write_text(BASE + f'\n[sites."{SITE}"]\n' + HISTORY)
-
-    config = BenchConfig.import_from_toml(path)
-
-    assert config.deploy_state.history[0].migrate_status == "migrated"
-    assert collect_unknown_keys(config.deploy_state) == [
-        "history[0].backup",
-        "history[1].backup",
-    ]
+    assert config.deployments.history[0].backups == {SITE: "/backups/deploy-1/db-one.sql"}
+    assert config.deployments.history[1].backups == {}
+    assert config.deployments.history[2].backups == {}
 
 
 def test_the_step_is_idempotent(step, tmp_path):
@@ -465,10 +452,11 @@ def test_the_dump_is_filed_under_the_site_and_not_the_bench_directory(step, tmp_
 
     # And the loader agrees, because the restore reads the key back through the config, not the
     # file: it has to name a site the bench actually holds.
+    step._reshape_deploy_state_to_deployments(bench)
     config = BenchConfig.import_from_toml(path)
     assert config.name == BENCH_DIR
-    assert list(config.deploy_state.history[0].backups) == [SITE]
-    assert set(config.deploy_state.history[0].backups) <= set(config.sites)
+    assert list(config.deployments.history[0].backups) == [SITE]
+    assert set(config.deployments.history[0].backups) <= set(config.sites)
 
 
 # ------------------------------------------------------- tag-era deploy_state keys
@@ -506,11 +494,12 @@ def test_tag_era_keys_are_renamed_and_the_result_loads_with_values_intact(step, 
     bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + TAG_HISTORY)
 
     step._rename_deploy_tag_keys(bench)
+    step._reshape_deploy_state_to_deployments(bench)
 
     config = BenchConfig.import_from_toml(path)
-    assert config.deploy_state.current_image == "127.0.0.1:5000/app:v2"
-    assert config.deploy_state.previous_image == "127.0.0.1:5000/app:v1"
-    assert [row.image for row in config.deploy_state.history] == [
+    assert config.deployments.current.app_image == "127.0.0.1:5000/app:v2"
+    assert config.deployments.previous.app_image == "127.0.0.1:5000/app:v1"
+    assert [row.app_image for row in config.deployments.history] == [
         "127.0.0.1:5000/app:v1",
         "127.0.0.1:5000/app:v2",
     ]
@@ -559,19 +548,22 @@ def test_a_row_with_both_spellings_keeps_image_and_drops_the_stale_tag(step, tmp
     bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n' + both)
 
     step._rename_deploy_tag_keys(bench)
+    step._reshape_deploy_state_to_deployments(bench)
 
     config = BenchConfig.import_from_toml(path)
-    assert config.deploy_state.history[2].image == "kept:v3"
+    assert config.deployments.history[2].app_image == "kept:v3"
     assert "stale:v3" not in path.read_text()
 
 
 def test_the_tag_era_file_reproduces_the_original_failure_without_the_step(tmp_path):
-    # The incident this step exists for: a tag-era bench cannot even load its deploy state.
+    # The incident this step exists for still fails without it -- now via the [deployments] guard,
+    # which refuses every unmigrated bench (tag-era or not) before the loader ever reaches the
+    # tag-era validation failure this step used to be the only thing preventing.
     path = tmp_path / "bench_config.toml"
     path.write_text(BASE + f'\n[sites."{SITE}"]\n' + TAG_HISTORY)
 
-    with pytest.raises(Exception, match="image"):
-        BenchConfig.import_from_toml(path).deploy_state.history[0].image  # noqa: B018
+    with pytest.raises(BenchException, match="fm migrate"):
+        BenchConfig.import_from_toml(path)
 
 
 # ------------------------------------------------------- switch.migrate = "auto"

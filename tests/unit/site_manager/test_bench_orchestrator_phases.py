@@ -31,7 +31,8 @@ from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.site_manager.bench_config import (
     BenchConfig,
-    DeployState,
+    Deployment,
+    Deployments,
     FMBenchEnvType,
     SiteConfig,
     SwitchConfig,
@@ -105,7 +106,7 @@ def _config(
     if external:
         config.db_password = SITE_PASSWORD
     if runtime == "image":
-        config.deploy_state = DeployState(current_image=IMAGE_TAG)
+        config.deployments = Deployments(current=Deployment(app_image=IMAGE_TAG, deployed_at="t0", migrate_status="migrated"))
     return config
 
 

@@ -30,7 +30,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from frappe_manager.site_manager.bench_config import BenchConfig, DeployState
+from frappe_manager.site_manager.bench_config import BenchConfig, Deployment, Deployments
 from frappe_manager.site_manager.modules import db_probe
 from frappe_manager.site_manager.modules.bench_orchestrator import BenchOrchestrator
 from frappe_manager.site_manager.modules.bench_site import BenchSiteManager
@@ -76,7 +76,7 @@ def _config(tmp_path: Path, *, external: bool, runtime: str = "mount") -> BenchC
         config.attach_existing_site = True
         config.db_password = SITE_PASSWORD
     if runtime == "image":
-        config.deploy_state = DeployState(current_image="ghcr.io/fm/app:v1")
+        config.deployments = Deployments(current=Deployment(app_image="ghcr.io/fm/app:v1", deployed_at="t0", migrate_status="migrated"))
     return config
 
 

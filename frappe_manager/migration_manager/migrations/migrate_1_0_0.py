@@ -372,6 +372,11 @@ class MigrationV100(MigrationBase):
         # After the sites table exists: each history row's single dump has to be filed under a
         # SITE, and the primary is the only site a pre-0.20 bench ever dumped.
         self._rewrite_deploy_history(bench)
+        # Right after the two steps above, and before anything below: both still manipulate the
+        # OLD flat `[deploy_state]` shape (tag-era keys; the single `backup` string), so the
+        # reshape has to see a config already normalized to `current_image`/`previous_image`/
+        # `image`/`backups` before it turns those flat keys into `Deployment` records.
+        self._reshape_deploy_state_to_deployments(bench)
         self._rewrite_switch_migrate(bench)
         # Last of the config rewrites: it resolves through `resolve_primary_site`, so the sites
         # table it reads has to be written already.
@@ -987,6 +992,172 @@ class MigrationV100(MigrationBase):
             toml_document.save(config_path, doc)
             if moved:
                 self.output.print(f'Filed {moved} recorded deploy dump(s) under \\[sites."{primary}"] for {bench.name}')
+
+    @staticmethod
+    def _nginx_image_snapshot(image: str) -> str | None:
+        """``<repo>-nginx:<tag>``, frozen exactly as ``BakeManager.nginx_image_ref`` derives it
+        at the moment this migration was written.
+
+        Inlined, not imported: a migration is a time capsule (see the note at
+        ``frappe_manager/__init__.py:16-18``) and a LATER commit deletes that derivation outright
+        once every reader stops re-deriving it, so importing it here would break the day it goes.
+        This step is the one place that still needs the rule, to record -- once, permanently --
+        the nginx companion of every pre-existing deploy record, because that fact becomes
+        unrecoverable the moment the derivation it depends on is gone.
+
+        Every record this runs against predates fm's digest support (a later commit adds it), so
+        the digest/no-explicit-tag refusals ``nginx_image_ref`` raises never apply to real data
+        here; this returns ``None`` instead of raising, so one malformed record cannot fail the
+        whole migration.
+        """
+        without_digest, has_digest, _digest = image.partition("@")
+        if has_digest:
+            return None
+        domain = None
+        rest = without_digest
+        if "/" in without_digest:
+            first, remainder = without_digest.split("/", 1)
+            if "." in first or ":" in first or first == "localhost":
+                domain = first
+                rest = remainder
+        head, sep, last = rest.rpartition("/")
+        if ":" not in last:
+            return None
+        name, _, tag = last.rpartition(":")
+        if not name or not tag:
+            return None
+        path = f"{head}/{name}" if sep else name
+        full_name = f"{domain}/{path}" if domain else path
+        return f"{full_name}-nginx:{tag}"
+
+    def _reshape_deploy_state_to_deployments(self, bench: MigrationBench):
+        """``[deploy_state]`` becomes ``[deployments]``: one ``Deployment`` record (``app_image``,
+        ``nginx_image``, ``deployed_at``, ``migrate_status``, ``backups``) used three times
+        (``current``, ``previous``, each ``history[]`` row) instead of six flat keys saying two
+        things. See notes/image-pairing-design.md, "Config: [deployments]".
+
+        Ordering: must run AFTER ``_rename_deploy_tag_keys`` and ``_rewrite_deploy_history``.
+        Both still manipulate the OLD flat shape (tag-era key spellings; the single `backup`
+        string), so this step has to see a config already normalized to
+        `current_image`/`previous_image`/`image` and `backups` before reshaping those flat keys
+        into records -- reshaping first would leave a tag-era or single-backup config nowhere to
+        land.
+
+        `current_image`/`previous_image` carried no `deployed_at`/`migrate_status`/`backups` of
+        their own in the old shape -- only `history[]` rows did. Building a full record for each
+        means finding that row: matched by image, taking the LAST match, because the old shape's
+        own ambiguity (deploying the same image twice makes more than one row match) is exactly
+        what full records fix going forward, but resolving it for data recorded under the OLD
+        shape has no better answer than the one the runtime already used
+        (`_find_current_deploy_backups`, pre-reshape).
+
+        Backfills `nginx_image` on EVERY record (`current`, `previous`, every history row) via
+        `_nginx_image_snapshot` above, because after the label-based lookup lands and
+        `nginx_image_ref` is deleted, the derivation is gone for good and an old release with no
+        recorded companion becomes un-rollback-able.
+
+        Idempotent: 1.0.0 is unreleased, so this re-runs on every `fm migrate` a dev build
+        triggers. A bench already reshaped (or one where `[deployments]` was somehow written by
+        hand) has no `[deploy_state]` left for this to act on, EXCEPT the one case where both
+        tables coexist -- there `[deploy_state]` is superseded dead weight and is simply dropped.
+        """
+        config_path = bench.path / "bench_config.toml"
+        if not config_path.exists():
+            return
+
+        doc = tomlkit.parse(config_path.read_text())
+        state = doc.get("deploy_state")
+        if not isinstance(state, MutableMapping):
+            return
+
+        if "deployments" in doc:
+            # Already reshaped (or hand-authored): [deploy_state] is superseded, never read again.
+            del doc["deploy_state"]
+            toml_document.save(config_path, doc)
+            self.output.print(f"Dropped superseded \\[deploy_state] for {bench.name}")
+            return
+
+        history_data = state.get("history")
+        history_list = list(history_data) if isinstance(history_data, MutableSequence) else []
+
+        def _last_matching(image) -> MutableMapping | None:
+            if not image:
+                return None
+            for row in reversed(history_list):
+                if isinstance(row, MutableMapping) and row.get("image") == image:
+                    return row
+            return None
+
+        def _build_record(image: str, matched: MutableMapping | None):
+            record = tomlkit.table()
+            record.add("app_image", image)
+            nginx = self._nginx_image_snapshot(image)
+            if nginx:
+                record.add("nginx_image", nginx)
+            record.add("deployed_at", (matched.get("deployed_at") if matched else None) or state.get("last_deploy_at") or "")
+            record.add("migrate_status", (matched.get("migrate_status") if matched else None) or "migrated")
+            backups = matched.get("backups") if matched else None
+            if isinstance(backups, MutableMapping) and len(backups):
+                bt = tomlkit.inline_table()
+                for site, path in backups.items():
+                    bt[site] = path
+                record.add("backups", bt)
+            return record
+
+        current_image = state.get("current_image")
+        previous_image = state.get("previous_image")
+
+        known_keys = {"current_image", "previous_image", "last_deploy_at", "history"}
+        extras = {key: value for key, value in state.items() if key not in known_keys}
+
+        if not current_image and not previous_image and not history_list and not extras:
+            # Nothing worth carrying over -- an empty [deployments] table would just be scaffolding
+            # nothing ever reads (`deployments_data and isinstance(...)` treats an empty table as
+            # absent anyway, the same way the old reader treated an empty [deploy_state]).
+            del doc["deploy_state"]
+            toml_document.save(config_path, doc)
+            self.output.print(f"Dropped empty \\[deploy_state] for {bench.name}")
+            return
+
+        deployments = tomlkit.table()
+        last_at = state.get("last_deploy_at")
+        if last_at:
+            deployments.add("last_at", last_at)
+        if current_image:
+            deployments.add("current", _build_record(current_image, _last_matching(current_image)))
+        if previous_image:
+            deployments.add("previous", _build_record(previous_image, _last_matching(previous_image)))
+
+        if history_list:
+            new_history = tomlkit.aot()
+            for row in history_list:
+                if not isinstance(row, MutableMapping):
+                    continue
+                new_row = tomlkit.table()
+                image = row.get("image")
+                if image is not None:
+                    new_row.add("app_image", image)
+                    nginx = self._nginx_image_snapshot(image)
+                    if nginx:
+                        new_row.add("nginx_image", nginx)
+                for key in ("deployed_at", "migrate_status", "backups"):
+                    if key in row:
+                        new_row.add(key, row[key])
+                # Anything else on the row (a genuine stray fm does not recognise) is retained
+                # verbatim: Deployment is extra="allow", same as its predecessor.
+                for key, value in row.items():
+                    if key not in ("image", "deployed_at", "migrate_status", "backups"):
+                        new_row.add(key, value)
+                new_history.append(new_row)
+            deployments.add("history", new_history)
+
+        for key, value in extras.items():
+            deployments.add(key, value)
+
+        doc["deployments"] = deployments
+        del doc["deploy_state"]
+        toml_document.save(config_path, doc)
+        self.output.print(f"Reshaped \\[deploy_state] into \\[deployments] for {bench.name}")
 
     def _rewrite_ssl_table(self, bench: MigrationBench):
         """Bring a bench's TLS configuration into the one shape the loader reads: an [ssl]

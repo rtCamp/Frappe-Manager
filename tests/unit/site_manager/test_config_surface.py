@@ -30,7 +30,7 @@ from frappe_manager.metadata_manager import (
 from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     recognised_bench_config_keys,
-    recognised_deploy_state_keys,
+    recognised_deployments_keys,
     recognised_ssl_keys,
 )
 
@@ -53,6 +53,10 @@ DYNAMIC_OR_INDIRECT: dict[str, str] = {
     "SwitchHookScripts.before_migrate": "getattr(hooks, name)",
     "SwitchHookScripts.after_migrate": "getattr(hooks, name)",
     "SwitchHookScripts.after_switch": "getattr(hooks, name)",
+    # Written only by the 1.0.0 migration's nginx backfill (a frozen snapshot of
+    # BakeManager.nginx_image_ref); nothing reads it yet in this commit. A later commit adds the
+    # fm.nginx.image label lookup that reads it -- see notes/image-pairing-design.md.
+    "Deployment.nginx_image": "written only by migrate_1_0_0's backfill; read starts in a later commit",
     # `SchemaState.version`/`last_migration_date` used to be exempted here (raw-TOML read
     # in bench_migration_state.py, never a `.field` access) -- now mutated via plain attribute
     # assignment (`config.schema_state.version = ...`) in bench_migration_state.py and
@@ -203,7 +207,7 @@ def test_recognised_bench_config_keys_covers_every_key_the_reader_touches():
 
 
 def test_recognised_ssl_keys_covers_every_key_the_reader_touches():
-    """The third hand-read table, same drift risk as `[deploy_state]` above: `[ssl]` is read by
+    """The third hand-read table, same drift risk as `[deployments]` above: `[ssl]` is read by
     hand (`ssl_data.get(...)`), not splatted into a model, so a key `collect_from_data` starts
     reading there needs the identical guard or the loader would warn about the very key it just
     consumed."""
@@ -217,15 +221,15 @@ def test_recognised_ssl_keys_covers_every_key_the_reader_touches():
     )
 
 
-def test_recognised_deploy_state_keys_covers_every_key_the_reader_touches():
+def test_recognised_deployments_keys_covers_every_key_the_reader_touches():
     source = textwrap.dedent(inspect.getsource(BenchConfig.collect_from_data))
-    keys_read = _keys_read_from("deploy_state_data", source)
+    keys_read = _keys_read_from("deployments_data", source)
 
     assert keys_read, "the AST scan found nothing, so this test is not testing anything"
-    missing = keys_read - recognised_deploy_state_keys()
+    missing = keys_read - recognised_deployments_keys()
     assert not missing, (
-        f"collect_from_data reads {sorted(missing)} from [deploy_state] but "
-        "recognised_deploy_state_keys() does not know them."
+        f"collect_from_data reads {sorted(missing)} from [deployments] but "
+        "recognised_deployments_keys() does not know them."
     )
 
 

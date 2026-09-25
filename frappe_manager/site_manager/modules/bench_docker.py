@@ -258,7 +258,7 @@ class BenchDockerOps:
 
         Thin delegator over the compose_shape projection -- the same specs
         ``generate_compose`` uses, with ``deploy_image`` as the candidate image (so
-        deploy shapes the NEW image without mutating deploy_state mid-pipeline).
+        deploy shapes the NEW image without mutating deployments mid-pipeline).
         ``rolling=True`` sheds container_name on the scaled web services so
         ``compose up --scale`` is accepted; the canonical render restores them.
         Returns the paired nginx assets image. Idempotent.

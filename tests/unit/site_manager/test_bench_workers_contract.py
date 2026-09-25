@@ -691,7 +691,7 @@ def _bench_config(name="test.localhost", alias_domains=None, ssl_certificates=()
         restart_policy=SimpleNamespace(value=restart_policy),
         runtime=BenchRuntime.mount,
         base_image=None,
-        deploy_state=None,
+        deployments=None,
         sites=None,
         redis=None,
         workers=None,

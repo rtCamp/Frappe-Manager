@@ -252,7 +252,7 @@ class BenchService:
                     else:
                         apps = [a.name for a in config.apps_list]
 
-                    deploy_state = config.deploy_state
+                    deployments = config.deployments
                     rows.append(
                         {
                             "name": bench.name,
@@ -269,8 +269,12 @@ class BenchService:
                             "runtime": config.runtime.value,
                             "environment": config.environment_type.value,
                             "apps": apps,
-                            "deployed_image": deploy_state.current_image if deploy_state else None,
-                            "previous_image": deploy_state.previous_image if deploy_state else None,
+                            "deployed_image": (
+                                deployments.current.app_image if deployments and deployments.current else None
+                            ),
+                            "previous_image": (
+                                deployments.previous.app_image if deployments and deployments.previous else None
+                            ),
                             "base_image": config.base_image,
                             "seed_image": config.seed_image,
                             # Every alias across the bench's sites. `fm list` is the overview, so it

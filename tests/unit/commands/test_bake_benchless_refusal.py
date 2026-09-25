@@ -20,7 +20,7 @@ from typer.testing import CliRunner
 
 from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME
 from frappe_manager.commands.bake import bake
-from frappe_manager.site_manager.bench_config import BenchConfig, BenchRuntime, DeployState
+from frappe_manager.site_manager.bench_config import BenchConfig, BenchRuntime, Deployment, Deployments
 from frappe_manager.site_manager.modules.bake import BakeManager
 
 # `frappe_manager.commands` re-exports the `bake` FUNCTION under the same name, shadowing the
@@ -105,7 +105,7 @@ def test_image_runtime_bench_mode_bake_is_refused_before_any_overlay(cli, wired,
     image_cfg = BenchConfig.model_construct(
         runtime=BenchRuntime.image,
         image="local/mydep",
-        deploy_state=DeployState(current_image="local/mydep:v2"),
+        deployments=Deployments(current=Deployment(app_image="local/mydep:v2", deployed_at="t0", migrate_status="migrated")),
     )
     monkeypatch.setattr(BenchConfig, "import_from_toml", classmethod(lambda cls, path: image_cfg))
     overlay = MagicMock(name="apply_config_overlays")

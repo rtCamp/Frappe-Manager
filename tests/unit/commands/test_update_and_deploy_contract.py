@@ -837,7 +837,7 @@ class DeployWorld:
         self.bench.path = tmp_path / "bench"
         cfg = self.bench.bench_config
         cfg.runtime = BenchRuntime.image
-        cfg.deploy_state = None
+        cfg.deployments = None
         # None -> the resolver falls through to the host [prune] table (a MagicMock here
         # would reach int()/parse_size() and blow up for the wrong reason).
         cfg.prune = None
@@ -908,16 +908,17 @@ SHOP = "shop.mybench.localhost"
 def _deploy_state(current="local/mybench:t2", previous="local/mybench:t1", backups=None):
     if backups is None:
         backups = {BENCH: "/b/db.sql"}
+    current_record = SimpleNamespace(app_image=current, backups=backups)
     return SimpleNamespace(
-        current_image=current,
-        previous_image=previous,
-        history=[SimpleNamespace(image=current, backups=backups)],
+        current=current_record,
+        previous=SimpleNamespace(app_image=previous, backups={}),
+        history=[current_record],
     )
 
 
 class TestSwitchTargetImageResolution:
     def test_an_explicit_image_is_deployed_as_given(self, ship):
-        ship.config.deploy_state = _deploy_state()
+        ship.config.deployments = _deploy_state()
 
         ship.switch(image="local/mybench:t9")
 
@@ -933,7 +934,7 @@ class TestSwitchTargetImageResolution:
         }
 
     def test_rolling_and_keep_are_forwarded_to_the_orchestrator(self, ship):
-        ship.config.deploy_state = _deploy_state()
+        ship.config.deployments = _deploy_state()
 
         ship.switch(image="local/mybench:t9", rolling=False, keep=3)
 
@@ -941,7 +942,7 @@ class TestSwitchTargetImageResolution:
         assert ship.orchestrator.deploy.call_args.kwargs["prune_keep"] == 3
 
     def test_a_resolution_failure_is_surfaced_verbatim(self, ship):
-        ship.config.deploy_state = _deploy_state()
+        ship.config.deployments = _deploy_state()
 
         with pytest.raises(typer.Exit) as exc:
             ship.switch()
@@ -951,7 +952,7 @@ class TestSwitchTargetImageResolution:
         ship.orchestrator_cls.assert_not_called()
 
     def test_previous_rolls_back_and_disables_migrate_by_default(self, ship):
-        ship.config.deploy_state = _deploy_state()
+        ship.config.deployments = _deploy_state()
 
         ship.switch(previous=True)
 
@@ -960,7 +961,7 @@ class TestSwitchTargetImageResolution:
         assert "Rollback: migrate disabled for this run (override with --migrate)." in ship.prints
 
     def test_an_explicit_migrate_flag_survives_a_rollback(self, ship):
-        ship.config.deploy_state = _deploy_state()
+        ship.config.deployments = _deploy_state()
 
         ship.switch(previous=True, migrate=True)
 
@@ -974,14 +975,14 @@ class TestSwitchTargetImageResolution:
         shop = ship.tmp_path / "db-shop.sql"
         primary.write_text("dump")
         shop.write_text("dump")
-        ship.config.deploy_state = _deploy_state(backups={BENCH: str(primary), SHOP: str(shop)})
+        ship.config.deployments = _deploy_state(backups={BENCH: str(primary), SHOP: str(shop)})
 
         ship.switch(image="local/mybench:t9", restore_db=True)
 
         assert ship.orchestrator.deploy.call_args.kwargs["restore_db_dumps"] == {BENCH: primary, SHOP: shop}
 
     def test_restore_db_refuses_when_the_recorded_dump_is_gone(self, ship):
-        ship.config.deploy_state = _deploy_state(backups={BENCH: "/b/vanished.sql"})
+        ship.config.deployments = _deploy_state(backups={BENCH: "/b/vanished.sql"})
 
         with pytest.raises(typer.Exit) as exc:
             ship.switch(image="local/mybench:t9", restore_db=True)
@@ -995,7 +996,7 @@ class TestSwitchTargetImageResolution:
         # in time. The refusal names what is missing, and nothing is deployed.
         primary = ship.tmp_path / "db-primary.sql"
         primary.write_text("dump")
-        ship.config.deploy_state = _deploy_state(backups={BENCH: str(primary), SHOP: "/b/vanished-shop.sql"})
+        ship.config.deployments = _deploy_state(backups={BENCH: str(primary), SHOP: "/b/vanished-shop.sql"})
 
         with pytest.raises(typer.Exit) as exc:
             ship.switch(image="local/mybench:t9", restore_db=True)
@@ -1006,8 +1007,8 @@ class TestSwitchTargetImageResolution:
 
     def test_restore_db_refuses_when_no_dump_was_recorded(self, ship):
         state = _deploy_state()
-        state.history = []
-        ship.config.deploy_state = state
+        state.current.backups = {}
+        ship.config.deployments = state
 
         with pytest.raises(typer.Exit) as exc:
             ship.switch(image="local/mybench:t9", restore_db=True)
@@ -1019,7 +1020,7 @@ class TestSwitchTargetImageResolution:
         ]
 
     def test_a_deploy_failure_during_switch_is_reported_as_exit_1(self, ship):
-        ship.config.deploy_state = _deploy_state()
+        ship.config.deployments = _deploy_state()
         ship.orchestrator.deploy.side_effect = DeployError("swap failed")
 
         with pytest.raises(typer.Exit) as exc:

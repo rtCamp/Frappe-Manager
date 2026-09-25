@@ -57,7 +57,7 @@ def _resolve_switch_image(state, image: str | None, previous: bool) -> tuple[str
     if image and previous:
         return None, "Pass either an explicit image or --previous, not both."
     if previous:
-        prev = state.previous_image if state else None
+        prev = state.previous.app_image if state and state.previous else None
         if not prev:
             return None, "No previous image recorded; nothing to roll back to (pass an explicit image)."
         return prev, None
@@ -86,22 +86,23 @@ def _reject_impossible_keep(output, keep: int | None) -> None:
 def _find_current_deploy_backups(state) -> "tuple[dict[str, str], str | None]":
     """({site: dump_path}, error) -- the pre-migrate DB dumps recorded for the CURRENT deploy.
 
-    The dumps taken while deploying the current (bad) image are the exact pre-migrate
-    state; restoring them alongside the code rollback undoes a bad migrate.
+    Reads ``current.backups`` directly rather than searching history for a row whose image
+    matches: with full ``Deployment`` records, ``current`` already carries them, so there is
+    no ambiguity when the same image is deployed twice (a rollback, then forward again) and
+    more than one history row would otherwise match.
 
     Every site, not one: each site has its own schema, so a rollback that restored only
     one would leave the others migrated against code that is being rolled back under them.
     """
-    current = state.current_image if state else None
+    current = state.current if state else None
     if not current:
         return {}, "No current deploy recorded; nothing to restore."
-    entries = [e for e in (state.history or []) if e.image == current and e.backups]
-    if not entries:
+    if not current.backups:
         return {}, (
-            f"No DB backup recorded for the current deploy ({current}). "
+            f"No DB backup recorded for the current deploy ({current.app_image}). "
             f"Dumps live under <bench>/backups/deploy-*/ -- restore manually if one exists."
         )
-    return entries[-1].backups, None
+    return current.backups, None
 
 
 @example(
@@ -204,7 +205,7 @@ def switch(
     _reject_impossible_keep(output, keep)
     bench = _load_image_bench(ctx, benchname)
 
-    state = bench.bench_config.deploy_state
+    state = bench.bench_config.deployments
     target, error = _resolve_switch_image(state, image, previous)
     if error:
         output.display_error(error)

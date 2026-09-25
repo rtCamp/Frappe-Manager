@@ -20,7 +20,8 @@ from frappe_manager.docker import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.site_manager.bench_config import (
     BenchRuntime,
-    DeployState,
+    Deployment,
+    Deployments,
     SwitchConfig,
     SwitchHooks,
     SwitchHookScripts,
@@ -30,6 +31,11 @@ from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError,
 SITE = "shop.localhost"
 NEW = "reg.example/shop:v2"
 OLD = "reg.example/shop:v1"
+
+
+def _current_state(image):
+    return Deployments(current=Deployment(app_image=image, deployed_at="t0", migrate_status="migrated"))
+
 
 # after_switch is skipped when unconfigured (real no-op), so every firing test must wire it.
 HOOKS = SwitchHooks(after_switch="container-hook", host=SwitchHookScripts(after_switch="host-hook"))
@@ -66,14 +72,14 @@ def _switch(**kw):
     return SwitchConfig(hooks=HOOKS, **kw)
 
 
-def _orch(tmp_path, switch, deploy_state=None):
+def _orch(tmp_path, switch, deployments=None):
     config = SimpleNamespace(
         runtime=BenchRuntime.image,
         image=NEW,
         switch=switch,
         workers=None,
         root_path=str(tmp_path),
-        deploy_state=deploy_state,
+        deployments=deployments,
         apps_list=[],
         seed_image=None,
         base_image=None,
@@ -127,7 +133,7 @@ def _fired(orch):
 
 
 def test_clean_switch_fires_succeeded(tmp_path):
-    orch = _orch(tmp_path, _switch(migrate=False), deploy_state=DeployState(current_image=OLD))
+    orch = _orch(tmp_path, _switch(migrate=False), deployments=_current_state(OLD))
 
     orch.deploy(NEW)
 
@@ -139,7 +145,7 @@ def test_clean_switch_fires_succeeded(tmp_path):
 
 
 def test_migrate_failure_fires_rolled_back(tmp_path):
-    orch = _orch(tmp_path, _switch(migrate=True), deploy_state=DeployState(current_image=OLD))
+    orch = _orch(tmp_path, _switch(migrate=True), deployments=_current_state(OLD))
     _fail_migrate(orch)
 
     with pytest.raises(DeployError, match="Migration failed"):
@@ -153,7 +159,7 @@ def test_migrate_failure_fires_rolled_back(tmp_path):
 
 
 def test_health_gate_failure_fires_rolled_back(tmp_path):
-    orch = _orch(tmp_path, _switch(migrate=False), deploy_state=DeployState(current_image=OLD))
+    orch = _orch(tmp_path, _switch(migrate=False), deployments=_current_state(OLD))
     orch._health_check.return_value = False
 
     with pytest.raises(DeployError, match="failed health check"):
@@ -169,7 +175,7 @@ def test_health_gate_failure_fires_rolled_back(tmp_path):
 def test_a_rollback_that_also_fails_fires_halted_not_aborted(tmp_path):
     """If the auto-rollback ITSELF fails its health gate it raises, leaving the bench broken. That
     is `halted` (attempted and stuck), never `aborted` (which means nothing changed)."""
-    orch = _orch(tmp_path, _switch(migrate=False), deploy_state=DeployState(current_image=OLD))
+    orch = _orch(tmp_path, _switch(migrate=False), deployments=_current_state(OLD))
     orch._health_check.return_value = False
     orch.rollback.side_effect = DeployError("Rollback to OLD failed health check; bench halted")
 
@@ -183,7 +189,7 @@ def test_a_rollback_that_also_fails_fires_halted_not_aborted(tmp_path):
 def test_health_gate_failure_with_no_previous_image_fires_halted(tmp_path):
     """No previous image -> the new (unhealthy) image stays pinned; new code on new schema is
     matched, so this is `halted` (page it), NOT a rollback (do not restore the DB here)."""
-    orch = _orch(tmp_path, _switch(migrate=False), deploy_state=None)
+    orch = _orch(tmp_path, _switch(migrate=False), deployments=None)
     orch._health_check.return_value = False
 
     with pytest.raises(DeployError, match="halted in maintenance"):
@@ -198,7 +204,7 @@ def test_health_gate_failure_with_no_previous_image_fires_halted(tmp_path):
 
 def test_pre_change_failure_fires_aborted(tmp_path):
     """A drain-gate timeout aborts before anything changes -- schema untouched, old stack live."""
-    orch = _orch(tmp_path, _switch(migrate=True), deploy_state=DeployState(current_image=OLD))
+    orch = _orch(tmp_path, _switch(migrate=True), deployments=_current_state(OLD))
     orch.drain_workers.return_value = False
 
     with pytest.raises(DeployError, match="Drain timed out"):
@@ -210,7 +216,7 @@ def test_pre_change_failure_fires_aborted(tmp_path):
 
 
 def test_unconfigured_after_switch_is_a_no_op(tmp_path):
-    orch = _orch(tmp_path, SwitchConfig(migrate=False), deploy_state=DeployState(current_image=OLD))
+    orch = _orch(tmp_path, SwitchConfig(migrate=False), deployments=_current_state(OLD))
 
     orch.deploy(NEW)
 
@@ -218,7 +224,7 @@ def test_unconfigured_after_switch_is_a_no_op(tmp_path):
 
 
 def test_a_broken_after_switch_hook_never_masks_the_failure(tmp_path):
-    orch = _orch(tmp_path, _switch(migrate=True), deploy_state=DeployState(current_image=OLD))
+    orch = _orch(tmp_path, _switch(migrate=True), deployments=_current_state(OLD))
     _fail_migrate(orch)
 
     def boom(_value, phase, _image, extra_env=None):
@@ -237,7 +243,7 @@ def test_rollback_env_not_clobbered_by_switch_config_scalars(tmp_path):
     """hook_env also exports every SwitchConfig scalar upper-cased, so `rollback_image` exports as
     ROLLBACK_IMAGE. The rolled-back image travels as ROLLBACK_TO_IMAGE and must survive. Exercises
     the REAL `_hook_script` (the firing tests mock the runner and cannot see the exported env)."""
-    orch = _orch(tmp_path, SwitchConfig(rollback_image=True), deploy_state=DeployState(current_image=OLD))
+    orch = _orch(tmp_path, SwitchConfig(rollback_image=True), deployments=_current_state(OLD))
 
     script = orch._hook_script(
         "true",

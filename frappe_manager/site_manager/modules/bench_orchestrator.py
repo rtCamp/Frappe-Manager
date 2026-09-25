@@ -257,7 +257,7 @@ class BenchOrchestrator:
         from frappe_manager.utils.docker import host_run_cp
 
         bench = self.bench
-        image = bench.bench_config.deploy_state.current_image
+        image = bench.bench_config.deployments.current.app_image
 
         # Host-side config + supervisor (mode-agnostic, no image needed).
         common_site_config_data = bench.bench_config.get_commmon_site_config_data()

@@ -1,6 +1,6 @@
 """Phase 2: hand-read table reporting, plus the top-level extra="allow" asymmetry Phase 1 left.
 
-`import_from_toml` reads `[ssl]`/`[deploy_state]`/`[sites]` by hand rather than splatting a whole
+`import_from_toml` reads `[ssl]`/`[deployments]`/`[sites]` by hand rather than splatting a whole
 table straight into a pydantic model, so Phase 1's `collect_unknown_keys` (which only walks
 `model_extra`) cannot see a stray key inside any of them on its own. The three tables differ in
 what they CAN hold a stray key in, so the fix is not the same shape for all three:
@@ -12,8 +12,8 @@ what they CAN hold a stray key in, so the fix is not the same shape for all thre
   the same way it already found one inside a site's nested `[database]`/`[auth]` tables (those
   WERE already splatted, and already worked before this change).
 
-- `[ssl]`/`[deploy_state]` have no model of their own for the table AS A WHOLE (`BenchConfig`
-  holds `ssl_certificates`/`dns_providers`/`deploy_state` as separate, differently-shaped fields),
+- `[ssl]`/`[deployments]` have no model of their own for the table AS A WHOLE (`BenchConfig`
+  holds `ssl_certificates`/`dns_providers`/`deployments` as separate, differently-shaped fields),
   so a stray there has nowhere to round-trip as `model_extra`. `BenchConfig.hand_read_unknown_keys()`
   reports these by hand, in the same dotted-path shape `collect_unknown_keys` produces, for a
   caller to combine with `collect_unknown_keys(config)`.
@@ -92,25 +92,18 @@ class TestHandReadTableStrays:
         # No SSLConfig model backs the [ssl] table as a whole, so it cannot show up structurally.
         assert collect_unknown_keys(cfg) == []
 
-    def test_a_deploy_state_stray_is_now_found_structurally_not_via_hand_read(self, tmp_path):
-        """Unlike `[ssl]`, `[deploy_state]` has a real model field (`DeployState`, extra="allow")
+    def test_a_deployments_stray_is_now_found_structurally_not_via_hand_read(self, tmp_path):
+        """Unlike `[ssl]`, `[deployments]` has a real model field (`Deployments`, extra="allow")
         to hold its remainder: retained there directly (see bench_config.py), so
         `collect_unknown_keys` finds it the same way it finds a `[switch]` stray, with no
         separate hand-list to keep in sync."""
         cfg = _import(
             tmp_path,
-            _BASE + '\n[deploy_state]\ncurrent_image = "repo:tag"\nhistroy = []\n',
+            _BASE + '\n[deployments]\nlast_at = "2026-01-01T00:00:00"\nhistroy = []\n',
         )
-        assert collect_unknown_keys(cfg) == ["deploy_state.histroy"]
+        assert collect_unknown_keys(cfg) == ["deployments.histroy"]
         # [ssl] is the one hand-read table left with no model of its own for the whole table.
         assert cfg.hand_read_unknown_keys() == []
-
-    def test_the_deploy_state_stale_tag_warning_is_not_also_reported_as_unknown(self, tmp_path):
-        """`current_tag`/`previous_tag` (the pre-rename spellings) get their own dedicated stale-
-        tag warning; they must not ALSO show up as a generic unrecognised key."""
-        cfg = _import(tmp_path, _BASE + '\n[deploy_state]\ncurrent_tag = "v1"\n')
-        assert cfg.hand_read_unknown_keys() == []
-        assert collect_unknown_keys(cfg) == []
 
     def test_hand_read_unknown_keys_combines_with_the_collector_for_the_complete_picture(self, tmp_path):
         cfg = _import(
@@ -118,11 +111,11 @@ class TestHandReadTableStrays:
             _BASE
             + f'\n[sites."{SITE}"]\ntypo_top_level = "boom"\n'
             + "\n[ssl]\ncertificatess = []\n"
-            + '\n[deploy_state]\ncurrent_image = "repo:tag"\nhistroy = []\n',
+            + '\n[deployments]\nlast_at = "2026-01-01T00:00:00"\nhistroy = []\n',
         )
         combined = sorted(collect_unknown_keys(cfg) + cfg.hand_read_unknown_keys())
         assert combined == [
-            "deploy_state.histroy",
+            "deployments.histroy",
             f"sites.{SITE}.typo_top_level",
             "ssl.certificatess",
         ]

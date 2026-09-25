@@ -99,7 +99,7 @@ def _config(*, sites=None, aliases=None, **over):
         "environment_type": FMBenchEnvType.prod,
         "restart_policy": SimpleNamespace(value="unless-stopped"),
         "admin_pass": ADMIN_PW,
-        "deploy_state": None,
+        "deployments": None,
         "base_image": None,
         "seed_image": None,
         "admin_tools": False,
@@ -298,7 +298,7 @@ def test_get_bench_apps_image_runtime_without_a_deploy_never_touches_docker(tmp_
 
     info = _info(
         tmp_path,
-        bench_config=_config(runtime=BenchRuntime.image, deploy_state=SimpleNamespace(current_image="r:t")),
+        bench_config=_config(runtime=BenchRuntime.image, deployments=SimpleNamespace(current=SimpleNamespace(app_image="r:t"))),
         docker_client=None,
     )
     assert info.get_bench_apps() == []
@@ -309,7 +309,7 @@ def test_get_bench_apps_image_runtime_survives_a_malformed_label(tmp_path):
     docker.image_labels.return_value = {"fm.apps": "{not json"}
     info = _info(
         tmp_path,
-        bench_config=_config(runtime=BenchRuntime.image, deploy_state=SimpleNamespace(current_image="r:t")),
+        bench_config=_config(runtime=BenchRuntime.image, deployments=SimpleNamespace(current=SimpleNamespace(app_image="r:t"))),
         docker_client=docker,
     )
     assert info.get_bench_apps() == []
@@ -579,7 +579,11 @@ def test_display_info_image_runtime_without_a_deploy_reports_not_yet_deployed(tm
 def test_display_info_image_runtime_shows_current_and_previous_image(tmp_path, card_spy):
     info = _displayable(tmp_path)
     info.bench_config.runtime = BenchRuntime.image
-    info.bench_config.deploy_state = SimpleNamespace(current_image="r:new", previous_image="r:old", history=[])
+    info.bench_config.deployments = SimpleNamespace(
+        current=SimpleNamespace(app_image="r:new", deployed_at="d1"),
+        previous=SimpleNamespace(app_image="r:old"),
+        history=[],
+    )
     info.display_info()
 
     (card,) = card_spy.made
@@ -589,22 +593,19 @@ def test_display_info_image_runtime_shows_current_and_previous_image(tmp_path, c
 
 
 def _deploy_entry(image, status, backups=None):
-    return SimpleNamespace(image=image, deployed_at="2026-01-02T03:04:05", migrate_status=status, backups=backups or {})
+    return SimpleNamespace(app_image=image, deployed_at="2026-01-02T03:04:05", migrate_status=status, backups=backups or {})
 
 
 def test_display_info_deploy_history_is_newest_first_and_marks_current_once(tmp_path, card_spy):
     """The same image can appear twice (redeploy); only the newest occurrence is '● current'."""
     info = _displayable(tmp_path)
     info.bench_config.runtime = BenchRuntime.image
-    info.bench_config.deploy_state = SimpleNamespace(
-        current_image="r:2",
-        previous_image=None,
-        history=[
-            _deploy_entry("r:1", "migrated"),
-            _deploy_entry("r:2", "failed", {"a.localhost": "/dump.sql"}),
-            _deploy_entry("r:2", "skipped"),
-        ],
-    )
+    history = [
+        _deploy_entry("r:1", "migrated"),
+        _deploy_entry("r:2", "failed", {"a.localhost": "/dump.sql"}),
+        _deploy_entry("r:2", "skipped"),
+    ]
+    info.bench_config.deployments = SimpleNamespace(current=history[-1], previous=None, history=history)
     info.display_info()
 
     (card,) = card_spy.made
@@ -624,13 +625,14 @@ def test_display_info_deploy_history_counts_the_dumps_it_recorded(tmp_path, card
     'db-dump' marker would not say whether the site you need to roll back was covered."""
     info = _displayable(tmp_path)
     info.bench_config.runtime = BenchRuntime.image
-    info.bench_config.deploy_state = SimpleNamespace(
-        current_image="r:2",
-        previous_image="r:1",
-        history=[
-            _deploy_entry("r:1", "migrated", {"a.localhost": "/one.sql"}),
-            _deploy_entry("r:2", "migrated", {"a.localhost": "/a.sql", "shop.a.localhost": "/shop.sql"}),
-        ],
+    history = [
+        _deploy_entry("r:1", "migrated", {"a.localhost": "/one.sql"}),
+        _deploy_entry("r:2", "migrated", {"a.localhost": "/a.sql", "shop.a.localhost": "/shop.sql"}),
+    ]
+    info.bench_config.deployments = SimpleNamespace(
+        current=history[-1],
+        previous=SimpleNamespace(app_image="r:1"),
+        history=history,
     )
     info.display_info()
 
@@ -1135,7 +1137,7 @@ def _listable_bench(path: Path, name: str, *, sites=(SITE,), aliases=(), **over)
         runtime=BenchRuntime.mount,
         environment_type=FMBenchEnvType.prod,
         apps_list=[SimpleNamespace(name="frappe")],
-        deploy_state=None,
+        deployments=None,
         base_image=None,
         seed_image=None,
         developer_mode=False,
@@ -1195,7 +1197,7 @@ def test_list_benches_data_reports_the_deployed_images_for_an_image_bench(tmp_pa
         path,
         "a.localhost",
         runtime=BenchRuntime.image,
-        deploy_state=SimpleNamespace(current_image="r:new", previous_image="r:old"),
+        deployments=SimpleNamespace(current=SimpleNamespace(app_image="r:new"), previous=SimpleNamespace(app_image="r:old")),
         aliases=["alias.localhost"],
     )
     with patch.object(BenchService, "get_bench", return_value=bench):

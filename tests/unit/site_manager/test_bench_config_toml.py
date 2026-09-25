@@ -2,12 +2,14 @@
 
 Three things are defended here.
 
-1. ``[deploy_state]`` import is guarded by ``deploy_state_data and isinstance(..., dict)``.
-   bench_config.toml is a user-editable file, so a hand-edited ``deploy_state = "..."`` scalar
+1. ``[deployments]`` import is guarded by ``deployments_data and isinstance(..., dict)``.
+   bench_config.toml is a user-editable file, so a hand-edited ``deployments = "..."`` scalar
    (or a leftover empty table) must be ignored, not fed to ``.get()``: dropping either half of
    that conjunction turns a cosmetically broken config file into a crash on every fm command
-   that loads the bench, or invents an empty DeployState that makes `fm rollback` think a
-   deploy has happened.
+   that loads the bench, or invents an empty Deployments that makes `fm rollback` think a
+   deploy has happened. A bench still carrying the pre-rename ``[deploy_state]`` table with no
+   ``[deployments]`` is a different case: refused outright rather than guarded (see
+   ``TestPreRenameGuardRefuses`` below).
 
 2. ``db_password_generated`` (and its create-time-only siblings) carry ``exclude=True``, so they
    are runtime-only inputs that NEVER reach a serialized form. The design forbids credentials and
@@ -25,7 +27,8 @@ import datetime
 
 import pytest
 
-from frappe_manager.site_manager.bench_config import BenchConfig, DeployState
+from frappe_manager.site_manager.bench_config import BenchConfig, Deployments
+from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import RETIRED_CERTIFICATE_KEYS
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -33,13 +36,19 @@ from frappe_manager.utils.config_keys import collect_unknown_keys
 
 _BASE = 'name = "dev.localhost"\ndeveloper_mode = true\nadmin_tools = true\nenvironment = "dev"\n'
 
-_DEPLOY_STATE = (
-    "\n[deploy_state]\n"
-    'current_image = "v2"\n'
-    'previous_image = "v1"\n'
-    'last_deploy_at = "2026-01-01T00:00:00"\n'
-    "[[deploy_state.history]]\n"
-    'image = "v2"\n'
+_DEPLOYMENTS = (
+    "\n[deployments]\n"
+    'last_at = "2026-01-01T00:00:00"\n'
+    "\n[deployments.current]\n"
+    'app_image = "v2"\n'
+    'deployed_at = "2026-01-01T00:00:00"\n'
+    'migrate_status = "migrated"\n'
+    "\n[deployments.previous]\n"
+    'app_image = "v1"\n'
+    'deployed_at = "2025-12-31T00:00:00"\n'
+    'migrate_status = "migrated"\n'
+    "\n[[deployments.history]]\n"
+    'app_image = "v2"\n'
     'deployed_at = "2026-01-01T00:00:00"\n'
     'migrate_status = "migrated"\n'
 )
@@ -51,108 +60,88 @@ def _import(tmp_path, text: str) -> BenchConfig:
     return BenchConfig.import_from_toml(path)
 
 
-class TestDeployStateImportGuard:
-    """`if deploy_state_data and isinstance(deploy_state_data, dict)` — both conjuncts matter."""
+class TestDeploymentsImportGuard:
+    """`if deployments_data and isinstance(deployments_data, dict)` — both conjuncts matter."""
 
     def test_well_formed_table_is_parsed(self, tmp_path):
-        bc = _import(tmp_path, _BASE + _DEPLOY_STATE)
+        bc = _import(tmp_path, _BASE + _DEPLOYMENTS)
 
-        assert isinstance(bc.deploy_state, DeployState)
-        assert bc.deploy_state.current_image == "v2"
-        assert bc.deploy_state.previous_image == "v1"
-        assert bc.deploy_state.last_deploy_at == "2026-01-01T00:00:00"
-        assert [e.image for e in bc.deploy_state.history] == ["v2"]
-        assert bc.deploy_state.history[0].migrate_status == "migrated"
+        assert isinstance(bc.deployments, Deployments)
+        assert bc.deployments.current.app_image == "v2"
+        assert bc.deployments.previous.app_image == "v1"
+        assert bc.deployments.last_at == "2026-01-01T00:00:00"
+        assert [e.app_image for e in bc.deployments.history] == ["v2"]
+        assert bc.deployments.history[0].migrate_status == "migrated"
 
     def test_missing_key_yields_none(self, tmp_path):
-        assert _import(tmp_path, _BASE).deploy_state is None
+        assert _import(tmp_path, _BASE).deployments is None
 
-    def test_scalar_deploy_state_is_ignored_not_dereferenced(self, tmp_path):
-        """`deploy_state = "corrupt"` is truthy but not a mapping: import must survive it."""
-        bc = _import(tmp_path, _BASE + '\ndeploy_state = "corrupt"\n')
+    def test_scalar_deployments_is_ignored_not_dereferenced(self, tmp_path):
+        """`deployments = "corrupt"` is truthy but not a mapping: import must survive it."""
+        bc = _import(tmp_path, _BASE + '\ndeployments = "corrupt"\n')
 
-        assert bc.deploy_state is None
+        assert bc.deployments is None
         assert bc.name == "dev.localhost"
 
-    def test_array_deploy_state_is_ignored(self, tmp_path):
-        bc = _import(tmp_path, _BASE + '\ndeploy_state = ["v1", "v2"]\n')
+    def test_array_deployments_is_ignored(self, tmp_path):
+        bc = _import(tmp_path, _BASE + '\ndeployments = ["v1", "v2"]\n')
 
-        assert bc.deploy_state is None
+        assert bc.deployments is None
 
-    def test_empty_table_yields_none_not_a_blank_deploy_state(self, tmp_path):
-        """An empty `[deploy_state]` is falsy: no deploy has happened, so state stays None."""
-        bc = _import(tmp_path, _BASE + "\n[deploy_state]\n")
+    def test_empty_table_yields_none_not_a_blank_deployments(self, tmp_path):
+        """An empty `[deployments]` is falsy: no deploy has happened, so state stays None."""
+        bc = _import(tmp_path, _BASE + "\n[deployments]\n")
 
-        assert bc.deploy_state is None
+        assert bc.deployments is None
 
-    def test_deploy_state_survives_export_and_reimport(self, tmp_path):
-        bc = _import(tmp_path, _BASE + _DEPLOY_STATE)
+    def test_deployments_survives_export_and_reimport(self, tmp_path):
+        bc = _import(tmp_path, _BASE + _DEPLOYMENTS)
 
         out = tmp_path / "out.toml"
         bc.export_to_toml(out)
         reimported = BenchConfig.import_from_toml(out)
 
-        assert isinstance(reimported.deploy_state, DeployState)
-        assert reimported.deploy_state.current_image == "v2"
-        assert [e.image for e in reimported.deploy_state.history] == ["v2"]
+        assert isinstance(reimported.deployments, Deployments)
+        assert reimported.deployments.current.app_image == "v2"
+        assert [e.app_image for e in reimported.deployments.history] == ["v2"]
 
 
-class TestStaleDeployStateKeysWarnLoudly:
-    """`current_tag`/`previous_tag` are the pre-rename spellings. Reading the new names with
-    ``.get()`` (rather than splatting into ``DeployState``) means a stale top-level key never
-    reaches the model at all, so import must announce it rather than silently loading an empty
-    (indistinguishable from never-deployed) deploy_state.
+class TestPreRenameGuardRefuses:
+    """A bench still carrying the pre-rename `[deploy_state]` table, with no `[deployments]`, is
+    refused outright rather than silently loaded as "never deployed": `Deployments` is
+    `extra="allow"`, so the old keys would otherwise be retained and ignored, and `fm switch`
+    skips the migration gate, so nothing else would ever catch this (see
+    notes/image-pairing-design.md, "The rename's one risk, and its guard").
     """
 
-    _OLD_SHAPED = (
-        "\n[deploy_state]\n"
-        'current_tag = "local/mybench:v2"\n'
-        'previous_tag = "local/mybench:v1"\n'
-        'last_deploy_at = "2026-01-01T00:00:00"\n'
-    )
+    _OLD_SHAPED = '\n[deploy_state]\ncurrent_image = "local/mybench:v2"\nprevious_image = "local/mybench:v1"\n'
 
-    def test_import_survives_and_yields_an_empty_but_present_deploy_state(self, tmp_path):
-        bc = _import(tmp_path, _BASE + self._OLD_SHAPED)
-
-        assert isinstance(bc.deploy_state, DeployState)
-        assert bc.deploy_state.current_image is None
-        assert bc.deploy_state.previous_image is None
-        assert bc.deploy_state.history == []
-
-    def test_a_warning_names_the_bench_and_the_stale_keys(self, tmp_path):
-        from unittest.mock import MagicMock
-
-        from frappe_manager.output_manager import set_global_output_handler
-        from frappe_manager.output_manager.base import OutputHandler
-
-        handler = MagicMock(spec=OutputHandler)
-        set_global_output_handler(handler)
-        try:
+    def test_deploy_state_with_no_deployments_is_refused(self, tmp_path):
+        with pytest.raises(BenchException, match="fm migrate"):
             _import(tmp_path, _BASE + self._OLD_SHAPED)
-        finally:
-            set_global_output_handler(None)
 
-        handler.warning.assert_called_once()
-        message = handler.warning.call_args.args[0]
-        assert "dev.localhost" in message
-        assert "current_tag" in message
-        assert "previous_tag" in message
-        assert "rollback" in message
+    def test_the_refusal_names_the_bench(self, tmp_path):
+        with pytest.raises(BenchException, match="dev.localhost"):
+            _import(tmp_path, _BASE + self._OLD_SHAPED)
 
-    def test_no_warning_when_the_keys_are_already_current(self, tmp_path):
-        from unittest.mock import MagicMock
+    def test_both_tables_present_loads_from_deployments_and_ignores_deploy_state(self, tmp_path):
+        """`[deployments]` already exists (a bench mid-migration, or a hand edit): the guard's
+        whole point is a MISSING `[deployments]`, so this must load, not refuse."""
+        bc = _import(tmp_path, _BASE + self._OLD_SHAPED + _DEPLOYMENTS)
 
-        from frappe_manager.output_manager import set_global_output_handler
-        from frappe_manager.output_manager.base import OutputHandler
+        assert bc.deployments.current.app_image == "v2"
 
-        handler = MagicMock(spec=OutputHandler)
-        set_global_output_handler(handler)
-        try:
-            _import(tmp_path, _BASE + _DEPLOY_STATE)
-        finally:
-            set_global_output_handler(None)
+    def test_deployments_alone_loads_fine(self, tmp_path):
+        # The ordinary, fully-migrated shape: no [deploy_state] anywhere.
+        bc = _import(tmp_path, _BASE + _DEPLOYMENTS)
 
-        handler.warning.assert_not_called()
+        assert bc.deployments.current.app_image == "v2"
+
+    def test_neither_table_loads_fine(self, tmp_path):
+        # The common case: a mount-runtime bench that has never touched image deploys at all.
+        bc = _import(tmp_path, _BASE)
+
+        assert bc.deployments is None
 
 
 class TestUnsupportedRedisSchemeWarnsRatherThanRaises:
@@ -161,7 +150,7 @@ class TestUnsupportedRedisSchemeWarnsRatherThanRaises:
     `bake`/`switch`/`maintenance` skip the migration gate precisely so one bad bench cannot
     take the rest of the host down, and `fm update` has no `--redis-*` flag, so a hand edit is
     the only way this table changes after create -- the same tradeoff
-    `TestStaleDeployStateKeysWarnLoudly` already makes for a stale `[deploy_state]` key.
+    `TestUnrecognisedKeysWarnRatherThanVanish` already makes for a stray `[deployments]` key.
     """
 
     _BAD_SCHEME = (
@@ -579,8 +568,8 @@ class TestUnrecognisedKeysWarnRatherThanVanish:
     """A key `import_from_toml` does not read used to disappear with no signal at all: the input
     dict below names every key it wants and silently drops the rest. `fm list`/`fm bake`/`fm
     switch`/`fm maintenance` skip the migration gate, so this must warn rather than raise --
-    the same tradeoff `TestStaleDeployStateKeysWarnLoudly` already makes for the deploy_state
-    rename.
+    the same tradeoff `TestUnsupportedRedisSchemeWarnsRatherThanRaises` already makes for a bad
+    `[redis]` scheme.
 
     Every fixture that expects a warning stamps `[schema].version` at fm's current
     version: the warning itself is version-gated (Phase 5), silent on a bench that has simply
@@ -641,21 +630,21 @@ class TestUnrecognisedKeysWarnRatherThanVanish:
         assert bc.switch.migrate is True
         handler.warning.assert_not_called()
 
-    def test_an_unknown_deploy_state_key_warns(self, tmp_path):
-        """The same hole one level down: `[deploy_state]` is read the same hand-written way."""
+    def test_an_unknown_deployments_key_warns(self, tmp_path):
+        """The same hole one level down: `[deployments]` is read the same hand-written way."""
         bc, handler = self._warn(
             tmp_path,
-            _BASE + '\n[deploy_state]\ncurrent_image = "v1"\ncurent_image = "typo"\n' + self._current(),
+            _BASE + '\n[deployments]\nlast_at = "2026-01-01T00:00:00"\nlst_at = "typo"\n' + self._current(),
         )
 
-        assert bc.deploy_state.current_image == "v1"
+        assert bc.deployments.last_at == "2026-01-01T00:00:00"
         handler.warning.assert_called_once()
         message = handler.warning.call_args.args[0]
-        assert "deploy_state" in message
-        assert "curent_image" in message
+        assert "deployments" in message
+        assert "lst_at" in message
 
     def test_an_unknown_ssl_key_warns(self, tmp_path):
-        """The same hole one level down as [deploy_state]: [ssl] is read the same hand-written
+        """The same hole one level down as [deployments]: [ssl] is read the same hand-written
         way (`certificates`/`dns_providers`), so a typo there needs the identical guard."""
         bc, handler = self._warn(tmp_path, _BASE + "\n[ssl]\ncertificatess = []\n" + self._current())
 
@@ -956,10 +945,10 @@ class TestUnknownKeysRoundTripLosslessly:
     Every test here asserts the stray survives against the ORIGINAL source text, never only
     cycle-to-cycle: a key deleted during the FIRST cycle makes cycle one and cycle two
     byte-identical, so `first == second` alone would pass on a reader that silently drops the
-    key just as readily as on one that keeps it. `[ssl]`/`[deploy_state]` are exactly the shape
+    key just as readily as on one that keeps it. `[ssl]`/`[deployments]` are exactly the shape
     that mistake would hide, since neither is a model-backed field the way `[switch]` and
     `[[ssl.certificates]]` already were -- both needed their own retention mechanism (see
-    `_ssl_unknown` and `DeployState`'s retained remainder in bench_config.py), and a test that
+    `_ssl_unknown` and `Deployments`'s retained remainder in bench_config.py), and a test that
     only checked the fixed point would have passed before that mechanism existed too.
     """
 
@@ -1022,14 +1011,14 @@ class TestUnknownKeysRoundTripLosslessly:
         assert first == second
         assert BenchConfig.import_from_toml(path).hand_read_unknown_keys() == ["ssl.certificatess"]
 
-    def test_a_deploy_state_stray_key_survives_two_load_save_cycles_unchanged(self, tmp_path):
-        """`DeployState` is built from four named kwargs, not a splat -- before its retained
+    def test_a_deployments_stray_key_survives_two_load_save_cycles_unchanged(self, tmp_path):
+        """`Deployments` is built from four named kwargs, not a splat -- before its retained
         remainder existed, a stray here never reached the model at all, so `export_to_toml`
-        (which rebuilds `[deploy_state]` from the model) silently dropped it on the FIRST save.
+        (which rebuilds `[deployments]` from the model) silently dropped it on the FIRST save.
         Asserted against the original for the same reason as the `[ssl]` case above.
         """
         path = tmp_path / "bench_config.toml"
-        path.write_text(_BASE + '[deploy_state]\ncurrent_image = "repo:tag"\nds_typo = "boom"\n')
+        path.write_text(_BASE + '[deployments]\nlast_at = "2026-01-01T00:00:00"\nds_typo = "boom"\n')
 
         BenchConfig.import_from_toml(path).export_to_toml(path)
         first = path.read_text()
@@ -1038,7 +1027,7 @@ class TestUnknownKeysRoundTripLosslessly:
 
         assert "ds_typo" in first, "must survive against the ORIGINAL, not just cycle-to-cycle"
         assert first == second
-        assert collect_unknown_keys(BenchConfig.import_from_toml(path).deploy_state) == ["ds_typo"]
+        assert collect_unknown_keys(BenchConfig.import_from_toml(path).deployments) == ["ds_typo"]
 
     def test_a_dns_provider_label_with_only_a_typo_survives_two_load_save_cycles_unchanged(self, tmp_path):
         """`export_to_toml` used to gate a label's emission on `provider_config.exists` alone (a

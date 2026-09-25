@@ -99,7 +99,7 @@ class FakeConfig:
         self.switch = switch
         self.workers = None
         self.root_path = str(root_path)
-        self.deploy_state = None
+        self.deployments = None
         self.db_name = DB
         self.apps_list = []
         self.seed_image = None

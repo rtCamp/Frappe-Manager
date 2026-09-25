@@ -931,7 +931,7 @@ class TestRenderImageCompose:
         assert ops.render_image_compose("ghcr.io/x/app:v1.2") == "ghcr.io/x/app-nginx:v1.2"
 
     @pytest.mark.timeout(15)
-    def test_the_candidate_tag_is_projected_without_touching_deploy_state(self, tmp_path, monkeypatch):
+    def test_the_candidate_tag_is_projected_without_touching_deployments(self, tmp_path, monkeypatch):
         ops = _ops(tmp_path, runtime=BenchRuntime.image)
         specs_fn = MagicMock(return_value=())
         monkeypatch.setattr(f"{SHAPE_MODULE}.bench_service_specs", specs_fn)

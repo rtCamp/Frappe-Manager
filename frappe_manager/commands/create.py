@@ -3,6 +3,7 @@ import secrets
 import string
 import tempfile
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, cast
@@ -28,7 +29,8 @@ from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     BenchRuntime,
     DatabaseConfig,
-    DeployState,
+    Deployment,
+    Deployments,
     FMBenchEnvType,
     RedisConfig,
     RestartPolicyEnum,
@@ -128,14 +130,16 @@ def _apply_base_image(bc: BenchConfig, base_image: str) -> None:
     PRODUCED, and one word cannot point both ways. The runtimes persist it differently, which is the
     only reason this is code and not another row in ``_FLAG_TO_CONFIG``: mount keeps the whole ref in
     top-level ``base_image`` and nothing ever rewrites it, while image runtime keeps the name in
-    ``image`` and the full image in ``[deploy_state].current_image``, which ``fm switch`` moves on every
-    deploy. Image validation belongs to ``BenchConfig.assert_runtime_coherent``.
+    ``image`` and the full image in ``[deployments].current.app_image``, which ``fm switch`` moves on
+    every deploy. Image validation belongs to ``BenchConfig.assert_runtime_coherent``.
     """
     if bc.runtime != BenchRuntime.image:
         bc.base_image = base_image
         return
     bc.image = ImageRef.parse(base_image).name or None
-    bc.deploy_state = DeployState(current_image=base_image)
+    bc.deployments = Deployments(
+        current=Deployment(app_image=base_image, deployed_at=datetime.now(UTC).isoformat(), migrate_status="migrated")
+    )
     bc.base_image = None
 
 
@@ -1184,10 +1188,10 @@ def create(
             f"Mount bench: seeding workspace from baked image [fm.info]{bench_config.seed_image}[/fm.info].",
             emoji_code=":package:",
         )
-    if bench_config.runtime == BenchRuntime.image and bench_config.deploy_state:
+    if bench_config.runtime == BenchRuntime.image and bench_config.deployments and bench_config.deployments.current:
         output.print(
             f"Image bench: creating the site from pre-built image "
-            f"[fm.info]{bench_config.deploy_state.current_image}[/fm.info].",
+            f"[fm.info]{bench_config.deployments.current.app_image}[/fm.info].",
             emoji_code=":package:",
         )
 

@@ -91,15 +91,15 @@ def test_an_unknown_top_level_key_is_refused():
         merge_overlays('name = "x"\n', ["typoed_kee = true"])
 
 
-def test_an_unknown_deploy_state_key_is_refused():
-    with pytest.raises(ConfigOverlayError, match=re.escape("deploy_state.curent_image")):
-        merge_overlays('name = "x"\n', ['[deploy_state]\ncurent_image = "v2"\n'])
+def test_an_unknown_deployments_key_is_refused():
+    with pytest.raises(ConfigOverlayError, match=re.escape("deployments.curent_at")):
+        merge_overlays('name = "x"\n', ['[deployments]\ncurent_at = "v2"\n'])
 
 
 def test_an_unknown_ssl_key_is_refused():
     """`[ssl]` is the third hand-read table (`bench_config.py:1799-1815` reads
     `certificates`/`dns_providers` by hand), so a typo there must be caught here too, matching
-    `[deploy_state]` above -- not silently dropped when `fm bake --config` writes it to disk."""
+    `[deployments]` above -- not silently dropped when `fm bake --config` writes it to disk."""
     with pytest.raises(ConfigOverlayError, match=re.escape("ssl.certificatess")):
         merge_overlays('name = "x"\n', ["[ssl]\ncertificatess = []\n"])
 
@@ -131,7 +131,7 @@ def test_a_relocated_key_is_refused():
 def test_a_switch_table_stray_is_refused():
     """The shallow top-level-plus-two-tables check used to miss this entirely: `SwitchConfig` is
     `extra="allow"`, so a stray inside `[switch]` was retained rather than raising, and nothing
-    here ever looked past the top level and `[ssl]`/`[deploy_state]` to notice. Running the
+    here ever looked past the top level and `[ssl]`/`[deployments]` to notice. Running the
     merged document through `BenchConfig`'s own collector (see `_refused_keys`) is what catches
     it now."""
     with pytest.raises(ConfigOverlayError, match=r"switch\.typoed_stray"):

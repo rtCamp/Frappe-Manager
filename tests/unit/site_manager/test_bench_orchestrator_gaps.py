@@ -25,7 +25,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.site_manager.bench_config import BenchConfig, DeployState
+from frappe_manager.site_manager.bench_config import BenchConfig, Deployment, Deployments
 from frappe_manager.site_manager.modules import db_probe
 from frappe_manager.site_manager.modules.bench_orchestrator import BenchOrchestrator
 
@@ -53,7 +53,7 @@ def _config(tmp_path: Path, *, runtime: str = "mount") -> BenchConfig:
     path.write_text(toml)
     config = BenchConfig.import_from_toml(path)
     if runtime == "image":
-        config.deploy_state = DeployState(current_image=IMAGE_TAG)
+        config.deployments = Deployments(current=Deployment(app_image=IMAGE_TAG, deployed_at="t0", migrate_status="migrated"))
     return config
 
 

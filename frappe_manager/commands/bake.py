@@ -44,7 +44,7 @@ def _bake_name(image: str | None) -> str:
 
 def _image_bench_bake_refusal(name: str, bc: BenchConfig) -> str:
     """Why a bench-mode bake refuses an image-runtime bench, and what to run instead."""
-    current = bc.deploy_state.current_image if bc.deploy_state else None
+    current = bc.deployments.current.app_image if bc.deployments and bc.deployments.current else None
     runs = f" It currently runs {current}." if current else ""
     repo = bc.image or "ghcr.io/acme/mybench"
     return (

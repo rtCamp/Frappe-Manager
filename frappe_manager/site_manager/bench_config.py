@@ -832,7 +832,7 @@ class SchemaState(BaseModel):
     # pydantic's default "ignore". "ignore" is worse than "forbid" here, not better: a stray key
     # does not raise, but it also does not round-trip, so it is silently deleted on the very next
     # save. That is the one outcome the Phase 1 ruling forbids (fm never deletes a key it does
-    # not understand), so this model gets the same flag as DeployStateEntry and every sibling
+    # not understand), so this model gets the same flag as Deployment and every sibling
     # (certificate.py:19-23) rather than staying the outlier.
     """
 
@@ -867,8 +867,14 @@ class SchemaState(BaseModel):
         return str(unwrap_toml_value(value))
 
 
-class DeployStateEntry(BaseModel):
-    """One recorded image deploy (appended to :class:`DeployState.history`)."""
+class Deployment(BaseModel):
+    """One recorded image deploy: the SAME record used three times by :class:`Deployments`
+    (``current``, ``previous``, and each ``history[]`` row) instead of six flat keys saying two
+    things (see notes/image-pairing-design.md, "Config: [deployments]").
+
+    `deployed_at` IS this record's identity; there is no separate id. A deploy holds the bench
+    lock for the whole operation, so two deploys cannot share a timestamp.
+    """
 
     # extra="allow", not "forbid": an unknown key here used to raise, which takes down every
     # command that skips the migration gate (fm list/bake/switch/maintenance). The key is now
@@ -876,27 +882,38 @@ class DeployStateEntry(BaseModel):
     # warn. See certificate.py:19-23 for the incident that made forbid-on-read the wrong default.
     model_config = ConfigDict(extra="allow")
 
-    image: str = Field(..., description="Image deployed (full reference, e.g. repo:tag).")
-    deployed_at: str = Field(..., description="ISO timestamp of the deploy.")
+    app_image: str = Field(..., description="App image deployed (full reference, e.g. repo:tag).")
+    nginx_image: str | None = Field(
+        None,
+        description="Its nginx companion (full reference). Nothing writes this outside the 1.0.0 "
+        "migration yet, which backfills it on every existing record by the same rule "
+        "BakeManager.nginx_image_ref applies -- captured while that derivation still exists.",
+    )
+    deployed_at: str = Field(..., description="ISO timestamp of the deploy; also this record's identity.")
     migrate_status: str = Field(..., description="Migrate outcome: 'migrated', 'skipped', 'failed', or 'rollback'.")
     backups: dict[str, str] = Field(
         default_factory=dict,
         description="Pre-migrate DB dumps taken during this deploy, keyed by SITE: every site the bench "
         "serves gets its own dump, because every site has its own schema (consumed by "
-        "`fm switch --previous --restore-db`, which restores all of them).",
+        "`fm switch --previous --restore-db`, which reads them straight off `current`).",
     )
 
 
-class DeployState(BaseModel):
-    """Image deploy state (`[deploy_state]` in bench_config.toml)."""
+class Deployments(BaseModel):
+    """Image deploy state (`[deployments]` in bench_config.toml).
 
-    # extra="allow": same reasoning as DeployStateEntry just above (certificate.py:19-23).
+    `current`/`previous`/each `history[]` row are all the same :class:`Deployment` record. `previous`
+    is kept as an explicit record rather than `history[-2]`: history is pruned by
+    `[switch].keep_releases`, so the rollback target must not depend on retention.
+    """
+
+    # extra="allow": same reasoning as Deployment just above (certificate.py:19-23).
     model_config = ConfigDict(extra="allow")
 
-    current_image: str | None = Field(None, description="Currently deployed image (full reference).")
-    previous_image: str | None = Field(None, description="Previously deployed image (rollback target).")
-    last_deploy_at: str | None = Field(None, description="ISO timestamp of the last successful deploy.")
-    history: list[DeployStateEntry] = Field(default_factory=list, description="Chronological deploy history.")
+    last_at: str | None = Field(None, description="ISO timestamp of the last successful deploy.")
+    current: Deployment | None = Field(None, description="Currently deployed record.")
+    previous: Deployment | None = Field(None, description="Previously deployed record (rollback target).")
+    history: list[Deployment] = Field(default_factory=list, description="Chronological deploy history.")
 
 
 class BenchRuntime(str, Enum):
@@ -909,7 +926,7 @@ class BenchRuntime(str, Enum):
 class BuildHookScripts(BaseModel):
     """Per-app build hooks for a single location (container or host)."""
 
-    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23). AppBuildHooks
+    # extra="allow": same reasoning as Deployment (certificate.py:19-23). AppBuildHooks
     # inherits this model_config; do not re-forbid on the subclass.
     model_config = ConfigDict(extra="allow")
 
@@ -928,7 +945,7 @@ class AppBuildHooks(BuildHookScripts):
 class SwitchHookScripts(BaseModel):
     """Switch-phase hooks for a single location (container or host)."""
 
-    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23). SwitchHooks
+    # extra="allow": same reasoning as Deployment (certificate.py:19-23). SwitchHooks
     # inherits this model_config; do not re-forbid on the subclass.
     model_config = ConfigDict(extra="allow")
 
@@ -965,7 +982,7 @@ class WebAuthConfig(BaseModel):
     state an ignored value is a config that lies to whoever reads it.
     """
 
-    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23). AuthConfig
+    # extra="allow": same reasoning as Deployment (certificate.py:19-23). AuthConfig
     # inherits this model_config; do not re-forbid on the subclass.
     model_config = ConfigDict(extra="allow")
 
@@ -999,7 +1016,7 @@ class WorkersConfig(BaseModel):
     """Worker-care configuration (``[workers]``): how ``fm restart`` and the ``fm switch``
     pipeline treat RQ workers and their in-flight jobs."""
 
-    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    # extra="allow": same reasoning as Deployment (certificate.py:19-23).
     model_config = ConfigDict(extra="allow")
 
     drain: bool = Field(True, description="Drain RQ workers (suspend + wait for in-flight jobs) before cycling them.")
@@ -1046,7 +1063,7 @@ class BenchPruneConfig(BaseModel):
 class SwitchConfig(BaseModel):
     """Switch/migrate pipeline configuration (`[switch]` in bench_config.toml)."""
 
-    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    # extra="allow": same reasoning as Deployment (certificate.py:19-23).
     model_config = ConfigDict(extra="allow")
 
     migrate: bool = Field(
@@ -1179,7 +1196,7 @@ def recognised_bench_config_keys() -> frozenset[str]:
     return frozenset(BenchConfig.model_fields) | {"environment", "apps", "ssl", "schema", "migration_state"}
 
 
-# Every key `import_from_toml` reads out of `[ssl]` by hand (like `[deploy_state]` below, not
+# Every key `import_from_toml` reads out of `[ssl]` by hand (like `[deployments]` below, not
 # splatted into a model): `certificates`/`dns_providers` are the two TOML-facing names, distinct
 # from the internal field names `BenchConfig` stores them under (`ssl_certificates`/
 # `dns_providers` -- the latter happens to match, the former does not).
@@ -1190,26 +1207,20 @@ def recognised_ssl_keys() -> frozenset[str]:
     return frozenset({"certificates", "dns_providers"})
 
 
-# Pre-rename spellings `import_from_toml` still tolerates inside `[deploy_state]`, with a warning
-# (see the stale-tag handling in `import_from_toml`). Named once so that warning and the recognised
-# set below cannot say two different things about the same two keys.
-_DEPLOY_STATE_STALE_KEYS: frozenset[str] = frozenset({"current_tag", "previous_tag"})
+def recognised_deployments_keys() -> frozenset[str]:
+    """Every `[deployments]` key `import_from_toml` looks at without raising: `Deployments`'s own
+    fields (`current`/`previous`, each read by hand as a `Deployment` rather than a scalar field,
+    plus `history`, a list of the same).
 
-
-def recognised_deploy_state_keys() -> frozenset[str]:
-    """Every `[deploy_state]` key `import_from_toml` looks at without raising: `DeployState`'s own
-    fields (including `history`, read by hand as a list of `DeployStateEntry` rather than a scalar
-    field) and the pre-rename `current_tag`/`previous_tag` spellings the stale-tag warning already
-    tolerates.
-
-    Also the exclusion set `collect_from_data` uses to build `DeployState`'s retained-extra remainder: a
-    key in neither group is passed straight through (`extra="allow"`), so `collect_unknown_keys`
-    finds it structurally instead of needing its own hand-list the way `[ssl]` still does.
-    `REMOVED_CONFIG_KEYS` is deliberately NOT unioned in any more: a key this table used to hold
-    and no longer does is retained and version-gated like any other stray, not silently exempted
-    by name.
+    Also the exclusion set `collect_from_data` uses to build `Deployments`'s retained-extra
+    remainder: a key in neither group is passed straight through (`extra="allow"`), so
+    `collect_unknown_keys` finds it structurally instead of needing its own hand-list the way
+    `[ssl]` still does. No pre-rename spelling to tolerate here: a bench still carrying the OLD
+    `[deploy_state]` shape is refused outright by the guard in `import_from_toml` (see
+    "The rename's one risk, and its guard" in notes/image-pairing-design.md) before this
+    function is ever consulted, so `[deployments]` itself is only ever the current shape.
     """
-    return frozenset(DeployState.model_fields) | _DEPLOY_STATE_STALE_KEYS
+    return frozenset(Deployments.model_fields)
 
 
 # Per-process de-duplication for the unrecognised-key warning below: an ordinary invocation reads
@@ -1310,7 +1321,7 @@ def _bench_is_at_current_version(data: Any) -> bool:
 class BuildConfig(BaseModel):
     """Image build configuration for `fm bake` (`[build]`)."""
 
-    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    # extra="allow": same reasoning as Deployment (certificate.py:19-23).
     model_config = ConfigDict(extra="allow")
 
     base_image: str | None = Field(None, description="Base image for the runtime Dockerfile FROM.")
@@ -1342,7 +1353,7 @@ class BuildConfig(BaseModel):
 class NewRelicConfig(BaseModel):
     """NewRelic APM settings (`[telemetry.newrelic]`)."""
 
-    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    # extra="allow": same reasoning as Deployment (certificate.py:19-23).
     model_config = ConfigDict(extra="allow")
 
     enabled: bool = Field(False, description="Enable NewRelic APM monitoring for the web process.")
@@ -1364,7 +1375,7 @@ class TelemetryConfig(BaseModel):
     for a third party.
     """
 
-    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    # extra="allow": same reasoning as Deployment (certificate.py:19-23).
     model_config = ConfigDict(extra="allow")
 
     newrelic: NewRelicConfig | None = Field(None, description="NewRelic APM.")
@@ -1377,7 +1388,7 @@ class DatabaseConfig(BaseModel):
     there is no separate boolean.
     """
 
-    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    # extra="allow": same reasoning as Deployment (certificate.py:19-23).
     model_config = ConfigDict(extra="allow")
 
     host: str = Field(..., description="Database server hostname or IP. Any MariaDB; MySQL is not supported.")
@@ -1554,7 +1565,7 @@ class SiteConfig(BaseModel):
     two doors into the same room.
     """
 
-    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    # extra="allow": same reasoning as Deployment (certificate.py:19-23).
     model_config = ConfigDict(extra="allow")
 
     database: DatabaseConfig | None = Field(
@@ -1599,7 +1610,7 @@ class RedisConfig(BaseModel):
     cannot arise when the two sides live on physically different servers.
     """
 
-    # extra="allow": same reasoning as DeployStateEntry (certificate.py:19-23).
+    # extra="allow": same reasoning as Deployment (certificate.py:19-23).
     model_config = ConfigDict(extra="allow")
 
     cache: str | None = Field(
@@ -1674,8 +1685,8 @@ class BenchConfig(BaseModel):
 
     # Populated by `collect_from_data` for [ssl]: the one hand-read table left with no model of its own to
     # hold a stray key as `model_extra` (`ssl_certificates`/`dns_providers` are separate typed
-    # fields, not one table-shaped field -- unlike `[deploy_state]`, which now retains its own
-    # remainder directly on `DeployState`, extra="allow", and needs no side channel any more). A
+    # fields, not one table-shaped field -- unlike `[deployments]`, which retains its own
+    # remainder directly on `Deployments`, extra="allow", and needs no side channel any more). A
     # PrivateAttr, not a Field: it is per-load reader metadata (just the dotted NAMES, for the
     # warning), not part of the bench's schema, so it must never appear in `model_fields`,
     # `model_dump()`, or become a recognised top-level TOML key the way a real field would.
@@ -1709,7 +1720,7 @@ class BenchConfig(BaseModel):
 
         A caller wanting the complete picture combines this with `collect_unknown_keys(self)`:
         a top-level stray, one inside `[sites."<name>"]` (including its nested `database`/`auth`
-        tables), and one inside `[deploy_state]` are all retained as real `model_extra`
+        tables) and one inside `[deployments]` are all retained as real `model_extra`
         (extra="allow" all the way down), so `collect_unknown_keys` already finds those on its
         own; only `[ssl]` has no whole-table model to hold its remainder in, so it alone still
         needs this side channel.
@@ -1831,7 +1842,7 @@ class BenchConfig(BaseModel):
         description="On-disk schema version this bench has been migrated to (managed by fm).",
     )
 
-    deploy_state: DeployState | None = Field(
+    deployments: Deployments | None = Field(
         None,
         description="Image deploy state tracking (managed by the deploy orchestrator)",
     )
@@ -1876,15 +1887,15 @@ class BenchConfig(BaseModel):
         if self.runtime != BenchRuntime.image:
             return
 
-        current_image = self.deploy_state.current_image if self.deploy_state else None
-        if not current_image:
+        current_app_image = self.deployments.current.app_image if self.deployments and self.deployments.current else None
+        if not current_app_image:
             raise ValueError(
-                "image runtime needs a pre-built image: set base_image <repo:tag>, or top-level image plus [deploy_state].current_image."
+                "image runtime needs a pre-built image: set base_image <repo:tag>, or top-level image plus [deployments].current.app_image."
             )
-        if ImageRef.parse(current_image).is_digest_pinned:
-            raise ValueError(digest_pinned_refusal(current_image))
-        if not has_explicit_tag(current_image):
-            raise ValueError(f"the image runtime image must be a full reference with a tag (got {current_image!r}).")
+        if ImageRef.parse(current_app_image).is_digest_pinned:
+            raise ValueError(digest_pinned_refusal(current_app_image))
+        if not has_explicit_tag(current_app_image):
+            raise ValueError(f"the image runtime image must be a full reference with a tag (got {current_app_image!r}).")
         if self.developer_mode:
             raise ValueError(
                 "developer_mode is not supported with image runtime: DocType authoring writes app files into the ephemeral container layer (lost on the next deploy, never re-derivable from the DB). Use runtime = 'mount'."
@@ -2060,16 +2071,18 @@ class BenchConfig(BaseModel):
         toml_document.save(path, toml_doc)
 
     @classmethod
-    def collect_from_data(cls, data: Mapping[str, Any]) -> tuple["BenchConfig", list[str], list[str]]:
+    def collect_from_data(cls, data: Mapping[str, Any]) -> tuple["BenchConfig", list[str]]:
         """Build a BenchConfig from parsed TOML-shaped data (dict-like; no file I/O, no warnings),
-        plus every unknown key found in it and any deploy_state stale-tag spelling still present.
+        plus every unknown key found in it.
 
-        The one place the top-level table, `[ssl]`, `[deploy_state]` and `[sites]` are read into
-        the model. `import_from_toml` calls this and then decides what to do with the two lists it
-        returns: a version-gated combined warning for the unknown keys (see `version` there),
-        an unconditional one for the stale tags. `deploy_config_overlay`'s `--config` refusal check
+        The one place the top-level table, `[ssl]`, `[deployments]` and `[sites]` are read into
+        the model. `import_from_toml` calls this and then applies a version-gated warning for the
+        unknown keys (see `version` there). `deploy_config_overlay`'s `--config` refusal check
         calls it on a merged overlay document instead and refuses on a non-empty unknown-key list,
         so a refusal and a warning about the same document can never name a different set of keys.
+
+        A bench still carrying the pre-rename `[deploy_state]` table with no `[deployments]` never
+        reaches this method: `import_from_toml` refuses it first (see the guard there).
         """
         domain: str = data.get("name", "")
 
@@ -2120,38 +2133,33 @@ class BenchConfig(BaseModel):
         if schema_data and isinstance(schema_data, dict):
             schema_obj = SchemaState(**schema_data)
 
-        deploy_state_data = data.get("deploy_state", None)
-        deploy_state_obj = None
-        stale_keys: list[str] = []
-        if deploy_state_data and isinstance(deploy_state_data, dict):
-            history_data = deploy_state_data.get("history", []) or []
-            history = [DeployStateEntry(**dict(entry)) for entry in history_data if isinstance(entry, dict)]
-            # `current_tag`/`previous_tag` are the pre-rename spellings of `current_image`/
-            # `previous_image`. Reported back to the caller, which warns unconditionally: reading
-            # them with `.get()` below rather than splatting means the model never sees them under
-            # either name, so a stale top-level key would otherwise be dropped in total silence --
-            # the bench would load with an EMPTY deploy_state, which reads exactly like a bench
-            # that has never been deployed, not one whose history fm can no longer see. This is the
-            # only tolerance of the old shape this reader has.
-            stale_keys = sorted(_DEPLOY_STATE_STALE_KEYS & deploy_state_data.keys())
+        deployments_data = data.get("deployments", None)
+        deployments_obj = None
+        if deployments_data and isinstance(deployments_data, dict):
+            history_data = deployments_data.get("history", []) or []
+            history = [Deployment(**dict(entry)) for entry in history_data if isinstance(entry, dict)]
+            current_data = deployments_data.get("current")
+            current_obj = Deployment(**dict(current_data)) if isinstance(current_data, dict) else None
+            previous_data = deployments_data.get("previous")
+            previous_obj = Deployment(**dict(previous_data)) if isinstance(previous_data, dict) else None
 
-            # Everything else that is not a real DeployState field (or one of the stale spellings
-            # just handled) is passed straight through as an extra kwarg (`extra="allow"`), the
-            # same way a SiteConfig stray is: DeployState is a real BenchConfig field the generic
-            # model_dump() pass in export_to_toml already carries, so once it is retained here it
-            # survives a save for free and `collect_unknown_keys` finds it structurally, with no
-            # separate hand-list to keep in sync the way [ssl] still needs.
-            deploy_state_extra = {
+            # Everything else that is not a real Deployments field is passed straight through as
+            # an extra kwarg (`extra="allow"`), the same way a SiteConfig stray is: Deployments is
+            # a real BenchConfig field the generic model_dump() pass in export_to_toml already
+            # carries, so once it is retained here it survives a save for free and
+            # `collect_unknown_keys` finds it structurally, with no separate hand-list to keep in
+            # sync the way [ssl] still needs.
+            deployments_extra = {
                 key: unwrap_toml_value(value)
-                for key, value in deploy_state_data.items()
-                if key not in recognised_deploy_state_keys()
+                for key, value in deployments_data.items()
+                if key not in recognised_deployments_keys()
             }
-            deploy_state_obj = DeployState(
-                current_image=deploy_state_data.get("current_image"),
-                previous_image=deploy_state_data.get("previous_image"),
-                last_deploy_at=deploy_state_data.get("last_deploy_at"),
+            deployments_obj = Deployments(
+                last_at=deployments_data.get("last_at"),
+                current=current_obj,
+                previous=previous_obj,
                 history=history,
-                **deploy_state_extra,
+                **deployments_extra,
             )
 
         apps_data = data.get("apps")
@@ -2177,7 +2185,7 @@ class BenchConfig(BaseModel):
             "db_name": data.get("db_name"),
             "restart_policy": data.get("restart_policy", None),
             "schema_state": schema_obj,
-            "deploy_state": deploy_state_obj,
+            "deployments": deployments_obj,
             "runtime": data.get("runtime", "mount"),
             "image": data.get("image", None),
             "base_image": data.get("base_image", None),
@@ -2220,7 +2228,7 @@ class BenchConfig(BaseModel):
         config._hand_read_unknown_keys = sorted(hand_read_unknown)
         config._ssl_unknown = ssl_unknown_values
         combined_unknown = sorted(set(collect_unknown_keys(config)) | set(config.hand_read_unknown_keys()))
-        return config, combined_unknown, stale_keys
+        return config, combined_unknown
 
     @classmethod
     def import_from_toml(cls, path: Path) -> "BenchConfig":
@@ -2228,18 +2236,24 @@ class BenchConfig(BaseModel):
         data = tomlkit.parse(path.read_text())
         data["root_path"] = str(path)
 
-        config, unknown_keys, stale_keys = cls.collect_from_data(data)
+        # `DeployState`/`[deploy_state]` never shipped in a release (see notes/image-pairing-design.md,
+        # "The rename's one risk, and its guard"): every carrier is a dev bench that will re-run the
+        # 1.0.0 migration. But `Deployments` is `extra="allow"`, so an unmigrated bench's `[deploy_state]`
+        # would otherwise be silently retained as an unrecognised top-level stray and read back as "no
+        # deployments" -- losing the rollback target with no signal at all, on exactly the commands
+        # (`fm switch`/`fm list`/`fm bake`) that skip the migration gate and would otherwise never notice.
+        # Refusing here, once, is the one-line instruction that replaces that silent data loss.
+        if "deploy_state" in data and "deployments" not in data:
+            from frappe_manager.site_manager.exceptions import BenchException
 
-        if stale_keys:
-            from frappe_manager.output_manager import warn_or_log
+            raise BenchException(
+                str(data.get("name") or path.parent.name),
+                "this bench predates the \\[deployments] rename: it still has \\[deploy_state], which fm "
+                "no longer reads. Run 'fm migrate' to convert it -- until then its deploy history and "
+                "rollback target are invisible.",
+            )
 
-            warn_or_log(
-                "bench_config",
-                f"Bench '{config.name}': \\[deploy_state] still has {', '.join(stale_keys)} "
-                "from before the image/tag rename; its deploy history cannot be read, so "
-                "`fm switch --previous` will report no previous image as if this bench had "
-                "never been deployed. Recreate the bench and redeploy to restore rollback.",
-        )
+        config, unknown_keys = cls.collect_from_data(data)
 
         # Non-raising, deliberately: `config.redis` already survived construction (RedisConfig
         # has no scheme validator of its own), so this warns rather than refusing the load. `fm

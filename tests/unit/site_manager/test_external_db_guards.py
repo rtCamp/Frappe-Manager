@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from frappe_manager.site_manager.bench_config import BenchConfig, DeployState, DeployStateEntry
+from frappe_manager.site_manager.bench_config import BenchConfig, Deployment, Deployments
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.modules.bench_site import BenchSiteManager
 from frappe_manager.site_manager.site import Bench
@@ -447,7 +447,7 @@ def test_an_unreadable_site_still_blocks(tmp_path):
 
 Each was invisible until something else tripped over it: a `vhost.d/<domain>` upload-limit file
 outlived the site and a domain later pointed at another bench inherited a stale
-`client_max_body_size`; a `deploy_state.history[*].backups` row kept naming the site, and rollback
+`client_max_body_size`; a `deployments.history[*].backups` row kept naming the site, and rollback
 iterates that map per site, so a restore aimed at a schema that no longer exists; and the external
 database's `config/tls/<site>` material simply stayed.
 """
@@ -497,14 +497,14 @@ def test_the_removed_sites_backup_rows_are_dropped_but_the_dumps_are_kept(tmp_pa
     bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
     dump = tmp_path / "b.sql"
     dump.write_text("dump")
-    bench.bench_config.deploy_state = DeployState(
-        history=[DeployStateEntry(image="v1", deployed_at="now", migrate_status="migrated",
+    bench.bench_config.deployments = Deployments(
+        history=[Deployment(app_image="v1", deployed_at="now", migrate_status="migrated",
                                   backups={"shop.localhost": str(tmp_path / "s.sql"), "b.example.com": str(dump)})]
     )
 
     bench.remove_site("b.example.com", delete_db_from_mariadb=True)
 
-    assert bench.bench_config.deploy_state.history[0].backups == {"shop.localhost": str(tmp_path / "s.sql")}
+    assert bench.bench_config.deployments.history[0].backups == {"shop.localhost": str(tmp_path / "s.sql")}
     assert dump.exists()
     warned = "\n".join(str(c.args[0]) for c in bench.output.warning.call_args_list if c.args)
     assert str(dump) in warned
@@ -514,8 +514,8 @@ def test_the_dumps_go_when_asked(tmp_path):
     bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
     dump = tmp_path / "b.sql"
     dump.write_text("dump")
-    bench.bench_config.deploy_state = DeployState(
-        history=[DeployStateEntry(image="v1", deployed_at="now", migrate_status="migrated",
+    bench.bench_config.deployments = Deployments(
+        history=[Deployment(app_image="v1", deployed_at="now", migrate_status="migrated",
                                   backups={"b.example.com": str(dump)})]
     )
 
@@ -530,11 +530,11 @@ def test_a_dump_another_release_still_names_survives_being_asked(tmp_path):
     bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
     shared = tmp_path / "shared.sql"
     shared.write_text("dump")
-    bench.bench_config.deploy_state = DeployState(
+    bench.bench_config.deployments = Deployments(
         history=[
-            DeployStateEntry(image="v1", deployed_at="now", migrate_status="migrated",
+            Deployment(app_image="v1", deployed_at="now", migrate_status="migrated",
                              backups={"b.example.com": str(shared)}),
-            DeployStateEntry(image="v2", deployed_at="now", migrate_status="migrated",
+            Deployment(app_image="v2", deployed_at="now", migrate_status="migrated",
                              backups={"shop.localhost": str(shared)}),
         ]
     )
