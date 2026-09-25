@@ -21,6 +21,7 @@ from frappe_manager.ssl_manager.ssl_utils import resolve_dns_provider
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME
 from frappe_manager.utils.config_keys import declared_field
 
+from .external_helpers import proxy_backend_domains
 from .helpers import get_output_handler
 
 if TYPE_CHECKING:
@@ -423,9 +424,15 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
     table.add_column("Challenge", style="fm.info")
     table.add_column("DNS Provider", style="fm.info")
     table.add_column("Status", style="fm.ok")
+    # Whether a container is actually publishing VIRTUAL_HOST for this hostname. A certificate is
+    # not evidence that anything serves the domain: a stopped bench, or a domain the bench no
+    # longer serves, keeps a perfectly valid certificate that nothing is using.
+    table.add_column("Live", style="fm.info")
     table.add_column("Expiry", style="fm.info")
     table.add_column("Days Left", justify="right")
     table.add_column("Renewal", style="fm.error")
+
+    backends = proxy_backend_domains(services_manager)
 
     # Show all domains, whether they have certificates or not
     for domain in all_domains:
@@ -461,7 +468,8 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
             days_left = "N/A"
             renewal = "N/A"
 
-        table.add_row(domain, ssl_type, challenge_type, dns_provider, status, expiry, days_left, renewal)
+        serving = "yes" if domain in backends else "no"
+        table.add_row(domain, ssl_type, challenge_type, dns_provider, status, serving, expiry, days_left, renewal)
 
     output.print_data(table)
 

@@ -133,6 +133,11 @@ class SSLHarness:
         # every test that reaches it. `undetermined` is the neutral default: it prints nothing
         # (see TestCdnAdvisoryHint below), so existing print-count assertions are unaffected.
         self.cdn_detect = stack.enter_context(patch(f"{SSL_MODULE}.detect_cloudflare_proxy"))
+        # "is a container publishing VIRTUAL_HOST for this domain" execs docker; stubbed to
+        # "nothing is serving anything" so each listing test states its own answer.
+        self.proxy_backends = stack.enter_context(
+            patch(f"{SSL_MODULE}.proxy_backend_domains", return_value=set())
+        )
         self.cdn_detect.return_value = CDNDetectionResult(status=CDNProxyStatus.undetermined)
 
     def set_sites(self, sites: dict[str, list[str]]) -> None:
@@ -1014,7 +1019,7 @@ def _rows(table: Table) -> list[tuple]:
 
 
 @pytest.mark.timeout(15)
-def test_list_renders_a_fixed_eight_column_certificate_table(h):
+def test_list_renders_a_fixed_nine_column_certificate_table(h):
     """`DNS Provider` sits beside `Challenge` because it only means anything for a dns01 challenge,
     and because a certificate bound to the wrong Cloudflare account is otherwise invisible here."""
     _list_bench_certificates(h.ctx, BENCH)
@@ -1026,6 +1031,7 @@ def test_list_renders_a_fixed_eight_column_certificate_table(h):
         "Challenge",
         "DNS Provider",
         "Status",
+        "Live",
         "Expiry",
         "Days Left",
         "Renewal",
@@ -1073,7 +1079,7 @@ def test_list_shows_a_configured_domain_with_no_certificate_as_no_ssl(h):
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    assert _rows(h.table())[0] == (DOMAIN, "none", "N/A", "N/A", "⚪ No SSL", "N/A", "N/A", "N/A")
+    assert _rows(h.table())[0] == (DOMAIN, "none", "N/A", "N/A", "⚪ No SSL", "no", "N/A", "N/A", "N/A")
 
 
 @pytest.mark.timeout(15)
@@ -1109,6 +1115,7 @@ def test_list_reports_an_issued_certificate_with_expiry_and_days_left(h):
         "http01",
         "N/A",
         "✅ Issued",
+        "no",
         "2026-03-04 05:06",
         "42",
         "✓ OK",
@@ -1181,7 +1188,7 @@ def test_list_marks_a_configured_but_unissued_certificate_as_not_issued(h):
 
     row = _rows(h.table())[0]
     # The type/challenge survive, but nothing expiry-derived is claimed.
-    assert row == (DOMAIN, "letsencrypt", "http01", "N/A", "❌ Not Issued", "N/A", "N/A", "N/A")
+    assert row == (DOMAIN, "letsencrypt", "http01", "N/A", "❌ Not Issued", "no", "N/A", "N/A", "N/A")
 
 
 @pytest.mark.timeout(15)
@@ -1191,7 +1198,7 @@ def test_list_falls_back_to_na_when_an_issued_certificate_has_no_expiry_date(h):
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    assert _rows(h.table())[0] == (DOMAIN, "letsencrypt", "http01", "N/A", "✅ Issued", "N/A", "N/A", "N/A")
+    assert _rows(h.table())[0] == (DOMAIN, "letsencrypt", "http01", "N/A", "✅ Issued", "no", "N/A", "N/A", "N/A")
 
 
 @pytest.mark.timeout(15)
@@ -2009,3 +2016,18 @@ def test_an_unmapped_domain_leaves_every_host_name_alone(h):
     _add(h, test_ca=False)
 
     assert h.site_config_writes() == []
+
+
+@pytest.mark.timeout(15)
+def test_list_says_whether_anything_is_actually_serving_the_domain(h):
+    """A certificate is not evidence that the hostname is reachable: nginx-proxy only generates a
+    vhost for a container publishing VIRTUAL_HOST, so a stopped bench (or a domain the bench no
+    longer serves) keeps a perfectly valid certificate nobody is using."""
+    h.set_sites({DOMAIN: [ALIAS]})
+    h.cert_manager.list_certificates.return_value = [_cert_row(DOMAIN), _cert_row(ALIAS)]
+    h.proxy_backends.return_value = {DOMAIN}
+
+    _list_bench_certificates(h.ctx, BENCH)
+
+    serving = {row[0]: row[5] for row in _rows(h.table())}
+    assert serving == {DOMAIN: "yes", ALIAS: "no"}
