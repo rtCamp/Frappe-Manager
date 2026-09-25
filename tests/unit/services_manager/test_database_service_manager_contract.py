@@ -309,7 +309,7 @@ def test_bench_import_refuses_a_site_with_no_site_config_and_names_the_file(tmp_
 
     message = str(excinfo.value)
     assert "site_config.json" in message
-    assert "fm migrate" in message
+    assert "fm delete" in message
 
 
 def test_bench_import_refuses_an_empty_site_config(tmp_path):

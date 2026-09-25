@@ -558,12 +558,15 @@ class TestRedisIdentityPreflight:
 
 
 class TestUnmanagedSites:
-    """Site directories ``[sites]`` does not record: named up front, never migrated.
+    """`[sites]` reconciled against the disk before the deploy starts, in both directions.
 
-    Same rule ``fm delete`` follows, because a migration fm broke on a schema it disclaimed
-    ownership of would be damage to the exact thing it promised not to touch. The warning is
-    louder here than at delete, though: an unmigrated site keeps serving, now against new code,
-    so it is the operator's to migrate by hand.
+    On disk but unrecorded: warned and left alone, the same rule ``fm delete`` follows, because a
+    migration fm broke on a schema it disclaimed ownership of would be damage to the exact thing it
+    promised not to touch. The warning is louder here than at delete, though: an unmigrated site
+    keeps serving, now against new code, so it is the operator's to migrate by hand.
+
+    Recorded but absent: refused, because that deploy cannot succeed and reaching the step that
+    discovers it means maintenance mode is already up and the workers are already drained.
     """
 
     def test_every_unmanaged_dir_is_warned_about_once(self, rig):
@@ -597,6 +600,31 @@ class TestUnmanagedSites:
         r = rig()
         r.orch.deploy(NEW_TAG)
         assert not any("NOT migrate" in str(c.args) for c in r.orch.output.warning.call_args_list)
+
+    def test_a_recorded_site_with_no_directory_refuses_and_names_the_repair(self, rig, tmp_path):
+        """The mirror direction, and a refusal rather than a warning: every per-site step addresses
+        a site by name and cannot skip one, so the deploy fails either way -- the only question is
+        whether maintenance mode went up first. `fm delete BENCH/SITE` is the repair that works,
+        since `remove_site` treats an absent site as the record being all that is left."""
+        r = rig(site_names=[SITE, "ghost.localhost"])
+        sites_dir = tmp_path / "bench" / "workspace" / "frappe-bench" / "sites" / SITE
+        sites_dir.mkdir(parents=True, exist_ok=True)
+        (sites_dir / "site_config.json").write_text("{}")
+
+        with pytest.raises(DeployError) as excinfo:
+            r.orch.deploy(NEW_TAG)
+
+        message = str(excinfo.value)
+        assert "ghost.localhost" in message
+        assert f"fm delete {SITE}/ghost.localhost" in message
+        r.orch._fetch_image.assert_not_called()
+
+    def test_a_sites_directory_that_cannot_be_read_refuses_nothing(self, rig):
+        """Empty means "cannot tell", never "nothing exists" -- the rule `resolve_primary_site`
+        follows. A bench mid-create records its sites before any directory is made."""
+        r = rig()
+        r.orch.deploy(NEW_TAG)
+        r.orch._record.assert_called_once()
 
 
 # =================================================== deploy: migrate decision

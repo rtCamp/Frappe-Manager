@@ -398,6 +398,13 @@ class BenchInfo:
             if missing:
                 card.fact("missing", " [fm.muted]·[/fm.muted] ".join(f"sites/{name}/" for name in missing))
                 card.fact("", "[fm.muted]recorded in bench_config.toml but absent on disk[/fm.muted]")
+                # A diagnosis with no prescription: this is what an interrupted `fm delete` leaves,
+                # and that same command finishes it (`Bench.remove_site` treats an absent site as
+                # the record being all that is left).
+                card.fact(
+                    "",
+                    f"[fm.muted]finish the removal:[/fm.muted] fm delete {config.name}/{missing[0]}",
+                )
         # One row per site that has aliases, because a flat list cannot say which hostname reaches
         # which schema. The site goes in the VALUE, not the label: the label column is 14 characters
         # and `aliases of <site>` overruns it, which knocks this card's alignment out. Continuation
