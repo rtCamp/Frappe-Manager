@@ -10,6 +10,23 @@ management but don't have Frappe benches as backends. It handles:
 
 from pathlib import Path
 
+# fm owns only the files carrying this marker inside the SHARED nginx-proxy conf.d, the same
+# discipline as `# fm:auth` and `# fm:maintenance`: docker-gen's default.conf and any hand-written
+# conf in that directory are foreign and must never be read as fm's or deleted by it.
+STANDALONE_MARKER = "# fm:standalone"
+
+# Pre-1.0 standalone configs carried this header and were named `<domain>.conf`. Recognised so the
+# reconcile can migrate them; never written any more.
+LEGACY_MARKER = "# Standalone domain:"
+
+# nginx includes conf.d/*.conf in ALPHABETICAL order and, for two server blocks with the same
+# server_name, keeps the FIRST and only warns. These blocks are placeholders for a domain with no
+# backend yet, so they must lose to docker-gen's real vhost the moment a VIRTUAL_HOST container
+# appears -- which means sorting after `default.conf`, whatever the domain is called. Under the old
+# `<domain>.conf` name an `api.`/`app.`/`assets.` domain sorted BEFORE default.conf and the 503
+# placeholder shadowed the real backend permanently.
+FILENAME_PREFIX = "zz-fm-standalone-"
+
 
 class StandaloneNginxConfigManager:
     """
@@ -30,7 +47,7 @@ class StandaloneNginxConfigManager:
         certs_dir: Path to SSL certificates directory (container path)
     """
 
-    HTTP_SERVER_TEMPLATE = """# Standalone domain: {domain}
+    HTTP_SERVER_TEMPLATE = """{marker} {domain}
 # Managed by Frappe Manager
 # This configuration allows HTTP-01 ACME challenge for SSL certificate generation
 
@@ -53,7 +70,7 @@ server {{
 }}
 """
 
-    HTTPS_SERVER_TEMPLATE = """# Standalone domain: {domain}
+    HTTPS_SERVER_TEMPLATE = """{marker} {domain}
 # Managed by Frappe Manager
 # This configuration provides SSL termination without requiring a backend
 
@@ -116,6 +133,74 @@ server {{
 
         self.conf_dir.mkdir(parents=True, exist_ok=True)
 
+    def config_path(self, domain: str) -> Path:
+        """Where this domain's config is written today."""
+        return self.conf_dir / f"{FILENAME_PREFIX}{domain}.conf"
+
+    def legacy_config_path(self, domain: str) -> Path:
+        """Where a pre-1.0 fm wrote it. Only ever read or deleted, never written."""
+        return self.conf_dir / f"{domain}.conf"
+
+    def owns(self, path: Path) -> bool:
+        """Whether this file is fm's to read and delete.
+
+        Decided by the marker, not the filename: the directory is shared with docker-gen's
+        default.conf and with whatever an operator put there, and deleting a foreign vhost because
+        its name matched a domain would take down a service fm does not manage.
+        """
+        if not path.is_file():
+            return False
+        try:
+            head = path.read_text()[:200]
+        except OSError:
+            return False
+        return head.startswith((STANDALONE_MARKER, LEGACY_MARKER))
+
+    def managed_configs(self) -> dict[str, Path]:
+        """Every standalone vhost fm owns, by domain, including legacy-named ones.
+
+        Scanned from disk rather than from external_domains.toml, so a config written by an `add`
+        that was interrupted before it registered the domain is still visible -- that orphan is
+        serving a 503 for a real hostname and nothing else can find it.
+        """
+        found: dict[str, Path] = {}
+        if not self.conf_dir.is_dir():
+            return found
+        for path in sorted(self.conf_dir.iterdir()):
+            if not self.owns(path):
+                continue
+            domain = self._domain_of(path)
+            # A legacy file and a current one for the same domain can coexist until the reconcile
+            # migrates them; the current name wins so the caller acts on the one nginx loads last.
+            if domain and (domain not in found or path.name.startswith(FILENAME_PREFIX)):
+                found[domain] = path
+        return found
+
+    def _domain_of(self, path: Path) -> str | None:
+        """The domain named by the marker line, which is always the file's first line."""
+        first = path.read_text().split("\n", 1)[0].strip()
+        for marker in (STANDALONE_MARKER, LEGACY_MARKER):
+            if first.startswith(marker):
+                return first[len(marker) :].strip() or None
+        return None
+
+    def config_state(self, domain: str) -> str | None:
+        """None when no config exists, else "http" (challenge-only placeholder) or "https"."""
+        for path in (self.config_path(domain), self.legacy_config_path(domain)):
+            if self.owns(path):
+                return "https" if "listen 443" in path.read_text() else "http"
+        return None
+
+    def _write(self, domain: str, content: str) -> Path:
+        config_file = self.config_path(domain)
+        config_file.write_text(content)
+        # A pre-1.0 install has the same vhost under `<domain>.conf`. Left in place it is a second
+        # server block for the same server_name, and the one nginx keeps.
+        legacy = self.legacy_config_path(domain)
+        if legacy != config_file and self.owns(legacy):
+            legacy.unlink()
+        return config_file
+
     def create_http_config(self, domain: str) -> Path:
         """
         Create HTTP-only nginx config for a standalone domain.
@@ -129,15 +214,14 @@ server {{
         Returns:
             Path to created config file
         """
-        config_file = self.conf_dir / f"{domain}.conf"
-
-        config_content = self.HTTP_SERVER_TEMPLATE.format(
-            domain=domain,
-            webroot_dir=self.webroot_dir,
+        return self._write(
+            domain,
+            self.HTTP_SERVER_TEMPLATE.format(
+                marker=STANDALONE_MARKER,
+                domain=domain,
+                webroot_dir=self.webroot_dir,
+            ),
         )
-
-        config_file.write_text(config_content)
-        return config_file
 
     def create_https_config(self, domain: str) -> Path:
         """
@@ -152,16 +236,15 @@ server {{
         Returns:
             Path to created config file
         """
-        config_file = self.conf_dir / f"{domain}.conf"
-
-        config_content = self.HTTPS_SERVER_TEMPLATE.format(
-            domain=domain,
-            webroot_dir=self.webroot_dir,
-            certs_dir=self.certs_dir,
+        return self._write(
+            domain,
+            self.HTTPS_SERVER_TEMPLATE.format(
+                marker=STANDALONE_MARKER,
+                domain=domain,
+                webroot_dir=self.webroot_dir,
+                certs_dir=self.certs_dir,
+            ),
         )
-
-        config_file.write_text(config_content)
-        return config_file
 
     def remove_config(self, domain: str) -> bool:
         """
@@ -173,9 +256,40 @@ server {{
         Returns:
             True if config was removed, False if it didn't exist
         """
-        config_file = self.conf_dir / f"{domain}.conf"
+        removed = False
+        for path in (self.config_path(domain), self.legacy_config_path(domain)):
+            if self.owns(path):
+                path.unlink()
+                removed = True
+        return removed
 
-        if config_file.exists():
-            config_file.unlink()
-            return True
-        return False
+
+def reconcile_standalone_configs(
+    manager: StandaloneNginxConfigManager,
+    certificates: dict[str, bool],
+) -> list[str]:
+    """Rewrite the standalone vhosts that are missing, stale or legacy-named. Returns the domains changed.
+
+    These configs were written once by `fm ssl add --standalone` and then owned by nobody:
+    fm_headers.conf is rewritten on every start and default.conf is regenerated by docker-gen, but
+    a standalone vhost that went missing (recreated conf.d, restored services directory) stayed
+    missing. The domain then serves nginx-proxy's default 503 AND, because the ACME challenge
+    location lives in that block, its HTTP-01 renewal can never succeed again -- while the
+    certificate on disk keeps `fm ssl list --standalone` reporting a healthy "Renewal OK".
+
+    `certificates` maps each registered domain to whether its certificate files exist. A domain
+    without them MUST get the HTTP-only block: an HTTPS block pointing at absent `ssl_certificate`
+    files is a fatal nginx config error that takes down every bench the shared proxy fronts.
+    """
+    changed: list[str] = []
+    for domain, has_certificate in certificates.items():
+        desired = "https" if has_certificate else "http"
+        stale_name = manager.owns(manager.legacy_config_path(domain))
+        if manager.config_state(domain) == desired and not stale_name:
+            continue
+        if has_certificate:
+            manager.create_https_config(domain)
+        else:
+            manager.create_http_config(domain)
+        changed.append(domain)
+    return changed
