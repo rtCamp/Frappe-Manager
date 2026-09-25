@@ -51,6 +51,34 @@ jobs:
       - name: Set custom domain
         if: vars.PAGES_CNAME != ''
         run: echo "${{ vars.PAGES_CNAME }}" > docs/CNAME
+      # A fork publishes as ITSELF: its own "Edit this page" target, its own header link, its own
+      # canonical URL. With rtcamp hardcoded in zensical.toml, a fork's preview build sent every
+      # reader back to the upstream repo and told search engines the upstream site was the real
+      # one. Skipped when PAGES_CNAME is set, because the committed site_url carries a path the
+      # domain alone does not (opensource.rtcamp.com/Frappe-Manager/), and guessing it would
+      # break the canonical URL of the real site.
+      - name: Point the docs at the repo they are built from
+        if: vars.PAGES_CNAME == ''
+        run: |
+          python - <<'PY'
+          import os, pathlib, re
+
+          owner, name = os.environ["GITHUB_REPOSITORY"].split("/", 1)
+          p = pathlib.Path("zensical.toml")
+          s = p.read_text()
+          for key, value in (
+              ("site_url", f"https://{owner}.github.io/{name}/"),
+              ("repo_name", os.environ["GITHUB_REPOSITORY"]),
+              ("repo_url", f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"),
+              # Docs publish from develop; edit_uri said main, so every "Edit this page" link led
+              # to a branch the page was not built from -- wrong upstream too, not just on forks.
+              ("edit_uri", "edit/develop/docs/"),
+          ):
+              s, n = re.subn(rf"^{key}\s*=.*$", f'{key:<16} = "{value}"', s, count=1, flags=re.M)
+              assert n == 1, f"{key} not found in zensical.toml"
+          p.write_text(s)
+          PY
+          grep -E '^(site_url|repo_name|repo_url|edit_uri)' zensical.toml
       - name: Resolve version slug from __about__.py
         id: ver
         run: |
@@ -79,6 +107,13 @@ jobs:
           ")
           [ -n "$stale" ] && mike delete --push "$stale" -F zensical.toml || true
           mike deploy --push --update-aliases --alias-type redirect --title "${{ steps.ver.outputs.full }}" ${{ steps.ver.outputs.full }} dev -F zensical.toml
+      # Manual runs from any other branch publish under `preview`, never touching `dev` or
+      # `latest`. This is what makes a fork usable for looking at docs changes before they are
+      # merged: without it, `workflow_dispatch` on a feature branch built the site and deployed
+      # nothing, because both deploy steps are pinned to develop or a tag.
+      - name: Deploy preview docs (manual run on any other branch)
+        if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/develop' && !startsWith(github.ref, 'refs/tags/v')
+        run: mike deploy --push --update-aliases --alias-type redirect --title "preview (${{ github.ref_name }})" preview -F zensical.toml
       - name: Set default version to latest (release tag)
         if: startsWith(github.ref, 'refs/tags/v')
         run: mike set-default --push latest -F zensical.toml

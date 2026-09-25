@@ -6,7 +6,7 @@
 
 `fm` gives every Frappe bench its own containers, database, workers and web server, then takes it from a local `.localhost` URL to an HTTPS production deploy without you writing a compose file.
 
-[![PyPI](https://img.shields.io/pypi/v/frappe-manager.svg)](https://pypi.org/project/frappe-manager/) [![Python](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/) [![Tests](https://github.com/rtCamp/Frappe-Manager/actions/workflows/pytest.yml/badge.svg)](https://github.com/rtCamp/Frappe-Manager/actions/workflows/pytest.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI](https://img.shields.io/pypi/v/frappe-manager.svg)](https://pypi.org/project/frappe-manager/) [![Python](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/) [![Tests](../../actions/workflows/pytest.yml/badge.svg)](../../actions/workflows/pytest.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **[Documentation](https://opensource.rtcamp.com/Frappe-Manager/dev/)** · [Install](https://opensource.rtcamp.com/Frappe-Manager/dev/getting-started/installation/) · [Quick Start](https://opensource.rtcamp.com/Frappe-Manager/dev/getting-started/quick-start/) · [Commands](https://opensource.rtcamp.com/Frappe-Manager/dev/commands/) · [FAQ](https://opensource.rtcamp.com/Frappe-Manager/dev/faq/)
 
@@ -79,8 +79,8 @@ Docs are versioned: [`/latest/`](https://opensource.rtcamp.com/Frappe-Manager/la
 
 Issues and pull requests are welcome.
 
-- [Report a bug or request a feature](https://github.com/rtCamp/Frappe-Manager/issues)
-- [Ask a question in Discussions](https://github.com/rtCamp/Frappe-Manager/discussions)
+- [Report a bug or request a feature](../../issues)
+- [Ask a question in Discussions](../../discussions)
 
 Working on `fm` itself: clone the repo, `uv sync`, and run the CLI with `uv run fm`. `just test` runs the suite and `just docs` serves the documentation locally.
 
