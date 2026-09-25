@@ -10,9 +10,7 @@ import os
 
 from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.output_manager.context_managers import (
-    nested_spinner,
     spinner,
-    spinner_or_pass,
     temporary_stop,
 )
 from frappe_manager.output_manager.globals import (
@@ -31,10 +29,8 @@ __all__ = [
     "SilentOutputHandler",
     "get_global_output_handler",
     "has_global_output_handler",
-    "nested_spinner",
     "set_global_output_handler",
     "spinner",
-    "spinner_or_pass",
     "temporary_stop",
     "warn_or_log",
 ]

@@ -7,11 +7,9 @@ providing a single source of truth for debugging.
 
 import logging
 from contextlib import contextmanager
-import sys
 from collections.abc import Iterable, Sequence
 from typing import Any
 
-import typer
 
 from frappe_manager.output_manager.base import OutputHandler
 
@@ -348,17 +346,8 @@ class LoggingOutputHandler(OutputHandler):
         with self.delegate.handoff():
             yield
 
-    def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
-        self._log_message(logging.INFO, f"STATUS: {text}")
-        self.delegate.print_status(text, emoji_code, **kwargs)
-
-    def exit(self, text: str, emoji_code: str = ":no_entry:", os_exit=False, error_msg=None):
-        self._log_message(logging.ERROR, f"EXIT: {text}" + (f" | Error: {error_msg}" if error_msg else ""))
-        exit_method = getattr(self.delegate, "exit", None)
-        if exit_method and callable(exit_method):
-            exit_method(text, emoji_code, os_exit, error_msg)
-        else:
-            self.display_error(text, emoji_code)
-            if os_exit:
-                sys.exit(1)
-            raise typer.Exit(1)
+    def exit(self, text: str, emoji_code: str = ":no_entry:"):
+        # No getattr fallback: `exit` is a concrete method on OutputHandler (base.py), so every
+        # delegate has one. The guard could never fire.
+        self._log_message(logging.ERROR, f"EXIT: {text}")
+        self.delegate.exit(text, emoji_code)

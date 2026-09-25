@@ -230,5 +230,3 @@ class SilentOutputHandler(OutputHandler):
     def print_data(self, data: Any, **kwargs) -> None:
         pass
 
-    def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
-        pass

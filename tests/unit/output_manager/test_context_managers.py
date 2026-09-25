@@ -1,9 +1,7 @@
 import pytest
 
 from frappe_manager.output_manager import (
-    nested_spinner,
     spinner,
-    spinner_or_pass,
     temporary_stop,
 )
 from frappe_manager.output_manager.json_output import JSONOutputHandler
@@ -46,27 +44,6 @@ def test_spinner_context_manager_change_text():
     assert events[3]["event_type"] == "stop"
 
 
-def test_spinner_or_pass_enabled():
-    output = JSONOutputHandler()
-
-    with spinner_or_pass(output, "Working", enabled=True):
-        pass
-
-    events = output.get_events()
-    assert len(events) == 2
-    assert events[0]["event_type"] == "start"
-    assert events[1]["event_type"] == "stop"
-
-
-def test_spinner_or_pass_disabled():
-    output = JSONOutputHandler()
-
-    with spinner_or_pass(output, "Working", enabled=False):
-        output.print("Direct message")
-
-    events = output.get_events()
-    assert len(events) == 1
-    assert events[0]["event_type"] == "print"
 
 
 def test_temporary_stop():
@@ -100,21 +77,6 @@ def test_keyboard_interrupt_stops_spinner():
     stop_events = [e for e in events if e["event_type"] == "stop"]
     assert len(stop_events) >= 1
 
-
-def test_nested_spinner():
-    output = JSONOutputHandler()
-
-    with spinner(output, "Outer"):
-        output.print("Outer work")
-
-        with nested_spinner(output, "Outer", "Inner"):
-            output.print("Inner work")
-
-        output.print("Back to outer")
-
-    events = output.get_events()
-    start_events = [e for e in events if e["event_type"] == "start"]
-    assert len(start_events) == 3
 
 
 def test_spinner_state_tracking():
