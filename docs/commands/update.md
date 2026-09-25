@@ -2,7 +2,7 @@
 
 Change a bench's settings.
 
-Not bench update: app code ships with fm bake then fm switch. Apps are managed with fm apps add, alias domains with fm domain, admin tools with fm tools, APM with fm telemetry. --runtime mount demotes an image bench to an editable workspace, extracted from the currently deployed image; converting the other direction runs through fm switch instead.
+Not bench update: app code ships with fm bake then fm switch. Apps are managed with fm apps add, alias domains with fm domain, admin tools with fm tools, APM with fm telemetry.
 
 Most options change the whole bench. --db-ca is the one Site Option below, and a plain fm update BENCH applies it to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one.
 
@@ -21,7 +21,6 @@ $ fm update BENCH(/SITE) [OPTIONS]
 **Options**:
 
 * `-e, --environment [prod|dev]`: Switch the bench between dev and prod serving (FRAPPE_ENV), recreating the frappe container. Admin tools and developer mode are left as they are; use 'fm tools enable'/'fm tools disable' or --developer-mode to change those.
-* `--runtime [mount|image]`: Convert the bench's runtime: 'mount' demotes an image bench to an editable workspace extracted from the currently deployed image (no migrate -- code on disk already equals what is running). 'image' is a no-op confirmation on an already-image bench; converting mount -> image runs through 'fm switch' instead, since that migrates the site onto a baked image.
 * `--developer-mode [enable|disable]`: Toggle frappe developer mode, so DocType edits write to app files.
 * `--upload-limit TEXT`: Set the maximum file upload size, e.g. 100M or 1G.
 * `--restart-policy [no|always|on-failure|unless-stopped]`: Update Docker restart policy for all bench services.
@@ -63,14 +62,6 @@ fm update mybench --python 3.11
 
 ```bash
 fm update mybench --upload-limit 500M
-```
-
-### Demote an image bench to an editable workspace
-
-Extracts the workspace from the currently deployed image; converting back to image runtime runs through fm switch instead.
-
-```bash
-fm update mybench --runtime mount
 ```
 
 ### Rebuild a broken venv at the recorded versions

@@ -11,16 +11,9 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
 
 ## Your first deploy
 
-`fm bake`, `fm switch`, and `fm prune` operate on a bench in the **image runtime**, and all three run on the host that owns the bench. A `mount` bench (the default dev workspace) is converted once; after that, every release is a bake and a switch.
+`fm bake`, `fm switch`, and `fm prune` operate on a bench in the **image runtime**, and all three run on the host that owns the bench. This walkthrough assumes you already have one: create it with `fm create prodbench --runtime image --base-image REPO:TAG` (see [Runtimes](../concepts/runtimes.md) for what that flag pins). After that, every release is a bake and a switch.
 
-1. **One-time conversion** of your working mount bench (if you don't have one yet, the [Your first bench](../getting-started/quick-start.md) gets you there). Give the bench a release image repo and flip its runtime in `bench_config.toml`:
-
-    ```toml
-    image   = "local/mybench"   # where releases are tagged; a registry host prefix enables push/pull
-    runtime = "image"
-    ```
-
-2. **Bake the first image:**
+1. **Bake the first image:**
 
     ```bash
     fm bake mybench
@@ -28,13 +21,13 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
 
     A bake builds a **pair**: the app image `local/mybench:<timestamp>-<git sha>` (code, venv, assets) and `local/mybench-nginx:<same tag>`, which is the same tag with `-nginx` on the repo and carries the built bundles for the bench's nginx to serve. Only the app image is ever named on the command line; fm derives the second one and the two travel, deploy and prune together.
 
-3. **Switch onto it.** This is the conversion moment; the deploy pipeline migrates your existing site onto the image (site data and DB carry over):
+2. **Switch onto it.** The deploy pipeline migrates your existing site onto the image (site data and DB carry over):
 
     ```bash
     fm switch mybench local/mybench:<tag>
     ```
 
-4. **Every release after that is bake then switch:**
+3. **Every release after that is bake then switch:**
 
     ```bash
     fm bake mybench --image local/mybench:v2
@@ -43,7 +36,7 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
 
     `--image` names the app image the bake produces: give it a full ref and the ref you bake is the ref you switch to; give it a bare repo, or leave it off and let the bench's `image` repo stand, and the bake generates and prints `local/mybench:<timestamp>-<git sha>` for you to pass along. (`--base-image REF` is the other direction: the image this one is built *from*.) The switch then runs the full pipeline, and you will see its steps in order: fetch, a pre-flight boot check, the compose re-pin, the migrate decision, the worker drain, the DB dump, the migrate, the swap, a health gate, and finalize. If anything fails before the swap, the old stack never stopped serving.
 
-5. **Verify it:**
+4. **Verify it:**
 
     ```bash
     fm info mybench
@@ -53,8 +46,8 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
 
 That's the whole loop. The rest of this page explains what happened underneath; the pages linked at the bottom cover [rolling back](rollback.md), [image transports and architectures](transports.md), and [every config key](../reference/configuration.md#deploy-tables).
 
-!!! tip "Starting fresh in image runtime"
-    A bench can also be *born* deployed: `fm create prodbench --runtime image --base-image <repo:tag>` creates the site directly from a pre-built image (baked elsewhere, e.g. CI via `fm bake --apps ... --image ... --push`). No conversion needed. `--base-image` names the release the bench starts on rather than pinning it there: the repo half becomes the bench's `image` key and the full reference becomes `[deploy_state].current_image`, which every later `fm switch` rewrites.
+!!! tip "Baking outside the bench"
+    The first image does not have to come from `fm bake` on this host: CI can build and push one (`fm bake --apps ... --image ... --push`), and `fm create --base-image` points the new bench straight at it. `--base-image` names the release the bench starts on rather than pinning it there: the repo half becomes the bench's `image` key and the full reference becomes `[deploy_state].current_image`, which every later `fm switch` rewrites.
 
 ## The lifecycle at a glance
 

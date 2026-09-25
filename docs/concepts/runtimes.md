@@ -37,25 +37,14 @@ A bake produces two images: the app image holds the code, the venv and the built
 
 The full pipeline (baking, zero-downtime rolling swaps, rollbacks with DB restore, release pruning) is covered in the [Deployment guide](../deploy/index.md).
 
-## Moving between runtimes
+## Runtime is fixed at create time
 
-```mermaid
-stateDiagram-v2
-    direction LR
-    [*] --> mount : fm create
-    [*] --> image : fm create --runtime image --base-image IMAGE
-    mount --> image : config edit + fm switch BENCH IMAGE
-    image --> mount : fm update BENCH --runtime mount
-    mount --> mount : fm bake
-    image --> image : fm bake then fm switch IMAGE / --previous
-```
+Runtime is chosen at `fm create` and cannot be changed afterwards. There is no command that flips a bench from one to the other, in either direction:
 
-Both directions preserve your site and database:
+- **Need an editable copy of what an image bench runs?** Don't touch the image bench: `fm create NAME --seed-image REPO:TAG` creates a *new* bench and extracts the same paths out of the same image into its workspace.
+- **Need an image bench?** Create one directly: `fm create NAME --runtime image --base-image REPO:TAG`. Move it to later releases with `fm bake` then `fm switch`; see the [Deployment guide](../deploy/index.md).
 
-- **mount → image**: a one-time config edit (`runtime = "image"` + a top-level `image` repo in `bench_config.toml`), then `fm switch <bench> <image>` runs the full deploy pipeline: the site is migrated onto the image and the workspace stops being the source of truth. The [Deployment guide](../deploy/index.md) walks through it.
-- **image → mount** (demotion): `fm update <bench> --runtime mount` extracts an editable workspace from the *currently deployed* image; code on disk equals running code, so no migrate is needed; any stale workspace leftovers are stashed, never deleted.
-
-The backing keys ([`runtime`](../reference/configuration.md#runtime), [`image` and friends](../reference/configuration.md#images)) are documented in the configuration reference.
+The backing key ([`runtime`](../reference/configuration.md#runtime)) is documented in the configuration reference; it is set once, at create, and `fm update` does not touch it.
 
 ## How runtime and environment combine
 

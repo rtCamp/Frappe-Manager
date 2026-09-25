@@ -102,7 +102,7 @@ fm update mybench --developer-mode enable
 fm update mybench --developer-mode disable
 ```
 
-`--developer-mode` is a mount-runtime option. An `image` bench bakes developer mode into the image, so `fm update` refuses the flag there; demote with `fm update BENCH --runtime mount` first.
+`--developer-mode` is a mount-runtime option. An `image` bench bakes developer mode into the image, so `fm update` refuses the flag there; runtime is fixed at create time, so use a mount bench instead, seeding it from the same release with `fm create NAME --seed-image REPO:TAG` if you want the same code.
 
 !!! info "Environment vs developer mode"
     **Environment** (`dev`/`prod`) controls the web server type and restart policy. **Developer mode** controls Frappe's debug features. They're related but independent: you can run prod environment with developer mode enabled, though this isn't recommended for production servers.
