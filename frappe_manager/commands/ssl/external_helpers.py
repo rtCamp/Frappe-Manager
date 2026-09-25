@@ -430,18 +430,18 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
         raise typer.Exit(1)
 
 
-def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
-    """
-    Detect domains being proxied by nginx-proxy that are NOT Frappe benches.
+def proxy_backend_domains(services_manager) -> set[str]:
+    """Every hostname a container is actually serving through the proxy right now.
 
-    Returns list of domain names found in nginx config that:
-    - Have active backends (VIRTUAL_HOST containers)
-    - Are not managed by FM benches
+    This is what answers "is anything using this certificate": nginx-proxy generates a vhost only
+    for a container publishing VIRTUAL_HOST, so a domain absent here has a certificate and nobody
+    behind it -- a stopped bench, a container never started, or a domain the bench stopped serving.
+    Bench domains are included; `_get_non_bench_domains_from_nginx` is this set minus them.
     """
     try:
         nginx_container_name = services_manager.compose_file_manager.get_container_names().get("nginx-proxy")
         if not nginx_container_name:
-            return []
+            return set()
 
         # Read default.conf which docker-gen generates
         result = subprocess.run(
@@ -452,7 +452,7 @@ def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
         )
 
         if result.returncode != 0:
-            return []
+            return set()
 
         # docker-gen output marks each upstream with a '# domain.com/' comment line just before
         # its 'upstream domain.com {' block; the domains are parsed from those marker lines.
@@ -462,8 +462,28 @@ def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
         for line in result.stdout.split("\n"):
             match = re.match(domain_pattern, line)
             if match:
-                domain = match.group(1)
-                detected_domains.add(domain)
+                detected_domains.add(match.group(1))
+        return detected_domains
+
+    except Exception as e:
+        # A listing must never fail because the proxy could not be read; the caller degrades to
+        # "unknown" rather than refusing to print the certificates.
+        logger.debug(f"proxy vhost scan failed: {e}")
+        return set()
+
+
+def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
+    """
+    Detect domains being proxied by nginx-proxy that are NOT Frappe benches.
+
+    Returns list of domain names found in nginx config that:
+    - Have active backends (VIRTUAL_HOST containers)
+    - Are not managed by FM benches
+    """
+    try:
+        detected_domains = proxy_backend_domains(services_manager)
+        if not detected_domains:
+            return []
 
         # Filter out bench domains
         bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager)
