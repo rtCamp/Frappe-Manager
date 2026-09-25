@@ -219,11 +219,14 @@ class TestJSONOutputHandlerHeadOperations:
 class TestJSONOutputHandlerAdvancedOperations:
     """Tests for advanced output operations."""
 
-    def test_live_lines_captures_output(self):
-        """live_lines() captures all output lines."""
+    def test_live_lines_emits_one_event_per_line(self):
+        """One event per line, as it arrives.
+
+        It used to buffer the whole stream into a single event emitted at the end, so a hung
+        docker command streamed continuously for a human and produced nothing for a machine.
+        """
         handler = JSONOutputHandler()
 
-        # Simulate process output
         data = iter(
             [
                 ("stdout", b"Line 1\n"),
@@ -234,46 +237,46 @@ class TestJSONOutputHandlerAdvancedOperations:
 
         handler.live_lines(data, stdout=True, stderr=True, lines=4)
 
-        assert len(handler.events) == 1
-        event = handler.events[0]
-        assert event.event_type == "live_lines"
-        assert len(event.data["lines"]) == 3
-        assert event.data["lines"][0] == {"source": "stdout", "line": "Line 1\n"}
-        assert event.data["lines"][1] == {"source": "stderr", "line": "Error 1\n"}
+        assert [(e.event_type, e.data["stream"], e.data["text"]) for e in handler.events] == [
+            ("relay", "stdout", "Line 1\n"),
+            ("relay", "stderr", "Error 1\n"),
+            ("relay", "stdout", "Line 2\n"),
+        ]
 
     def test_live_lines_respects_stdout_filter(self):
-        """live_lines() can filter out stdout."""
         handler = JSONOutputHandler()
 
-        data = iter(
-            [
-                ("stdout", b"Line 1\n"),
-                ("stderr", b"Error 1\n"),
-            ],
-        )
+        data = iter([("stdout", b"Line 1\n"), ("stderr", b"Error 1\n")])
 
         handler.live_lines(data, stdout=False, stderr=True)
 
-        event = handler.events[0]
-        assert len(event.data["lines"]) == 1
-        assert event.data["lines"][0]["source"] == "stderr"
+        assert [e.data["stream"] for e in handler.events] == ["stderr"]
+
+    def test_live_lines_applies_line_filters(self):
+        """The filters carry the caller's noise knowledge (docker's progress bars). They were
+        accepted and ignored here, so noise filtered off the screen stayed in the machine stream."""
+        handler = JSONOutputHandler()
+
+        data = iter([("stdout", b"real line\n"), ("stdout", b"Downloading 45%\n")])
+
+        handler.live_lines(data, line_filters=["downloading"])
+
+        assert [e.data["text"] for e in handler.events] == ["real line\n"]
 
     def test_live_lines_stops_on_string(self):
-        """live_lines() stops when stop_string is found."""
         handler = JSONOutputHandler()
 
         data = iter(
             [
                 ("stdout", b"Line 1\n"),
                 ("stdout", b"STOP HERE\n"),
-                ("stdout", b"Line 3\n"),  # Should not be captured
+                ("stdout", b"Line 3\n"),
             ],
         )
 
         handler.live_lines(data, stop_string="STOP")
 
-        event = handler.events[0]
-        assert len(event.data["lines"]) == 2  # Only first two lines
+        assert [e.data["text"] for e in handler.events] == ["Line 1\n", "STOP HERE\n"]
 
     def test_update_live_captures_event(self):
         """update_live() captures renderable content."""

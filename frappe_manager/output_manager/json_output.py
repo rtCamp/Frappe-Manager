@@ -248,49 +248,43 @@ class JSONOutputHandler(OutputHandler):
         log_prefix: str = "=>",
         line_filters: "Sequence[str] | None" = None,
     ) -> None:
-        """
-        Display live streaming output from a process.
+        """Relay a child process's output, one event per line.
+
+        Three ways this used to disagree with the terminal for the same call:
+
+        - it buffered EVERY line and emitted one event at stream end, so a hung docker command
+          produced continuous output for a human and zero bytes for a machine;
+        - it accepted `line_filters` and never applied them, so noise filtered off the screen
+          (docker's progress bars) stayed in the machine stream;
+        - it checked the channel suppression BEFORE `stop_string`, so a suppressed line
+          containing the stop marker did not stop the stream here but did in the terminal.
 
         Args:
             data: Iterator yielding (source, line) tuples
             stdout: Whether to capture stdout lines
             stderr: Whether to capture stderr lines
-            lines: Maximum number of lines (hint only)
-            padding: Padding (ignored in JSON output)
+            lines: Maximum number of lines (hint only, not applicable here)
+            padding: Padding (not applicable here)
             stop_string: String that stops capture when found
-            log_prefix: Prefix for each line
+            log_prefix: Prefix the terminal would use
+            line_filters: Case-insensitive substrings whose lines are dropped
         """
-        captured_lines: list[dict] = []
+        filters = tuple(f.lower() for f in (line_filters or ()))
 
         for source, line in data:
             try:
-                decoded_line = line.decode()
+                decoded_line = line.decode(errors="replace")
             except Exception:
                 decoded_line = str(line)
 
-            if source == "stdout" and not stdout:
-                continue
-            if source == "stderr" and not stderr:
+            if any(f in decoded_line.lower() for f in filters):
                 continue
 
-            captured_lines.append({"source": source, "line": decoded_line})
+            if (source == "stdout" and stdout) or (source == "stderr" and stderr):
+                self._add_event(OutputEvent("relay", {"text": decoded_line, "stream": source}))
 
             if stop_string and stop_string.lower() in decoded_line.lower():
                 break
-
-        self._add_event(
-            OutputEvent(
-                "live_lines",
-                {
-                    "lines": captured_lines,
-                    "stdout": stdout,
-                    "stderr": stderr,
-                    "max_lines": lines,
-                    "stop_string": stop_string,
-                    "log_prefix": log_prefix,
-                },
-            ),
-        )
 
     def update_live(self, renderable: Any = None, padding: tuple[int, int, int, int] = (0, 0, 0, 0)) -> None:
         """
