@@ -247,7 +247,9 @@ _PANEL_GLOBAL = "GLOBAL address commands"
 # function exists in this module's namespace -- unlike `self`/`services`/`ssl` above, which do
 # not call it.
 from frappe_manager.commands.apps import apps_app
+from frappe_manager.commands.auth import auth_app
 from frappe_manager.commands.domain import domain_app
+from frappe_manager.commands.maintenance import maintenance_app
 from frappe_manager.commands.telemetry import telemetry_app
 from frappe_manager.commands.tools import tools_app
 
@@ -262,6 +264,18 @@ app.add_typer(ssl_app, name="ssl", help="Perform operations related to ssl.", ri
 app.add_typer(apps_app, name="apps", help="Manage the apps installed on a bench.", rich_help_panel=_PANEL_SITE)
 app.add_typer(domain_app, name="domain", help="Manage a bench's alias domains.", rich_help_panel=_PANEL_DOMAIN)
 app.add_typer(tools_app, name="tools", help="Manage a bench's admin tools.", rich_help_panel=_PANEL_SITE)
+app.add_typer(
+    auth_app,
+    name="auth",
+    help="Put an HTTP basic auth prompt in front of a bench: the site, the admin tools, or both.",
+    rich_help_panel=_PANEL_SITE,
+)
+app.add_typer(
+    maintenance_app,
+    name="maintenance",
+    help="Put a bench's domains, aliases included, behind a maintenance page.",
+    rich_help_panel=_PANEL_SITE,
+)
 app.add_typer(
     telemetry_app,
     name="telemetry",
@@ -616,7 +630,6 @@ def app_callback(
             ctx.obj["fm_config_manager"] = fm_config_manager
 
 
-from frappe_manager.commands.auth import auth
 from frappe_manager.commands.bake import bake
 from frappe_manager.commands.code import code
 from frappe_manager.commands.compose import compose
@@ -626,7 +639,6 @@ from frappe_manager.commands.deploy import switch
 from frappe_manager.commands.info import info
 from frappe_manager.commands.list import list as list_benches
 from frappe_manager.commands.logs import logs
-from frappe_manager.commands.maintenance import maintenance
 from frappe_manager.commands.migrate import migrate
 from frappe_manager.commands.ngrok import ngrok
 from frappe_manager.commands.prune import prune
@@ -664,8 +676,6 @@ app.command(
 )(shell)
 app.command(name="update", no_args_is_help=True, rich_help_panel=_PANEL_SITE)(update)
 app.command(name="reset", rich_help_panel=_PANEL_SITE)(reset)
-app.command(name="maintenance", rich_help_panel=_PANEL_SITE)(maintenance)
-app.command(name="auth", rich_help_panel=_PANEL_SITE)(auth)
 app.command(name="ngrok", rich_help_panel=_PANEL_DOMAIN)(ngrok)
 app.command(name="list", rich_help_panel=_PANEL_GLOBAL)(list_benches)
 

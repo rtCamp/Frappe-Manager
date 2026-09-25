@@ -30,7 +30,7 @@ import typer
 
 from frappe_manager.commands import app
 from frappe_manager.commands.compose import _benchname_callback as _compose_benchname_callback
-from frappe_manager.commands.maintenance import _maintenance_sitename_callback
+from frappe_manager.commands.maintenance._helpers import optional_bench_site_callback
 from frappe_manager.exceptions import FrappeManagerException, NonInteractiveError
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchException, BenchNotFoundError
@@ -128,7 +128,9 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     # `auth` takes a site part because basic auth is a server-context directive and there is one
     # server block per site now, so one site can prompt while its neighbours do not. `--protect
     # tools` is refused with a site part: one Adminer and one Mailpit serve the whole bench.
-    "fm auth": BenchnameSpec(
+    # All three auth verbs address a bench OR one of its sites: per-site auth is a per-site nginx
+    # server block, so `BENCH/SITE` is meaningful on every one of them.
+    "fm auth disable": BenchnameSpec(
         help="Bench, or BENCH/SITE for one of its sites. Without a site part the whole bench is addressed: every site that has no auth of its own follows it.",
         metavar="BENCH(/SITE)",
         default=None,
@@ -137,18 +139,54 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         autocompletion=bench_site_autocompletion_callback,
         callback=callbacks.bench_site_callback,
     ),
-    # `maintenance --status` may run bench-less, so it swaps in a wrapper that
-    # lets `None` through for that one flag and otherwise delegates. It delegates to
-    # `bench_site_callback` now: the page is written per DOMAIN in the shared proxy, so
-    # `fm maintenance BENCH/SITE` can take one site down while its neighbours keep serving.
-    "fm maintenance": BenchnameSpec(
-        help="Bench, or BENCH/SITE for one site's hostnames only. Optional with --status, which then lists every domain in maintenance.",
+    "fm auth status": BenchnameSpec(
+        help="Bench, or BENCH/SITE for one of its sites. Without a site part the whole bench is addressed: every site that has no auth of its own follows it.",
         metavar="BENCH(/SITE)",
         default=None,
         required=False,
         type_name="text",
         autocompletion=bench_site_autocompletion_callback,
-        callback=_maintenance_sitename_callback,
+        callback=callbacks.bench_site_callback,
+    ),
+    "fm maintenance disable": BenchnameSpec(
+        help="Bench, or BENCH/SITE for one site's hostnames only. A bare bench name covers every domain it serves.",
+        metavar="BENCH(/SITE)",
+        default=None,
+        required=False,
+        type_name="text",
+        autocompletion=bench_site_autocompletion_callback,
+        callback=callbacks.bench_site_callback,
+    ),
+    "fm auth enable": BenchnameSpec(
+        help="Bench, or BENCH/SITE for one of its sites. Without a site part the whole bench is addressed: every site that has no auth of its own follows it.",
+        metavar="BENCH(/SITE)",
+        default=None,
+        required=False,
+        type_name="text",
+        autocompletion=bench_site_autocompletion_callback,
+        callback=callbacks.bench_site_callback,
+    ),
+    # `maintenance status` may run bench-less (it then lists every domain in maintenance), so it
+    # swaps in a wrapper that lets `None` through and otherwise delegates to `bench_site_callback`:
+    # the page is written per DOMAIN in the shared proxy, so `fm maintenance enable BENCH/SITE` can
+    # take one site down while its neighbours keep serving.
+    "fm maintenance status": BenchnameSpec(
+        help="Bench, or BENCH/SITE for one site's hostnames only. Omit it to list every domain in maintenance, across every bench.",
+        metavar="BENCH(/SITE)",
+        default=None,
+        required=False,
+        type_name="text",
+        autocompletion=bench_site_autocompletion_callback,
+        callback=optional_bench_site_callback,
+    ),
+    "fm maintenance enable": BenchnameSpec(
+        help="Bench, or BENCH/SITE for one site's hostnames only.",
+        metavar="BENCH(/SITE)",
+        default=None,
+        required=False,
+        type_name="text",
+        autocompletion=bench_site_autocompletion_callback,
+        callback=callbacks.bench_site_callback,
     ),
     # `migrate` is the one bench-scoped command that can also run over every bench in a single run,
     # so it carries `BenchAllArgument`: completion offers `all` beside the bench names, and
@@ -515,12 +553,16 @@ def test_shared_callables_are_the_same_object_everywhere():
     for name, param in BENCHNAME_ARGUMENTS.items():
         by_completer.setdefault(spec_of(param).autocompletion, set()).add(name)
     assert by_completer[bench_site_autocompletion_callback] == {
-        "fm auth",
+        "fm auth enable",
+        "fm auth disable",
+        "fm auth status",
         "fm shell",
         "fm delete",
         "fm reset",
         "fm update",
-        "fm maintenance",
+        "fm maintenance enable",
+        "fm maintenance disable",
+        "fm maintenance status",
         "fm domain add",
         "fm apps add",
         "fm tools enable",
@@ -579,7 +621,7 @@ def test_commands_that_skip_the_must_exist_check_are_only_the_documented_ones():
         "fm bake",
         "fm compose",  # wraps sitename_callback: must-exist for a named bench, skipped for `--`
         "fm create",
-        "fm maintenance",
+        "fm maintenance status",  # runs bench-less to list every domain in maintenance
         "fm ssl add",
         "fm ssl dns-config cloudflare",
         "fm ssl list",

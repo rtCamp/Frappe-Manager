@@ -8,7 +8,7 @@ owns a marked block inside it; enable/disable must never destroy the rest.
 from importlib import import_module
 from unittest.mock import MagicMock, patch
 
-from frappe_manager.commands.maintenance import (
+from frappe_manager.commands.maintenance._helpers import (
     _bench_domains,
     _has_fm_block,
     _strip_fm_block,
@@ -16,10 +16,10 @@ from frappe_manager.commands.maintenance import (
 )
 from frappe_manager.output_manager import get_global_output_handler
 
-# frappe_manager.commands re-exports the `maintenance` FUNCTION under the same
-# name, shadowing the submodule attribute, so plain `import ... as` binds the
-# function. import_module resolves through sys.modules and returns the module.
-maintenance_cmd = import_module("frappe_manager.commands.maintenance")
+# The pure helpers and CLI_BENCHES_DIRECTORY live in the shared helper module; the verbs that
+# read them are separate modules, so a patch has to name the one that owns each symbol.
+maintenance_cmd = import_module("frappe_manager.commands.maintenance._helpers")
+disable_cmd = import_module("frappe_manager.commands.maintenance.disable")
 
 FOREIGN = "client_max_body_size 50m;\n"
 
@@ -154,28 +154,16 @@ def _enabled_block(bench: str = "mybench") -> str:
 
 
 def _run_off(services, benches):
-    """`fm maintenance mybench --off` with only the proxy and the benches dir faked."""
+    """`fm maintenance disable mybench` with only the proxy and the benches dir faked."""
     ctx = MagicMock()
     ctx.obj = {"services": services}
     handler = get_global_output_handler()
     with (
         patch.object(maintenance_cmd, "CLI_BENCHES_DIRECTORY", benches),
-        patch.object(maintenance_cmd, "check_bench_migration_required"),
+        patch.object(disable_cmd, "check_bench_migration_required"),
         patch.object(handler, "print") as printed,
     ):
-        maintenance_cmd.maintenance(
-            ctx,
-            address="mybench",
-            off=True,
-            status=False,
-            response_code=503,
-            retry_after=300,
-            allow_ip=[],
-            allow_path=[],
-            message=None,
-            page=None,
-            rotate_token=False,
-        )
+        disable_cmd.disable(ctx, address="mybench")
     return "\n".join(call.args[0] for call in printed.call_args_list if call.args)
 
 

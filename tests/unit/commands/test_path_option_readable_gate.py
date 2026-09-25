@@ -1,5 +1,5 @@
 """``fm create --db-ca``, ``fm update --db-ca``, ``fm ssl add --cert/--key/--ca`` and
-``fm maintenance --page`` all declare a bare ``Path`` typer Option. Typer's default for that
+``fm maintenance enable --page`` all declare a bare ``Path`` typer Option. Typer's default for that
 annotation is ``click.Path(exists=False, readable=True, ...)``, and click's own converter stats
 the file and fails with ITS OWN wording ("Path '<p>' is not readable.") before the command body --
 and any hand-written check in it -- ever runs. Every one of these commands has its own curated
@@ -32,7 +32,7 @@ import typer
 from typer.testing import CliRunner
 
 from frappe_manager.commands.create import create
-from frappe_manager.commands.maintenance import maintenance
+from frappe_manager.commands.maintenance.enable import enable as maintenance_enable
 from frappe_manager.commands.ssl.add import add_certificate
 from frappe_manager.commands.update import update
 from frappe_manager.site_manager.bench_config import BenchRuntime
@@ -285,13 +285,13 @@ class TestSslAddCertReadableGate:
 # --------------------------------------------------------------------- fm maintenance --page
 
 
-MAINT_MODULE = "frappe_manager.commands.maintenance"
+MAINT_MODULE = "frappe_manager.commands.maintenance.enable"
 
 
 @pytest.fixture
 def maintenance_world(tmp_path):
     app = typer.Typer()
-    app.command()(maintenance)
+    app.command()(maintenance_enable)
 
     bench_name = "mybench.localhost"
     (tmp_path / bench_name).mkdir(parents=True)
