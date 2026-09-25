@@ -95,8 +95,7 @@ class RichOutputHandler(OutputHandler):
                 warnings.warn(
                     "Direct output.start() is deprecated. Use context managers instead:\n"
                     "    from frappe_manager.output_manager import spinner\n"
-                    "    with spinner(output, 'text'): ...\n"
-                    "See .plans/output-migration-guide.md for migration guide.",
+                    "    with spinner(output, 'text'): ...",
                     DeprecationWarning,
                     stacklevel=2,
                 )
@@ -175,8 +174,7 @@ class RichOutputHandler(OutputHandler):
             warnings.warn(
                 "Direct output.stop() is deprecated. Use context managers instead:\n"
                 "    from frappe_manager.output_manager import spinner\n"
-                "    with spinner(output, 'text'): ...\n"
-                "See .plans/output-migration-guide.md for migration guide.",
+                "    with spinner(output, 'text'): ...",
                 DeprecationWarning,
                 stacklevel=2,
             )
