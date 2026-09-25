@@ -13,7 +13,6 @@ from frappe_manager.commands.update_plan import UpdatePlan, plan_update, report_
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.bench_config import (
     AppConfig,
-    BenchRuntime,
     FMBenchEnvType,
     RestartPolicyEnum,
     WorkersConfig,
@@ -32,61 +31,9 @@ from frappe_manager.utils.site import host_bench_dir
 # Rich renders panels in order of first appearance in the signature, so the bench-scoped parameters
 # are all declared before the first site-scoped one.
 _PANEL_BENCH = "Bench Options"
-_PANEL_RUNTIME = "Bench Options: Runtime"
 _PANEL_MOUNT = "Bench Options: Workspace (mount runtime only)"
 _PANEL_REDIS = "Bench Options: External Redis (every site)"
 _PANEL_SITE = "Site Options (BENCH alone means its primary site)"
-
-
-def _demote_to_mount(bench: Bench, demotion_image: str, output) -> None:
-    """image -> mount: extract an editable workspace from the CURRENTLY DEPLOYED image.
-
-    Not a deploy: code on disk already equals the running code, so there is nothing to migrate
-    and no ``DeployOrchestrator`` run -- just a workspace materialize and a container recreate
-    on the mount compose shape.
-
-    The image is resolved and refused during planning, so reaching here means a recorded
-    deployment exists.
-    """
-
-    from frappe_manager.site_manager.modules.transport import fetch_image
-    from frappe_manager.site_manager.modules.workspace_seed import (
-        materialize_workspace_from_image,
-        stash_conflicting_seed_paths,
-    )
-
-    output.change_head(f"Materializing editable workspace from {demotion_image}")
-    fetch_image(bench.docker_client, demotion_image, output=output)
-    frappe_bench_dir = host_bench_dir(bench.path)
-    # Leftover code trees from an earlier mount life are STALE vs the deployed image; keeping
-    # them would break "code on disk == running code". Stash them aside (never delete) and
-    # extract fresh.
-    stash = stash_conflicting_seed_paths(frappe_bench_dir, output=output)
-    if stash:
-        output.warning(
-            f"Existing workspace code was stale vs {demotion_image}; moved to {stash} -- review and delete it.",
-        )
-    extracted = materialize_workspace_from_image(bench.docker_client, demotion_image, frappe_bench_dir, output=output)
-    output.print(f"Extracted from image: {', '.join(extracted) if extracted else 'nothing (already present)'}")
-
-    bench.bench_config.runtime = BenchRuntime.mount
-
-    compose_inputs = bench.bench_config.export_to_compose_inputs()
-    compose_inputs.setdefault("environment", {}).setdefault("frappe", {})
-    compose_inputs["environment"]["frappe"]["FRAPPE_ENV"] = bench.bench_config.environment_type.value
-    bench.generate_compose(compose_inputs)
-    if bench.workers.compose_file_manager.compose_path.exists():
-        bench.workers.generate_compose()
-
-    output.print("Recreating containers on the mount runtime..")
-    bench.docker_client.compose.up(detach=True, force_recreate=True, pull="never")
-    bench.workers.docker_client.compose.up(services=[], detach=True, pull="never", stream=False)
-
-    output.print(f"Switched runtime to mount (workspace from {demotion_image})")
-    # Persisted the moment the demotion completes: the workspace is extracted and the
-    # containers already run it, so deferring this write would let a later failure in this
-    # command leave bench_config.toml claiming image runtime for a bench now running on mount.
-    bench.save_bench_config()
 
 
 @example(
@@ -110,12 +57,6 @@ def _demote_to_mount(bench: Bench, demotion_image: str, output) -> None:
     benchname="mybench",
 )
 @example(
-    "Demote an image bench to an editable workspace",
-    "{benchname} --runtime mount",
-    detail="Extracts the workspace from the currently deployed image; converting back to image runtime runs through fm switch instead.",
-    benchname="mybench",
-)
-@example(
     "Rebuild a broken venv at the recorded versions",
     "{benchname} --recreate-python-env",
     detail="No version change: recreates the venv on the bench's recorded Python/Node and reinstalls all apps. The repair verb for a corrupted or half-installed env/.",
@@ -133,15 +74,6 @@ def update(
             help="Switch the bench between dev and prod serving (FRAPPE_ENV), recreating the frappe container. Admin tools and developer mode are left as they are; use 'fm tools enable'/'fm tools disable' or --developer-mode to change those.",
             show_default=False,
             rich_help_panel=_PANEL_BENCH,
-        ),
-    ] = None,
-    runtime: Annotated[
-        BenchRuntime | None,
-        typer.Option(
-            "--runtime",
-            help="Convert the bench's runtime: 'mount' demotes an image bench to an editable workspace extracted from the currently deployed image (no migrate -- code on disk already equals what is running). 'image' is a no-op confirmation on an already-image bench; converting mount -> image runs through 'fm switch' instead, since that migrates the site onto a baked image.",
-            show_default=False,
-            rich_help_panel=_PANEL_RUNTIME,
         ),
     ] = None,
     developer_mode: Annotated[
@@ -293,7 +225,7 @@ def update(
     """
     Change a bench's settings.
 
-    Not bench update: app code ships with fm bake then fm switch. Apps are managed with fm apps add, alias domains with fm domain, admin tools with fm tools, APM with fm telemetry. --runtime mount demotes an image bench to an editable workspace, extracted from the currently deployed image; converting the other direction runs through fm switch instead.
+    Not bench update: app code ships with fm bake then fm switch. Apps are managed with fm apps add, alias domains with fm domain, admin tools with fm tools, APM with fm telemetry.
 
     Most options change the whole bench. --db-ca is the one Site Option below, and a plain fm update BENCH applies it to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one.
 
@@ -312,7 +244,6 @@ def update(
     plan = plan_update(
         bench,
         output,
-        runtime=runtime,
         environment=environment,
         developer_mode=developer_mode,
         upload_limit=upload_limit,
@@ -396,10 +327,6 @@ def apply_update(bench: Bench, plan: UpdatePlan, output, *, orchestrator=None, d
 
 def _apply_plan(bench: Bench, plan: UpdatePlan, output) -> None:
     """The writes themselves, in the order the docstring above fixes."""
-    if plan.demote_to_mount:
-        assert plan.demotion_image is not None
-        _demote_to_mount(bench, plan.demotion_image, output)
-
     if plan.db_ca is not None:
         _install_db_ca(bench, plan, output)
 
@@ -423,11 +350,9 @@ def _apply_plan(bench: Bench, plan: UpdatePlan, output) -> None:
     if plan.redis_change:
         bench.bench_config.redis = plan.redis
 
-    # Saved only when something above actually assigned a field. The two paths that own their own
-    # write are deliberately excluded: `_demote_to_mount` persists the moment the workspace exists
-    # (a later failure must not leave the file claiming image runtime for a bench now on mount),
-    # and `update_upload_limit` saves before writing the confs it renders FROM that saved config.
-    # Saving unconditionally here double-wrote in both cases.
+    # Saved only when something above actually assigned a field. `update_upload_limit` is
+    # deliberately excluded: it saves before writing the confs it renders FROM that saved config,
+    # and saving unconditionally here would double-write.
     if plan.writes_bench_config:
         bench.save_bench_config()
 

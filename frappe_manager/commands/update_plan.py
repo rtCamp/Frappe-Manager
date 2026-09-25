@@ -96,8 +96,6 @@ class UpdatePlan:
     bench_name: str
 
     # -- config targets (None == not changing) --------------------------------
-    demote_to_mount: bool = False
-    demotion_image: str | None = None
     db_ca: Path | None = None
     db_ca_had_previous: bool = False
     developer_mode: bool | None = None
@@ -135,9 +133,8 @@ class UpdatePlan:
     def writes_bench_config(self) -> bool:
         """Whether `apply_update` must save bench_config.toml itself.
 
-        `--upload-limit` and the runtime demotion are excluded because each owns its own save at
-        the point its other writes need it; counting them here produced a second, redundant write
-        of the same file.
+        `--upload-limit` is excluded because it owns its own save at the point its other writes
+        need it; counting it here would produce a second, redundant write of the same file.
         """
         # `redis_change` is tested, not `redis`: clearing `[redis]` sets the target to None, which
         # an `is not None` scan reads as "not changing" and would silently skip the save, leaving
@@ -339,20 +336,13 @@ def _describe_redis(redis: RedisConfig | None) -> str:
     return f"cache {redis.cache or local}, queue {redis.queue or local}"
 
 
-def _refuse_immutable_runtime(bench: Bench, output, runtime: BenchRuntime | None) -> None:
-    if runtime == BenchRuntime.mount:
-        output.display_error(
-            "--runtime mount cannot combine with Python/Node/developer-mode changes in the same run: "
-            f"demote first with 'fm update {bench.name} --runtime mount', then re-run with the workspace flags.",
-        )
-    else:
-        output.display_error(
-            f"{bench.name} is image runtime; code, apps, Python/Node and developer mode are immutable -- "
-            "ship changes with 'fm bake' then 'fm switch', install apps with 'fm apps add', or demote to "
-            f"an editable workspace first with 'fm update {bench.name} --runtime mount'. "
-            "'fm update' on an image bench still changes environment, restart policy and the database CA, "
-            "and APM is 'fm telemetry enable'.",
-        )
+def _refuse_immutable_runtime(bench: Bench, output) -> None:
+    output.display_error(
+        f"{bench.name} is image runtime; code, apps, Python/Node and developer mode are immutable -- "
+        "ship changes with 'fm bake' then 'fm switch', install apps with 'fm apps add'. "
+        "'fm update' on an image bench still changes environment, restart policy and the database CA, "
+        "and APM is 'fm telemetry enable'.",
+    )
     raise typer.Exit(1)
 
 
@@ -360,7 +350,6 @@ def plan_update(
     bench: Bench,
     output,
     *,
-    runtime: BenchRuntime | None = None,
     environment: FMBenchEnvType | None = None,
     developer_mode: EnableDisableOptionsEnum | None = None,
     upload_limit: str | None = None,
@@ -393,14 +382,7 @@ def plan_update(
     if config.runtime == BenchRuntime.image and is_immutable_update_request(
         python_version=python_version, node_version=node_version, developer_mode=developer_mode
     ):
-        _refuse_immutable_runtime(bench, output, runtime)
-
-    if runtime == BenchRuntime.image and config.runtime == BenchRuntime.mount:
-        output.display_error(
-            "mount -> image conversion runs through the deploy pipeline (it must migrate the site onto the "
-            f"baked image) -- run 'fm switch {bench.name} REPO:TAG'.",
-        )
-        raise typer.Exit(1)
+        _refuse_immutable_runtime(bench, output)
 
     database_config = None
     if db_ca is not None:
@@ -424,17 +406,6 @@ def plan_update(
     # a running bench, so a plan for a stopped one could never be executed.
     if not bench.running:
         raise BenchNotRunning(bench_name=bench.name)
-
-    if runtime == BenchRuntime.mount and config.runtime != BenchRuntime.mount:
-        deploy_state = config.deploy_state
-        plan.demotion_image = deploy_state.current_image if deploy_state else None
-        if not plan.demotion_image:
-            output.display_error("No deployed image recorded; cannot materialize the workspace.")
-            raise typer.Exit(1)
-        plan.demote_to_mount = True
-        plan.changes.append(f"runtime  image -> mount (workspace extracted from {plan.demotion_image})")
-    elif runtime is not None:
-        plan.already.append(f"runtime is already '{config.runtime.value}'")
 
     # -- version validation, both halves before either is accepted ------------
     current_versions: dict = {}

@@ -1653,7 +1653,7 @@ def requests_immutable_runtime_inputs(
 
     Lives here rather than in a command because ``fm create`` and ``fm update`` must agree on the
     rule. They keep their own messages: the remedy differs (do not ask for it at all, versus bake
-    and switch, or demote first).
+    and switch).
     """
     return bool(python_version or node_version or apps or developer_mode_enable)
 

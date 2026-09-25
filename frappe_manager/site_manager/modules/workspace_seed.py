@@ -5,15 +5,13 @@ The baked image carries the complete provisioned ``/workspace/frappe-bench``
 installed against the same container path a mount bench binds its workspace to,
 so extracting those paths onto the host yields a working editable tree with no
 clone / dependency install / asset build. This is ``fm bake`` in reverse; it
-powers the image -> mount runtime demotion (``fm update BENCH --runtime mount``) and
-image-seeded mount creates.
+powers image-seeded mount creates (``fm create NAME --seed-image REPO:TAG``).
 
 Site data (``sites/<site>``, ``common_site_config.json``, ``apps.txt``,
-``logs/``, ``config/``) is NEVER written: for a demotion it already lives on
-the host; for a create it is seeded by the normal create flow.
+``logs/``, ``config/``) is NEVER written: it is seeded by the normal create
+flow.
 """
 
-from datetime import UTC, datetime
 from pathlib import Path
 
 from frappe_manager import CONTAINER_BENCH_DIR
@@ -26,32 +24,6 @@ SEED_PATHS = ("apps", "env", ".uv", ".fnm", "sites/assets")
 
 class WorkspaceSeedError(FrappeManagerException):
     """Workspace materialization from an image cannot proceed."""
-
-
-def stash_conflicting_seed_paths(frappe_bench_dir: Path, output=None) -> Path | None:
-    """Move existing non-empty :data:`SEED_PATHS` aside before a demotion re-extract.
-
-    A demotion promises code-on-disk == running image. Leftover trees from an
-    earlier mount life (demote -> promote -> demote) are STALE relative to the
-    deployed tag and must not be silently kept -- but they may hold uncommitted
-    work, so they are renamed (never deleted) into a timestamped stash dir
-    inside the workspace. Returns the stash dir when anything moved.
-    """
-    stash: Path | None = None
-    for rel in SEED_PATHS:
-        src = frappe_bench_dir / rel
-        if not src.exists():
-            continue
-        if src.is_dir() and not any(src.iterdir()):
-            continue  # empty skeletons are handled by materialize itself
-        if stash is None:
-            stash = frappe_bench_dir / f".fm-demote-stash-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
-        dest = stash / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        src.rename(dest)
-        if output:
-            output.print(f"Stashed stale {rel} -> {dest.relative_to(frappe_bench_dir)}")
-    return stash
 
 
 def _image_arch(docker_client, image: str) -> str | None:
