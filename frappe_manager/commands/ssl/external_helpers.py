@@ -56,6 +56,39 @@ def _build_standalone_nginx(services_manager) -> StandaloneNginxConfigManager:
     )
 
 
+def _refuse_if_already_served(services_manager, domain: str, output) -> None:
+    """Refuse a standalone certificate for a hostname something else already serves.
+
+    A standalone vhost is a PLACEHOLDER for a domain with no backend, and it is written into the
+    shared conf.d the moment `add` starts. Pointed at a bench's domain it is a second server block
+    for that name, so the bench starts answering 503 before the certificate is even issued -- a
+    typo in the address took a live site down. The registry check above only knows domains that
+    already have a standalone certificate, which this one by definition does not.
+    """
+    bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager)
+    for bench_name in bench_service.get_bench_names():
+        try:
+            bench = Bench.get_object(bench_name, services_manager, output_handler=SilentOutputHandler())
+        except Exception as e:
+            logger.debug(f"standalone guard skipped {bench_name}: {e}")
+            continue
+        if domain in bench.bench_config.domains:
+            output.display_error(
+                f"'{domain}' is served by bench '{bench_name}', so it is not an external domain. "
+                f"--standalone is for domains with no bench behind them; issue this one against the bench "
+                f"with 'fm ssl add {bench_name}/{domain}'."
+            )
+            raise typer.Exit(1)
+
+    if domain in _get_non_bench_domains_from_nginx(services_manager):
+        output.display_error(
+            f"'{domain}' already has a backend in the proxy (a container publishing VIRTUAL_HOST={domain}), "
+            f"so it needs no standalone placeholder: adding one would answer 503 in front of that container. "
+            f"Point 'fm ssl add --standalone' at a domain with no backend yet."
+        )
+        raise typer.Exit(1)
+
+
 def _build_certificate_manager(
     certificates,
     storage_config: SSLStorageConfig,
@@ -108,6 +141,8 @@ def _add_external_certificate(
         output.print(f"  1. Remove existing: fm ssl remove --standalone {domain}", emoji_code="")
         output.print(f"  2. Add new: fm ssl add --standalone {domain}", emoji_code="")
         raise typer.Exit(1)
+
+    _refuse_if_already_served(services_manager, domain, output)
 
     if cname and challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         output.display_error("CNAME delegation (--cname) requires DNS-01 challenge")
@@ -313,6 +348,31 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
     external_manager = ExternalDomainConfigManager(external_config_path)
 
     if not external_manager.domain_exists(domain):
+        # `add` writes the vhost before it registers the domain, so an interrupted run (Ctrl-C,
+        # crash, a failed rehearsal) leaves a marked config serving 503 for a real hostname with
+        # no registry entry to find it by. Removal keyed on the registry could not see it, which
+        # left `rm` by hand as the only cure. Keyed on the marker, fm can clean up after itself.
+        orphan = _build_standalone_nginx(services_manager)
+        if orphan.config_state(domain) is not None:
+            output.warning(
+                f"'{domain}' has an fm nginx configuration but no certificate recorded: "
+                f"left behind by an interrupted 'fm ssl add --standalone'."
+            )
+            if not yes:
+                choice = output.prompt_ask(
+                    prompt=f"Remove the leftover nginx configuration for {domain}?",
+                    choices=["yes", "no"],
+                    default="no",
+                    required_flag="--yes or -y",
+                )
+                if choice != "yes":
+                    output.print("Cancelled.", emoji_code=":x:")
+                    raise typer.Exit(1)
+            orphan.remove_config(domain)
+            services_manager.nginx_controller.reload()
+            output.print(f"Removed leftover nginx configuration for {domain}", emoji_code=":white_check_mark:")
+            return
+
         output.display_error(f"Certificate does not exist for external domain '{domain}'")
         raise typer.Exit(1)
 
@@ -445,7 +505,13 @@ def _list_external_certificates(ctx: typer.Context):
     external_domain_names = {d.domain for d in external_domains}
     non_ssl_domains = [d for d in detected_domains if d not in external_domain_names]
 
-    if not external_domains and not non_ssl_domains:
+    standalone_nginx = _build_standalone_nginx(services_manager)
+    # Configs fm owns in conf.d with no certificate recorded against them: an `add` that died
+    # between writing the vhost and registering the domain. They serve a 503 for a real hostname
+    # and appear in no other listing, so this is the only place they can be noticed.
+    orphan_domains = sorted(set(standalone_nginx.managed_configs()) - external_domain_names)
+
+    if not external_domains and not non_ssl_domains and not orphan_domains:
         output.print("No external domains or SSL certificates configured", emoji_code=":information:")
         output.print("", emoji_code="")
         output.print("To add an external certificate:", emoji_code="")
@@ -454,10 +520,20 @@ def _list_external_certificates(ctx: typer.Context):
 
     _storage_config, link_manager = _build_certificate_storage(services_manager)
 
+    def serving(domain: str) -> str:
+        """What actually answers for this hostname, which is not the same question as whether a
+        certificate is valid: a domain whose vhost went missing has a perfect certificate and
+        serves nginx-proxy's default 503."""
+        if domain in detected_domains:
+            return "backend"
+        state = standalone_nginx.config_state(domain)
+        return state if state else "none"
+
     table = Table(title="External Domains & SSL Certificates", show_header=True, header_style="fm.accent")
     table.add_column("Domain", style="fm.info")
     table.add_column("Type", style="fm.warn")
     table.add_column("Status", style="fm.ok")
+    table.add_column("Serving", style="fm.info")
     table.add_column("Expiry", style="fm.info")
     table.add_column("Days Left", justify="right")
     table.add_column("Renewal", style="fm.error")
@@ -491,11 +567,21 @@ def _list_external_certificates(ctx: typer.Context):
             days_left = "N/A"
             renewal = "N/A"
 
-        table.add_row(domain, ssl_type, status, expiry, str(days_left), renewal)
+        served = serving(domain)
+        # The HTTP-01 challenge is answered by a location inside that missing vhost, so renewal
+        # cannot succeed however healthy the certificate looks. DNS-01 needs no vhost and is
+        # therefore still fine.
+        if served == "none" and (domain_config.challenge_type or "http01") == "http01":
+            renewal = "⛔ no vhost"
+
+        table.add_row(domain, ssl_type, status, served, expiry, str(days_left), renewal)
+
+    for domain in orphan_domains:
+        table.add_row(domain, "none", "⚠️ Orphan", serving(domain), "N/A", "N/A", "N/A")
 
     # Add detected non-SSL domains
     for domain in non_ssl_domains:
-        table.add_row(domain, "none", "🔓 No SSL", "N/A", "N/A", "N/A")
+        table.add_row(domain, "none", "🔓 No SSL", "backend", "N/A", "N/A", "N/A")
 
     output.print_data(table)
 
@@ -518,6 +604,15 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, test_ca: bool, 
         output.display_error(f"No external certificate found for domain '{domain}'")
         output.print("To list external certificates: fm ssl list --standalone", emoji_code="")
         raise typer.Exit(1)
+
+    # The HTTP-01 challenge is answered by the `location ^~ /.well-known/acme-challenge/` inside
+    # this domain's standalone vhost. If that file went missing the renewal cannot succeed, and it
+    # fails at the CA rather than anywhere fm would notice -- so repair it first, here, instead of
+    # assuming the block written at `add` time is still on disk.
+    repaired = services_manager.reconcile_standalone_vhosts()
+    if repaired:
+        services_manager.nginx_controller.reload()
+        output.print(f"Restored missing nginx configuration for: {', '.join(repaired)}", emoji_code=":wrench:")
 
     output.change_head(f"Renewing certificate for {domain}")
 
