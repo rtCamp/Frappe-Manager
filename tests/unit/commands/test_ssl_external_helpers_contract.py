@@ -234,13 +234,13 @@ def test_add_rejects_domain_that_already_has_a_certificate(h):
     h.SSLStorageConfig.assert_not_called()
 
 
-def test_add_rejects_cname_without_dns01_and_echoes_help(h):
-    with patch.object(typer, "echo") as echo, pytest.raises(typer.Exit) as exc:
+def test_add_rejects_cname_without_dns01_and_shows_help(h):
+    with pytest.raises(typer.Exit) as exc:
         _add(h, cname="deleg.fm.com", challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01)
 
     assert exc.value.exit_code == 1
     h.output.display_error.assert_called_once_with("CNAME delegation (--cname) requires DNS-01 challenge")
-    echo.assert_called_once_with("USAGE-HELP")
+    h.output.data_raw.assert_called_once_with("USAGE-HELP")
     h.SSLStorageConfig.assert_not_called()
 
 

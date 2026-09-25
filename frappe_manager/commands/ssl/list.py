@@ -6,7 +6,6 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands.arguments import BenchOnlyAllArgument
-from frappe_manager.output_manager import temporary_stop
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, prompt_for_bench_selection, resolve_bench_targets
 
 from .bench_helpers import _list_bench_certificates
@@ -62,8 +61,7 @@ def list_certificates(
         if not address:
             output = get_output_handler(ctx)
             output.display_error("Benchname required in bench mode")
-            with temporary_stop(output):
-                typer.echo(ctx.get_help())
+            output.data_raw(ctx.get_help())
             raise typer.Exit(1)
 
         _list_bench_certificates(ctx, address)

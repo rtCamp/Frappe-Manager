@@ -117,8 +117,7 @@ def migrate(
 
     if exclude_bench and address != RESERVED_BENCH_NAME:
         output.display_error(f"--exclude-bench only means something with '{RESERVED_BENCH_NAME}', which names every bench")
-        output.stop()
-        typer.echo(ctx.get_help())
+        output.data_raw(ctx.get_help())
         raise typer.Exit(1)
 
     current_version = Version(get_current_fm_version())
