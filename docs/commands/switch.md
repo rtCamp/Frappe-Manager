@@ -13,7 +13,7 @@ $ fm switch BENCH IMAGE [OPTIONS]
 **Arguments**:
 
 * `BENCH`: Bench to act on.  [required]
-* `IMAGE`: Image to switch to: a full reference such as ghcr.io/acme/mybench:v15.2.1. Omit when using --previous.
+* `IMAGE`: Image to switch to: an image reference, which is a repository plus a version, such as ghcr.io/acme/mybench:v15.2.1. Omit when using --previous.
 
 **Options**:
 

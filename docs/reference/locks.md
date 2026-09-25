@@ -32,7 +32,7 @@ One file per bench, so bench A's operations never affect bench B:
 | `switch`, `restart`, `delete`, `reset`, `update`, `create`, `prune` | exclusive | "mutating this bench; everyone out" |
 | `logs`, `info`, `shell`, other quick reads | none | fencing them would be noise |
 
-So a `delete` cannot remove a workspace mid-`bake`, two `switch`es cannot race the `[deploy_state]` rollback ledger, and a second mutator is refused naming the first:
+So a `delete` cannot remove a workspace mid-`bake`, two `switch`es cannot race the `[deployments]` rollback ledger, and a second mutator is refused naming the first:
 
 ```
 ⛔ Bench mybench is busy: switch (pid 4242) is running on it. Let it finish, then re-run.

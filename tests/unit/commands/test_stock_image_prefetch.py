@@ -93,13 +93,13 @@ def cli(tmp_path, monkeypatch):
 class TestPrefetchIsSkipped:
     def test_bake_does_not_prefetch_the_stock_stack(self, cli):
         """It builds an image and pulls the base image itself. The stack is unrelated."""
-        cli.invoke(["bake", "--apps", "frappe", "--image", "localhost/x:t1"])
+        cli.invoke(["bake", "--apps", "frappe", "--app-image", "localhost/x:t1"])
 
         assert not cli.prefetched
 
     def test_the_skip_survives_a_bench_argument(self, cli):
         """The decision is made on the command, not on how it was called."""
-        cli.invoke(["bake", "mybench", "--image", "localhost/x:t1"])
+        cli.invoke(["bake", "mybench", "--app-image", "localhost/x:t1"])
 
         assert not cli.prefetched
 

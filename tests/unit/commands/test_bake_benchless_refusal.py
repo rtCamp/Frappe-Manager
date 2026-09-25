@@ -63,7 +63,7 @@ def test_the_refusal_survives_options_that_do_not_name_what_to_build(cli, wired)
     """`--image` says where the result goes, not what goes in it, so it is not a standalone spec."""
     picker, baked = wired
 
-    result = runner.invoke(cli, ["--image", "ghcr.io/acme/mysite:v1", "--push"])
+    result = runner.invoke(cli, ["--app-image", "ghcr.io/acme/mysite:v1", "--push"])
 
     assert result.exit_code != 0
     assert "Standalone bake needs apps" in result.output
@@ -85,7 +85,7 @@ def test_apps_alone_still_bakes_without_a_bench(cli, wired):
     """The other half of the guard: --apps IS a standalone spec and must not be refused."""
     _, baked = wired
 
-    result = runner.invoke(cli, ["--apps", "frappe:version-15", "--image", "ghcr.io/acme/mysite:v1"])
+    result = runner.invoke(cli, ["--apps", "frappe:version-15", "--app-image", "ghcr.io/acme/mysite:v1"])
 
     assert result.exit_code == 0, result.output
     baked.assert_called_once()

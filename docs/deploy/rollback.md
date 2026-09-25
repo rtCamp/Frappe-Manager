@@ -20,8 +20,8 @@ Rollbacks run the same [switch pipeline](index.md#the-switch-pipeline) as forwar
 ## What the flags do
 
 - `--previous` disables migrate for the run (old code must never migrate a newer schema); override with an explicit `--migrate`. It is exclusive with an explicit IMAGE: pass one or the other.
-- `--restore-db` finds the DB dump recorded for the **current** (bad) deploy in the history and imports it before the swap; a restore is schema-grade, so it runs under the maintenance window like a migrate. Rows written after the bad deploy went live are discarded; that is why it is never implicit. It fails up front, before anything is touched, when no dump was recorded for the current deploy or the recorded path is gone; dumps live under `<bench>/backups/deploy-*/`.
-- After a rollback, `previous_image` points at the image you just left; running `fm switch --previous` again re-deploys it (deliberate: rollback of a rollback is a redo).
+- `--restore-db` restores the DB dump recorded on the **current** (bad) deploy's own record and imports it before the swap; a restore is schema-grade, so it runs under the maintenance window like a migrate. Rows written after the bad deploy went live are discarded; that is why it is never implicit. It fails up front, before anything is touched, when the current deploy has no recorded dump; dumps live under `<bench>/backups/deploy-*/`.
+- After a rollback, `[deployments].previous.app_image` points at the image you just left; running `fm switch --previous` again re-deploys it (deliberate: rollback of a rollback is a redo).
 
 ## What to check after
 

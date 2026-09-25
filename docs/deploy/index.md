@@ -19,7 +19,7 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
     fm bake mybench
     ```
 
-    A bake builds a **pair**: the app image `local/mybench:<timestamp>-<git sha>` (code, venv, assets) and `local/mybench-nginx:<same tag>`, which is the same tag with `-nginx` on the repo and carries the built bundles for the bench's nginx to serve. Only the app image is ever named on the command line; fm derives the second one and the two travel, deploy and prune together.
+    A bake builds a **pair**: the app image `local/mybench:<timestamp>-<git sha>` (code, venv, assets) and `local/mybench-nginx:<same tag>`, which is the same tag with `-nginx` on the repo and carries the built bundles for the bench's nginx to serve. By default only the app image is named on the command line and fm derives the second name; either way bake stamps the pairing as an `fm.nginx.image` label on the app image, so the two travel, deploy and prune together.
 
 2. **Switch onto it.** The deploy pipeline migrates your existing site onto the image (site data and DB carry over):
 
@@ -30,11 +30,11 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
 3. **Every release after that is bake then switch:**
 
     ```bash
-    fm bake mybench --image local/mybench:v2
+    fm bake mybench --app-image local/mybench:v2
     fm switch mybench local/mybench:v2
     ```
 
-    `--image` names the app image the bake produces: give it a full ref and the ref you bake is the ref you switch to; give it a bare repo, or leave it off and let the bench's `image` repo stand, and the bake generates and prints `local/mybench:<timestamp>-<git sha>` for you to pass along. (`--base-image REF` is the other direction: the image this one is built *from*.) The switch then runs the full pipeline, and you will see its steps in order: fetch, a pre-flight boot check, the compose re-pin, the migrate decision, the worker drain, the DB dump, the migrate, the swap, a health gate, and finalize. If anything fails before the swap, the old stack never stopped serving.
+    `--app-image` names the app image the bake produces: give it a full ref and the ref you bake is the ref you switch to; give it a bare repo, or leave it off and let the bench's `image` repo stand, and the bake generates and prints `local/mybench:<timestamp>-<git sha>` for you to pass along. (`--base-image REF` is the other direction: the image this one is built *from*.) The switch then runs the full pipeline, and you will see its steps in order: fetch, a pre-flight boot check, the compose re-pin, the migrate decision, the worker drain, the DB dump, the migrate, the swap, a health gate, and finalize. If anything fails before the swap, the old stack never stopped serving.
 
 4. **Verify it:**
 
@@ -47,7 +47,7 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
 That's the whole loop. The rest of this page explains what happened underneath; the pages linked at the bottom cover [rolling back](rollback.md), [image transports and architectures](transports.md), and [every config key](../reference/configuration.md#deploy-tables).
 
 !!! tip "Baking outside the bench"
-    The first image does not have to come from `fm bake` on this host: CI can build and push one (`fm bake --apps ... --image ... --push`), and `fm create --base-image` points the new bench straight at it. `--base-image` names the release the bench starts on rather than pinning it there: the repo half becomes the bench's `image` key and the full reference becomes `[deploy_state].current_image`, which every later `fm switch` rewrites.
+    The first image does not have to come from `fm bake` on this host: CI can build and push one (`fm bake --apps ... --app-image ... --push`), and `fm create --base-image` points the new bench straight at it. `--base-image` names the release the bench starts on rather than pinning it there: the repo half becomes the bench's `image` key and the full reference becomes `[deployments].current.app_image`, which every later `fm switch` rewrites.
 
 ## The lifecycle at a glance
 
@@ -59,12 +59,12 @@ flowchart LR
     R -->|fm prune / --keep N| H[trimmed history,\ndumps, images]
 ```
 
-- `fm bake <bench> [--image REF] [--base-image REF]`: build the image pair only, deploying nothing (prints both images). `--image` is the app image produced; `--base-image` is what it is built from, the command-line form of [`[build].base_image`](../reference/configuration.md#deploy-tables).
+- `fm bake <bench> [--app-image REF] [--nginx-image REF] [--base-image REF]`: build the image pair only, deploying nothing (prints both images). `--app-image` is the app image produced; `--base-image` is what it is built from, the command-line form of [`[build].base_image`](../reference/configuration.md#deploy-tables).
 - `fm switch <bench> <image>`: deploy an already-built image (no bake).
 - `fm switch <bench> --previous`: roll back (same pipeline pointed backwards, migrate disabled).
 - `fm prune <bench> --only releases`: plan then remove old releases (the bare command also trims backup sessions and rotates logs; prints the full plan first, then one confirmation covers it -- default No, `--yes` skips it, `--dry-run` stops after the plan); release pruning is also available inline as prompt-free `--keep N` on `fm switch` (the flag itself is the consent, since you just chose to run the switch).
 
-Every deploy is recorded in the bench's `bench_config.toml` under `[deploy_state]`: the current image, the previous image (the rollback target), the timestamp of the last successful deploy, and one history row per release carrying its image, timestamp, migrate status (`migrated`, `skipped`, `failed` or `rollback`) and the path of the DB dump taken. `fm info <bench>` shows the whole history in its **deploys** section.
+Every deploy is recorded in the bench's `bench_config.toml` under `[deployments]`: `current` and `previous` releases (each carrying its app and nginx image, deploy timestamp, migrate status and any DB dumps taken), a `history` row per past release, and the timestamp of the last successful deploy. See [every deploy key](../reference/configuration.md#deployments) for the full shape. `fm info <bench>` shows the whole history in its **deploys** section.
 
 ## The switch pipeline
 

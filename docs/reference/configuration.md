@@ -759,7 +759,7 @@ Bench runtime model:
 
 | Key | Applies to | Meaning |
 |---|---|---|
-| `image` | image runtime | App image repository, the pre-built app image the bench runs. Set by `fm create --runtime image --base-image <repo:tag>`, which persists the repo half here, and by `fm bake --image`, which bakes into it. FM manages the `:tag` separately through [`[deploy_state].current_image`](#deploy-state), rewritten by `fm switch` on every deploy, so this key is the repo and never the running image |
+| `image` | image runtime | App image repository, the pre-built app image the bench runs. Set by `fm create --runtime image --base-image <repo:tag>`, which persists the repo half here, and by `fm bake --app-image`, which bakes into it. FM manages the `:tag` separately through [`[deployments].current.app_image`](#deployments), rewritten by `fm switch` on every deploy, so this key is the repo and never the running image |
 | `base_image` | mount runtime | The base frappe image (`repo:tag`) the frappe/socketio/schedule/workers containers **run from**, under your editable workspace. Set by `fm create --base-image`, and static once set: nothing rewrites it. Not the same key as [`[build].base_image`](#deploy-tables), which is what a bake builds from |
 | `seed_image` | mount runtime | Provenance record: the baked image the workspace was seeded from at create (`fm create --seed-image`). Read once at create and never again, unlike `base_image`, which the containers run from at every start |
 
@@ -935,23 +935,42 @@ Frappe is installed first whether or not it appears here.
 
 ---
 
-### `[deploy_state]` {#deploy-state}
+### `[deployments]` {#deployments}
 
-**File key:** `[deploy_state]` + `[[deploy_state.history]]`
+**File key:** `[deployments]`, `[deployments.current]`, `[deployments.previous]` + `[[deployments.history]]`
 
-Image deploy state, managed by `fm switch`; do not edit.
+Image deploy state, managed by `fm switch`; do not edit. `[deployments]` holds `last_at` (the timestamp of the last successful deploy) plus one `Deployment` record shape reused three times: `current`, `previous` and every `history` row carry the same fields, so a bench that deployed one image twice is not ambiguous the way matching by image string used to be. `deployed_at` is the record's identity; there is no separate id field.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `app_image` | required | App image deployed (full reference, e.g. `repo:tag`) |
+| `nginx_image` | optional | Its nginx companion image (full reference). Stamped by `fm bake` as an `fm.nginx.image` label on the app image it builds; `fm migrate` backfills it on records from before this field existed |
+| `deployed_at` | required | ISO timestamp of the deploy; also this record's identity |
+| `migrate_status` | required | `migrated`, `skipped`, `failed`, or `rollback` |
+| `backups` | optional | pre-migrate DB dumps taken during this deploy, keyed by site |
 
 ```toml
-[deploy_state]
-current_image = "local/mybench:20260728103100-abc123"
-previous_image = "local/mybench:20260721091500-def456"
-last_deploy_at = "2026-07-28T10:31:02"
+[deployments]
+last_at = "2026-07-28T10:31:02"
 
-[[deploy_state.history]]
-image = "local/mybench:20260728103100-abc123"
+[deployments.current]
+app_image = "local/mybench:20260728103100-abc123"
+nginx_image = "local/mybench-nginx:20260728103100-abc123"
+deployed_at = "2026-07-28T10:31:02"
+migrate_status = "migrated"
+
+[deployments.previous]
+app_image = "local/mybench:20260721091500-def456"
+nginx_image = "local/mybench-nginx:20260721091500-def456"
+deployed_at = "2026-07-21T09:15:00"
+migrate_status = "migrated"
+
+[[deployments.history]]
+app_image = "local/mybench:20260728103100-abc123"
+nginx_image = "local/mybench-nginx:20260728103100-abc123"
 deployed_at = "2026-07-28T10:31:02"
 migrate_status = "migrated"      # migrated | skipped | failed | rollback
-backup = "/home/user/frappe/sites/mybench/..."  # pre-migrate DB dump, used by `fm switch --previous --restore-db`
+backups = { "mybench.localhost" = "/home/user/frappe/sites/mybench/..." }  # pre-migrate DB dump, used by `fm switch --previous --restore-db`
 ```
 
 `fm prune` trims old history rows and their dumps/images, keeping the newest `keep_releases` (current + previous are always safe).

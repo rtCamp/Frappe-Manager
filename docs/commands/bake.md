@@ -21,7 +21,8 @@ $ fm bake BENCH [OPTIONS]
 
 **Options**:
 
-* `--image TEXT`: Image to build. A full ref (ghcr.io/acme/mysite:v42) is built as-is; a bare repo (ghcr.io/acme/mysite) gets a generated :<timestamp>-<sha> tag. Defaults to the bench's configured image.
+* `--app-image TEXT`: App image to build. A reference carrying a version (ghcr.io/acme/mysite:v42) is built as-is; a bare repository (ghcr.io/acme/mysite) gets a generated :<timestamp>-<sha> tag. Defaults to the bench's configured image.
+* `--nginx-image TEXT`: Companion assets image to build beside the app image. Defaults to <app repository>-nginx carrying the app image's tag. Whichever is used is recorded onto the app image, so nothing downstream has to work it out from the name.
 * `--base-image TEXT`: Image the runtime Dockerfile builds FROM. Defaults to \[build].base_image, else fm's published frappe image for this fm version.
 * `--push/--no-push`: Push the baked image to the registry after building. Defaults to \[build].push, which is off unless set. A bake that does not push still loads the image into the local daemon.
 * `--config TEXT`: TOML overlay, either a file path or inline TOML. With a bench it is merged into bench_config.toml and stays there; standalone it supplies the whole config. Repeatable; later --config wins.
@@ -43,20 +44,28 @@ fm bake mybench
 ### Bake into a specific image repository
 
 ```bash
-fm bake mybench --image local/mybench
+fm bake mybench --app-image local/mybench
 ```
 
 ### Bake an exact image reference
 
-A ref that already carries a tag is built verbatim; drop the tag to get a generated :<timestamp>-<sha> instead.
+A reference that already carries a version is built verbatim; drop it to get a generated :<timestamp>-<sha> instead.
 
 ```bash
-fm bake mybench --image ghcr.io/acme/mysite:v42 --push
+fm bake mybench --app-image ghcr.io/acme/mysite:v42 --push
+```
+
+### Name the companion assets image too
+
+Omitted, the companion is <app repository>-nginx carrying the app image's tag. Either way the pair is recorded onto the app image.
+
+```bash
+fm bake mybench --app-image ghcr.io/acme/mysite:v42 --nginx-image ghcr.io/acme/mysite-assets:v42
 ```
 
 ### Pin the base image the build starts FROM
 
---base-image is what the runtime Dockerfile builds FROM, while --image is what the bake produces.
+--base-image is what the runtime Dockerfile builds FROM, while --app-image is what the bake produces.
 
 ```bash
 fm bake mybench --base-image ghcr.io/acme/frappe-custom:v15
@@ -71,7 +80,7 @@ fm bake mybench --source workspace
 ### Standalone bake, no bench involved
 
 ```bash
-fm bake --apps erpnext:version-16 --image ghcr.io/acme/mysite --push
+fm bake --apps erpnext:version-16 --app-image ghcr.io/acme/mysite --push
 ```
 
 ### Standalone bake from a config file

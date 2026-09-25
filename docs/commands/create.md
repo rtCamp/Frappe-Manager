@@ -31,8 +31,8 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `--node TEXT`: Node version, e.g. '20'. Auto-detected by default.
 * `--restart-policy [no|always|on-failure|unless-stopped]`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
 * `--runtime [mount|image]`: 'mount' (default) live-mounts an editable workspace; 'image' runs a pre-built app image, moved to a new image with 'fm switch'.
-* `--base-image TEXT`: The image the bench's containers run (repo:tag). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another image.
-* `--seed-image TEXT`: Mount runtime: seed the workspace from a baked app image (repo:tag) instead of cloning and installing apps. --apps, --python and --node then override what it carries. This is a one-time copy, not what the containers run: see --base-image.
+* `--base-image TEXT`: The image the bench's containers run, as an image reference (repository plus a version, e.g. ghcr.io/acme/mybench:v15.2.1). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another image.
+* `--seed-image TEXT`: Mount runtime: seed the workspace from a baked app image, named by an image reference (repository plus a version), instead of cloning and installing apps. --apps, --python and --node then override what it carries. This is a one-time copy, not what the containers run: see --base-image.
 * `--config TEXT`: TOML base config: file path or inline. Explicit flags win; later --config wins.
 * `--redis-cache TEXT`: External redis URL for the framework cache, e.g. redis://r.example:6379/0. Independent of the queue: either side may stay on fm's own container.
 * `--redis-queue TEXT`: External redis URL for the queue and realtime. Use a different logical index from --redis-cache: a restore mass-deletes the cache index.

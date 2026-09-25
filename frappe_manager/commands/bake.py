@@ -141,20 +141,26 @@ def _build_standalone_config(
 )
 @example(
     "Bake into a specific image repository",
-    "{benchname} --image local/mybench",
+    "{benchname} --app-image local/mybench",
     benchname="mybench",
 )
 @example(
     "Bake an exact image reference",
-    "{benchname} --image ghcr.io/acme/mysite:v42 --push",
+    "{benchname} --app-image ghcr.io/acme/mysite:v42 --push",
     benchname="mybench",
-    detail="A ref that already carries a tag is built verbatim; drop the tag to get a generated :<timestamp>-<sha> instead.",
+    detail="A reference that already carries a version is built verbatim; drop it to get a generated :<timestamp>-<sha> instead.",
+)
+@example(
+    "Name the companion assets image too",
+    "{benchname} --app-image ghcr.io/acme/mysite:v42 --nginx-image ghcr.io/acme/mysite-assets:v42",
+    benchname="mybench",
+    detail="Omitted, the companion is <app repository>-nginx carrying the app image's tag. Either way the pair is recorded onto the app image.",
 )
 @example(
     "Pin the base image the build starts FROM",
     "{benchname} --base-image ghcr.io/acme/frappe-custom:v15",
     benchname="mybench",
-    detail="--base-image is what the runtime Dockerfile builds FROM, while --image is what the bake produces.",
+    detail="--base-image is what the runtime Dockerfile builds FROM, while --app-image is what the bake produces.",
 )
 @example(
     "Bake exactly what is on disk right now",
@@ -163,7 +169,7 @@ def _build_standalone_config(
 )
 @example(
     "Standalone bake, no bench involved",
-    "--apps erpnext:version-16 --image ghcr.io/acme/mysite --push",
+    "--apps erpnext:version-16 --app-image ghcr.io/acme/mysite --push",
 )
 @example(
     "Standalone bake from a config file",
@@ -181,11 +187,19 @@ def bake(
             autocompletion=sites_autocompletion_callback,
         ),
     ] = None,
-    image: Annotated[
+    app_image: Annotated[
         str | None,
         typer.Option(
-            "--image",
-            help="Image to build. A full ref (ghcr.io/acme/mysite:v42) is built as-is; a bare repo (ghcr.io/acme/mysite) gets a generated :<timestamp>-<sha> tag. Defaults to the bench's configured image.",
+            "--app-image",
+            help="App image to build. A reference carrying a version (ghcr.io/acme/mysite:v42) is built as-is; a bare repository (ghcr.io/acme/mysite) gets a generated :<timestamp>-<sha> tag. Defaults to the bench's configured image.",
+            show_default=False,
+        ),
+    ] = None,
+    nginx_image: Annotated[
+        str | None,
+        typer.Option(
+            "--nginx-image",
+            help="Companion assets image to build beside the app image. Defaults to <app repository>-nginx carrying the app image's tag. Whichever is used is recorded onto the app image, so nothing downstream has to work it out from the name.",
             show_default=False,
         ),
     ] = None,
@@ -292,7 +306,7 @@ def bake(
     if standalone:
         try:
             bench_config = _build_standalone_config(
-                apps_config, image, python_version, node_version, github_token, config
+                apps_config, app_image, python_version, node_version, github_token, config
             )
         except ConfigOverlayError as e:
             output.display_error(str(e))
@@ -324,11 +338,19 @@ def bake(
         bench_config = BenchConfig.import_from_toml(bench_config_path)
 
     explicit_tag: str | None = None
-    if image:
-        if has_explicit_tag(image):
-            explicit_tag = image
+    if app_image:
+        if has_explicit_tag(app_image):
+            explicit_tag = app_image
         else:
-            bench_config.image = image
+            bench_config.image = app_image
+
+    if nginx_image and not has_explicit_tag(nginx_image):
+        output.display_error(
+            f"--nginx-image {nginx_image} is a repository, not an image reference: it names no "
+            f"version. The companion is built under exactly what is passed, so name the version too "
+            f"(e.g. {nginx_image}:v42), or omit the flag to take the app image's tag.",
+        )
+        raise typer.Exit(1)
 
     if base_image:
         if bench_config.build is None:
@@ -356,7 +378,7 @@ def bake(
 
     try:
         bake_manager = BakeManager(bench_config, output_handler=output)
-        built_tag = bake_manager.bake(tag=explicit_tag, push=push)
+        built_tag = bake_manager.bake(tag=explicit_tag, push=push, nginx_tag=nginx_image)
     except BakeError as e:
         output.display_error(str(e))
         raise typer.Exit(1) from e

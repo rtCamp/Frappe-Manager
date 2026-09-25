@@ -439,7 +439,7 @@ class BakeManager:
         manifest' error. Inspection failures stay silent (docker will enforce
         reality later anyway).
         """
-        want = platform.split("/")[-1]
+        want = platform.rsplit("/", maxsplit=1)[-1]
         try:
             result = run_command_with_exit_code(
                 ["docker", "image", "inspect", base_image, "--format", "{{.Architecture}}"],
@@ -463,19 +463,27 @@ class BakeManager:
                 f"the base for {platform} yourself and point build.base_image at it.",
             )
 
-    def bake(self, tag: str | None = None, push: bool | None = None) -> str:
+    def bake(self, tag: str | None = None, push: bool | None = None, nginx_tag: str | None = None) -> str:
         """Provision -> build the runtime image (+ optional registry push). Returns the built tag.
 
-        ``tag`` overrides the auto-generated ``<repo>:<ts>-<sha>`` when given.
-        ``push`` forces (``True``) or suppresses (``False``) the registry push;
-        ``None`` (default) falls back to ``[build].push``.
+        ``tag`` overrides the auto-generated ``<repo>:<ts>-<sha>`` when given, ``nginx_tag`` the
+        companion's ``<repo>-nginx:<tag>``. ``push`` forces (``True``) or suppresses (``False``)
+        the registry push; ``None`` (default) falls back to ``[build].push``.
+
+        Bake is the ONE place that may choose the companion's name, because it is naming
+        something it is about to create. What it must not do is leave that choice to be
+        reconstructed later from the name: the chosen reference is stamped onto the app image as
+        ``fm.nginx.image``, so every consumer reads the pair instead of deriving it.
         """
         base_image = self.resolve_base_image()
         self._assert_buildx()
         tag = tag or self.resolve_tag()
+        # Before the app image is built, because it is stamped INTO that image.
+        nginx_tag = nginx_tag or self.nginx_image_ref(tag)
         dockerfile = self._runtime_dockerfile()
 
         self.output.print(f"Baking image {tag}")
+        self.output.print(f"Companion image: {nginx_tag}")
         self.output.print(f"Base image: {base_image}")
 
         build_config = self.bench_config.build
@@ -555,6 +563,9 @@ class BakeManager:
                 "fm.python.version": py_version,
                 "fm.node.version": node_version,
                 "fm.apps": json.dumps(app_refs, separators=(",", ":")) if app_refs else None,
+                # The pair, recorded on the artifact itself. It is the only carrier that crosses
+                # machines: a CI bake and a switch on another host share no state but the image.
+                "fm.nginx.image": nginx_tag,
             }
             extra = ["--build-arg", f"BASE_IMAGE={base_image}"]
             for _k, _v in labels.items():
@@ -570,7 +581,7 @@ class BakeManager:
 
             self.output.print(f"Built image: {tag}", emoji_code=":white_check_mark:")
 
-            nginx_tag = self._build_nginx_image(frappe_bench_dir, tag, platform=platform)
+            self._build_nginx_image(frappe_bench_dir, nginx_tag, platform=platform)
 
             if self._should_push(push):
                 self._push_images([tag, nginx_tag])
@@ -633,8 +644,8 @@ class BakeManager:
         cmd.append(str(context))
         run_command_with_exit_code(cmd, stream=False, capture_output=False)
 
-    def _build_nginx_image(self, frappe_bench_dir: Path, tag: str, platform: str | None = None) -> str:
-        """Build the app-nginx assets image (``<repo>-nginx:<tag>``).
+    def _build_nginx_image(self, frappe_bench_dir: Path, nginx_tag: str, platform: str | None = None) -> str:
+        """Build the app-nginx assets image under the reference ``bake`` already chose.
 
         Every baked app image gets one, unconditionally: ``ImageShape.image("nginx")``
         derives this exact tag and an image-mode deploy pins compose to it before
@@ -655,8 +666,6 @@ class BakeManager:
         """
         assets_dir = frappe_bench_dir / "sites" / "assets"
         nginx_dockerfile = self._nginx_dockerfile()
-        nginx_tag = self.nginx_image_ref(tag)
-
         # Build from a staging context with app assets resolved to REAL files. Each
         # `sites/assets/<app>` symlinks into `apps/<app>/.../public`, but the nginx image
         # has no `apps/`, so the symlink would dangle at runtime (assets 404).

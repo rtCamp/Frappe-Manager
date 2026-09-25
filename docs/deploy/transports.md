@@ -5,17 +5,17 @@
 A deploy is two commands, run on the host that owns the bench:
 
 ```bash
-fm bake mybench --image ghcr.io/acme/mybench:v42 --push
+fm bake mybench --app-image ghcr.io/acme/mybench:v42 --push
 fm switch mybench ghcr.io/acme/mybench:v42
 ```
 
-`--image` names the app image the bake produces, and it takes either form. Give it a **full image ref** and it is built exactly as typed, so the image you switch to is the image you typed and nothing has to be read back out of the bake output. Give it a **bare repo** and the bake generates `<repo>:<timestamp>-<git sha>` and prints it, which you then pass to `fm switch`; omitting `--image` altogether falls back to the bench's own `image` repo the same way. What the image is built *from* is a separate input, `--base-image` (persisted as `[build].base_image`), and it is never the thing you switch onto.
+`--app-image` names the app image the bake produces, and it takes either form. Give it a **full image ref** and it is built exactly as typed, so the image you switch to is the image you typed and nothing has to be read back out of the bake output. Give it a **bare repo** and the bake generates `<repo>:<timestamp>-<git sha>` and prints it, which you then pass to `fm switch`; omitting `--app-image` altogether falls back to the bench's own `image` repo the same way. What the image is built *from* is a separate input, `--base-image` (persisted as `[build].base_image`), and it is never the thing you switch onto.
 
 Whether anything has to be transported at all depends on where those two commands run.
 
 ```mermaid
 flowchart LR
-    B["fm bake --image REF"] --> LI[image pair on the build daemon]
+    B["fm bake --app-image REF"] --> LI[image pair on the build daemon]
     LI -->|"same host: fm switch finds it, no pull"| RD[target daemon]
     LI -->|"--push"| REG[(registry)] -->|"fm switch pulls what is missing"| RD
     LI -->|"docker save over ssh docker load"| RD
@@ -56,7 +56,7 @@ ssh prod "fm switch mybench ghcr.io/acme/mybench:v42"
 
 The presence check is what makes this work: the images are already on the target daemon, so the switch uses them and never contacts a registry. If you skip the transport, the pull that follows is what fails, and it names the image it could not get.
 
-Either way you are moving a **pair** of images. Every bake builds the app image and its paired `-nginx` assets image, which is the same tag with `-nginx` appended to the repo. Only the app image is ever named on the command line; fm derives the second one, and both are what `fm switch` fetches, deploys and prunes together. That is why the `docker save` above names two images.
+Either way you are moving a **pair** of images. Every bake builds the app image and its paired `-nginx` assets image, named by default (same tag, `-nginx` appended to the repo) or explicitly via `--nginx-image`, and bake stamps the pairing as an `fm.nginx.image` label on the app image. Both are what `fm switch` fetches, deploys and prunes together. That is why the `docker save` above names two images.
 
 ## Platforms (CPU architectures)
 
@@ -79,7 +79,7 @@ The shape is the same two commands, split across the two machines. Bake and push
 
 ```bash
 # on the runner: no bench needed, just the app list and a ref you chose
-fm bake --apps frappe --apps erpnext:version-16 --image ghcr.io/acme/mybench:$GIT_SHA --push
+fm bake --apps frappe --apps erpnext:version-16 --app-image ghcr.io/acme/mybench:$GIT_SHA --push
 
 # on the server that owns the bench
 ssh prod "fm switch mybench ghcr.io/acme/mybench:$GIT_SHA"

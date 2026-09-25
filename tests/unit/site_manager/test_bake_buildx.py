@@ -119,15 +119,15 @@ class TestNginxCompanionBuild:
         mgr.output = MagicMock()
         return mgr
 
-    def test_an_assetless_bench_still_produces_a_companion_tag(self, tmp_path):
+    def test_an_assetless_bench_still_produces_a_companion_image(self, tmp_path):
         """No `sites/assets` at all (bench-only, or a workspace snapshot that never ran
-        `bench build`) must still return a resolvable `-nginx` tag rather than `None`."""
+        `bench build`) must still build the companion rather than skip it."""
         frappe_bench_dir = tmp_path / "workspace" / "frappe-bench"
         frappe_bench_dir.mkdir(parents=True)  # sites/assets deliberately absent
 
         mgr = self._mgr()
         with patch(RUNNER) as runner:
-            nginx_tag = mgr._build_nginx_image(frappe_bench_dir, "ghcr.io/acme/erp:v1")
+            nginx_tag = mgr._build_nginx_image(frappe_bench_dir, "ghcr.io/acme/erp-nginx:v1")
 
         assert nginx_tag == "ghcr.io/acme/erp-nginx:v1"
         argv = runner.call_args.args[0]
@@ -149,7 +149,7 @@ class TestNginxCompanionBuild:
 
         mgr = self._mgr()
         with patch(RUNNER, side_effect=_capture):
-            mgr._build_nginx_image(frappe_bench_dir, "ghcr.io/acme/erp:v1")
+            mgr._build_nginx_image(frappe_bench_dir, "ghcr.io/acme/erp-nginx:v1")
 
         assert seen["is_dir"] is True
         assert seen["contents"] == []
@@ -169,7 +169,7 @@ class TestNginxCompanionBuild:
 
         mgr = self._mgr()
         with patch(RUNNER, side_effect=_capture):
-            mgr._build_nginx_image(frappe_bench_dir, "ghcr.io/acme/erp:v1")
+            mgr._build_nginx_image(frappe_bench_dir, "ghcr.io/acme/erp-nginx:v1")
 
         assert seen["assets_json"] == "{}"
 

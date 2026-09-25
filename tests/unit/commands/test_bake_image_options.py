@@ -49,7 +49,7 @@ def baked(monkeypatch):
     """
     calls: dict = {}
 
-    def fake_bake(self, tag=None, push=None):
+    def fake_bake(self, tag=None, push=None, nginx_tag=None):
         calls["bench_config"] = self.bench_config
         calls["tag"] = tag
         calls["push"] = push
@@ -68,7 +68,7 @@ def _invoke(cli, *args):
 
 
 def test_bare_repo_gets_a_generated_timestamp_tag(cli, baked):
-    result = _invoke(cli, "--image", "ghcr.io/acme/mysite")
+    result = _invoke(cli, "--app-image", "ghcr.io/acme/mysite")
 
     assert result.exit_code == 0, result.output
     # A bare repo is a repo: it becomes the configured image and resolve_tag() supplies the tag.
@@ -78,7 +78,7 @@ def test_bare_repo_gets_a_generated_timestamp_tag(cli, baked):
 
 
 def test_full_reference_is_built_verbatim(cli, baked):
-    result = _invoke(cli, "--image", "ghcr.io/acme/mysite:v42")
+    result = _invoke(cli, "--app-image", "ghcr.io/acme/mysite:v42")
 
     assert result.exit_code == 0, result.output
     assert baked["tag"] == "ghcr.io/acme/mysite:v42"
@@ -90,7 +90,7 @@ def test_full_reference_is_built_verbatim(cli, baked):
 
 def test_registry_host_port_is_not_mistaken_for_a_tag(cli, baked):
     """`localhost:5000/repo` is a bare repo; the colon belongs to the registry host."""
-    result = _invoke(cli, "--image", "localhost:5000/mysite")
+    result = _invoke(cli, "--app-image", "localhost:5000/mysite")
 
     assert result.exit_code == 0, result.output
     assert baked["bench_config"].image == "localhost:5000/mysite"
@@ -100,14 +100,14 @@ def test_registry_host_port_is_not_mistaken_for_a_tag(cli, baked):
 
 def test_full_reference_still_names_the_standalone_bake_after_the_repo(cli, baked):
     """The standalone config builder sees the raw value, and `_bake_name` strips the tag."""
-    result = _invoke(cli, "--image", "ghcr.io/acme/mysite:v42")
+    result = _invoke(cli, "--app-image", "ghcr.io/acme/mysite:v42")
 
     assert result.exit_code == 0, result.output
     assert baked["bench_config"].name == "mysite"
 
 
 def test_base_image_lands_on_build_base_image(cli, baked):
-    result = _invoke(cli, "--image", "ghcr.io/acme/mysite", "--base-image", "ghcr.io/acme/frappe-custom:v15")
+    result = _invoke(cli, "--app-image", "ghcr.io/acme/mysite", "--base-image", "ghcr.io/acme/frappe-custom:v15")
 
     assert result.exit_code == 0, result.output
     assert baked["bench_config"].build.base_image == "ghcr.io/acme/frappe-custom:v15"
@@ -117,7 +117,7 @@ def test_base_image_lands_on_build_base_image(cli, baked):
 
 
 def test_tagless_base_image_is_rejected(cli, baked):
-    result = _invoke(cli, "--image", "ghcr.io/acme/mysite", "--base-image", "ghcr.io/acme/frappe-custom")
+    result = _invoke(cli, "--app-image", "ghcr.io/acme/mysite", "--base-image", "ghcr.io/acme/frappe-custom")
 
     assert result.exit_code != 0
     # The rich error box word-wraps at terminal width; assert a substring that stays on one
@@ -129,7 +129,7 @@ def test_tagless_base_image_is_rejected(cli, baked):
 
 def test_base_image_host_port_alone_is_not_a_tag(cli, baked):
     """The refusal uses the same colon rule, so a host-port does not satisfy it."""
-    result = _invoke(cli, "--image", "ghcr.io/acme/mysite", "--base-image", "localhost:5000/frappe-custom")
+    result = _invoke(cli, "--app-image", "ghcr.io/acme/mysite", "--base-image", "localhost:5000/frappe-custom")
 
     assert result.exit_code != 0
     assert "--base-image must be pinned to a specific" in result.output
@@ -141,7 +141,7 @@ def test_digest_pinned_base_image_is_accepted(cli, baked):
     derived by name, so a digest pin is safe and must not be refused."""
     result = _invoke(
         cli,
-        "--image",
+        "--app-image",
         "ghcr.io/acme/mysite",
         "--base-image",
         "ghcr.io/acme/frappe-custom@sha256:" + "a" * 64,
