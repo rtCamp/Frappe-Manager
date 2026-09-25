@@ -100,15 +100,11 @@ unfixable = []
 
 [tool.ruff.lint.per-file-ignores]
 
-# The output layer itself is the one place allowed to touch a console or a stream.
+# The output layer itself is the one place allowed to touch a console or a stream. Nothing else
+# is exempt: the migration is finished, and the two remaining legitimate uses elsewhere carry a
+# line-level `# noqa: TID251` with its reason rather than a whole file being waived.
 "frappe_manager/output_manager/*" = ["T20", "TID251"]
 
-# GRANDFATHERED, SHRINKING ONLY. Each of these files still writes to the terminal without going
-# through the output layer. The rule above is live so no NEW bypass can be added; these are the
-# 48 pre-existing ones. Delete a path from this list as its file is migrated, and delete the list
-# when it is empty. Never add a path here. See notes/output-layer-design.md.
-"frappe_manager/commands/__init__.py" = ["T20", "TID251"]
-"frappe_manager/utils/helpers.py" = ["T20", "TID251"]
 # Test-only relaxations. These are idioms of the test suite, not defects, and they are scoped to
 # tests/ so the production ruleset above is untouched. Characterization tests in particular exist to
 # pin the behaviour of INTERNAL functions before a refactor, which is what makes SLF001 unavoidable
