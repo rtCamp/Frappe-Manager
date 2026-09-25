@@ -34,7 +34,6 @@ from frappe_manager.ssl_manager.nginx_controller import NginxController
 from frappe_manager.ssl_manager.proxy_storage import ProxyStoragePaths
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager.utils.helpers import (
-    get_current_fm_version,
     get_template_path,
     get_unix_groups,
     random_password_generate,
@@ -186,15 +185,14 @@ class ServicesManager:
         `init()` runs on every fm invocation, so an unconditional write touched a file inside a
         running proxy's config directory for read-only commands like `fm list` and `fm info` --
         enough to fail on a read-only mount or under a second user, and to make the file's mtime
-        lie about when the proxy config last changed. The content tracks fm's version, so the
-        comparison (not a move to create/migrate) is what keeps `fm self upgrade` refreshing it.
+        lie about when the proxy config last changed. The comparison is also what upgrades an
+        existing install: the file is rewritten whenever fm ships different content for it.
         """
         if not self.fm_headers_path.parent.exists():
             return
 
         template_path: Path = get_template_path("fm_headers.conf.tmpl")
-        template = Template(template_path.read_text())
-        desired = template.render(current_version=f"v{get_current_fm_version()}")
+        desired = Template(template_path.read_text()).render()
 
         if self.fm_headers_path.exists() and self.fm_headers_path.read_text() == desired:
             return

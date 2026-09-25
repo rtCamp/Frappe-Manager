@@ -20,6 +20,7 @@ the filesystem. No test reaches a docker daemon, a network, or a real ~/frappe.
 
 import contextlib
 import os
+import re
 from pathlib import Path
 from unittest import mock
 
@@ -36,6 +37,7 @@ from frappe_manager.services_manager.services_exceptions import (
     ServicesException,
     ServicesNotCreated,
 )
+from frappe_manager.utils.helpers import get_template_path
 
 SERVICES_MODULE = "frappe_manager.services_manager.services"
 
@@ -198,21 +200,31 @@ def test_init_writes_the_fm_headers_conf_into_the_proxy_confd_mount(tmp_path):
 # --- set_frappe_headers_conf ---
 
 
-def test_the_headers_conf_is_rendered_with_the_running_fm_version(tmp_path):
+def test_the_headers_conf_is_written_from_the_shipped_template(tmp_path):
     template = tmp_path / "fm_headers.conf.tmpl"
-    template.write_text("add_header X-Fm {{ current_version }};")
+    template.write_text("add_header X-Fm test;")
     confd = tmp_path / "confd"
     confd.mkdir()
 
     manager = ServicesManager(path=tmp_path, output_handler=mock.MagicMock())
     manager.fm_headers_path = confd / "fm_headers.conf"
-    with (
-        mock.patch(f"{SERVICES_MODULE}.get_template_path", return_value=template),
-        mock.patch(f"{SERVICES_MODULE}.get_current_fm_version", return_value="1.2.3"),
-    ):
+    with mock.patch(f"{SERVICES_MODULE}.get_template_path", return_value=template):
         manager.set_frappe_headers_conf()
 
-    assert manager.fm_headers_path.read_text() == "add_header X-Fm v1.2.3;"
+    assert manager.fm_headers_path.read_text() == "add_header X-Fm test;"
+
+
+def test_the_shipped_headers_conf_hides_the_version_and_the_server_banner():
+    """This file is served to the public internet on every request of every bench. It used to carry
+    `X-Powered-By: Frappe-Manager v<exact version>`, which hands a scanner the release to look up
+    known issues for, and nginx-proxy sets server_tokens only inside its own default server, so
+    every bench answered with `Server: nginx/<version>` too."""
+    shipped = get_template_path("fm_headers.conf.tmpl").read_text()
+
+    assert "server_tokens off;" in shipped
+    assert "X-Powered-By" in shipped
+    assert "current_version" not in shipped
+    assert not re.search(r"\d+\.\d+\.\d+", shipped)
 
 
 def test_no_headers_conf_is_written_when_the_proxy_confd_mount_does_not_exist_yet(tmp_path):

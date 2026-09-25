@@ -1,1 +1,7 @@
-	add_header X-Powered-By "Frappe-Manager {{ current_version }}";
+	# http context, so it covers every generated vhost and nginx's own error pages. nginx-proxy
+	# only sets this inside its default server, which left "Server: nginx/<version>" on every
+	# response a bench served -- a free version match for anyone scanning.
+	server_tokens off;
+	# Deliberately carries NO version: this is served to the public internet on every request, and
+	# naming the exact fm release tells a scanner which known issues to try.
+	add_header X-Powered-By "Frappe-Manager";
