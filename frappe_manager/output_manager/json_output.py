@@ -66,13 +66,12 @@ class JSONOutputHandler(OutputHandler):
     as dictionaries or JSON strings.
     """
 
-    def __init__(self, verbose: bool = False, persist_to_file: Any = None, stream: Any = None):
+    def __init__(self, verbose: bool = False, stream: Any = None):
         """
         Initialize the JSON output handler.
 
         Args:
             verbose: Capture info and debug level messages
-            persist_to_file: Optional file path to persist events (JSONL format)
             stream: Optional writable text stream; each event is written to it as
                 one JSON line as it happens (the `fm --json` mode: JSONL on stdout,
                 consumable by `| jq` while the command runs)
@@ -80,13 +79,12 @@ class JSONOutputHandler(OutputHandler):
         super().__init__(verbose)
         self.events: list[OutputEvent] = []
         self._current_head: str | None = None
-        self.persist_file = persist_to_file
         self.stream = stream
         self._closed = False
 
     def _add_event(self, event: OutputEvent) -> None:
         """
-        Add event to list, then stream and/or persist it.
+        Add event to the list, then stream it.
 
         Args:
             event: OutputEvent to add
@@ -101,10 +99,6 @@ class JSONOutputHandler(OutputHandler):
         if self.stream is not None:
             self.stream.write(event.to_json() + "\n")
             self.stream.flush()
-
-        if self.persist_file:
-            with open(self.persist_file, "a") as f:
-                f.write(event.to_json() + "\n")
 
     def start(self, text: str) -> None:
         """
@@ -401,9 +395,6 @@ class JSONOutputHandler(OutputHandler):
 
     def relay(self, text: str, *, stream: str = "stdout") -> None:
         self._add_event(OutputEvent("relay", {"text": text, "stream": stream}))
-
-    def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
-        self._add_event(OutputEvent("print_status", {"text": text, "emoji_code": emoji_code, "kwargs": kwargs}))
 
     def get_events(self) -> list[dict]:
         """

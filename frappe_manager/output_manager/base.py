@@ -134,7 +134,7 @@ class OutputHandler(ABC):
             Exception: Always raises the provided exception
         """
 
-    def exit(self, text: str, emoji_code: str = ":no_entry:", os_exit=False, error_msg=None) -> None:
+    def exit(self, text: str, emoji_code: str = ":no_entry:") -> None:
         """Display an error and terminate the command.
 
         Part of the handler CONTRACT (production code calls ``output.exit`` freely), with a
@@ -144,9 +144,7 @@ class OutputHandler(ABC):
         """
         import typer
 
-        self.display_error(text if not error_msg else f"{text}\n Error : {error_msg}", emoji_code)
-        if os_exit:
-            raise SystemExit(1)
+        self.display_error(text, emoji_code)
         raise typer.Exit(1)
 
     @abstractmethod
@@ -354,19 +352,3 @@ class OutputHandler(ABC):
         self.stop()
         yield
 
-    @abstractmethod
-    def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
-        """
-        Print status/diagnostic message to stderr.
-
-        Use for:
-        - Progress messages
-        - Warnings
-        - Errors
-        - Success confirmations
-
-        Args:
-            text: Status message
-            emoji_code: Emoji code
-            **kwargs: Additional arguments
-        """

@@ -24,7 +24,6 @@ from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.output_manager.console_singleton import get_stderr_console, get_stdout_console
 
 EMOJI_WORKING = "⚙️"
-EMOJI_WARNING = "⚠️"
 
 
 class RichOutputHandler(OutputHandler):
@@ -430,74 +429,54 @@ class RichOutputHandler(OutputHandler):
 
         prompt_clean = re.sub(r"\[/?[a-z]+\]", "", prompt)
 
-        if self._is_interactive:
-            from InquirerPy import inquirer
-            from InquirerPy.utils import InquirerPyStyle
+        # No non-interactive branch: the guard above already returned for that case.
+        # `is_interactive()` and `_is_interactive` are the same predicate written twice, so an
+        # `input()` fallback sat here unreachable, kept alive only by the duplication.
+        from InquirerPy import inquirer
+        from InquirerPy.utils import InquirerPyStyle
 
-            # Pause the live region only if WE own an active spinner; resume is
-            # symmetric -- a prompt with no spinner running must not birth one.
-            was_active = self._spinner_active
-            resume_text = self._current_text or "Working"
-            self.spinner.update()
-            if was_active:
-                self.live.stop()
+        # Pause the live region only if WE own an active spinner; resume is
+        # symmetric -- a prompt with no spinner running must not birth one.
+        was_active = self._spinner_active
+        resume_text = self._current_text or "Working"
+        self.spinner.update()
+        if was_active:
+            self.live.stop()
 
-            custom_style = InquirerPyStyle(
-                {
-                    "questionmark": "#e5c07b",
-                    "answered_question": "",
-                    "answer": "#61afef bold",
-                    "pointer": "#61afef bold",
-                    "highlighted": "#61afef bold",
-                    "selected": "#e5c07b",
-                },
-            )
+        custom_style = InquirerPyStyle(
+            {
+                "questionmark": "#e5c07b",
+                "answered_question": "",
+                "answer": "#61afef bold",
+                "pointer": "#61afef bold",
+                "highlighted": "#61afef bold",
+                "selected": "#e5c07b",
+            },
+        )
 
-            if choices:
-                value = inquirer.select(
-                    message=prompt_clean,
-                    choices=choices,
-                    default=default,
-                    vi_mode=True,
-                    qmark="",
-                    amark="",
-                    style=custom_style,
-                ).execute()
-            else:
-                value = inquirer.text(
-                    message=prompt_clean,
-                    default=default or "",
-                    vi_mode=True,
-                    qmark="",
-                    amark="",
-                    style=custom_style,
-                ).execute()
-
-            if was_active:
-                self.start(resume_text)
-            return value
         if choices:
-            choices_str = "/".join(str(c) for c in choices)
-            prompt_full = f"{prompt_clean} [{choices_str}]"
-            if default:
-                prompt_full += f" (default: {default})"
-            prompt_full += ": "
+            value = inquirer.select(
+                message=prompt_clean,
+                choices=choices,
+                default=default,
+                vi_mode=True,
+                qmark="",
+                amark="",
+                style=custom_style,
+            ).execute()
+        else:
+            value = inquirer.text(
+                message=prompt_clean,
+                default=default or "",
+                vi_mode=True,
+                qmark="",
+                amark="",
+                style=custom_style,
+            ).execute()
 
-            value = input(prompt_full).strip()
-            if not value and default:
-                return default
-
-            if value not in choices:
-                self._emit(self.stderr, f"{EMOJI_WARNING}  Invalid choice '{value}', using default: {default}")
-                return default or choices[0]
-            return value
-        prompt_full = prompt_clean
-        if default:
-            prompt_full += f" (default: {default})"
-        prompt_full += ": "
-
-        value = input(prompt_full).strip()
-        return value if value else (default or "")
+        if was_active:
+            self.start(resume_text)
+        return value
 
     def prompt_fuzzy(
         self,
@@ -594,28 +573,13 @@ class RichOutputHandler(OutputHandler):
         else:
             self._emit(self.stdout, str(data))
 
-    def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
-        self._emit(self.stderr, f"{emoji_code} {text}", **kwargs)
-
-    def exit(self, text: str, emoji_code: str = ":no_entry:", os_exit=False, error_msg=None):
-        """
-        Exit with error message.
+    def exit(self, text: str, emoji_code: str = ":no_entry:"):
+        """Report a fatal error and end the command.
 
         Args:
             text: The text to be printed
             emoji_code: The emoji code to be displayed before the text (default: ":no_entry:")
-            os_exit: If True, the program will exit with status code 1 (default: False)
-            error_msg: The error message to be displayed after the text (default: None)
         """
         self.stop()
-
-        to_print = f"{emoji_code} {text}"
-        if error_msg:
-            to_print = f"{emoji_code} {text}\n Error : {error_msg}"
-
-        self._emit(self.stderr, to_print)
-
-        if os_exit:
-            exit(1)
-
+        self._emit(self.stderr, f"{emoji_code} {text}")
         raise typer.Exit(1)

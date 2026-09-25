@@ -400,16 +400,6 @@ class TestLoggingOutputHandlerExit:
         log_contents = log_file.read_text()
         assert "[ERROR] [OUTPUT] EXIT: Test error message" in log_contents
 
-    def test_exit_with_error_msg(self, test_logger):
-        logger, log_file = test_logger
-        rich = RichOutputHandler()
-        output = make_handler(rich, logger)
-
-        with pytest.raises(Exception):
-            output.exit("Test error", error_msg="Additional details")
-
-        log_contents = log_file.read_text()
-        assert "[ERROR] [OUTPUT] EXIT: Test error | Error: Additional details" in log_contents
 
     def test_exit_with_silent_handler_fallback(self, test_logger):
         logger, log_file = test_logger
@@ -421,3 +411,21 @@ class TestLoggingOutputHandlerExit:
 
         log_contents = log_file.read_text()
         assert "[ERROR] [OUTPUT] EXIT: Test error message" in log_contents
+
+
+def test_exit_is_mirrored_to_the_log_and_delegated():
+    """The wrapper records the fatal error, then lets the delegate end the command.
+
+    It used to look `exit` up with getattr and fall back if it was missing or not callable. That
+    could never fire: `OutputHandler.exit` is concrete, so every delegate has one. A whole test
+    file defended the impossible branch.
+    """
+    delegate = MagicMock()
+    delegate.verbose = False
+    handler = LoggingOutputHandler(delegate)
+    handler.logger = MagicMock()
+
+    handler.exit("gone wrong")
+
+    delegate.exit.assert_called_once_with("gone wrong", ":no_entry:")
+    assert any("EXIT: gone wrong" in c.args[0] for c in handler.logger.error.call_args_list)

@@ -29,15 +29,6 @@ class TestStreamSeparation:
 
             mock_stdout.assert_called_once()
 
-    def test_print_status_always_uses_stderr(self):
-        output = RichOutputHandler()
-
-        with patch.object(output.stderr, "print") as mock_stderr:
-            output.print_status("Working...")
-
-            mock_stderr.assert_called_once()
-            args = mock_stderr.call_args[0]
-            assert "Working..." in args[0]
 
     def test_print_data_handles_rich_table(self):
         output = RichOutputHandler()

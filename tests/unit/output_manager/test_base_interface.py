@@ -106,8 +106,6 @@ class TestOutputHandlerInterface:
             def print_data(self, data, **kwargs) -> None:
                 pass
 
-            def print_status(self, text: str, emoji_code=":zap:", **kwargs) -> None:
-                pass
 
         # Should not raise
         handler = CompleteHandler()
