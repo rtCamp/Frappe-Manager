@@ -55,23 +55,6 @@ def remove_zombie_subprocess_process(process):
         logger.cleanup("-" * 20)
 
 
-def generate_random_text(length=50):
-    """
-    Generate a random text of specified length.
-
-    Parameters:
-    length (int): The length of the random text to be generated. Default is 50.
-
-    Returns:
-    str: The randomly generated text.
-    """
-    import random
-    import string
-
-    alphanumeric_chars = string.ascii_letters + string.digits
-    return "".join(random.choice(alphanumeric_chars) for _ in range(length))
-
-
 
 def get_current_fm_version():
     """

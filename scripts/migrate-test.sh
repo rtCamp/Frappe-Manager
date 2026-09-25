@@ -615,12 +615,6 @@ cmd_cleanup() {
     ok "Cleanup complete"
 }
 
-# ── Convenience: also accept "run" as alias for "test" ──────────────────────────
-cmd_run() {
-    warn "'run' is deprecated — use 'test' instead"
-    cmd_test
-}
-
 # ── Main dispatch ──────────────────────────────────────────────────────────────
 
 main() {
@@ -659,7 +653,6 @@ main() {
         init)     cmd_init ;;
         setup)    cmd_setup "$arg" ;;
         test)     cmd_test ;;
-        run)      cmd_run ;;
         full)     cmd_full ;;
         status)   cmd_status ;;
         diff)     cmd_diff ;;

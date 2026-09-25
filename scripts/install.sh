@@ -581,16 +581,9 @@ while [[ $# -gt 0 ]]; do
 		shift
 		shift
 		;;
-	*) # legacy positional username argument (deprecated)
-		if [ "$(id -u)" -eq 0 ] && [ -z "$SUDO_USER" ] && [[ ! "$key" == --* ]]; then
-			info_yellow "Warning: Positional username '$key' is deprecated. Use --username '$key' instead."
-			USERNAME="$key"
-			USERNAME_GIVEN=true
-			shift
-		else
-			info_red "Unknown option: $1"
-			exit 1
-		fi
+	*)
+		info_red "Unknown option: $1"
+		exit 1
 		;;
 	esac
 done

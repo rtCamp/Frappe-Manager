@@ -7,7 +7,7 @@ GUNICORN_ARGS="{{ gunicorn_args }}"
 # start time inside this container, rather than baked in at generation time on the host: nginx's
 # address on site-network is dynamic, and this is the earliest point it is guaranteed current.
 # `nginx-site`, NOT the bare `nginx`: the bare service name also resolves on the shared
-# global-frontend-network, where every bench's nginx answers to it, so it round-robins across
+# fm-frontend-network, where every bench's nginx answers to it, so it round-robins across
 # benches -- the site-scoped alias (docker-compose.tmpl) exists only on THIS bench's own network,
 # same reasoning as `frappe-site`/`socketio-site` there.
 # Never falls back to trusting every peer (gunicorn's wildcard forwarded-ips setting): if resolution
