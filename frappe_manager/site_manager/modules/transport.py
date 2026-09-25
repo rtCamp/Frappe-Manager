@@ -174,33 +174,66 @@ def image_present(docker: DockerClient, image: str) -> bool:
     return docker.image_exists(image)
 
 
-def fetch_image(docker: DockerClient, image: str, output=None) -> None:
-    """Ensure ``image`` (+ its derived nginx image) is present on the target daemon.
+def fetch_one(docker: DockerClient, image: str, output=None) -> None:
+    """Pull ``image`` if the target daemon does not already have it; no-op otherwise.
 
-    Present already (built here, or shipped by hand) means nothing to do. Anything
-    missing is pulled with the daemon's own registry credentials. The companion nginx
-    image is not optional: ``fm bake`` always builds one (even for an assetless bench),
-    so a missing companion here is a real problem -- never pushed, wrong registry, no
-    read permission -- and its pull failure is fatal exactly like the app image's, with
-    the same diagnosis. This runs before the deploy pipeline renders compose or touches
-    anything else, so raising here catches a missing companion before compose is ever
-    pinned to it.
+    The shared primitive under both ``fetch_image`` (a known pair) and
+    ``resolve_recorded_nginx_image`` (which must have ``image`` locally before it can read a
+    label baked INTO it). Splitting it out means resolving a companion never pulls its app
+    image twice: whichever call gets there first satisfies ``image_present`` for the other.
     """
     from frappe_manager.docker import DockerException
-    from frappe_manager.site_manager.modules.bake import BakeManager
 
-    nginx_image = BakeManager.nginx_image_ref(image)
-    missing = [i for i in (image, nginx_image) if not image_present(docker, i)]
-    if not missing:
+    if image_present(docker, image):
         return
+    if output is not None:
+        output.print(f"Fetching {image} from registry")
+    try:
+        docker.pull(image, stream=False)
+    except DockerException as e:
+        raise TransportError(_pull_failure_message(image, e)) from e
 
-    for i in missing:
-        if output is not None:
-            output.print(f"Fetching {i} from registry")
-        try:
-            docker.pull(i, stream=False)
-        except DockerException as e:
-            raise TransportError(_pull_failure_message(i, e)) from e
+
+def fetch_image(docker: DockerClient, image: str, nginx_image: str, output=None) -> None:
+    """Ensure ``image`` and its companion ``nginx_image`` are present on the target daemon.
+
+    The pair is passed in, never worked out from ``image``: which companion belongs to an app
+    image is recorded when the pair is built, and reconstructing it here from the name is the
+    guess that could pull a stranger's image into the container that terminates the site's
+    traffic.
+
+    Present already (built here, or shipped by hand) means nothing to do. Anything missing is
+    pulled with the daemon's own registry credentials. The companion is not optional: ``fm bake``
+    always builds one (even for an assetless bench), so a missing companion is a real problem --
+    never pushed, wrong registry, no read permission -- and its pull failure is fatal exactly like
+    the app image's, with the same diagnosis. This runs before the deploy pipeline renders compose
+    or touches anything else, so raising here catches it before compose is ever pinned to it.
+    """
+    fetch_one(docker, image, output=output)
+    fetch_one(docker, nginx_image, output=output)
+
+
+def recorded_nginx_image(docker: DockerClient, image: str) -> str | None:
+    """The companion recorded ON ``image`` by the bake that built it, or None.
+
+    ``fm bake`` stamps ``fm.nginx.image``. Reading it is a lookup of a recorded fact, not a
+    derivation: the label travels with the artifact, so a bake in CI and a deploy on a server
+    agree without sharing anything else. None means the image predates the label or was not built
+    by fm, and the caller must ask for the companion rather than invent one.
+    """
+    return docker.image_labels(image).get("fm.nginx.image") or None
+
+
+def resolve_recorded_nginx_image(docker: DockerClient, image: str, output=None) -> str | None:
+    """The ``fm.nginx.image`` label read off ``image``, pulling it first if needed.
+
+    The label lives INSIDE the image, so it cannot be read until the image itself is present on
+    the daemon -- ``fetch_one`` first, then ``recorded_nginx_image``. None (never a raise) when
+    the label is absent: the caller decides between an explicit ``--nginx-image`` and refusing
+    (see notes/image-pairing-design.md, "Where the nginx reference comes from").
+    """
+    fetch_one(docker, image, output=output)
+    return recorded_nginx_image(docker, image)
 
 
 def push_images(docker: DockerClient, images: list[str], output=None) -> None:

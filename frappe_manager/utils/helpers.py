@@ -14,6 +14,7 @@ from pathlib import Path
 
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
+
 # Capture-only: `rich_object_to_string` renders a rich object into a StringIO so the file log can
 # hold a table as plain text. It never writes to a terminal, which is what the ban protects.
 from rich.console import Console  # noqa: TID251
@@ -88,13 +89,13 @@ def get_docker_image_tag():
     import os
 
     # Allow environment variable override for testing
-    if override_tag := os.getenv('FM_DOCKER_IMAGE_TAG'):
+    if override_tag := os.getenv("FM_DOCKER_IMAGE_TAG"):
         return override_tag
 
     version = get_current_fm_version()
 
-    if not version.startswith('v'):
-        return f'v{version}'
+    if not version.startswith("v"):
+        return f"v{version}"
 
     return version
 

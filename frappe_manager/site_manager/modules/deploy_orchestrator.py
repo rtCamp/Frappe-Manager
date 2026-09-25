@@ -154,12 +154,13 @@ def rolling_eligible(
     return maintenance_mode
 
 
-def pin_workers_to_image(workers, sites: Sequence[str], deploy_image: str) -> None:
-    """Pin the workers compose to ``deploy_image`` with image-mode data binds.
+def pin_workers_to_image(workers, sites: Sequence[str], deploy_image: str, deploy_nginx_image: str) -> None:
+    """Pin the workers compose to ``deploy_image`` + its companion ``deploy_nginx_image`` with
+    image-mode data binds.
 
     Thin delegator over the compose_shape projection -- the same specs the
-    workers' own generate_compose uses, with ``deploy_image`` as the candidate
-    image. No-op when the bench has no workers compose. Idempotent; user extras
+    workers' own generate_compose uses, with ``deploy_image``/``deploy_nginx_image`` as the
+    candidate pair. No-op when the bench has no workers compose. Idempotent; user extras
     (override.yml / non-managed mounts) pass through untouched.
     """
     from frappe_manager.site_manager.modules.compose_shape import (
@@ -175,7 +176,8 @@ def pin_workers_to_image(workers, sites: Sequence[str], deploy_image: str) -> No
     if not svcs:
         return
     with cfm:
-        specs = worker_service_specs(workers.bench.bench_config, svcs, RenderContext(deploy_image=deploy_image))
+        ctx = RenderContext(deploy_image=deploy_image, deploy_nginx_image=deploy_nginx_image)
+        specs = worker_service_specs(workers.bench.bench_config, svcs, ctx)
         apply_specs(cfm, specs, sites)
 
 
@@ -381,23 +383,49 @@ class DeployOrchestrator:
         """
         self._exec_frappe(f"{BENCH_BIN} --site {self.site} set-config -g pause_scheduler {value}")
 
-    def _fetch_image(self, image: str) -> None:
-        """Ensure ``image`` (+ its derived nginx image) is present on the target daemon.
+    def _fetch_image(self, image: str, nginx_image: str) -> None:
+        """Ensure ``image`` and its resolved companion ``nginx_image`` are present on the
+        target daemon.
 
-        Delegates to the shared ``transport.fetch_image``; ``TransportError`` AND
-        ``BakeError`` are re-raised as ``DeployError`` to preserve deploy's error
-        contract. ``BakeError`` belongs here because fetch_image derives the nginx
-        image first: a reference with no ``':'`` (``fm switch mybench local/mybench`` --
-        a plausible typo) dies there, and untranslated it escapes the CLI's
-        ``except DeployError`` as a traceback instead of the typo's message.
+        Delegates to the shared ``transport.fetch_image``; ``TransportError`` is re-raised as
+        ``DeployError`` to preserve deploy's error contract. The companion is resolved by the
+        caller (``_resolve_nginx_image``) before this runs -- never derived here.
         """
-        from frappe_manager.site_manager.modules.bake import BakeError
         from frappe_manager.site_manager.modules.transport import TransportError, fetch_image
 
         try:
-            fetch_image(self.docker, image, output=self.output)
-        except (TransportError, BakeError) as e:
+            fetch_image(self.docker, image, nginx_image, output=self.output)
+        except TransportError as e:
             raise DeployError(str(e)) from e
+
+    def _resolve_nginx_image(self, image: str, explicit: str | None) -> str:
+        """Where ``image``'s nginx companion comes from, in order (see
+        notes/image-pairing-design.md, "Where the nginx reference comes from"; there is no
+        fourth source, and nothing is ever computed):
+
+        1. ``explicit``, when already known -- an operator's ``--nginx-image``, or a companion
+           this orchestrator already recorded for this exact image (``deployments.current``).
+        2. The ``fm.nginx.image`` label baked into ``image`` -- pulled first, since the label
+           lives INSIDE the image and cannot be read before it is local.
+        3. Refuse, naming ``--nginx-image``, the bench, and the image: reached for a third-party
+           image, or one baked by an fm that predates the label.
+        """
+        if explicit:
+            return explicit
+        from frappe_manager.site_manager.modules.transport import TransportError, resolve_recorded_nginx_image
+
+        try:
+            companion = resolve_recorded_nginx_image(self.docker, image, output=self.output)
+        except TransportError as e:
+            raise DeployError(str(e)) from e
+        if companion:
+            return companion
+        raise DeployError(
+            f"'{image}' carries no recorded nginx companion for bench '{self.bench.name}': fm does not "
+            "guess a companion's name, and this image predates the fm.nginx.image label or was not "
+            "built by fm. Pass --nginx-image to name it explicitly."
+        )
+
 
     def _health_check(self, retries: int = 45, interval: int = 2) -> bool:
         for i in range(retries):
@@ -537,6 +565,7 @@ class DeployOrchestrator:
         web: list[str],
         old_ids: dict[str, list[str]],
         old_image: str | None,
+        old_nginx_image: str | None,
         snaps: dict[Path, bytes],
     ) -> None:
         """New replica unhealthy: OLD never stopped -> still serving. Tear down the
@@ -548,10 +577,17 @@ class DeployOrchestrator:
             if nid:
                 self._stop_rm(nid, drain=0)
         self._restore_compose(snaps)
-        if old_image:
-            self._pin_workers(old_image)
+        if old_image and old_nginx_image:
+            self._pin_workers(old_image, old_nginx_image)
 
-    def _rolling_swap(self, new_image: str, old_image: str | None, snaps: dict[Path, bytes]) -> None:
+    def _rolling_swap(
+        self,
+        new_image: str,
+        new_nginx_image: str,
+        old_image: str | None,
+        old_nginx_image: str | None,
+        snaps: dict[Path, bytes],
+    ) -> None:
         """Rolling web swap: run new + old web replicas concurrently, drain old,
         then reduce to the new replica -- zero dropped requests for a no-migrate
         deploy (vs the recreate-swap's brief blip). Recreate-swap stays the
@@ -586,8 +622,8 @@ class DeployOrchestrator:
             # 1. Re-render the compose without container_name on the web tiers so
             #    docker compose accepts --scale, and pin workers to the new image.
             self.output.change_head("Rolling: rendering scalable image compose")
-            self.docker_ops.render_image_compose(new_image, rolling=True)
-            self._pin_workers(new_image)
+            self.docker_ops.render_image_compose(new_image, new_nginx_image, rolling=True)
+            self._pin_workers(new_image, new_nginx_image)
 
             # 2. Add the new frappe replica alongside the old (old keeps serving).
             self.output.change_head("Rolling: starting new frappe replica")
@@ -603,7 +639,7 @@ class DeployOrchestrator:
             if not new_nginx or not self._container_health(new_nginx):
                 raise DeployError("new nginx replica failed health check; kept old, no swap")
         except Exception:
-            self._abort_rolling(web, old_ids, old_image, snaps)
+            self._abort_rolling(web, old_ids, old_image, old_nginx_image, snaps)
             raise
 
         # 4. Drain OLD replicas. jwilder/nginx-proxy 1.11 does NOT honor container
@@ -638,7 +674,7 @@ class DeployOrchestrator:
         self.output.change_head("Rolling: restoring canonical container names")
         self._rename(new_frappe, canonical["frappe"])
         self._rename(new_nginx, canonical["nginx"])
-        self.docker_ops.render_image_compose(new_image, rolling=False)
+        self.docker_ops.render_image_compose(new_image, new_nginx_image, rolling=False)
 
         # 6. Bring the non-web code tiers (socketio, schedule) + workers to the
         #    new image. These are out of the /api HTTP path; a brief socketio
@@ -663,8 +699,8 @@ class DeployOrchestrator:
             return None
         return cfm, workers.docker_client, svcs
 
-    def _pin_workers(self, deploy_image: str) -> None:
-        pin_workers_to_image(self.bench.workers, self.sites, deploy_image)
+    def _pin_workers(self, deploy_image: str, deploy_nginx_image: str) -> None:
+        pin_workers_to_image(self.bench.workers, self.sites, deploy_image, deploy_nginx_image)
 
     def _up_workers(self) -> None:
         info = self._worker_services()
@@ -1281,11 +1317,18 @@ class DeployOrchestrator:
             return deployments.current.app_image
         return None
 
-    def _record(self, new_image: str, migrate_status: str, backups: dict[str, Path] | None = None) -> None:
+    def _current_deployed_nginx_image(self) -> str | None:
+        deployments = self.config.deployments
+        if deployments and deployments.current:
+            return deployments.current.nginx_image
+        return None
+
+    def _record(self, new_image: str, migrate_status: str, nginx_image: str, backups: dict[str, Path] | None = None) -> None:
         now = datetime.now(UTC).isoformat()
         deployments = self.config.deployments or Deployments()
         entry = Deployment(
             app_image=new_image,
+            nginx_image=nginx_image,
             deployed_at=now,
             migrate_status=migrate_status,
             backups={site: str(path) for site, path in (backups or {}).items()},
@@ -1353,6 +1396,7 @@ class DeployOrchestrator:
     def deploy(
         self,
         new_image: str,
+        nginx_image: str | None = None,
         rolling: bool | None = None,
         migrate_override: bool | None = None,
         restore_db_dumps: dict[str, Path] | None = None,
@@ -1374,6 +1418,10 @@ class DeployOrchestrator:
         fires ``after_switch`` exactly once with the classified ``DEPLOY_OUTCOME`` -- succeeded |
         rolled_back | halted | aborted. ``_deploy_impl`` sets the outcome at each terminal decision;
         anything it raises without classifying is ``aborted`` (failed before any change).
+
+        ``nginx_image`` is the operator's explicit ``--nginx-image``, if any -- the first source in
+        "Where the nginx reference comes from" (notes/image-pairing-design.md). Omitted, the
+        companion is resolved from ``new_image``'s own ``fm.nginx.image`` label.
         """
         old_image = self._current_deployed_image()
         self._deploy_outcome = None
@@ -1382,6 +1430,7 @@ class DeployOrchestrator:
             self._deploy_impl(
                 new_image,
                 old_image,
+                nginx_image=nginx_image,
                 rolling=rolling,
                 migrate_override=migrate_override,
                 restore_db_dumps=restore_db_dumps,
@@ -1401,6 +1450,7 @@ class DeployOrchestrator:
         self,
         new_image: str,
         old_image: str | None,
+        nginx_image: str | None = None,
         rolling: bool | None = None,
         migrate_override: bool | None = None,
         restore_db_dumps: dict[str, Path] | None = None,
@@ -1420,9 +1470,19 @@ class DeployOrchestrator:
         # nothing below has mutated anything yet. See `_refuse_redis_identity_collision`.
         self._refuse_redis_identity_collision()
 
+        # Resolve both companions ONCE, then carry them: `new_nginx_image` is threaded through
+        # fetch, compose render, worker pin and `_record`; `old_nginx_image` is threaded to the
+        # rolling-swap abort path and the health-gate rollback, both of which re-pin OLD_IMAGE
+        # and need ITS companion, never `new_nginx_image`. `old_image` is already present (it is
+        # the running image), so resolving its label costs no pull.
+        new_nginx_image = self._resolve_nginx_image(new_image, nginx_image)
+        old_nginx_image = (
+            self._resolve_nginx_image(old_image, self._current_deployed_nginx_image()) if old_image else None
+        )
+
         # 1. Fetch (registry login+pull, or verify save_load-loaded image present)
         self.output.change_head(f"Fetching image {new_image}")
-        self._fetch_image(new_image)
+        self._fetch_image(new_image, new_nginx_image)
 
         # 2. Pre-flight boot check (nonzero => abort before any change)
         self.output.change_head("Pre-flight boot check")
@@ -1450,8 +1510,8 @@ class DeployOrchestrator:
         # 3. Render the image-mode compose pinned to the new image. From here until
         # the swap, every abort path restores the snapshots (old stack serving).
         self.output.change_head("Rendering image-mode compose")
-        self.docker_ops.render_image_compose(new_image)
-        self._pin_workers(new_image)
+        self.docker_ops.render_image_compose(new_image, new_nginx_image)
+        self._pin_workers(new_image, new_nginx_image)
 
         # 4. Resolve migrate: runtime override first, else the bench config.
         requested = self.switch_config.migrate if migrate_override is None else migrate_override
@@ -1603,7 +1663,7 @@ class DeployOrchestrator:
         try:
             if do_rolling:
                 self.output.change_head("Rolling web swap")
-                self._rolling_swap(new_image, old_image, snaps)
+                self._rolling_swap(new_image, new_nginx_image, old_image, old_nginx_image, snaps)
             else:
                 # Recreate-swap. No ``--wait``: nginx emerg-exits on the frappe:80
                 # upstream DNS if it wins the startup race, so we gate on the frappe
@@ -1624,7 +1684,9 @@ class DeployOrchestrator:
                 # mark halted provisionally: only a rollback that returns is `rolled_back` (else the
                 # wrapper's except would misreport a broken bench as `aborted`).
                 self._deploy_outcome = "halted"
-                self.rollback(old_image, restore_db_dumps=db_dumps if self.switch_config.rollback_db else None)
+                self.rollback(
+                    old_image, old_nginx_image, restore_db_dumps=db_dumps if self.switch_config.rollback_db else None
+                )
                 self._deploy_outcome = "rolled_back"
                 self._rollback_reason = "health_check_failed"
                 raise DeployError(
@@ -1662,7 +1724,7 @@ class DeployOrchestrator:
             if maintenance:
                 with contextlib.suppress(Exception):
                     self.set_maintenance_mode(0)
-            self._record(new_image, migrate_status, backups=db_dumps)
+            self._record(new_image, migrate_status, nginx_image=new_nginx_image, backups=db_dumps)
             # The image IS live and recorded -- the deploy committed; a failing post-restart hook
             # is surfaced but the outcome is success, not an abort.
             self._deploy_outcome = "succeeded"
@@ -1671,7 +1733,7 @@ class DeployOrchestrator:
         if maintenance:
             self.set_maintenance_mode(0)
 
-        self._record(new_image, migrate_status, backups=db_dumps)
+        self._record(new_image, migrate_status, nginx_image=new_nginx_image, backups=db_dumps)
         self.output.print(f"Deployed {new_image}", emoji_code=":rocket:")
 
         # Opt-in housekeeping: prune old releases only when the caller asked
@@ -1697,9 +1759,10 @@ class DeployOrchestrator:
         if not self._frappe_running():
             raise DeployError("Web tier is not running; use a plain start/restart instead of --rolling.")
 
+        nginx_image = self._resolve_nginx_image(image, self._current_deployed_nginx_image())
         snaps = self._snapshot_compose()
-        self._fetch_image(image)
-        self._rolling_swap(image, image, snaps)
+        self._fetch_image(image, nginx_image)
+        self._rolling_swap(image, nginx_image, image, nginx_image, snaps)
         self.output.print(f"Rolling restart complete on {image}", emoji_code=":arrows_counterclockwise:")
 
     def prune_releases(self, keep: int | None = None, dry_run: bool = False) -> dict:
@@ -1725,7 +1788,7 @@ class DeployOrchestrator:
             for image in (
                 state.current.app_image if state.current else None,
                 state.previous.app_image if state.previous else None,
-                self.config.seed_image,
+                self.config.apps_from,
                 getattr(self.config, "base_image", None),
             )
             if image
@@ -1742,10 +1805,12 @@ class DeployOrchestrator:
             if backup_dir.name.startswith("deploy-") and backup_dir.exists():
                 summary["backups"].append(str(backup_dir))
 
-        from frappe_manager.site_manager.modules.bake import BakeManager
-
+        pruned_nginx = {entry.app_image: entry.nginx_image for entry in pruned}
         for image in pruned_images:
-            summary["images"].extend([image, BakeManager.nginx_image_ref(image)])
+            summary["images"].append(image)
+            nginx_image = pruned_nginx.get(image)
+            if nginx_image:
+                summary["images"].append(nginx_image)
 
         if dry_run:
             return summary
@@ -1766,7 +1831,9 @@ class DeployOrchestrator:
         )
         return summary
 
-    def rollback(self, previous_image: str, restore_db_dumps: dict[str, Path] | None = None) -> None:
+    def rollback(
+        self, previous_image: str, nginx_image: str | None = None, restore_db_dumps: dict[str, Path] | None = None
+    ) -> None:
         """INTERNAL health-gate recovery: re-pin to ``previous_image`` and recreate.
 
         Called only from ``deploy()`` when the new stack fails its health gate
@@ -1774,14 +1841,18 @@ class DeployOrchestrator:
         because it runs mid-failure. User-facing rollback is ``fm switch
         --previous`` (the full pipeline pointed backwards). ``restore_db_dumps``
         (``rollback_db``) maps SITE to a dump, all imported BEFORE the swap.
+        ``nginx_image`` is ``previous_image``'s companion when the caller already knows it
+        (``_deploy_impl`` always does); otherwise resolved the same way as everywhere else
+        (see ``_resolve_nginx_image``).
         """
         self._require_image_mode()
         self.output.change_head(f"Rolling back to {previous_image}")
+        nginx_image = self._resolve_nginx_image(previous_image, nginx_image)
 
-        self._fetch_image(previous_image)
+        self._fetch_image(previous_image, nginx_image)
 
-        self.docker_ops.render_image_compose(previous_image)
-        self._pin_workers(previous_image)
+        self.docker_ops.render_image_compose(previous_image, nginx_image)
+        self._pin_workers(previous_image, nginx_image)
 
         for site, dump in (restore_db_dumps or {}).items():
             # Declining the DB import is a decision about someone else's database,
@@ -1799,7 +1870,7 @@ class DeployOrchestrator:
         if not self._health_check():
             # The compose IS pinned to previous_image at this point; record reality
             # so deployments matches what a later `compose up` would run.
-            self._record(previous_image, "rollback")
+            self._record(previous_image, "rollback", nginx_image=nginx_image)
             raise DeployError(
                 f"Rollback to {previous_image} failed health check; bench halted. Investigate the containers.",
             )
@@ -1811,7 +1882,7 @@ class DeployOrchestrator:
         except Exception as e:
             self.output.warning(f"Could not clear maintenance mode (continuing): {e}")
 
-        self._record(previous_image, "rollback")
+        self._record(previous_image, "rollback", nginx_image=nginx_image)
         state = self.config.deployments
         if state and state.previous:
             self.output.print(

@@ -399,7 +399,7 @@ fi
                         self.output.warning(f"Could not set Node {node_version} as default, but continuing")
 
                     # Verify yarn is available (should be auto-enabled by FNM_COREPACK_ENABLED)
-                    verify_yarn = f"yarn --version"
+                    verify_yarn = "yarn --version"
                     yarn_result = self._container_capture(verify_yarn, use_run=use_run)
                     if yarn_result and yarn_result.exit_code == 0:
                         self.output.print(f"Yarn is available for Node {node_version}")
@@ -587,7 +587,7 @@ fi
                 if target.exists():
                     if stash:
                         if stash_dir is None:
-                            ts = datetime.now(UTC).strftime('%Y%m%d%H%M%S')
+                            ts = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
                             stash_dir = self.frappe_bench_dir / f".fm-apps-stash-{ts}"
                             stash_dir.mkdir()
                         shutil.move(str(target), str(stash_dir / app.name))

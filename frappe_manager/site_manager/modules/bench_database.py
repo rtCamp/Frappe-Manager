@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.utils.helpers import get_container_name_prefix, get_bench_connection_config
+from frappe_manager.utils.helpers import get_bench_connection_config, get_container_name_prefix
 from frappe_manager.utils.site import get_bench_db_connection_info
 
 if TYPE_CHECKING:

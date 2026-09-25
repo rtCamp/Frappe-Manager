@@ -43,7 +43,7 @@ def _bench_that_never_made_it_to_disk() -> MagicMock:
     bench.exists = False
     bench.bench_config = MagicMock()
     bench.bench_config.runtime = "mount"
-    bench.bench_config.seed_image = None
+    bench.bench_config.apps_from = None
     return bench
 
 

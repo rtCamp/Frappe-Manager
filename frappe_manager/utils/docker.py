@@ -297,10 +297,9 @@ def fix_host_path_ownership(
             if output:
                 output.print("Ownership fixed")
             return True
-        else:
-            if output:
-                output.warning("Could not fix ownership (non-critical)")
-            return False
+        if output:
+            output.warning("Could not fix ownership (non-critical)")
+        return False
     except Exception as e:
         if output:
             output.warning(f"Could not fix ownership: {e}")

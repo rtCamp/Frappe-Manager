@@ -6,10 +6,9 @@ providing a single source of truth for debugging.
 """
 
 import logging
-from contextlib import contextmanager
 from collections.abc import Iterable, Sequence
+from contextlib import contextmanager
 from typing import Any
-
 
 from frappe_manager.output_manager.base import OutputHandler
 

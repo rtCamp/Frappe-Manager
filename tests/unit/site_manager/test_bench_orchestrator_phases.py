@@ -49,6 +49,7 @@ SITE_PASSWORD = "site-db-secret"
 ADMIN_USER = "fmadmin"
 ADMIN_PASSWORD = "admin-secret"
 IMAGE_TAG = "ghcr.io/fm/app:v1"
+IMAGE_NGINX_TAG = "ghcr.io/fm/app-nginx:v1"
 
 _TOP_LEVEL = [
     f'name = "{SITE}"',
@@ -85,14 +86,14 @@ def _config(
     *,
     external: bool = False,
     runtime: str = "mount",
-    seed_image: str | None = None,
+    apps_from: str | None = None,
     ca: str | None = None,
 ) -> BenchConfig:
     top = list(_TOP_LEVEL)
     if runtime == "image":
         top += ['runtime = "image"', 'image = "ghcr.io/fm/app"']
-    if seed_image:
-        top.append(f'seed_image = "{seed_image}"')
+    if apps_from:
+        top.append(f'apps_from = "{apps_from}"')
     # Order matters: bare keys after a table header would land inside that table.
     toml = "\n".join(top) + _APPS_TABLE + _SITES_TABLE
     if external:
@@ -106,7 +107,11 @@ def _config(
     if external:
         config.db_password = SITE_PASSWORD
     if runtime == "image":
-        config.deployments = Deployments(current=Deployment(app_image=IMAGE_TAG, deployed_at="t0", migrate_status="migrated"))
+        config.deployments = Deployments(
+            current=Deployment(
+                app_image=IMAGE_TAG, nginx_image=IMAGE_NGINX_TAG, deployed_at="t0", migrate_status="migrated"
+            )
+        )
     return config
 
 
@@ -391,6 +396,10 @@ def _fake_image_transport(monkeypatch, apps: str = "frappe\nerpnext\n") -> _Even
         lambda *_a, **_k: calls.append("fetch_image"),
     )
     monkeypatch.setattr(
+        "frappe_manager.site_manager.modules.transport.fetch_one",
+        lambda *_a, **_k: calls.append("fetch_image"),
+    )
+    monkeypatch.setattr(
         "frappe_manager.site_manager.modules.workspace_seed.materialize_workspace_from_image",
         lambda *_a, **_k: calls.append("materialize_workspace"),
     )
@@ -572,10 +581,10 @@ def test_an_image_runtime_leaves_the_mount_pipeline_after_phase_one(tmp_path):
     assert list(harness.events) == ["check_images", "phase1_prepare_structure", "create_image_bench"]
 
 
-def test_a_seed_image_replaces_phase_two_with_the_seeded_variant(tmp_path):
+def test_a_apps_from_replaces_phase_two_with_the_seeded_variant(tmp_path):
     """Seeded creates materialize the workspace from an image instead of provisioning it, and the
     gate still sits between phase 1 and that substitution."""
-    harness = _Harness(_config(tmp_path, seed_image="ghcr.io/fm/seed:v1"), tmp_path)
+    harness = _Harness(_config(tmp_path, apps_from="ghcr.io/fm/seed:v1"), tmp_path)
 
     harness.reraising_orchestrator().create_bench()
 
@@ -587,7 +596,7 @@ def test_a_seed_image_replaces_phase_two_with_the_seeded_variant(tmp_path):
 def test_a_seeded_create_clears_the_route_cache_after_the_apps_are_in(tmp_path):
     """The phase-3 health probe hits the server before the site exists and Frappe caches that
     route miss, so a seeded create flushes it -- after phase 6, before `info`."""
-    harness = _Harness(_config(tmp_path, seed_image="ghcr.io/fm/seed:v1"), tmp_path)
+    harness = _Harness(_config(tmp_path, apps_from="ghcr.io/fm/seed:v1"), tmp_path)
 
     harness.reraising_orchestrator().create_bench()
 
@@ -606,7 +615,7 @@ def test_a_plain_create_does_not_clear_the_route_cache(tmp_path):
 
 def test_a_failing_clear_cache_does_not_fail_the_create(tmp_path):
     """Best effort: the cache flush is a convenience, and the bench is already complete."""
-    harness = _Harness(_config(tmp_path, seed_image="ghcr.io/fm/seed:v1"), tmp_path)
+    harness = _Harness(_config(tmp_path, apps_from="ghcr.io/fm/seed:v1"), tmp_path)
     harness.bench.app_manager._container_run.side_effect = RuntimeError("exec failed")
 
     harness.reraising_orchestrator().create_bench()
@@ -721,7 +730,7 @@ def test_phase_one_copies_runtimes_only_for_a_plain_mount_create(tmp_path):
     """Seeded and image creates get their runtimes from the image; pre-copying from the base image
     would version-mismatch the venv."""
     plain = _Harness(_config(tmp_path / "a"), tmp_path / "a")
-    seeded = _Harness(_config(tmp_path / "b", seed_image="ghcr.io/fm/seed:v1"), tmp_path / "b")
+    seeded = _Harness(_config(tmp_path / "b", apps_from="ghcr.io/fm/seed:v1"), tmp_path / "b")
     imaged = _Harness(_config(tmp_path / "c", runtime="image"), tmp_path / "c")
 
     for harness in (plain, seeded, imaged):
@@ -1796,7 +1805,7 @@ def test_the_seeded_phase_two_materializes_before_it_writes_any_config(tmp_path,
     """No clone, no dependency install, no asset build: the image already carries all of it at the
     paths the mount bind exposes. The workspace is materialized first, and the host-side config and
     supervisor are written onto it afterwards."""
-    harness = _Harness(_config(tmp_path, seed_image="ghcr.io/fm/seed:v1"), tmp_path)
+    harness = _Harness(_config(tmp_path, apps_from="ghcr.io/fm/seed:v1"), tmp_path)
     transport = _fake_image_transport(monkeypatch)
     monkeypatch.setattr(
         "frappe_manager.site_manager.modules.bench_orchestrator.provision",
@@ -1814,7 +1823,7 @@ def test_the_seeded_phase_two_materializes_before_it_writes_any_config(tmp_path,
 def test_the_seeded_app_set_comes_from_the_image_not_the_command_line(tmp_path, monkeypatch):
     """For a seeded create the `--apps` entries are OVERRIDES, not the bench app set: `apps_list`
     is rebuilt from the baked apps.txt and the overrides are grafted on top."""
-    harness = _Harness(_config(tmp_path, seed_image="ghcr.io/fm/seed:v1"), tmp_path)
+    harness = _Harness(_config(tmp_path, apps_from="ghcr.io/fm/seed:v1"), tmp_path)
     _fake_image_transport(monkeypatch, apps="frappe\nhrms\n")
     harness.bench.app_manager.graft_apps.side_effect = lambda overrides, **kw: harness.events.append(
         f"graft_apps({[app.name for app in overrides]},stash={kw['stash']},use_run={kw['use_run']})"
@@ -1827,7 +1836,7 @@ def test_the_seeded_app_set_comes_from_the_image_not_the_command_line(tmp_path, 
 
 
 def test_a_seeded_create_without_overrides_does_not_graft(tmp_path, monkeypatch):
-    harness = _Harness(_config(tmp_path, seed_image="ghcr.io/fm/seed:v1"), tmp_path)
+    harness = _Harness(_config(tmp_path, apps_from="ghcr.io/fm/seed:v1"), tmp_path)
     harness.config.apps_list = []
     _fake_image_transport(monkeypatch)
 
@@ -1839,7 +1848,7 @@ def test_a_seeded_create_without_overrides_does_not_graft(tmp_path, monkeypatch)
 def test_a_requested_python_version_reinstalls_every_app_into_the_recreated_venv(tmp_path, monkeypatch):
     """`--python` with `--from-image` swaps the seeded toolchain, and every app -- baked plus
     overrides -- is reinstalled into it without re-cloning."""
-    harness = _Harness(_config(tmp_path, seed_image="ghcr.io/fm/seed:v1"), tmp_path)
+    harness = _Harness(_config(tmp_path, apps_from="ghcr.io/fm/seed:v1"), tmp_path)
     _fake_image_transport(monkeypatch)
     harness.config.python_version = "3.11"
     harness.bench.app_manager.setup_python_and_node_environments.return_value = True
@@ -1859,7 +1868,7 @@ def test_a_requested_python_version_reinstalls_every_app_into_the_recreated_venv
 def test_a_venv_that_already_satisfies_the_request_is_left_alone(tmp_path, monkeypatch):
     """The setup helper no-ops when the image's venv already matches, and then there is nothing to
     reinstall."""
-    harness = _Harness(_config(tmp_path, seed_image="ghcr.io/fm/seed:v1"), tmp_path)
+    harness = _Harness(_config(tmp_path, apps_from="ghcr.io/fm/seed:v1"), tmp_path)
     _fake_image_transport(monkeypatch)
     harness.config.node_version = "20"
     harness.bench.app_manager.setup_python_and_node_environments.return_value = False
@@ -1870,7 +1879,7 @@ def test_a_venv_that_already_satisfies_the_request_is_left_alone(tmp_path, monke
 
 
 def test_without_a_version_request_the_seeded_toolchain_is_never_touched(tmp_path, monkeypatch):
-    harness = _Harness(_config(tmp_path, seed_image="ghcr.io/fm/seed:v1"), tmp_path)
+    harness = _Harness(_config(tmp_path, apps_from="ghcr.io/fm/seed:v1"), tmp_path)
     _fake_image_transport(monkeypatch)
 
     harness.reraising_orchestrator(real=("_phase2_seed_from_image",)).create_bench()

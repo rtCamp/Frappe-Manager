@@ -91,14 +91,7 @@ class BenchSSL:
             BenchSSLCertificateAlreadyIssued: If certificate already exists (when raise_error=True)
             BenchSSLCertificateNotIssued: If trying to remove non-existent cert (when raise_error=True)
         """
-        if certificate.ssl_type == SUPPORTED_SSL_TYPES.le:
-            if self.has_certificate():
-                if raise_error:
-                    raise BenchSSLCertificateAlreadyIssued(self.bench_name)
-                return False
-            self.create_individual_certificates()
-
-        elif certificate.ssl_type == SUPPORTED_SSL_TYPES.dev:
+        if certificate.ssl_type == SUPPORTED_SSL_TYPES.le or certificate.ssl_type == SUPPORTED_SSL_TYPES.dev:
             if self.has_certificate():
                 if raise_error:
                     raise BenchSSLCertificateAlreadyIssued(self.bench_name)

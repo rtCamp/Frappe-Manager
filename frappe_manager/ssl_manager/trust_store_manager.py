@@ -365,7 +365,7 @@ class TrustStoreManager:
     def _arch_anchor_present(self) -> bool:
         if not shutil.which("trust"):
             return False
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             ["trust", "list", "--filter=ca-anchors"],  # noqa: S607
             capture_output=True,
             text=True,

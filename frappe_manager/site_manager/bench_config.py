@@ -885,9 +885,11 @@ class Deployment(BaseModel):
     app_image: str = Field(..., description="App image deployed (full reference, e.g. repo:tag).")
     nginx_image: str | None = Field(
         None,
-        description="Its nginx companion (full reference). Nothing writes this outside the 1.0.0 "
-        "migration yet, which backfills it on every existing record by the same rule "
-        "BakeManager.nginx_image_ref applies -- captured while that derivation still exists.",
+        description="Its nginx companion (full reference). Written by 'fm create --nginx-image', by "
+        "'fm switch'/rollback's own resolver, and by the 1.0.0 migration's backfill on every "
+        "pre-existing record (see notes/image-pairing-design.md, 'Where the nginx reference comes "
+        "from'). None means no companion is recorded yet: the image predates the fm.nginx.image "
+        "label, or was never resolved (e.g. an unmigrated legacy record).",
     )
     deployed_at: str = Field(..., description="ISO timestamp of the deploy; also this record's identity.")
     migrate_status: str = Field(..., description="Migrate outcome: 'migrated', 'skipped', 'failed', or 'rollback'.")
@@ -1745,10 +1747,10 @@ class BenchConfig(BaseModel):
         None,
         description="Mount mode: override the base frappe image (repo:tag) for frappe/socketio/schedule/workers. None = default fm image.",
     )
-    seed_image: str | None = Field(
+    apps_from: str | None = Field(
         None,
-        description="Mount runtime: workspace was seeded from this baked image at create "
-        "(extracted; no clone/install/build). Provenance record.",
+        description="Mount runtime: the baked image this workspace's apps were copied from at create "
+        "(extracted; no clone/install/build). Provenance record, read once and never run.",
     )
     sites: dict[str, SiteConfig] | None = Field(
         None,
@@ -1873,15 +1875,15 @@ class BenchConfig(BaseModel):
                 f"or an '@sha256:...' digest (got {self.base_image!r})."
             )
 
-        if self.seed_image:
+        if self.apps_from:
             if self.runtime == BenchRuntime.image:
                 raise ValueError(
-                    "seed_image seeds a MOUNT workspace; an image runtime bench already runs the image it is given (use base_image)."
+                    "apps_from seeds a MOUNT workspace; an image runtime bench already runs the image it is given (use base_image)."
                 )
-            if not ImageRef.parse(self.seed_image).is_pinned:
+            if not ImageRef.parse(self.apps_from).is_pinned:
                 raise ValueError(
-                    f"seed_image must be pinned to a specific version: an explicit ':tag' or an "
-                    f"'@sha256:...' digest (got {self.seed_image!r})."
+                    f"apps_from must be pinned to a specific version: an explicit ':tag' or an "
+                    f"'@sha256:...' digest (got {self.apps_from!r})."
                 )
 
         if self.runtime != BenchRuntime.image:
@@ -2189,7 +2191,7 @@ class BenchConfig(BaseModel):
             "runtime": data.get("runtime", "mount"),
             "image": data.get("image", None),
             "base_image": data.get("base_image", None),
-            "seed_image": data.get("seed_image", None),
+            "apps_from": data.get("apps_from", None),
             "switch": SwitchConfig(**dict(data["switch"])) if data.get("switch") else None,
             "prune": BenchPruneConfig(**dict(data["prune"])) if data.get("prune") else None,
             "workers": WorkersConfig(**dict(data["workers"])) if data.get("workers") else None,

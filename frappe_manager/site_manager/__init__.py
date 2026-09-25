@@ -5,10 +5,10 @@ from functools import cache
 from importlib.resources import files
 
 __all__ = [
-    "get_vscode_launch_json",
-    "get_vscode_tasks_json",
-    "get_vscode_settings_json",
     "NON_BASH_SUPPORTED_SERVICES",
+    "get_vscode_launch_json",
+    "get_vscode_settings_json",
+    "get_vscode_tasks_json",
 ]
 
 

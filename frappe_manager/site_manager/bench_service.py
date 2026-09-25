@@ -276,7 +276,7 @@ class BenchService:
                                 deployments.previous.app_image if deployments and deployments.previous else None
                             ),
                             "base_image": config.base_image,
-                            "seed_image": config.seed_image,
+                            "apps_from": config.apps_from,
                             # Every alias across the bench's sites. `fm list` is the overview, so it
                             # names the extra hostnames without saying which site each serves; the
                             # attribution is `fm info`'s job, the same split the `sites` row uses.
@@ -347,8 +347,8 @@ class BenchService:
                 card.fact("image", row["deployed_image"])
             if row["base_image"]:
                 card.fact("base", row["base_image"])
-            if row["seed_image"]:
-                card.fact("seeded", row["seed_image"])
+            if row["apps_from"]:
+                card.fact("seeded", row["apps_from"])
             if row["alias_domains"]:
                 card.fact("domains", ", ".join(row["alias_domains"]))
             card.fact("dir", f"[fm.muted]{row['path']}[/fm.muted]")

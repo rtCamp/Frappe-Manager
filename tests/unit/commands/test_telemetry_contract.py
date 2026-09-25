@@ -31,7 +31,7 @@ from frappe_manager.commands.telemetry.enable import enable
 from frappe_manager.commands.telemetry.status import status
 from frappe_manager.output_manager import set_global_output_handler
 from frappe_manager.output_manager.base import OutputHandler
-from frappe_manager.site_manager.bench_config import TelemetryConfig, NewRelicConfig
+from frappe_manager.site_manager.bench_config import NewRelicConfig, TelemetryConfig
 from frappe_manager.site_manager.exceptions import BenchNotRunning
 
 pytestmark = pytest.mark.timeout(15)

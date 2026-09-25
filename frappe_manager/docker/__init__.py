@@ -96,9 +96,9 @@ __all__ = [
     "DockerClient",
     "DockerComposeWrapper",
     "DockerException",
-    "SubprocessOutput",
     "DockerVolumeMount",
     "DockerVolumeType",
+    "SubprocessOutput",
 ]
 
 # Progress-bar noise emitted by docker pull/build streams; pass to

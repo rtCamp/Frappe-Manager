@@ -188,7 +188,7 @@ class BenchOrchestrator:
                 # `_external_database_gate`. No-op for a bench on the `mariadb` container.
                 self._external_database_gate()
 
-            if bench.bench_config.seed_image:
+            if bench.bench_config.apps_from:
                 self._phase2_seed_from_image()
             else:
                 self._phase2_initialize_bench()
@@ -204,7 +204,7 @@ class BenchOrchestrator:
 
             apps_installed = self._skip_phase6_for_attach() if self._attaching else self._phase6_install_apps()
 
-            if bench.bench_config.seed_image:
+            if bench.bench_config.apps_from:
                 # The phase-3 health probe hits the server BEFORE the site exists;
                 # Frappe caches that route miss in redis -- flush it or the fresh
                 # site 404s until a manual clear-cache.
@@ -238,6 +238,38 @@ class BenchOrchestrator:
             if not remove_status:
                 bench.info()
 
+    def _resolve_companion_image(self, image: str, explicit: str | None) -> str:
+        """Where ``image``'s nginx companion comes from, in order (see
+        notes/image-pairing-design.md, "Where the nginx reference comes from"; there is no
+        fourth source, and nothing is ever computed):
+
+        1. ``explicit``, when already known -- ``fm create --nginx-image`` may have recorded it
+           into ``[deployments].current.nginx_image`` before this ever runs.
+        2. The ``fm.nginx.image`` label baked into ``image`` -- pulled first, since the label
+           lives INSIDE the image and cannot be read before it is local.
+        3. Refuse, naming ``--nginx-image``, the bench, and the image: reached for a third-party
+           image, or one baked by an fm that predates the label.
+        """
+        if explicit:
+            return explicit
+        from frappe_manager.site_manager.modules.transport import TransportError, resolve_recorded_nginx_image
+
+        bench = self.bench
+        try:
+            companion = resolve_recorded_nginx_image(bench.docker_client, image, output=self.output)
+        except TransportError as e:
+            raise BenchOperationException(bench.name, message=str(e)) from e
+        if companion:
+            return companion
+        raise BenchOperationException(
+            bench.name,
+            message=(
+                f"'{image}' carries no recorded nginx companion for bench '{bench.name}': fm does not guess "
+                "a companion's name, and this image predates the fm.nginx.image label or was not built by "
+                "fm. Pass --nginx-image to name it explicitly."
+            ),
+        )
+
     def _create_image_bench(self, *, bench_only: bool = False) -> bool | None:
         """Bootstrap an image-mode bench from a pre-built app image.
 
@@ -257,15 +289,26 @@ class BenchOrchestrator:
         from frappe_manager.utils.docker import host_run_cp
 
         bench = self.bench
-        image = bench.bench_config.deployments.current.app_image
+        current = bench.bench_config.deployments.current
+        image = current.app_image
 
         # Host-side config + supervisor (mode-agnostic, no image needed).
         common_site_config_data = bench.bench_config.get_commmon_site_config_data()
         bench.set_common_bench_config(common_site_config_data)
         bench.supervisor.setup_supervisor(bench.path, force=True, use_run=True)
 
+        # Resolve the companion BEFORE the fetch/regen below can pin to it. Phase 1 already
+        # projected the compose from `current.nginx_image`; when `--nginx-image` was omitted at
+        # create, that was None (no shape at all -- see compose_shape.runtime_shape), so the
+        # compose must be regenerated here once the label gives a real answer, before phase 3
+        # brings up containers.
+        nginx_image = self._resolve_companion_image(image, current.nginx_image)
+        if nginx_image != current.nginx_image:
+            current.nginx_image = nginx_image
+            bench.generate_compose(bench.bench_config.export_to_compose_inputs())
+
         # Ensure the app image (+ its nginx-assets image) is present.
-        fetch_image(bench.docker_client, image, output=self.output)
+        fetch_image(bench.docker_client, image, nginx_image, output=self.output)
 
         # Seed apps.txt from the baked image and drive apps_list off it.
         apps_txt = host_bench_dir(bench.path) / "sites" / "apps.txt"
@@ -335,7 +378,7 @@ class BenchOrchestrator:
         # Seeded creates get .uv/.fnm (and everything else) from the SEED image --
         # pre-copying runtimes from the base image would version-mismatch the venv.
         bench.create_compose_dirs(
-            copy_runtimes=bench.bench_config.runtime != BenchRuntime.image and not bench.bench_config.seed_image
+            copy_runtimes=bench.bench_config.runtime != BenchRuntime.image and not bench.bench_config.apps_from
         )
 
         # Do NOT seed `default_site` here, even best-effort. Measured on a live server: setting
@@ -376,18 +419,21 @@ class BenchOrchestrator:
         applied on top: cloned fresh (identity = the cloned app's Python module name,
         not the repo string), replacing the baked copy or adding a new app."""
         from frappe_manager.site_manager.bench_config import AppConfig
-        from frappe_manager.site_manager.modules.transport import fetch_image
+        from frappe_manager.site_manager.modules.transport import fetch_one
         from frappe_manager.site_manager.modules.workspace_seed import materialize_workspace_from_image
         from frappe_manager.utils.docker import host_run_cp
 
         bench = self.bench
-        image = bench.bench_config.seed_image
+        image = bench.bench_config.apps_from
         # For seeded creates, create() stores the raw --apps entries (no frappe
         # auto-injection) -- they are override requests, not the bench app set.
         overrides = list(bench.bench_config.apps_list)
 
         self.output.change_head(f"Seeding workspace from image {image}")
-        fetch_image(bench.docker_client, image, output=self.output)
+        # `--apps-from` reads a workspace out of ONE image and runs no companion at all: this is a
+        # mount bench, whose nginx container is fm's stock image (`compose_shape.MountShape`).
+        # `fetch_image` demands a pair; that pair does not exist here, so pull just this image.
+        fetch_one(bench.docker_client, image, output=self.output)
         frappe_bench_dir = host_bench_dir(bench.path)
         materialize_workspace_from_image(bench.docker_client, image, frappe_bench_dir, output=self.output)
 

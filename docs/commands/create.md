@@ -31,8 +31,9 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `--node TEXT`: Node version, e.g. '20'. Auto-detected by default.
 * `--restart-policy [no|always|on-failure|unless-stopped]`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
 * `--runtime [mount|image]`: 'mount' (default) live-mounts an editable workspace; 'image' runs a pre-built app image, moved to a new image with 'fm switch'.
-* `--base-image TEXT`: The image the bench's containers run, as an image reference (repository plus a version, e.g. ghcr.io/acme/mybench:v15.2.1). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another image.
-* `--seed-image TEXT`: Mount runtime: seed the workspace from a baked app image, named by an image reference (repository plus a version), instead of cloning and installing apps. --apps, --python and --node then override what it carries. This is a one-time copy, not what the containers run: see --base-image.
+* `--app-image TEXT`: The image the bench's containers run, as an image reference (a repository plus a version, e.g. ghcr.io/acme/mybench:v15.2.1). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another image.
+* `--nginx-image TEXT`: Image runtime: the companion assets image that serves this app image's static files. Recorded beside it, never worked out from its name. Omitted, fm reads the 'fm.nginx.image' label the bake stamped on the app image.
+* `--apps-from TEXT`: Mount runtime: take the apps already built inside a baked image instead of cloning and installing them, named by an image reference. --apps, --python and --node then override what it carries. This is a one-time copy read at create, not an image the bench runs: see --app-image.
 * `--config TEXT`: TOML base config: file path or inline. Explicit flags win; later --config wins.
 * `--redis-cache TEXT`: External redis URL for the framework cache, e.g. redis://r.example:6379/0. Independent of the queue: either side may stay on fm's own container.
 * `--redis-queue TEXT`: External redis URL for the queue and realtime. Use a different logical index from --redis-cache: a restore mass-deletes the cache index.
@@ -81,18 +82,18 @@ fm create mybench -e prod --apps erpnext
 
 ### Run a pre-built app image
 
---base-image is the image the containers run. Here it is the app image itself, and fm switch moves the bench to later images from there.
+--app-image is the image the containers run; fm switch moves the bench to later images from there. Its companion is read from the image's own fm.nginx.image label, or named with --nginx-image.
 
 ```bash
-fm create mybench --runtime image --base-image ghcr.io/acme/mybench:v15-20260822
+fm create mybench --runtime image --app-image ghcr.io/acme/mybench:v15-20260822
 ```
 
-### Seed an editable workspace from a baked image
+### Take apps from a baked image instead of cloning them
 
-Copies the image's apps, env and built assets onto the host once, skipping clone and install. The bench still boots on the default base image unless --base-image says otherwise.
+Copies that image's apps, env and built assets onto the host once, skipping clone and install. The bench still boots on the default base image unless --app-image says otherwise.
 
 ```bash
-fm create mybench --seed-image ghcr.io/acme/mybench:v15-20260822
+fm create mybench --apps-from ghcr.io/acme/mybench:v15-20260822
 ```
 
 ### Create a bench on an external database

@@ -26,7 +26,6 @@ import os
 from rich.style import Style
 from rich.theme import Theme
 
-
 DEFAULT_TOKENS: dict[str, str] = {
     "fm.ok": "green",
     "fm.error": "red",

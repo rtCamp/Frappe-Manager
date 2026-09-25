@@ -36,11 +36,10 @@ def _validate_domain_arguments(value: list[str]) -> list[str]:
                 raise typer.BadParameter(
                     f"Invalid wildcard domain '{domain}'. Wildcard domains must be in format '*.example.com'."
                 )
-        else:
-            if not is_fqdn(domain) or "." not in domain:
-                raise typer.BadParameter(
-                    f"Invalid domain '{domain}'. Domain must be a valid FQDN with a TLD (e.g., 'example.com')."
-                )
+        elif not is_fqdn(domain) or "." not in domain:
+            raise typer.BadParameter(
+                f"Invalid domain '{domain}'. Domain must be a valid FQDN with a TLD (e.g., 'example.com')."
+            )
         validated.append(domain)
 
     if len(validated) != len(set(validated)):

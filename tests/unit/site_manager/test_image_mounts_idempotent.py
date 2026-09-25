@@ -51,7 +51,7 @@ def _raw(workers):
 
 def test_first_pin_converts_to_image_shape(tmp_path):
     w = _workers(tmp_path)
-    pin_workers_to_image(w, ["s.localhost"], "repo:t1")
+    pin_workers_to_image(w, ["s.localhost"], "repo:t1", "repo-nginx:t1")
 
     assert w.compose_file_manager.yml["services"]["long-worker"]["image"] == "repo:t1"
     raw = _raw(w)
@@ -63,7 +63,7 @@ def test_first_pin_converts_to_image_shape(tmp_path):
 
 def test_repin_is_image_only_and_preserves_user_mount(tmp_path):
     w = _workers(tmp_path)
-    pin_workers_to_image(w, ["s.localhost"], "repo:t1")
+    pin_workers_to_image(w, ["s.localhost"], "repo:t1", "repo-nginx:t1")
 
     # user adds a custom mount for their convenience
     cfm = w.compose_file_manager
@@ -74,7 +74,7 @@ def test_repin_is_image_only_and_preserves_user_mount(tmp_path):
     cfm.set_service_volumes("long-worker", vols)
     before = sorted(_raw(w))
 
-    pin_workers_to_image(w, ["s.localhost"], "repo:t2")  # deploy re-pin
+    pin_workers_to_image(w, ["s.localhost"], "repo:t2", "repo-nginx:t2")  # deploy re-pin
 
     assert cfm.yml["services"]["long-worker"]["image"] == "repo:t2"  # image changed
     after = _raw(w)
@@ -90,7 +90,7 @@ def test_multi_site_repin_preserves_a_user_mount(tmp_path):
     """
     sites = ["a.localhost", "b.localhost"]
     w = _workers(tmp_path, sites=sites)
-    pin_workers_to_image(w, sites, "repo:t1")
+    pin_workers_to_image(w, sites, "repo:t1", "repo-nginx:t1")
 
     cfm = w.compose_file_manager
     vols = cfm.get_service_volumes("long-worker")
@@ -100,7 +100,7 @@ def test_multi_site_repin_preserves_a_user_mount(tmp_path):
     cfm.set_service_volumes("long-worker", vols)
     before = sorted(_raw(w))
 
-    pin_workers_to_image(w, sites, "repo:t2")  # deploy re-pin
+    pin_workers_to_image(w, sites, "repo:t2", "repo-nginx:t2")  # deploy re-pin
 
     after = _raw(w)
     assert cfm.yml["services"]["long-worker"]["image"] == "repo:t2"
@@ -113,4 +113,4 @@ def test_multi_site_repin_preserves_a_user_mount(tmp_path):
 
 def test_pin_noop_without_workers_compose(tmp_path):
     w = SimpleNamespace(compose_path=tmp_path / "missing.yml")
-    pin_workers_to_image(w, ["s.localhost"], "repo:t1")  # must not raise
+    pin_workers_to_image(w, ["s.localhost"], "repo:t1", "repo-nginx:t1")  # must not raise

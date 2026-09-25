@@ -151,6 +151,14 @@ def switch(
             show_default=False,
         ),
     ] = None,
+    nginx_image: Annotated[
+        str | None,
+        typer.Option(
+            "--nginx-image",
+            help="The companion assets image for this deploy, as an image reference. Recorded beside the app image, never worked out from its name. Omitted, fm reads the 'fm.nginx.image' label the bake stamped on the app image.",
+            show_default=False,
+        ),
+    ] = None,
     previous: Annotated[
         bool,
         typer.Option("--previous", help="Roll back to the previously deployed image, with migrate disabled."),
@@ -234,6 +242,7 @@ def switch(
         orchestrator = DeployOrchestrator(bench, output_handler=output)
         orchestrator.deploy(
             target,
+            nginx_image=nginx_image,
             rolling=rolling,
             migrate_override=migrate,
             restore_db_dumps=dumps,

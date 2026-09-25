@@ -3,7 +3,6 @@ import re
 import subprocess
 from pathlib import Path
 
-
 from frappe_manager import CLI_BENCHES_DIRECTORY, COMMON_SITE_CONFIG_FILE
 from frappe_manager.docker import DOCKER_LINE_NOISE, DockerVolumeMount, DockerVolumeType
 from frappe_manager.output_manager import get_global_output_handler

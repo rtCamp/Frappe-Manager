@@ -53,10 +53,6 @@ DYNAMIC_OR_INDIRECT: dict[str, str] = {
     "SwitchHookScripts.before_migrate": "getattr(hooks, name)",
     "SwitchHookScripts.after_migrate": "getattr(hooks, name)",
     "SwitchHookScripts.after_switch": "getattr(hooks, name)",
-    # Written only by the 1.0.0 migration's nginx backfill (a frozen snapshot of
-    # BakeManager.nginx_image_ref); nothing reads it yet in this commit. A later commit adds the
-    # fm.nginx.image label lookup that reads it -- see notes/image-pairing-design.md.
-    "Deployment.nginx_image": "written only by migrate_1_0_0's backfill; read starts in a later commit",
     # `SchemaState.version`/`last_migration_date` used to be exempted here (raw-TOML read
     # in bench_migration_state.py, never a `.field` access) -- now mutated via plain attribute
     # assignment (`config.schema_state.version = ...`) in bench_migration_state.py and

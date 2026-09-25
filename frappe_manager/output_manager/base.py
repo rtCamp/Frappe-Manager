@@ -7,8 +7,8 @@ allowing business logic to be independent of the presentation layer.
 
 import sys
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
 from collections.abc import Iterable, Sequence
+from contextlib import contextmanager
 from typing import Any
 
 

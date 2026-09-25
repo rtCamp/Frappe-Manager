@@ -67,7 +67,8 @@ _PANEL_DATABASE = "Site Options: External Database"
 
 # The flags that are simply a config value under another name. Each maps to the TOML key path it
 # writes; everything else about them (precedence, validation, defaults) is the merge and the model.
-# Absent on purpose: `--base-image` is overloaded per runtime (see _apply_base_image); `--bench-only`,
+# Absent on purpose: `--app-image`/`--nginx-image` land in different keys per runtime (see
+# _apply_app_image); `--bench-only`,
 # `--config` and `--allow-domain-conflicts` are not BenchConfig fields; the external database and
 # redis flags are resolved separately because five of them are secrets that never reach disk;
 # `--alias-domains` writes under `[sites."<site>"]`, a path this static map cannot express, so
@@ -82,7 +83,7 @@ _FLAG_TO_CONFIG: dict[str, tuple[str, ...]] = {
     "python_version": ("python_version",),
     "restart_policy": ("restart_policy",),
     "runtime": ("runtime",),
-    "seed_image": ("seed_image",),
+    "apps_from": ("apps_from",),
 }
 
 
@@ -104,7 +105,7 @@ def _flag_overlay(requested: set[str], values: dict[str, object]) -> str:
 
     This is what makes "an explicit flag beats --config" a property of the merge order rather than a
     per-field assignment. The previous shape applied each flag with its own ``if "name" in explicit``
-    line, so a field whose line was missing was silently dropped, which is how ``--seed-image`` came
+    line, so a field whose line was missing was silently dropped, which is how ``--apps-from`` came
     to be ignored whenever ``--config`` was passed alongside it.
     """
     doc = tomlkit.document()
@@ -122,23 +123,30 @@ def _flag_overlay(requested: set[str], values: dict[str, object]) -> str:
     return tomlkit.dumps(doc)
 
 
-def _apply_base_image(bc: BenchConfig, base_image: str) -> None:
-    """Write ``--base-image`` to the key its runtime reads it from.
+def _apply_app_image(bc: BenchConfig, app_image: str, nginx_image: str | None) -> None:
+    """Write ``--app-image`` to the key its runtime reads it from, with its companion.
 
-    The flag is overloaded deliberately: it names the image the bench's containers RUN, in both
-    runtimes. There is no ``--image`` here, because on ``fm bake`` that word means the image being
-    PRODUCED, and one word cannot point both ways. The runtimes persist it differently, which is the
-    only reason this is code and not another row in ``_FLAG_TO_CONFIG``: mount keeps the whole ref in
-    top-level ``base_image`` and nothing ever rewrites it, while image runtime keeps the name in
-    ``image`` and the full image in ``[deployments].current.app_image``, which ``fm switch`` moves on
-    every deploy. Image validation belongs to ``BenchConfig.assert_runtime_coherent``.
+    One flag, because the operator asks one thing: which image do the containers run. The
+    runtimes PERSIST it differently, which is the only reason this is code and not another row in
+    ``_FLAG_TO_CONFIG``: mount keeps the whole reference in top-level ``base_image`` and nothing
+    ever rewrites it, while image runtime keeps the repository in ``image`` and the full reference
+    in ``[deployments].current.app_image``, which ``fm switch`` moves on every deploy. Image
+    validation belongs to ``BenchConfig.assert_runtime_coherent``.
+
+    ``nginx_image`` is recorded beside it rather than worked out from it later. A mount bench has
+    no companion to record: its nginx container runs fm's stock image.
     """
     if bc.runtime != BenchRuntime.image:
-        bc.base_image = base_image
+        bc.base_image = app_image
         return
-    bc.image = ImageRef.parse(base_image).name or None
+    bc.image = ImageRef.parse(app_image).name or None
     bc.deployments = Deployments(
-        current=Deployment(app_image=base_image, deployed_at=datetime.now(UTC).isoformat(), migrate_status="migrated")
+        current=Deployment(
+            app_image=app_image,
+            nginx_image=nginx_image,
+            deployed_at=datetime.now(UTC).isoformat(),
+            migrate_status="migrated",
+        )
     )
     bc.base_image = None
 
@@ -163,7 +171,8 @@ def _build_bench_config(
     flag_overlay: str,
     benchname: str,
     root_path: Path,
-    base_image: str | None,
+    app_image: str | None,
+    nginx_image: str | None,
 ) -> BenchConfig:
     """The one construction path: create defaults, then each ``--config``, then the flags.
 
@@ -186,8 +195,8 @@ def _build_bench_config(
 
     bc.name = benchname
     bc.root_path = root_path
-    if base_image:
-        _apply_base_image(bc, base_image)
+    if app_image:
+        _apply_app_image(bc, app_image, nginx_image)
     return bc
 
 
@@ -266,7 +275,7 @@ def _derive_create_defaults(bc: BenchConfig, *, db_name: str) -> bool:
 
     # A seeded workspace already contains its own frappe, and injecting a default would clobber it.
     # There, --apps entries are per-app overrides used verbatim.
-    if not bc.seed_image:
+    if not bc.apps_from:
         bc.apps_list = _ensure_frappe_first(bc.apps_list)
 
     if not bc.db_name:
@@ -281,7 +290,8 @@ def bench_config_from_inputs(
     flag_overlay: str,
     benchname: str,
     root_path: Path,
-    base_image: str | None,
+    app_image: str | None,
+    nginx_image: str | None,
     db_name: str,
 ) -> tuple[BenchConfig, bool]:
     """Everything between the CLI parameters and ``create_bench``: merge, refuse, validate, derive.
@@ -297,7 +307,8 @@ def bench_config_from_inputs(
         flag_overlay=flag_overlay,
         benchname=benchname,
         root_path=root_path,
-        base_image=base_image,
+        app_image=app_image,
+        nginx_image=nginx_image,
     )
     _refuse_immutable_inputs(bc)
     try:
@@ -787,14 +798,14 @@ def _resolve_external_options(
 )
 @example(
     "Run a pre-built app image",
-    "{benchname} --runtime image --base-image ghcr.io/acme/mybench:v15-20260822",
-    detail="--base-image is the image the containers run. Here it is the app image itself, and fm switch moves the bench to later images from there.",
+    "{benchname} --runtime image --app-image ghcr.io/acme/mybench:v15-20260822",
+    detail="--app-image is the image the containers run; fm switch moves the bench to later images from there. Its companion is read from the image's own fm.nginx.image label, or named with --nginx-image.",
     benchname="mybench",
 )
 @example(
-    "Seed an editable workspace from a baked image",
-    "{benchname} --seed-image ghcr.io/acme/mybench:v15-20260822",
-    detail="Copies the image's apps, env and built assets onto the host once, skipping clone and install. The bench still boots on the default base image unless --base-image says otherwise.",
+    "Take apps from a baked image instead of cloning them",
+    "{benchname} --apps-from ghcr.io/acme/mybench:v15-20260822",
+    detail="Copies that image's apps, env and built assets onto the host once, skipping clone and install. The bench still boots on the default base image unless --app-image says otherwise.",
     benchname="mybench",
 )
 @example(
@@ -911,20 +922,29 @@ def create(
             rich_help_panel=_PANEL_RUNTIME,
         ),
     ] = None,
-    base_image: Annotated[
+    app_image: Annotated[
         str | None,
         typer.Option(
-            "--base-image",
-            help="The image the bench's containers run, as an image reference (repository plus a version, e.g. ghcr.io/acme/mybench:v15.2.1). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another image.",
+            "--app-image",
+            help="The image the bench's containers run, as an image reference (a repository plus a version, e.g. ghcr.io/acme/mybench:v15.2.1). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another image.",
             show_default=False,
             rich_help_panel=_PANEL_RUNTIME,
         ),
     ] = None,
-    seed_image: Annotated[
+    nginx_image: Annotated[
         str | None,
         typer.Option(
-            "--seed-image",
-            help="Mount runtime: seed the workspace from a baked app image, named by an image reference (repository plus a version), instead of cloning and installing apps. --apps, --python and --node then override what it carries. This is a one-time copy, not what the containers run: see --base-image.",
+            "--nginx-image",
+            help="Image runtime: the companion assets image that serves this app image's static files. Recorded beside it, never worked out from its name. Omitted, fm reads the 'fm.nginx.image' label the bake stamped on the app image.",
+            show_default=False,
+            rich_help_panel=_PANEL_RUNTIME,
+        ),
+    ] = None,
+    apps_from: Annotated[
+        str | None,
+        typer.Option(
+            "--apps-from",
+            help="Mount runtime: take the apps already built inside a baked image instead of cloning and installing them, named by an image reference. --apps, --python and --node then override what it carries. This is a one-time copy read at create, not an image the bench runs: see --app-image.",
             show_default=False,
             rich_help_panel=_PANEL_MOUNT,
         ),
@@ -1154,7 +1174,7 @@ def create(
     # that can fall out of step with the model. Two paths used to disagree here: `--runtime image`
     # refused --apps/--python/--node while a --config declaring `runtime = "image"` accepted them.
     requested = {
-        name for name in (*_FLAG_TO_CONFIG, "base_image") if ctx.get_parameter_source(name) in _EXPLICIT_SOURCES
+        name for name in (*_FLAG_TO_CONFIG, "app_image", "nginx_image") if ctx.get_parameter_source(name) in _EXPLICIT_SOURCES
     }
     try:
         bench_config, apps_from_user = bench_config_from_inputs(
@@ -1171,21 +1191,22 @@ def create(
                     "python_version": python_version,
                     "restart_policy": restart_policy,
                     "runtime": runtime,
-                    "seed_image": seed_image,
+                    "apps_from": apps_from,
                 },
             ),
             benchname=address,
             root_path=bench_config_path,
-            base_image=base_image if "base_image" in requested else None,
+            app_image=app_image if "app_image" in requested else None,
+            nginx_image=nginx_image if "nginx_image" in requested else None,
             db_name=mariadb_name,
         )
     except ConfigOverlayError as e:
         output.display_error(str(e))
         raise typer.Exit(1) from e
 
-    if bench_config.seed_image:
+    if bench_config.apps_from:
         output.print(
-            f"Mount bench: seeding workspace from baked image [fm.info]{bench_config.seed_image}[/fm.info].",
+            f"Mount bench: seeding workspace from baked image [fm.info]{bench_config.apps_from}[/fm.info].",
             emoji_code=":package:",
         )
     if bench_config.runtime == BenchRuntime.image and bench_config.deployments and bench_config.deployments.current:

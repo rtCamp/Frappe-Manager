@@ -11,7 +11,7 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
 
 ## Your first deploy
 
-`fm bake`, `fm switch`, and `fm prune` operate on a bench in the **image runtime**, and all three run on the host that owns the bench. This walkthrough assumes you already have one: create it with `fm create prodbench --runtime image --base-image REPO:TAG` (see [Runtimes](../concepts/runtimes.md) for what that flag pins). After that, every release is a bake and a switch.
+`fm bake`, `fm switch`, and `fm prune` operate on a bench in the **image runtime**, and all three run on the host that owns the bench. This walkthrough assumes you already have one: create it with `fm create prodbench --runtime image --app-image REPO:TAG` (see [Runtimes](../concepts/runtimes.md) for what that flag pins). After that, every release is a bake and a switch.
 
 1. **Bake the first image:**
 
@@ -47,7 +47,7 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
 That's the whole loop. The rest of this page explains what happened underneath; the pages linked at the bottom cover [rolling back](rollback.md), [image transports and architectures](transports.md), and [every config key](../reference/configuration.md#deploy-tables).
 
 !!! tip "Baking outside the bench"
-    The first image does not have to come from `fm bake` on this host: CI can build and push one (`fm bake --apps ... --app-image ... --push`), and `fm create --base-image` points the new bench straight at it. `--base-image` names the release the bench starts on rather than pinning it there: the repo half becomes the bench's `image` key and the full reference becomes `[deployments].current.app_image`, which every later `fm switch` rewrites.
+    The first image does not have to come from `fm bake` on this host: CI can build and push one (`fm bake --apps ... --app-image ... --push`), and `fm create --app-image` points the new bench straight at it. `--app-image` names the release the bench starts on rather than pinning it there: the repo half becomes the bench's `image` key and the full reference becomes `[deployments].current.app_image`, which every later `fm switch` rewrites.
 
 ## The lifecycle at a glance
 

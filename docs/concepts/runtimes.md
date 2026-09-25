@@ -12,7 +12,7 @@ The runtime is the most consequential property of a bench: it decides **where th
 
 ```bash
 fm create mybench                          # clone + install apps into a workspace
-fm create mybench --seed-image repo:tag    # or seed the workspace from a baked image (near-instant)
+fm create mybench --apps-from repo:tag    # or seed the workspace from a baked image (near-instant)
 ```
 
 Your apps live at `~/frappe/sites/<bench>/workspace/frappe-bench/apps/`, a normal bench directory you can edit, commit from, and debug against. Everything code-related works here:
@@ -25,7 +25,7 @@ Your apps live at `~/frappe/sites/<bench>/workspace/frappe-bench/apps/`, a norma
 
 ```bash
 fm bake mybench                                  # build the image pair from a bench (prints both tags)
-fm create prodbench --runtime image --base-image repo:tag   # or create a bench directly on a pre-built image
+fm create prodbench --runtime image --app-image repo:tag   # or create a bench directly on a pre-built image
 ```
 
 In that second form, `--base-image` names the release the bench is *born* on, not a permanent pin: only the repo half is persisted to the bench's top-level `image` key, while the full reference is recorded in `[deployments].current.app_image` and rewritten by `fm switch` on every deploy.
@@ -41,8 +41,8 @@ The full pipeline (baking, zero-downtime rolling swaps, rollbacks with DB restor
 
 Runtime is chosen at `fm create` and cannot be changed afterwards. There is no command that flips a bench from one to the other, in either direction:
 
-- **Need an editable copy of what an image bench runs?** Don't touch the image bench: `fm create NAME --seed-image REPO:TAG` creates a *new* bench and extracts the same paths out of the same image into its workspace.
-- **Need an image bench?** Create one directly: `fm create NAME --runtime image --base-image REPO:TAG`. Move it to later releases with `fm bake` then `fm switch`; see the [Deployment guide](../deploy/index.md).
+- **Need an editable copy of what an image bench runs?** Don't touch the image bench: `fm create NAME --apps-from REPO:TAG` creates a *new* bench and extracts the same paths out of the same image into its workspace.
+- **Need an image bench?** Create one directly: `fm create NAME --runtime image --app-image REPO:TAG`. Move it to later releases with `fm bake` then `fm switch`; see the [Deployment guide](../deploy/index.md).
 
 The backing key ([`runtime`](../reference/configuration.md#runtime)) is documented in the configuration reference; it is set once, at create, and `fm update` does not touch it.
 
@@ -52,9 +52,9 @@ Runtime says where code lives; [environment](environments.md) says how the web p
 
 The one asymmetry: developer mode is refused on an image bench even in a `dev` environment, because DocType authoring writes app source files into the container layer that the next deploy throws away.
 
-Three create-time flags, three different jobs. `--base-image` names the image the bench's containers actually run and always takes an explicit `repo:tag`: in the mount runtime that is the base frappe image sitting under your editable workspace, static once set; in the image runtime it *is* the app image, the release the bench starts on, and `fm switch` moves it to later images from there. `--seed-image` is mount-only and fills a fresh workspace once from a baked image, after which `--apps`, `--python` and `--node` override whatever that image carried. `--app-image` is not a create flag at all: it belongs to `fm bake`, where it names the image the bake *produces*, alongside `--nginx-image` for its companion.
+Three create-time flags, three different jobs. `--app-image` names the image the bench's containers actually run and always takes an explicit `repo:tag`: in the mount runtime that is the base frappe image sitting under your editable workspace, static once set; in the image runtime it *is* the app image, the release the bench starts on, and `fm switch` moves it to later images from there. `--apps-from` is mount-only and fills a fresh workspace once from a baked image, after which `--apps`, `--python` and `--node` override whatever that image carried. `--app-image` is not a create flag at all: it belongs to `fm bake`, where it names the image the bake *produces*, alongside `--nginx-image` for its companion.
 
-`--base-image` and `--seed-image` are not alternatives, and one bench can carry both: `fm create b --base-image ghcr.io/acme/frappe:v16 --seed-image ghcr.io/acme/app:v42` boots its containers on the v16 frappe image and fills its workspace from the v42 app image. The base image is read at every start; the seed image is read once, at create, and is kept afterwards only as provenance in [`seed_image`](../reference/configuration.md#images).
+`--app-image` and `--apps-from` are not alternatives, and one bench can carry both: `fm create b --app-image ghcr.io/acme/frappe:v16 --apps-from ghcr.io/acme/app:v42` boots its containers on the v16 frappe image and fills its workspace from the v42 app image. The app image is read at every start; the apps-from image is read once, at create, and is kept afterwards only as provenance in [`apps_from`](../reference/configuration.md#images).
 
 ## Where to next
 

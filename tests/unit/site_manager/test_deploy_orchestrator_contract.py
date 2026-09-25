@@ -61,6 +61,17 @@ SITE = "shop.localhost"
 SITE2 = "annex.localhost"
 NEW_TAG = "reg.example/shop:v2"
 OLD_TAG = "reg.example/shop:v1"
+#: What `_resolve_nginx_image`'s test double hands back for `NEW_TAG`/`OLD_TAG` when no
+#: explicit companion is given -- stands in for the `fm.nginx.image` label lookup so these
+#: tests never touch a real daemon. `TestResolveNginxImage` pins the resolver itself.
+NEW_NGINX_TAG = "reg.example/shop-nginx:v2"
+OLD_NGINX_TAG = "reg.example/shop-nginx:v1"
+_NGINX_PAIRS = {NEW_TAG: NEW_NGINX_TAG, OLD_TAG: OLD_NGINX_TAG}
+
+
+def _nginx_for(image, explicit=None):
+    """Test double for `_resolve_nginx_image`: explicit wins, else the recorded pair."""
+    return explicit or _NGINX_PAIRS.get(image, f"{image}-nginx")
 
 
 def _current_state(image, deployed_at="t0", migrate_status="migrated"):
@@ -88,7 +99,7 @@ class FakeConfig:
         self.site_names = list(site_names) if site_names else [SITE]
         self.db_name = "_shopdb"
         self.apps_list = []
-        self.seed_image = None
+        self.apps_from = None
         self.base_image = None
         self.registry = None
         self.database = {}
@@ -150,6 +161,7 @@ def docker_error(msg="boom", stdout=None, stderr=None, exit_code=1):
 #: Everything ``deploy()`` delegates to. Replaced by spies attached to one
 #: parent mock so ``manager.mock_calls`` is a single ordered transcript.
 SPIED = (
+    "_resolve_nginx_image",
     "_fetch_image",
     "_snapshot_compose",
     "_restore_compose",
@@ -179,6 +191,10 @@ DEFAULT_RESULTS = {
     "_snapshot_compose": {"return_value": {"snap": b"x"}},
     "drain_workers": {"return_value": True},
     "_health_check": {"return_value": True},
+    # Test double for the label lookup: explicit wins, else the recorded pair (`_nginx_for`).
+    # Not manager-attached (see the `rig` fixture) -- resolving a companion is not a pipeline
+    # PHASE the phase-order tests pin, so it never appears in `r.order`.
+    "_resolve_nginx_image": {"side_effect": _nginx_for},
 }
 
 
@@ -230,7 +246,8 @@ def rig(tmp_path):
 
         for name in SPIED:
             spy = MagicMock(**results.get(name, {}))
-            manager.attach_mock(spy, name)
+            if name != "_resolve_nginx_image":
+                manager.attach_mock(spy, name)
             setattr(orch, name, spy)
 
         running_spy = MagicMock(return_value=running)
@@ -460,8 +477,8 @@ class TestDeployPhaseOrder:
     def test_compose_is_repinned_to_the_new_image_before_the_migrate_decision(self, rig):
         r = rig(switch=SwitchConfig(migrate=True))
         r.orch.deploy(NEW_TAG)
-        r.orch.docker_ops.render_image_compose.assert_called_once_with(NEW_TAG)
-        r.orch._pin_workers.assert_any_call(NEW_TAG)
+        r.orch.docker_ops.render_image_compose.assert_called_once_with(NEW_TAG, NEW_NGINX_TAG)
+        r.orch._pin_workers.assert_any_call(NEW_TAG, NEW_NGINX_TAG)
         assert r.order.index("render_image_compose") < r.order.index("_migrate")
 
     def test_backup_is_taken_at_the_quiesced_point(self, rig):
@@ -1010,7 +1027,7 @@ class TestHookInvocationPoints:
         with pytest.raises(DeployError, match="post hook died"):
             r.orch.deploy(NEW_TAG)
         assert [a[0] for a, _k in r.calls("set_maintenance_mode")] == [1, 0]
-        r.orch._record.assert_called_once_with(NEW_TAG, "migrated", backups=r.backups)
+        r.orch._record.assert_called_once_with(NEW_TAG, "migrated", nginx_image=NEW_NGINX_TAG, backups=r.backups)
         r.orch._restore_compose.assert_not_called()
 
     def test_after_restart_failure_without_a_window_skips_the_maintenance_write(self, rig):
@@ -1127,7 +1144,7 @@ class TestSwapSelection:
     def test_migrate_under_a_maintenance_window_still_rolls(self, rig):
         r = rig(switch=SwitchConfig(migrate=True, maintenance_mode=True))
         r.orch.deploy(NEW_TAG)
-        r.orch._rolling_swap.assert_called_once_with(NEW_TAG, None, {"snap": b"x"})
+        r.orch._rolling_swap.assert_called_once_with(NEW_TAG, NEW_NGINX_TAG, None, None, {"snap": b"x"})
         r.orch.docker.compose.up.assert_not_called()
         r.orch._ensure_nginx.assert_not_called()
 
@@ -1165,7 +1182,7 @@ class TestSwapSelection:
     def test_rolling_swap_is_handed_the_old_image_and_the_snapshots(self, rig):
         r = rig(deployments=_current_state(OLD_TAG))
         r.orch.deploy(NEW_TAG)
-        r.orch._rolling_swap.assert_called_once_with(NEW_TAG, OLD_TAG, {"snap": b"x"})
+        r.orch._rolling_swap.assert_called_once_with(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {"snap": b"x"})
 
 
 # ================================================ deploy: swap failure unwind
@@ -1224,7 +1241,7 @@ class TestHealthGate:
         r = rig(deployments=_current_state(OLD_TAG), _health_check=False)
         with pytest.raises(DeployError, match=f"failed health check; rolled back to {OLD_TAG}"):
             r.orch.deploy(NEW_TAG)
-        r.orch.rollback.assert_called_once_with(OLD_TAG, restore_db_dumps=None)
+        r.orch.rollback.assert_called_once_with(OLD_TAG, OLD_NGINX_TAG, restore_db_dumps=None)
 
     def test_rollback_db_hands_the_dump_to_the_rollback(self, rig):
         r = rig(
@@ -1234,7 +1251,7 @@ class TestHealthGate:
         )
         with pytest.raises(DeployError):
             r.orch.deploy(NEW_TAG)
-        r.orch.rollback.assert_called_once_with(OLD_TAG, restore_db_dumps=r.backups)
+        r.orch.rollback.assert_called_once_with(OLD_TAG, OLD_NGINX_TAG, restore_db_dumps=r.backups)
 
     def test_no_previous_image_halts_the_bench_in_maintenance(self, rig):
         r = rig(_health_check=False)
@@ -1319,7 +1336,7 @@ class TestFinalizeAndRecord:
     def test_record_carries_the_migrate_status_and_the_dump_path(self, rig):
         r = rig()
         r.orch.deploy(NEW_TAG)
-        r.orch._record.assert_called_once_with(NEW_TAG, "migrated", backups=r.backups)
+        r.orch._record.assert_called_once_with(NEW_TAG, "migrated", nginx_image=NEW_NGINX_TAG, backups=r.backups)
 
     def test_prune_only_runs_when_keep_was_asked_for(self, rig):
         r = rig()
@@ -1353,10 +1370,11 @@ class TestRecordBookkeeping:
             ],
         )
         orch = make_orch(tmp_path, deployments=state)
-        orch._record(NEW_TAG, "migrated", backups={SITE: Path("/b/db.sql")})
+        orch._record(NEW_TAG, "migrated", NEW_NGINX_TAG, backups={SITE: Path("/b/db.sql")})
         result = orch.config.deployments
         assert result.previous.app_image == OLD_TAG
         assert result.current.app_image == NEW_TAG
+        assert result.current.nginx_image == NEW_NGINX_TAG
         assert [e.app_image for e in result.history] == [OLD_TAG, NEW_TAG]
         assert result.history[-1].backups == {SITE: "/b/db.sql"}
         assert result.history[-1].migrate_status == "migrated"
@@ -1367,7 +1385,7 @@ class TestRecordBookkeeping:
 
     def test_record_on_a_virgin_bench_creates_the_state(self, tmp_path):
         orch = make_orch(tmp_path, deployments=None)
-        orch._record(NEW_TAG, "skipped")
+        orch._record(NEW_TAG, "skipped", NEW_NGINX_TAG)
         result = orch.config.deployments
         assert result.previous is None
         assert result.current.app_image == NEW_TAG
@@ -1388,7 +1406,7 @@ class TestRecordBookkeeping:
             history=[Deployment(app_image=OLD_TAG, deployed_at="t0", migrate_status="migrated")],
         )
         orch = make_orch(tmp_path, deployments=state)
-        orch._record(OLD_TAG, "rollback")
+        orch._record(OLD_TAG, "rollback", OLD_NGINX_TAG)
         result = orch.config.deployments
         assert result.current.app_image == OLD_TAG
         assert result.previous.app_image == older
@@ -1411,6 +1429,7 @@ class TestRecordBookkeeping:
         orch._record(
             NEW_TAG,
             "migrated",
+            NEW_NGINX_TAG,
             backups={SITE: Path("/b/db-shopdb.sql"), SITE2: Path("/b/db-annexdb.sql")},
         )
         entry = orch.config.deployments.history[-1]
@@ -1437,6 +1456,9 @@ class TestRollback:
     def _rollback_rig(self, tmp_path, switch=None, deployments=None, healthy=True, site_names=None):
         orch = make_orch(tmp_path, switch=switch, deployments=deployments, site_names=site_names)
         manager = MagicMock()
+        # Not manager-attached: resolving the companion is not a step of the "minimal by design"
+        # transcript the ordering test below pins.
+        orch._resolve_nginx_image = MagicMock(side_effect=_nginx_for)
         for name, result in (
             ("_fetch_image", {}),
             ("_pin_workers", {}),
@@ -1480,9 +1502,9 @@ class TestRollback:
             "_exec_frappe",
             "_record",
         ]
-        orch.docker_ops.render_image_compose.assert_called_once_with(OLD_TAG)
-        orch._pin_workers.assert_called_once_with(OLD_TAG)
-        orch._record.assert_called_once_with(OLD_TAG, "rollback")
+        orch.docker_ops.render_image_compose.assert_called_once_with(OLD_TAG, OLD_NGINX_TAG)
+        orch._pin_workers.assert_called_once_with(OLD_TAG, OLD_NGINX_TAG)
+        orch._record.assert_called_once_with(OLD_TAG, "rollback", nginx_image=OLD_NGINX_TAG)
 
     def test_rollback_never_drains_backs_up_migrates_or_hooks(self, tmp_path):
         orch, _ = self._rollback_rig(tmp_path)
@@ -1502,7 +1524,7 @@ class TestRollback:
         orch, _ = self._rollback_rig(tmp_path)
         orch._exec_frappe = MagicMock(side_effect=docker_error("gone"))
         orch.rollback(OLD_TAG)
-        orch._record.assert_called_once_with(OLD_TAG, "rollback")
+        orch._record.assert_called_once_with(OLD_TAG, "rollback", nginx_image=OLD_NGINX_TAG)
         assert any("Could not clear maintenance mode" in str(c.args) for c in orch.output.warning.call_args_list)
 
     def test_rollback_imports_the_dump_before_the_swap(self, tmp_path):
@@ -1518,7 +1540,7 @@ class TestRollback:
         orch._restore_db = MagicMock(side_effect=RestoreNotConfirmed("not typed"))
         orch.rollback(OLD_TAG, restore_db_dumps={SITE: tmp_path / "db.sql"})
         orch.docker.compose.up.assert_called_once()
-        orch._record.assert_called_once_with(OLD_TAG, "rollback")
+        orch._record.assert_called_once_with(OLD_TAG, "rollback", nginx_image=OLD_NGINX_TAG)
         assert any("not typed" in str(c.args) for c in orch.output.warning.call_args_list)
 
     def test_every_site_in_the_dump_set_is_restored_with_its_own_dump(self, tmp_path):
@@ -1549,13 +1571,13 @@ class TestRollback:
         ]
         assert any("not typed" in str(c.args) for c in orch.output.warning.call_args_list)
         orch.docker.compose.up.assert_called_once()
-        orch._record.assert_called_once_with(OLD_TAG, "rollback")
+        orch._record.assert_called_once_with(OLD_TAG, "rollback", nginx_image=OLD_NGINX_TAG)
 
     def test_an_unhealthy_rollback_still_records_the_pinned_reality(self, tmp_path):
         orch, _ = self._rollback_rig(tmp_path, healthy=False)
         with pytest.raises(DeployError, match=f"Rollback to {OLD_TAG} failed health check"):
             orch.rollback(OLD_TAG)
-        orch._record.assert_called_once_with(OLD_TAG, "rollback")
+        orch._record.assert_called_once_with(OLD_TAG, "rollback", nginx_image=OLD_NGINX_TAG)
         orch.resume_workers.assert_not_called()
         orch._ensure_nginx.assert_not_called()
 
@@ -1593,14 +1615,14 @@ class TestRollingRestart:
         orch._fetch_image = MagicMock()
         orch._rolling_swap = MagicMock()
         orch._record = MagicMock()
+        orch._resolve_nginx_image = MagicMock(side_effect=_nginx_for)
         return orch
 
     def test_rolling_restart_reuses_the_current_image_on_both_sides(self, tmp_path):
         orch = self._restart_rig(tmp_path, _current_state(OLD_TAG))
         orch.rolling_restart()
-        orch._fetch_image.assert_called_once_with(OLD_TAG)
-        orch._rolling_swap.assert_called_once_with(OLD_TAG, OLD_TAG, {"snap": b"x"})
-        orch._record.assert_not_called()
+        orch._fetch_image.assert_called_once_with(OLD_TAG, OLD_NGINX_TAG)
+        orch._rolling_swap.assert_called_once_with(OLD_TAG, OLD_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {"snap": b"x"})
 
     def test_rolling_restart_refuses_an_unrecorded_bench(self, tmp_path):
         orch = self._restart_rig(tmp_path, Deployments())
@@ -1909,7 +1931,7 @@ class TestRollingSwap:
 
     def test_frappe_is_scaled_before_nginx(self, tmp_path):
         orch = self._swap(tmp_path)
-        orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+        orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
         assert [c.args[0] for c in orch._scale.call_args_list] == [
             {"frappe": 2},
             {"frappe": 2, "nginx": 2},
@@ -1917,13 +1939,13 @@ class TestRollingSwap:
 
     def test_scalable_compose_is_rendered_then_the_canonical_one(self, tmp_path):
         orch = self._swap(tmp_path)
-        orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+        orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
         assert [c.kwargs["rolling"] for c in orch.docker_ops.render_image_compose.call_args_list] == [True, False]
         assert all(c.args[0] == NEW_TAG for c in orch.docker_ops.render_image_compose.call_args_list)
 
     def test_old_replicas_stop_before_they_are_removed_and_nginx_reloads_between(self, tmp_path):
         orch = self._swap(tmp_path)
-        orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+        orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
         assert self._docker_argv(orch) == [
             ("stop", "oldN"),
             ("exec", "newN"),  # reload: survivor re-resolves the frappe upstream
@@ -1938,42 +1960,42 @@ class TestRollingSwap:
 
     def test_survivors_are_renamed_back_to_the_canonical_names(self, tmp_path):
         orch = self._swap(tmp_path)
-        orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+        orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
         renames = [c.args for c in orch._raw_docker.call_args_list if c.args[0] == "rename"]
         assert renames == [("rename", "newF", "shop-frappe"), ("rename", "newN", "shop-nginx")]
 
     def test_the_non_web_tiers_follow_the_swap(self, tmp_path):
         orch = self._swap(tmp_path)
-        orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+        orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
         orch._raw_compose.assert_called_once_with("up", "-d", "--pull", "never", "socketio", "schedule")
         orch._up_workers.assert_called_once()
 
     def test_an_unhealthy_new_frappe_keeps_the_old_one_serving(self, tmp_path):
         orch = self._swap(tmp_path, frappe_ok=False)
         with pytest.raises(DeployError, match="new frappe replica failed health check; kept old, no swap"):
-            orch._rolling_swap(NEW_TAG, OLD_TAG, {"p": b"old"})
+            orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {"p": b"old"})
         assert ("stop", "oldF") not in self._docker_argv(orch)
         assert ("rm", "oldF") not in self._docker_argv(orch)
         orch._restore_compose.assert_called_once_with({"p": b"old"})
-        assert orch._pin_workers.call_args_list[-1].args == (OLD_TAG,)
+        assert orch._pin_workers.call_args_list[-1].args == (OLD_TAG, OLD_NGINX_TAG)
 
     def test_an_unhealthy_new_frappe_tears_down_only_the_new_replica(self, tmp_path):
         orch = self._swap(tmp_path, frappe_ok=False)
         with pytest.raises(DeployError):
-            orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+            orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
         assert ("rm", "newF") in self._docker_argv(orch)
         orch._raw_compose.assert_not_called()
 
     def test_a_missing_new_container_is_the_same_refusal_as_an_unhealthy_one(self, tmp_path):
         orch = self._swap(tmp_path, new_frappe=None)
         with pytest.raises(DeployError, match="new frappe replica failed health check"):
-            orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+            orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
         orch._container_health.assert_not_called()
 
     def test_an_unhealthy_new_nginx_aborts_after_frappe_came_up(self, tmp_path):
         orch = self._swap(tmp_path, nginx_ok=False)
         with pytest.raises(DeployError, match="new nginx replica failed health check; kept old, no swap"):
-            orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+            orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
         argv = self._docker_argv(orch)
         assert ("rm", "newF") in argv
         assert ("rm", "newN") in argv
@@ -1982,8 +2004,8 @@ class TestRollingSwap:
     def test_abort_without_a_previous_image_leaves_the_worker_pin_alone(self, tmp_path):
         orch = self._swap(tmp_path, frappe_ok=False)
         with pytest.raises(DeployError):
-            orch._rolling_swap(NEW_TAG, None, {})
-        assert [c.args for c in orch._pin_workers.call_args_list] == [(NEW_TAG,)]
+            orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, None, None, {})
+        assert [c.args for c in orch._pin_workers.call_args_list] == [(NEW_TAG, NEW_NGINX_TAG)]
 
     def test_scale_translates_a_failed_compose_into_a_deploy_error(self, tmp_path):
         """A non-zero ``compose`` exit raises DockerException from inside the wrapper -- the
@@ -2000,9 +2022,9 @@ class TestRollingSwap:
         matching and fm reads the bench as down -- with orphan new replicas left behind."""
         orch = self._swap(tmp_path, scale_error=docker_error("no such image"))
         with pytest.raises(DeployError, match="compose scale"):
-            orch._rolling_swap(NEW_TAG, OLD_TAG, {"p": b"old"})
+            orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {"p": b"old"})
         orch._restore_compose.assert_called_once_with({"p": b"old"})
-        assert orch._pin_workers.call_args_list[-1].args == (OLD_TAG,)
+        assert orch._pin_workers.call_args_list[-1].args == (OLD_TAG, OLD_NGINX_TAG)
         assert ("stop", "oldF") not in self._docker_argv(orch)
         assert ("rm", "newF") in self._docker_argv(orch)
 
@@ -2010,15 +2032,62 @@ class TestRollingSwap:
 # =============================================================== fetch image
 
 
-class TestFetchImage:
-    def test_fetch_image_translates_a_malformed_tag_into_a_deploy_error(self, tmp_path):
-        """``fm switch mybench local/mybench`` (the missing ``:tag`` typo) reaches
-        ``transport.fetch_image``, which derives the nginx tag FIRST and raises ``BakeError``
-        -- not a ``TransportError``. Untranslated it sails past the CLI's ``except DeployError``
-        and the operator gets a Python traceback for a typo."""
+class TestResolveNginxImage:
+    """`_resolve_nginx_image`: explicit beats the label; the label needs `image` pulled first
+    because it lives INSIDE the image; absent both, refuse naming --nginx-image, the bench and
+    the image (see notes/image-pairing-design.md, "Where the nginx reference comes from")."""
+
+    def test_an_explicit_companion_short_circuits_without_touching_the_daemon(self, tmp_path):
         orch = make_orch(tmp_path)
-        with pytest.raises(DeployError, match=r"Malformed image reference \(missing an explicit ':tag'\): local/mybench"):
-            orch._fetch_image("local/mybench")
+        assert orch._resolve_nginx_image(NEW_TAG, "explicit/nginx:v9") == "explicit/nginx:v9"
+        orch.docker.image_exists.assert_not_called()
+        orch.docker.pull.assert_not_called()
+        orch.docker.image_labels.assert_not_called()
+
+    def test_absent_explicit_falls_back_to_the_recorded_label(self, tmp_path):
+        orch = make_orch(tmp_path)
+        orch.docker.image_exists.return_value = False
+        orch.docker.image_labels.return_value = {"fm.nginx.image": NEW_NGINX_TAG}
+        assert orch._resolve_nginx_image(NEW_TAG, None) == NEW_NGINX_TAG
+
+    def test_the_app_image_is_pulled_before_the_label_is_read(self, tmp_path):
+        """The label lives INSIDE the image, so it cannot be read before the image is local."""
+        orch = make_orch(tmp_path)
+        order = []
+        orch.docker.image_exists.return_value = False
+        orch.docker.pull.side_effect = lambda *a, **k: order.append("pull")
+
+        def _labels(*_a, **_k):
+            order.append("label")
+            return {"fm.nginx.image": NEW_NGINX_TAG}
+
+        orch.docker.image_labels.side_effect = _labels
+        orch._resolve_nginx_image(NEW_TAG, None)
+        assert order == ["pull", "label"]
+
+    def test_no_explicit_and_no_label_refuses_naming_the_flag_the_bench_and_the_image(self, tmp_path):
+        orch = make_orch(tmp_path)
+        orch.docker.image_exists.return_value = True  # already present; nothing to pull
+        orch.docker.image_labels.return_value = {}
+        with pytest.raises(DeployError) as exc:
+            orch._resolve_nginx_image(NEW_TAG, None)
+        message = str(exc.value)
+        assert "--nginx-image" in message
+        assert orch.bench.name in message
+        assert NEW_TAG in message
+
+
+class TestFetchImage:
+    def test_fetch_image_translates_a_transport_error_into_a_deploy_error(self, tmp_path):
+        """``_fetch_image`` no longer derives the companion (it is resolved by the caller and
+        handed in), so the only failure left to translate is a real pull failure -- not a
+        malformed reference. Untranslated, a ``TransportError`` sails past the CLI's
+        ``except DeployError`` as a traceback instead of the pull diagnosis."""
+        orch = make_orch(tmp_path)
+        orch.docker.image_exists.return_value = False
+        orch.docker.pull.side_effect = docker_error("manifest unknown")
+        with pytest.raises(DeployError, match="Could not pull local/mybench"):
+            orch._fetch_image("local/mybench", "local/mybench-nginx")
 
 
 # =================================================================== migrate
@@ -2155,11 +2224,21 @@ class TestMigrateStep:
 
 
 class TestPruneReleases:
-    def _pruner(self, tmp_path, tags, keep_releases=7, current=None, previous=None, backups=None):
+    @staticmethod
+    def _paired(tag: str) -> str:
+        """The nginx companion a fully paired record carries -- test data only, in the naming
+        `fm bake` still mints one by; prune itself no longer derives anything (see notes/
+        image-pairing-design.md, "The rule")."""
+        name, _, version = tag.partition(":")
+        return f"{name}-nginx:{version}"
+
+    def _pruner(self, tmp_path, tags, keep_releases=7, current=None, previous=None, backups=None, nginx_images=None):
         backups = backups or {}
+        nginx_images = nginx_images or {}
         history = [
             Deployment(
                 app_image=t,
+                nginx_image=nginx_images[t] if t in nginx_images else self._paired(t),
                 deployed_at=f"t{i}",
                 migrate_status="migrated",
                 backups={SITE: backups[t]} if backups.get(t) else {},
@@ -2189,14 +2268,14 @@ class TestPruneReleases:
         orch = self._pruner(tmp_path, ["repo:a", "repo:b", "repo:c"], keep_releases=99)
         assert orch.prune_releases(keep=1)["entries"] == 2
 
-    def test_a_colonless_recorded_tag_makes_prune_raise(self, tmp_path):
-        """Pinned, not endorsed: deriving the nginx pair refuses a tag with no
-        ``:``. ``deploy()`` swallows this into a warning; ``fm prune`` does not."""
-        from frappe_manager.site_manager.modules.bake import BakeError
-
-        orch = self._pruner(tmp_path, ["untagged", "repo:b"], keep_releases=1)
-        with pytest.raises(BakeError, match="Malformed image reference"):
-            orch.prune_releases()
+    def test_a_record_with_no_recorded_companion_contributes_only_its_app_image(self, tmp_path):
+        """A record with no `nginx_image` (a pre-label bake, or one fm never paired) is pruned
+        for its app image alone -- prune never falls back to deriving one, unlike before (see
+        notes/image-pairing-design.md, "The rule")."""
+        orch = self._pruner(tmp_path, ["untagged", "repo:b"], keep_releases=1, nginx_images={"untagged": None})
+        summary = orch.prune_releases()
+        assert summary["images"] == ["untagged"]
+        orch.docker.rmi.assert_called_once_with("untagged", stream=False)
 
     def test_a_pruned_tag_is_removed_together_with_its_nginx_pair(self, tmp_path):
         orch = self._pruner(tmp_path, ["repo:a", "repo:b"], keep_releases=1)
@@ -2211,9 +2290,9 @@ class TestPruneReleases:
         assert summary["images"] == []  # the artifact stays
         orch.docker.rmi.assert_not_called()
 
-    def test_the_seed_image_is_protected_too(self, tmp_path):
+    def test_the_apps_from_is_protected_too(self, tmp_path):
         orch = self._pruner(tmp_path, ["repo:a", "repo:b"], keep_releases=1)
-        orch.config.seed_image = "repo:a"
+        orch.config.apps_from = "repo:a"
         assert orch.prune_releases()["images"] == []
 
     def test_a_recorded_backup_dir_is_reported_and_deleted(self, tmp_path):

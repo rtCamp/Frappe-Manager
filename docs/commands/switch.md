@@ -17,6 +17,7 @@ $ fm switch BENCH IMAGE [OPTIONS]
 
 **Options**:
 
+* `--nginx-image TEXT`: The companion assets image for this deploy, as an image reference. Recorded beside the app image, never worked out from its name. Omitted, fm reads the 'fm.nginx.image' label the bake stamped on the app image.
 * `--previous`: Roll back to the previously deployed image, with migrate disabled.  [default: false]
 * `--migrate/--no-migrate`: Force or skip bench migrate for this run, overriding the bench config.
 * `--restore-db`: Also restore the DB dump taken during the deploy you are undoing. This REPLACES the current database: the dump drops and recreates every table, so everything written since that deploy is lost. fm asks you to confirm before importing.  [default: false]

@@ -325,7 +325,7 @@ def variables_sql() -> str:
 
 def schema_state_sql(schema: str) -> str:
     literal = _sql_literal(schema)
-    return (  # noqa: S608 - schema is a config value, escaped as a SQL literal above
+    return (
         "SELECT"
         f" (SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='{literal}'),"
         f" (SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='{literal}')"
@@ -334,7 +334,7 @@ def schema_state_sql(schema: str) -> str:
 
 def frappe_tables_sql(schema: str) -> str:
     wanted = ", ".join(f"'{_sql_literal(name)}'" for name in (*FRAPPE_CORE_TABLES, INSTALLED_APPLICATION_TABLE))
-    return (  # noqa: S608 - schema and table names are escaped SQL literals
+    return (
         "SELECT TABLE_NAME FROM information_schema.TABLES"
         f" WHERE TABLE_SCHEMA='{_sql_literal(schema)}' AND TABLE_NAME IN ({wanted})"
     )

@@ -38,7 +38,7 @@ from frappe_manager.site_manager.modules.compose_shape import (
 EXTERNAL_REDIS = RedisConfig(cache="redis://r.example:6379/0", queue="redis://r.example:6379/1")
 
 
-def _cfg(runtime, name="s.localhost", tag=None, base_image=None, database=None, redis=None, sites=None):
+def _cfg(runtime, name="s.localhost", tag=None, nginx_tag=None, base_image=None, database=None, redis=None, sites=None):
     """`database={site: cfg}` is translated into the `sites` shape the production code reads.
 
     Kept as a kwarg because what these tests assert is "the bench has an external database", not
@@ -46,13 +46,18 @@ def _cfg(runtime, name="s.localhost", tag=None, base_image=None, database=None, 
 
     `sites` names the bench's sites for the image-mode binds, which are one per site. It defaults
     to `[name]`, matching a single-site bench, so a test that does not care is unaffected.
+
+    `nginx_tag` is the recorded companion; it defaults alongside `tag` (`runtime_shape` needs
+    BOTH references or no shape at all -- see `ImageShape`), and a test asserting the no-shape
+    case passes `tag=None` and gets neither.
     """
     recorded = list(sites) if sites else [name]
+    nginx_tag = nginx_tag or (f"{tag}-nginx" if tag else None)
     return SimpleNamespace(
         runtime=runtime,
         name=name,
         base_image=base_image,
-        deployments=SimpleNamespace(current=SimpleNamespace(app_image=tag)) if tag else None,
+        deployments=SimpleNamespace(current=SimpleNamespace(app_image=tag, nginx_image=nginx_tag)) if tag else None,
         sites={site: SiteConfig(database=cfg) for site, cfg in (database or {}).items()} or None,
         site_names=recorded,
         redis=redis,
@@ -82,7 +87,7 @@ def test_mount_shape_base_image_override():
 
 
 def test_image_shape_tags_and_binds():
-    shape = runtime_shape(_cfg(BenchRuntime.image, tag="ghcr.io/acme/erp:jun01"))
+    shape = runtime_shape(_cfg(BenchRuntime.image, tag="ghcr.io/acme/erp:jun01", nginx_tag="ghcr.io/acme/erp-nginx:jun01"))
     assert shape.image("frappe") == "ghcr.io/acme/erp:jun01"
     assert shape.image("nginx") == "ghcr.io/acme/erp-nginx:jun01"  # paired assets image
     targets = [b.container for b in shape.binds()]
@@ -221,7 +226,7 @@ def _cfm(tmp_path):
 
 def test_apply_specs_image_mode_projects_and_preserves(tmp_path):
     cfm = _cfm(tmp_path)
-    cfg = _cfg(BenchRuntime.image, tag="ghcr.io/acme/erp:jun01")
+    cfg = _cfg(BenchRuntime.image, tag="ghcr.io/acme/erp:jun01", nginx_tag="ghcr.io/acme/erp-nginx:jun01")
     apply_specs(cfm, bench_service_specs(cfg), cfg.site_names)
 
     fr = [str(v) for v in cfm.get_service_volumes("frappe")]

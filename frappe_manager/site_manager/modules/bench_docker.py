@@ -7,7 +7,6 @@ This module handles all Docker and docker-compose operations for a bench.
 import os
 import shlex
 import shutil
-import sys
 import tempfile
 from collections.abc import Iterable, Iterator
 from pathlib import Path
@@ -253,18 +252,20 @@ class BenchDockerOps:
 
             apply_specs(self.compose_file_manager, bench_service_specs(self.config), self.config.site_names)
 
-    def render_image_compose(self, deploy_image: str, rolling: bool = False) -> str:
-        """Re-pin the bench compose to ``deploy_image`` (deploy/switch/rollback).
+    def render_image_compose(self, deploy_image: str, nginx_image: str, rolling: bool = False) -> str:
+        """Re-pin the bench compose to ``deploy_image`` + its companion ``nginx_image``
+        (deploy/switch/rollback).
 
         Thin delegator over the compose_shape projection -- the same specs
-        ``generate_compose`` uses, with ``deploy_image`` as the candidate image (so
-        deploy shapes the NEW image without mutating deployments mid-pipeline).
+        ``generate_compose`` uses, with ``deploy_image``/``nginx_image`` as the candidate pair (so
+        deploy shapes the NEW pair without mutating deployments mid-pipeline).
         ``rolling=True`` sheds container_name on the scaled web services so
         ``compose up --scale`` is accepted; the canonical render restores them.
-        Returns the paired nginx assets image. Idempotent.
+        The companion is resolved by the caller (``DeployOrchestrator._resolve_nginx_image``) and
+        passed in here -- never derived (see notes/image-pairing-design.md, "The rule"). Returns
+        ``nginx_image`` unchanged, for callers still shaped around a return value. Idempotent.
         """
         from frappe_manager.site_manager.bench_config import BenchRuntime
-        from frappe_manager.site_manager.modules.bake import BakeManager
         from frappe_manager.site_manager.modules.compose_shape import (
             RenderContext,
             apply_specs,
@@ -275,7 +276,10 @@ class BenchDockerOps:
             raise ValueError("render_image_compose is only valid for image runtime")
 
         with self.compose_file_manager:
-            specs = bench_service_specs(self.config, RenderContext(deploy_image=deploy_image, rolling=rolling))
+            specs = bench_service_specs(
+                self.config,
+                RenderContext(deploy_image=deploy_image, deploy_nginx_image=nginx_image, rolling=rolling),
+            )
             apply_specs(self.compose_file_manager, specs, self.config.site_names)
 
             # Rolling swap: shed container_name on the scaled web
@@ -298,7 +302,7 @@ class BenchDockerOps:
                     )
 
         self.output.print(f"Rendered image-mode compose pinned to {deploy_image}")
-        return BakeManager.nginx_image_ref(deploy_image)
+        return nginx_image
 
     def _seed_nginx_conf(self, conf_dir: Path, nginx_image: str) -> None:
         """Lay the nginx image's `/etc/nginx` onto the host without clobbering fm's overlays.

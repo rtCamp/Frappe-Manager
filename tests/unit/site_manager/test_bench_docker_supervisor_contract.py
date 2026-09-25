@@ -920,7 +920,7 @@ class TestRenderImageCompose:
         ops = _ops(tmp_path, runtime=BenchRuntime.mount)
 
         with pytest.raises(ValueError, match="only valid for image runtime"):
-            ops.render_image_compose("repo/app:v1")
+            ops.render_image_compose("repo/app:v1", "repo/app-nginx:v1")
 
     @pytest.mark.timeout(15)
     def test_returns_the_paired_nginx_assets_tag(self, tmp_path, monkeypatch):
@@ -928,7 +928,7 @@ class TestRenderImageCompose:
         self._patch_shape(monkeypatch, ())
         ops.compose_file_manager.get_services_list.return_value = []
 
-        assert ops.render_image_compose("ghcr.io/x/app:v1.2") == "ghcr.io/x/app-nginx:v1.2"
+        assert ops.render_image_compose("ghcr.io/x/app:v1.2", "ghcr.io/x/app-nginx:v1.2") == "ghcr.io/x/app-nginx:v1.2"
 
     @pytest.mark.timeout(15)
     def test_the_candidate_tag_is_projected_without_touching_deployments(self, tmp_path, monkeypatch):
@@ -938,10 +938,10 @@ class TestRenderImageCompose:
         monkeypatch.setattr(f"{SHAPE_MODULE}.apply_specs", MagicMock())
         ops.compose_file_manager.get_services_list.return_value = []
 
-        ops.render_image_compose("repo/app:v9", rolling=True)
+        ops.render_image_compose("repo/app:v9", "repo/app-nginx:v9", rolling=True)
 
         ctx = specs_fn.call_args.args[1]
-        assert (ctx.deploy_image, ctx.rolling) == ("repo/app:v9", True)
+        assert (ctx.deploy_image, ctx.deploy_nginx_image, ctx.rolling) == ("repo/app:v9", "repo/app-nginx:v9", True)
 
     @pytest.mark.timeout(15)
     def test_rolling_render_sheds_container_name_on_scaled_services(self, tmp_path, monkeypatch):
@@ -955,7 +955,7 @@ class TestRenderImageCompose:
         self._patch_shape(monkeypatch, specs)
         ops.compose_file_manager.get_services_list.return_value = ["frappe", "schedule"]
 
-        ops.render_image_compose("repo:v1", rolling=True)
+        ops.render_image_compose("repo:v1", "repo-nginx:v1", rolling=True)
 
         ops.compose_file_manager.remove_container_name.assert_called_once_with("frappe")
         ops.compose_file_manager.set_container_name.assert_not_called()
@@ -968,7 +968,7 @@ class TestRenderImageCompose:
         self._patch_shape(monkeypatch, specs)
         ops.compose_file_manager.get_services_list.return_value = ["frappe"]
 
-        ops.render_image_compose("repo:v1", rolling=False)
+        ops.render_image_compose("repo:v1", "repo-nginx:v1", rolling=False)
 
         ops.compose_file_manager.set_container_name.assert_called_once_with("frappe", "fm__img_localhost__frappe")
         ops.compose_file_manager.remove_container_name.assert_not_called()
@@ -980,7 +980,7 @@ class TestRenderImageCompose:
         self._patch_shape(monkeypatch, specs)
         ops.compose_file_manager.get_services_list.return_value = ["schedule"]
 
-        ops.render_image_compose("repo:v1", rolling=True)
+        ops.render_image_compose("repo:v1", "repo-nginx:v1", rolling=True)
 
         ops.compose_file_manager.remove_container_name.assert_not_called()
         # Persistence goes through the snapshot context manager (see generate_compose).

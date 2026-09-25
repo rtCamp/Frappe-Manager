@@ -36,19 +36,20 @@ from frappe_manager.utils.helpers import has_explicit_tag
 _BENCH = "x.localhost"
 
 
-def _build(config=None, base_image=None, **flags):
+def _build(config=None, app_image=None, nginx_image=None, **flags):
     """Build through create's real seam. `flags` are the options the user passed."""
     return bench_config_from_inputs(
         config=list(config or []),
         flag_overlay=_flag_overlay(set(flags), flags),
         benchname=_BENCH,
         root_path=f"/tmp/{_BENCH}/bench_config.toml",
-        base_image=base_image,
+        app_image=app_image,
+        nginx_image=nginx_image,
         db_name="fm_x_localhost_dead",
     )[0]
 
 
-def _resolve(runtime=None, base_image=None, apps=None, python=None, node=None):
+def _resolve(runtime=None, app_image=None, apps=None, python=None, node=None):
     """The old tuple shape, so the cases below still read as one-liners.
 
     Returns (runtime, image, current_image, base_image) off the built config.
@@ -62,7 +63,7 @@ def _resolve(runtime=None, base_image=None, apps=None, python=None, node=None):
         flags["python_version"] = python
     if node is not None:
         flags["node_version"] = node
-    bc = _build(base_image=base_image, **flags)
+    bc = _build(app_image=app_image, **flags)
     return (
         bc.runtime,
         bc.image,
@@ -82,7 +83,7 @@ def test_default_is_mount_backward_compatible():
 
 def test_base_image_flag_does_not_imply_image_runtime():
     # --base-image does not flip the runtime; it overrides the mount base image.
-    mode, image_repo, current_image, base_image = _resolve(base_image="ghcr.io/acme/frappe-custom:v15")
+    mode, image_repo, current_image, base_image = _resolve(app_image="ghcr.io/acme/frappe-custom:v15")
     assert mode == BenchRuntime.mount
     assert image_repo is None
     assert current_image is None
@@ -91,14 +92,14 @@ def test_base_image_flag_does_not_imply_image_runtime():
 
 def test_mount_base_image_requires_pinning():
     with pytest.raises(typer.BadParameter, match="base_image must be pinned to a specific version"):
-        _resolve(base_image="ghcr.io/acme/frappe-custom")
+        _resolve(app_image="ghcr.io/acme/frappe-custom")
 
 
 def test_mount_base_image_accepts_a_digest_pin():
     """MountShape.image() uses base_image directly (no name-derived companion), so a digest is
     serviceable and must not be refused."""
     digest_ref = "ghcr.io/acme/frappe-custom@sha256:" + "a" * 64
-    mode, image_repo, current_image, base_image = _resolve(base_image=digest_ref)
+    mode, image_repo, current_image, base_image = _resolve(app_image=digest_ref)
     assert mode == BenchRuntime.mount
     assert base_image == digest_ref
 
@@ -114,8 +115,8 @@ def test_image_runtime_requires_a_prebuilt_image():
 
 def test_base_image_serves_both_runtimes_from_one_flag():
     """Same flag, same meaning (what the containers run), different persistence."""
-    mount = _resolve(base_image="ghcr.io/acme/frappe:v16")
-    image = _resolve(runtime=BenchRuntime.image, base_image="ghcr.io/acme/app:v42")
+    mount = _resolve(app_image="ghcr.io/acme/frappe:v16")
+    image = _resolve(runtime=BenchRuntime.image, app_image="ghcr.io/acme/app:v42")
 
     assert (mount[0], mount[3]) == (BenchRuntime.mount, "ghcr.io/acme/frappe:v16")
     assert (image[0], image[1], image[2]) == (BenchRuntime.image, "ghcr.io/acme/app", "ghcr.io/acme/app:v42")
@@ -124,7 +125,7 @@ def test_base_image_serves_both_runtimes_from_one_flag():
 
 def test_image_runtime_requires_tag():
     with pytest.raises(typer.BadParameter):
-        _resolve(runtime=BenchRuntime.image, base_image="ghcr.io/acme/mybench")
+        _resolve(runtime=BenchRuntime.image, app_image="ghcr.io/acme/mybench")
 
 
 def test_image_runtime_base_image_refuses_a_digest_with_the_reason():
@@ -135,27 +136,27 @@ def test_image_runtime_base_image_refuses_a_digest_with_the_reason():
     companion is derived by name and a digest cannot supply one."""
     digest_ref = "ghcr.io/acme/mybench@sha256:" + "a" * 64
     with pytest.raises(typer.BadParameter, match="content hash of ONE image"):
-        _resolve(runtime=BenchRuntime.image, base_image=digest_ref)
+        _resolve(runtime=BenchRuntime.image, app_image=digest_ref)
 
 
 def test_image_runtime_rejects_apps():
     with pytest.raises(typer.BadParameter):
-        _resolve(runtime=BenchRuntime.image, base_image="ghcr.io/acme/mybench:v1", apps=["erpnext"])
+        _resolve(runtime=BenchRuntime.image, app_image="ghcr.io/acme/mybench:v1", apps=["erpnext"])
 
 
 def test_image_runtime_rejects_python():
     with pytest.raises(typer.BadParameter):
-        _resolve(runtime=BenchRuntime.image, base_image="ghcr.io/acme/mybench:v1", python="3.12")
+        _resolve(runtime=BenchRuntime.image, app_image="ghcr.io/acme/mybench:v1", python="3.12")
 
 
 def test_image_runtime_rejects_node():
     with pytest.raises(typer.BadParameter):
-        _resolve(runtime=BenchRuntime.image, base_image="ghcr.io/acme/mybench:v1", node="20")
+        _resolve(runtime=BenchRuntime.image, app_image="ghcr.io/acme/mybench:v1", node="20")
 
 
 def test_image_runtime_splits_repo_and_keeps_tag():
     mode, image_repo, current_image, base_image = _resolve(
-        runtime=BenchRuntime.image, base_image="ghcr.io/acme/mybench:fm-1"
+        runtime=BenchRuntime.image, app_image="ghcr.io/acme/mybench:fm-1"
     )
     assert mode == BenchRuntime.image
     assert image_repo == "ghcr.io/acme/mybench"
@@ -181,7 +182,7 @@ def test_created_image_bench_persists_deploy_fields(tmp_path):
     # The full path a created image bench takes: resolver -> BenchConfig -> TOML -> reload.
     path = tmp_path / "bench_config.toml"
     mode, image_repo, current_image, base_image = _resolve(
-        runtime=BenchRuntime.image, base_image="ghcr.io/acme/mybench:fm-1"
+        runtime=BenchRuntime.image, app_image="ghcr.io/acme/mybench:fm-1"
     )
     bc = BenchConfig(
         name="mybench.localhost",
@@ -206,7 +207,7 @@ def test_created_image_bench_persists_deploy_fields(tmp_path):
 
 def test_created_mount_bench_persists_base_image(tmp_path):
     path = tmp_path / "bench_config.toml"
-    mode, image_repo, _current_image, base_image = _resolve(base_image="local/frappe-base:test")
+    mode, image_repo, _current_image, base_image = _resolve(app_image="local/frappe-base:test")
     bc = BenchConfig(
         name="ovr.localhost",
         developer_mode=True,
@@ -230,45 +231,45 @@ def test_created_mount_bench_persists_base_image(tmp_path):
 _TAGGED_SEED = "ghcr.io/acme/erp:jun01"
 
 
-def test_seed_image_rejects_image_runtime():
+def test_apps_from_rejects_image_runtime():
     with pytest.raises(typer.BadParameter, match="MOUNT"):
-        _build(runtime=BenchRuntime.image, seed_image=_TAGGED_SEED)
+        _build(runtime=BenchRuntime.image, apps_from=_TAGGED_SEED)
 
 
-def test_seed_image_requires_pinning():
-    with pytest.raises(typer.BadParameter, match="seed_image must be pinned"):
-        _build(seed_image="localhost:5000/repo")
+def test_apps_from_requires_pinning():
+    with pytest.raises(typer.BadParameter, match="apps_from must be pinned"):
+        _build(apps_from="localhost:5000/repo")
 
 
-def test_seed_image_accepts_a_digest_pin():
+def test_apps_from_accepts_a_digest_pin():
     """A one-shot mount-workspace extraction never derives a companion by name, so a digest is
     serviceable and must not be refused."""
     digest_ref = "ghcr.io/acme/erp@sha256:" + "b" * 64
-    bc = _build(seed_image=digest_ref)
-    assert bc.seed_image == digest_ref
+    bc = _build(apps_from=digest_ref)
+    assert bc.apps_from == digest_ref
 
 
-def test_seed_image_valid_contract_passes():
+def test_apps_from_valid_contract_passes():
     # --apps (overrides) and --python/--node (toolchain swap) are ALLOWED with --seed-image;
     # only image runtime and tagless references are rejected.
-    bc = _build(seed_image=_TAGGED_SEED, apps=[AppConfig.from_string("erpnext")], python_version="3.12")
-    assert bc.seed_image == _TAGGED_SEED
+    bc = _build(apps_from=_TAGGED_SEED, apps=[AppConfig.from_string("erpnext")], python_version="3.12")
+    assert bc.apps_from == _TAGGED_SEED
 
 
 def test_a_seeded_workspace_keeps_its_own_frappe():
     """No frappe auto-injection: the seed carries one, and a default would clobber it."""
-    seeded = _build(seed_image=_TAGGED_SEED)
+    seeded = _build(apps_from=_TAGGED_SEED)
     assert seeded.apps_list == [], "an empty override list must stay empty for a seeded workspace"
 
     unseeded = _build()
     assert [a.name for a in unseeded.apps_list] == ["frappe"], "an unseeded create still gets frappe first"
 
 
-def test_seed_image_survives_a_config_overlay():
+def test_apps_from_survives_a_config_overlay():
     """The flag used to be dropped whenever --config was also passed, and the bench then cloned
     and installed its apps from scratch while reporting success."""
-    bc = _build(config=['upload_limit = "77M"'], seed_image=_TAGGED_SEED)
-    assert bc.seed_image == _TAGGED_SEED
+    bc = _build(config=['upload_limit = "77M"'], apps_from=_TAGGED_SEED)
+    assert bc.apps_from == _TAGGED_SEED
     assert bc.upload_limit == "77M", "the overlay must still apply"
 
 
@@ -308,14 +309,14 @@ def test_developer_mode_matrix(environment, runtime, enable, expected):
     base_image = "ghcr.io/acme/app:v1" if runtime == BenchRuntime.image else None
     if runtime == BenchRuntime.image:
         flags["runtime"] = runtime
-    assert _build(base_image=base_image, **flags).developer_mode is expected
+    assert _build(app_image=base_image, **flags).developer_mode is expected
 
 
 def test_developer_mode_enable_refused_on_image_runtime():
     with pytest.raises(typer.BadParameter, match="developer mode"):
         _build(
             runtime=BenchRuntime.image,
-            base_image="ghcr.io/acme/app:v1",
+            app_image="ghcr.io/acme/app:v1",
             environment=FMBenchEnvType.dev,
             developer_mode=True,
         )
@@ -339,7 +340,7 @@ def test_mount_only_inputs_are_refused_whichever_way_the_runtime_was_spelled(mou
     """The asymmetry this seam exists to remove: the flag path refused these, the --config path
     accepted them and left the values on disk with nothing reading them."""
     with pytest.raises(typer.BadParameter, match="image runtime carries its own"):
-        _build(runtime=BenchRuntime.image, base_image="ghcr.io/acme/app:v1", **mount_only)
+        _build(runtime=BenchRuntime.image, app_image="ghcr.io/acme/app:v1", **mount_only)
 
     with pytest.raises(typer.BadParameter, match="image runtime carries its own"):
         _build(config=['runtime = "image"\n[deployments.current]\napp_image = "ghcr.io/acme/app:v1"\ndeployed_at = "t0"\nmigrate_status = "migrated"'], **mount_only)
@@ -348,7 +349,7 @@ def test_mount_only_inputs_are_refused_whichever_way_the_runtime_was_spelled(mou
 @pytest.mark.parametrize(
     ("overlay", "expected"),
     [
-        ('seed_image = "ghcr.io/acme/erp"', "seed_image must be pinned"),
+        ('apps_from = "ghcr.io/acme/erp"', "apps_from must be pinned"),
         ('base_image = "ghcr.io/acme/frappe"', "base_image must be pinned"),
         ('runtime = "image"\nimage = "ghcr.io/acme/app"', "needs a pre-built image"),
     ],

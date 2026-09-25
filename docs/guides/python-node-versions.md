@@ -43,7 +43,7 @@ fm update mybench --node 20
 ```
 
 !!! note "Mount benches only"
-    Changing Python/Node needs an editable workspace (the default `mount` runtime). On an `image` bench the toolchain is baked into the image; rebuild and ship it with `fm bake` then `fm switch` (see the [Deployment guide](../deploy/index.md)). Runtime is fixed at create time; if you need an editable copy of what an image bench runs, create a new bench with `fm create NAME --seed-image REPO:TAG`.
+    Changing Python/Node needs an editable workspace (the default `mount` runtime). On an `image` bench the toolchain is baked into the image; rebuild and ship it with `fm bake` then `fm switch` (see the [Deployment guide](../deploy/index.md)). Runtime is fixed at create time; if you need an editable copy of what an image bench runs, create a new bench with `fm create NAME --apps-from REPO:TAG`.
 
 **What happens when you update Python:**
 

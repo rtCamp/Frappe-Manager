@@ -102,7 +102,7 @@ class FakeConfig:
         self.deployments = None
         self.db_name = DB
         self.apps_list = []
-        self.seed_image = None
+        self.apps_from = None
         self.base_image = None
         self.registry = None
         self.database = {}

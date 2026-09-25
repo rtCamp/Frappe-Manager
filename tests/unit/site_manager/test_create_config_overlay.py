@@ -45,7 +45,7 @@ backup_db = true
 """
 
 
-def _build(config, *, base_image=None, **flags):
+def _build(config, *, app_image=None, nginx_image=None, **flags):
     """Build through the real seam. Whatever appears in `flags` is what the user passed.
 
     There is no separate `explicit` argument any more, and that is the point: passing a flag and
@@ -57,7 +57,8 @@ def _build(config, *, base_image=None, **flags):
         flag_overlay=_flag_overlay(set(flags), flags),
         benchname="x.localhost",
         root_path=_ROOT,
-        base_image=base_image,
+        app_image=app_image,
+        nginx_image=nginx_image,
         db_name="fm_x_deadbeef",
     )
 
@@ -109,7 +110,7 @@ def test_image_runtime_via_flags_resolves_tag():
     bc, _ = _build(
         ['environment = "prod"\n'],
         runtime=BenchRuntime.image,
-        base_image="ghcr.io/acme/app:fm-1",
+        app_image="ghcr.io/acme/app:fm-1",
     )
     assert bc.runtime == BenchRuntime.image
     assert bc.image == "ghcr.io/acme/app"  # tag stripped for top-level image
@@ -137,31 +138,31 @@ def test_explicit_apps_rejected_in_image_runtime():
         _build(
             [],
             runtime=BenchRuntime.image,
-            base_image="ghcr.io/acme/app:v1",
+            app_image="ghcr.io/acme/app:v1",
             apps=[AppConfig.from_string("erpnext:version-15")],
         )
 
 
-def test_an_explicit_seed_image_overrides_the_config():
+def test_an_explicit_apps_from_overrides_the_config():
     """`fm create --config x.toml --seed-image repo:tag` silently dropped the seed: it was only read
     on the no---config branch, so the bench cloned and installed its apps from scratch instead of
     seeding from the baked image. --config's own help promises explicit flags win."""
-    bc, _ = _build([_CFG], seed_image="ghcr.io/acme/app:seed-1")
+    bc, _ = _build([_CFG], apps_from="ghcr.io/acme/app:seed-1")
 
-    assert bc.seed_image == "ghcr.io/acme/app:seed-1"
-
-
-def test_a_seed_image_only_in_the_config_is_still_honoured():
-    bc, _ = _build(['seed_image = "ghcr.io/acme/app:from-cfg"\n'])
-
-    assert bc.seed_image == "ghcr.io/acme/app:from-cfg"
+    assert bc.apps_from == "ghcr.io/acme/app:seed-1"
 
 
-def test_an_unversioned_seed_image_is_refused():
+def test_a_apps_from_only_in_the_config_is_still_honoured():
+    bc, _ = _build(['apps_from = "ghcr.io/acme/app:from-cfg"\n'])
+
+    assert bc.apps_from == "ghcr.io/acme/app:from-cfg"
+
+
+def test_an_unversioned_apps_from_is_refused():
     """A floating tag would make the seeded workspace unreproducible, so an explicit tag is
     demanded. That check ran only on the flag path before."""
     with pytest.raises(typer.BadParameter, match="explicit ':tag'"):
-        _build([], seed_image="ghcr.io/acme/app")
+        _build([], apps_from="ghcr.io/acme/app")
 
 
 # ------------------------------------------------------------ the wiring invariants
@@ -188,12 +189,12 @@ _PROBES: dict[str, tuple[object, object]] = {
     "python_version": ("3.12", "3.13"),
     "restart_policy": (RestartPolicyEnum.no, RestartPolicyEnum.always),
     "runtime": (BenchRuntime.mount, BenchRuntime.image),
-    "seed_image": ("ghcr.io/acme/seed:one", "ghcr.io/acme/seed:two"),
+    "apps_from": ("ghcr.io/acme/seed:one", "ghcr.io/acme/seed:two"),
 }
 
 _COMPANIONS: dict[str, dict[str, object]] = {
     "developer_mode": {"environment": FMBenchEnvType.prod},
-    "runtime": {"base_image": "ghcr.io/acme/app:v1"},
+    "runtime": {"app_image": "ghcr.io/acme/app:v1"},
 }
 
 

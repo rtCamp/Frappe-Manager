@@ -101,7 +101,7 @@ def _config(*, sites=None, aliases=None, **over):
         "admin_pass": ADMIN_PW,
         "deployments": None,
         "base_image": None,
-        "seed_image": None,
+        "apps_from": None,
         "admin_tools": False,
         "auth": None,
         # The disk row's inputs: no per-bench overrides, no switch table (keep_releases default).
@@ -551,10 +551,10 @@ def test_display_info_apps_label_only_on_the_first_row_and_em_dash_for_a_missing
     assert rows[2] == "?  [fm.muted]—  [/fm.muted]"
 
 
-def test_display_info_mount_runtime_shows_base_and_seed_images_not_an_image_ref(tmp_path, card_spy):
+def test_display_info_mount_runtime_shows_base_and_apps_froms_not_an_image_ref(tmp_path, card_spy):
     info = _displayable(tmp_path)
     info.bench_config.base_image = "ghcr.io/acme/base:1"
-    info.bench_config.seed_image = "ghcr.io/acme/seed:1"
+    info.bench_config.apps_from = "ghcr.io/acme/seed:1"
     info.display_info()
 
     (card,) = card_spy.made
@@ -837,7 +837,7 @@ def test_fetch_image_does_nothing_when_both_tags_are_present():
     """
     docker = MagicMock()
     docker.image_exists.return_value = True
-    fetch_image(docker, "ghcr.io/acme/erp:jun01")
+    fetch_image(docker, "ghcr.io/acme/erp:jun01", "ghcr.io/acme/erp-nginx:jun01")
     docker.pull.assert_not_called()
     docker.login.assert_not_called()
 
@@ -846,7 +846,7 @@ def test_fetch_image_pulls_only_the_missing_tags():
     docker = MagicMock()
     docker.image_exists.side_effect = lambda ref: ref == "ghcr.io/acme/erp:jun01"
 
-    fetch_image(docker, "ghcr.io/acme/erp:jun01", output=MagicMock())
+    fetch_image(docker, "ghcr.io/acme/erp:jun01", "ghcr.io/acme/erp-nginx:jun01", output=MagicMock())
 
     docker.pull.assert_called_once_with("ghcr.io/acme/erp-nginx:jun01", stream=False)
 
@@ -854,7 +854,7 @@ def test_fetch_image_pulls_only_the_missing_tags():
 def test_fetch_image_pulls_both_tags_when_neither_is_present():
     docker = MagicMock()
     docker.image_exists.return_value = False
-    fetch_image(docker, "r:t")
+    fetch_image(docker, "r:t", "r-nginx:t")
     assert [c.args[0] for c in docker.pull.call_args_list] == ["r:t", "r-nginx:t"]
 
 
@@ -870,7 +870,7 @@ def test_fetch_image_raises_when_the_companion_image_pull_fails():
     output = MagicMock()
 
     with pytest.raises(TransportError) as err:
-        fetch_image(docker, "r:t", output=output)
+        fetch_image(docker, "r:t", "r-nginx:t", output=output)
 
     assert "r-nginx:t" in str(err.value)
     output.warning.assert_not_called()
@@ -882,7 +882,7 @@ def test_fetch_image_raises_when_the_app_image_pull_fails():
     docker.pull.side_effect = _docker_exc()
 
     with pytest.raises(TransportError) as err:
-        fetch_image(docker, "r:t")
+        fetch_image(docker, "r:t", "r-nginx:t")
 
     # The wording and its login diagnosis live in test_pull_diagnosis.py; here it is only
     # that the app image's failure is fatal, names the tag, and keeps the cause attached.
@@ -1139,7 +1139,7 @@ def _listable_bench(path: Path, name: str, *, sites=(SITE,), aliases=(), **over)
         apps_list=[SimpleNamespace(name="frappe")],
         deployments=None,
         base_image=None,
-        seed_image=None,
+        apps_from=None,
         developer_mode=False,
         admin_tools=True,
         restart_policy=SimpleNamespace(value="always"),
@@ -1291,7 +1291,7 @@ def test_list_benches_view_warns_about_a_broken_bench_and_draws_no_card(tmp_path
             "apps": [],
             "deployed_image": None,
             "base_image": None,
-            "seed_image": None,
+            "apps_from": None,
             "alias_domains": [],
             "path": "/benches/a.localhost",
         },
@@ -1324,7 +1324,7 @@ def test_list_benches_view_adds_image_and_alias_facts_only_when_set(tmp_path, mo
         "apps": ["frappe", "hrms"],
         "deployed_image": "r:new",
         "base_image": "ghcr.io/acme/base:1",
-        "seed_image": "ghcr.io/acme/seed:1",
+        "apps_from": "ghcr.io/acme/seed:1",
         "alias_domains": ["alias.localhost", "b.localhost"],
         "path": "/benches/a.localhost",
     }

@@ -104,12 +104,13 @@ class TestLoggedInDetection:
 
 
 class TestTheMessage:
-    def _fail(self, image, stderr, logged_in):
+    def _fail(self, image, stderr, logged_in, nginx_image=None):
         docker = MagicMock()
         docker.image_exists.return_value = False
         docker.pull.side_effect = _docker_error(stderr)
+        nginx_image = nginx_image or f"{image}-nginx"
         with patch(f"{MODULE}.logged_in_to", return_value=logged_in), pytest.raises(TransportError) as excinfo:
-            fetch_image(docker, image)
+            fetch_image(docker, image, nginx_image)
         return str(excinfo.value)
 
     def test_a_logged_out_pull_names_the_login_command(self):
@@ -176,7 +177,7 @@ class TestTheCompanionImageIsNoLongerOptional:
         output = MagicMock()
 
         with patch(f"{MODULE}.logged_in_to", return_value=False), pytest.raises(TransportError) as err:
-            fetch_image(docker, "ghcr.io/acme/app:v1", output=output)
+            fetch_image(docker, "ghcr.io/acme/app:v1", "ghcr.io/acme/app-nginx:v1", output=output)
 
         assert "ghcr.io/acme/app-nginx:v1" in str(err.value)
         output.warning.assert_not_called()

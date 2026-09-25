@@ -67,10 +67,14 @@ class RenderContext:
     """Operation context for a projection.
 
     deploy_image: candidate app image for deploy/switch/rollback (None = the
-    recorded ``deployments.current.app_image``). rolling: rolling-swap render.
+    recorded ``deployments.current.app_image``). deploy_nginx_image: its companion, carried
+    together because the two are ONE decision -- a projection given only the app image would
+    have to work the companion out from its name, which is the guess this design removes.
+    rolling: rolling-swap render.
     """
 
     deploy_image: str | None = None
+    deploy_nginx_image: str | None = None
     rolling: bool = False
 
 
@@ -198,17 +202,14 @@ class MountShape:
 
 @dataclass(frozen=True)
 class ImageShape:
-    """Image runtime: immutable app image; data-only binds."""
+    """Image runtime: immutable app image plus the companion recorded beside it; data-only binds."""
 
     image_ref: str
+    nginx_image_ref: str
     sites: tuple[str, ...]
 
     def image(self, service: str) -> str | None:
-        if service == "nginx":
-            from frappe_manager.site_manager.modules.bake import BakeManager
-
-            return BakeManager.nginx_image_ref(self.image_ref)
-        return self.image_ref
+        return self.nginx_image_ref if service == "nginx" else self.image_ref
 
     def binds(self) -> list[VolumeBind]:
         return data_binds(self.sites)
@@ -223,13 +224,20 @@ def runtime_shape(config, ctx: RenderContext = DEFAULT_CONTEXT) -> RuntimeShape 
     from frappe_manager.site_manager.bench_config import BenchRuntime
 
     if config.runtime == BenchRuntime.image:
-        image_ref = ctx.deploy_image or (
-            config.deployments.current.app_image if config.deployments and config.deployments.current else None
-        )
+        current = config.deployments.current if config.deployments else None
+        image_ref = ctx.deploy_image or (current.app_image if current else None)
+        nginx_ref = ctx.deploy_nginx_image or (current.nginx_image if current else None)
         # Every recorded site, NOT config.name: the bench name is not a site, and on a bench
         # where they differ the container would mount a directory that does not exist while
         # the real sites stayed invisible.
-        return ImageShape(image_ref=image_ref, sites=tuple(config.site_names)) if image_ref else None
+        #
+        # BOTH references or no shape: half a pair would leave one service pinned to an image
+        # nothing chose.
+        return (
+            ImageShape(image_ref=image_ref, nginx_image_ref=nginx_ref, sites=tuple(config.site_names))
+            if image_ref and nginx_ref
+            else None
+        )
     return MountShape(base_image=config.base_image)
 
 

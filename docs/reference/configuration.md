@@ -269,7 +269,7 @@ developer_mode = true
 ```
 
 !!! warning "Refused on image runtime"
-    `developer_mode = true` cannot be combined with `runtime = "image"`. DocType authoring writes app *source* files, and standard doctypes only sync files into the database, never back, so those writes would land in the container's ephemeral layer and be lost on the next deploy. `fm create` rejects both the flag and a config overlay that sets it. Runtime is fixed at create time, so an image bench cannot gain developer mode: create a mount bench instead, seeding it from the same release with `fm create NAME --seed-image REPO:TAG` if you want the same code.
+    `developer_mode = true` cannot be combined with `runtime = "image"`. DocType authoring writes app *source* files, and standard doctypes only sync files into the database, never back, so those writes would land in the container's ephemeral layer and be lost on the next deploy. `fm create` rejects both the flag and a config overlay that sets it. Runtime is fixed at create time, so an image bench cannot gain developer mode: create a mount bench instead, seeding it from the same release with `fm create NAME --apps-from REPO:TAG` if you want the same code.
 
 **Change via:** `fm update BENCH --developer-mode enable|disable` (needs an editable workspace: mount runtime)
 
@@ -752,16 +752,16 @@ Bench runtime model:
 
 ---
 
-### `image`, `base_image`, `seed_image` {#images}
+### `image`, `base_image`, `apps_from` {#images}
 
 **Default:** `null`  
 **Type:** `string | null`
 
 | Key | Applies to | Meaning |
 |---|---|---|
-| `image` | image runtime | App image repository, the pre-built app image the bench runs. Set by `fm create --runtime image --base-image <repo:tag>`, which persists the repo half here, and by `fm bake --app-image`, which bakes into it. FM manages the `:tag` separately through [`[deployments].current.app_image`](#deployments), rewritten by `fm switch` on every deploy, so this key is the repo and never the running image |
-| `base_image` | mount runtime | The base frappe image (`repo:tag`) the frappe/socketio/schedule/workers containers **run from**, under your editable workspace. Set by `fm create --base-image`, and static once set: nothing rewrites it. Not the same key as [`[build].base_image`](#deploy-tables), which is what a bake builds from |
-| `seed_image` | mount runtime | Provenance record: the baked image the workspace was seeded from at create (`fm create --seed-image`). Read once at create and never again, unlike `base_image`, which the containers run from at every start |
+| `image` | image runtime | App image repository, the pre-built app image the bench runs. Set by `fm create --runtime image --app-image <repo:tag>`, which persists the repo half here, and by `fm bake --app-image`, which bakes into it. FM manages the `:tag` separately through [`[deployments].current.app_image`](#deployments), rewritten by `fm switch` on every deploy, so this key is the repo and never the running image |
+| `base_image` | mount runtime | The base frappe image (`repo:tag`) the frappe/socketio/schedule/workers containers **run from**, under your editable workspace. Set by `fm create --app-image`, and static once set: nothing rewrites it. Not the same key as [`[build].base_image`](#deploy-tables), which is what a bake builds from |
+| `apps_from` | mount runtime | Provenance record: the baked image the workspace was seeded from at create (`fm create --apps-from`). Read once at create and never again, unlike `base_image`, which the containers run from at every start |
 
 ---
 

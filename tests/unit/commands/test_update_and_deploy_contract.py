@@ -924,6 +924,7 @@ class TestSwitchTargetImageResolution:
 
         assert ship.orchestrator.deploy.call_args.args == ("local/mybench:t9",)
         assert ship.orchestrator.deploy.call_args.kwargs == {
+            "nginx_image": None,
             "rolling": None,
             "migrate_override": None,
             "restore_db_dumps": {},

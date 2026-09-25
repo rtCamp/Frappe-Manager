@@ -22,7 +22,6 @@ from frappe_manager.site_manager.exceptions import BenchOperationException
 from frappe_manager.utils.helpers import get_template_path
 from frappe_manager.utils.site import host_bench_dir
 
-
 # Custom worker queue names become supervisor program names
 # (<bench>-frappe-<name>-worker) and compose services (<name>-worker); these
 # would collide with the built-in programs.
