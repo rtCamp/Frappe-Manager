@@ -1408,3 +1408,121 @@ def test_the_operator_is_told_where_the_dump_is(step, tmp_path, monkeypatch):
 
     printed = " ".join(str(c.args[0]) for c in step.output.print.call_args_list if c.args)
     assert "dump.sql.gz" in printed
+
+
+# --------------------------------------------------------- the site that never existed
+
+
+def _with_site_dirs(tmp_path, *names: str):
+    """Give the bench real site directories, which is what tells a recorded site from a phantom."""
+    for name in names:
+        site = tmp_path / "workspace" / "frappe-bench" / "sites" / name
+        site.mkdir(parents=True, exist_ok=True)
+        (site / "site_config.json").write_text("{}")
+
+
+def test_a_bench_that_already_records_its_site_gains_no_second_entry(step, tmp_path):
+    """The bug this step shipped for years: `fm create shop` makes a bench `shop` serving
+    `shop.localhost`, and seeding the BENCH name added `[sites.shop]`, a site with no directory
+    behind it, on every migration run."""
+    bench, path = _bench_named(tmp_path, "shop", BASE + f'\n[sites."{SITE}"]\n')
+    _with_site_dirs(tmp_path, SITE)
+
+    step._write_sites_table(bench)
+
+    assert list(BenchConfig.import_from_toml(path).sites or {}) == [SITE]
+
+
+def test_a_legacy_bench_with_no_table_still_gets_its_site_recorded(step, tmp_path):
+    """The shape this step was written for: no `[sites]` at all, and the bench name IS the site
+    name because that is what the bench was created under."""
+    bench, path = _bench(tmp_path, BASE)
+
+    step._write_sites_table(bench)
+
+    assert list(BenchConfig.import_from_toml(path).sites or {}) == [SITE]
+
+
+def test_a_table_less_bench_records_the_site_on_disk_not_its_own_name(step, tmp_path):
+    bench, path = _bench_named(tmp_path, "shop", BASE)
+    _with_site_dirs(tmp_path, SITE)
+
+    step._write_sites_table(bench)
+
+    assert list(BenchConfig.import_from_toml(path).sites or {}) == [SITE]
+
+
+def test_a_bench_only_bench_gets_no_site_at_all(step, tmp_path):
+    """A readable sites directory holding nothing is a bench that genuinely serves no site;
+    inventing one is the same phantom by another route."""
+    bench, path = _bench_named(tmp_path, "shop", BASE)
+    (tmp_path / "workspace" / "frappe-bench" / "sites").mkdir(parents=True)
+
+    step._write_sites_table(bench)
+
+    assert BenchConfig.import_from_toml(path).sites in (None, {})
+
+
+def test_the_phantom_entry_is_dropped(step, tmp_path):
+    bench, path = _bench_named(tmp_path, "shop", BASE + f'\n[sites."{SITE}"]\n\n[sites.shop]\n')
+    _with_site_dirs(tmp_path, SITE)
+
+    step._drop_phantom_sites(bench)
+
+    assert list(BenchConfig.import_from_toml(path).sites or {}) == [SITE]
+
+
+def test_a_phantom_carrying_only_empty_keys_is_dropped(step, tmp_path):
+    """The shape found on real hosts: the seeding step wrote `alias_domains = []` into it, so
+    "has no keys" missed every one of them."""
+    written = BASE + f'\n[sites."{SITE}"]\nalias_domains = []\n\n[sites.shop]\nalias_domains = []\n'
+    bench, path = _bench_named(tmp_path, "shop", written)
+    _with_site_dirs(tmp_path, SITE)
+
+    step._drop_phantom_sites(bench)
+
+    assert list(BenchConfig.import_from_toml(path).sites or {}) == [SITE]
+
+
+def test_a_phantom_with_real_aliases_is_kept(step, tmp_path):
+    """A non-empty list is routing someone configured; absence from disk does not make it litter."""
+    written = BASE + f'\n[sites."{SITE}"]\n\n[sites.shop]\nalias_domains = ["www.example.com"]\n'
+    bench, path = _bench_named(tmp_path, "shop", written)
+    _with_site_dirs(tmp_path, SITE)
+
+    step._drop_phantom_sites(bench)
+
+    assert set(BenchConfig.import_from_toml(path).sites or {}) == {SITE, "shop"}
+
+
+def test_an_absent_site_carrying_facts_is_kept(step, tmp_path):
+    """Only an absent entry that records NOTHING is the migration's own litter. One holding a
+    database is something someone wrote down, and `fm info` already reports the missing directory."""
+    written = BASE + f'\n[sites."{SITE}"]\n\n[sites."gone.localhost".database]\nhost = "rds.internal"\nname = "app"\nuser = "svc"\n'
+    bench, path = _bench_named(tmp_path, "shop", written)
+    _with_site_dirs(tmp_path, SITE)
+
+    step._drop_phantom_sites(bench)
+
+    assert set(BenchConfig.import_from_toml(path).sites or {}) == {SITE, "gone.localhost"}
+
+
+def test_nothing_is_dropped_when_no_recorded_site_exists_on_disk(step, tmp_path):
+    """Empty means "cannot tell", never "delete them all": a bench whose sites directory is
+    unreadable would otherwise be emptied of every site it serves."""
+    bench, path = _bench_named(tmp_path, "shop", BASE + f'\n[sites."{SITE}"]\n\n[sites.shop]\n')
+
+    step._drop_phantom_sites(bench)
+
+    assert set(BenchConfig.import_from_toml(path).sites or {}) == {SITE, "shop"}
+
+
+def test_dropping_phantoms_is_idempotent(step, tmp_path):
+    bench, path = _bench_named(tmp_path, "shop", BASE + f'\n[sites."{SITE}"]\n\n[sites.shop]\n')
+    _with_site_dirs(tmp_path, SITE)
+
+    step._drop_phantom_sites(bench)
+    once = path.read_text()
+    step._drop_phantom_sites(bench)
+
+    assert path.read_text() == once

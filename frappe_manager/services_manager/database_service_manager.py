@@ -106,6 +106,25 @@ class DatabaseServerServiceInfo(BaseModel):
 
         if not info.get("port"):
             info["port"] = 3306
+        # A site with no usable `site_config.json` has no endpoint, user or password to report, and
+        # `cls(**info)` would fail it as three separate missing pydantic fields -- a validation dump
+        # naming the model instead of the site. Said here instead, because the caller can act on it:
+        # a recorded site with no directory is what an old migration left behind, and what stopped
+        # `fm switch` mid-deploy. Not governed by `raise_exception`, which covers only the password
+        # below: an unreadable site is unusable to every caller either way.
+        if not site_config_file.exists():
+            raise BenchException(
+                site_name,
+                f"{site_config_file} does not exist, so {site_name} has no database to act on. The "
+                f"site is recorded in bench_config.toml but absent on disk; 'fm migrate' drops such "
+                f"entries.",
+            )
+
+        if "user" not in info:
+            raise BenchException(
+                site_name,
+                f"{site_config_file.name} records no db_name, so {site_name} has no database to act on.",
+            )
 
         if raise_exception and not info["password"]:
             raise BenchException(
