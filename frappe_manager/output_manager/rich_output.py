@@ -14,7 +14,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 import typer
-from rich.console import Group
+from rich.console import Console, Group
 from rich.live import Live
 from rich.padding import Padding
 from rich.spinner import Spinner
@@ -109,7 +109,7 @@ class RichOutputHandler(OutputHandler):
         if text == "Working" or text == getattr(self, "_last_ni_head", None):
             return
         self._last_ni_head = text
-        self.stderr.print(f"{EMOJI_WORKING}  {text}")
+        self._emit(self.stderr, f"{EMOJI_WORKING}  {text}")
 
     def change_head(self, text: str, style: str | None = "fm.accent") -> None:
         """
@@ -168,11 +168,9 @@ class RichOutputHandler(OutputHandler):
 
     @contextlib.contextmanager
     def _pause_live(self):
-        """Suspend the Live region for raw/stdout writes, then resume it.
+        """Suspend the Live region around a write, then resume it.
 
-        The internal analogue of ``temporary_stop``: makes print_data (and any
-        raw terminal writer) safe while a spinner runs, WITHOUT call sites
-        managing the lifecycle.
+        Private on purpose: `_emit` is the only caller, so no call site can forget to pause.
         """
         resume = self._spinner_active and self._is_interactive
         if resume:
@@ -183,6 +181,20 @@ class RichOutputHandler(OutputHandler):
             if resume:
                 self.live.start(refresh=True)
                 self.live.update(self.spinner, refresh=True)
+
+    def _emit(self, console: Console, renderable, **kwargs) -> None:
+        """The ONE door every write goes through. Nothing else may touch a console.
+
+        Pausing the spinner used to be each writer's own responsibility, and seven of the eight
+        did not do it -- which is why 31 call sites across the codebase called `output.stop()`
+        by hand before printing. With a single door the invariant cannot be violated by
+        forgetting: it is not a convention any more, it is the only path to the terminal.
+
+        The lock is here for the same reason: it used to cover `start`/`stop` but none of the
+        writers, so a write could interleave with a spinner transition.
+        """
+        with self._lock, self._pause_live():
+            console.print(renderable, **kwargs)
 
     def print(self, text: str, emoji_code: str = ":zap:", prefix: str | None = None, **kwargs) -> None:
         """
@@ -199,7 +211,7 @@ class RichOutputHandler(OutputHandler):
         else:
             msg = f"{emoji_code} {text}"
 
-        self.stderr.print(msg, **kwargs)
+        self._emit(self.stderr, msg, **kwargs)
 
     def debug(self, text: str, emoji_code: str = ":bug:", **kwargs) -> None:
         """
@@ -238,7 +250,7 @@ class RichOutputHandler(OutputHandler):
         """
         if self._spinner_active:
             self.stop()
-        self.stderr.print(f"{emoji_code} {text}")
+        self._emit(self.stderr, f"{emoji_code} {text}")
 
     def error(self, text: str, exception: Exception, emoji_code: str = ":no_entry:") -> None:
         """
@@ -268,7 +280,7 @@ class RichOutputHandler(OutputHandler):
             text: The warning message
             emoji_code: Emoji code to display (e.g., ":warning:")
         """
-        self.stderr.print(f"{emoji_code} {text}")
+        self._emit(self.stderr, f"{emoji_code} {text}")
 
     def live_lines(
         self,
@@ -308,9 +320,9 @@ class RichOutputHandler(OutputHandler):
                         continue
 
                     if source == "stdout" and stdout:
-                        self.stdout.print(f"{log_prefix} {line.rstrip()}")
+                        self._emit(self.stdout, f"{log_prefix} {line.rstrip()}")
                     elif source == "stderr" and stderr:
-                        self.stderr.print(f"{log_prefix} {line.rstrip()}")
+                        self._emit(self.stderr, f"{log_prefix} {line.rstrip()}")
 
                     if stop_string and stop_string.lower() in line.lower():
                         break
@@ -474,7 +486,7 @@ class RichOutputHandler(OutputHandler):
                 return default
 
             if value not in choices:
-                self.stderr.print(f"{EMOJI_WARNING}  Invalid choice '{value}', using default: {default}")
+                self._emit(self.stderr, f"{EMOJI_WARNING}  Invalid choice '{value}', using default: {default}")
                 return default or choices[0]
             return value
         prompt_full = prompt_clean
@@ -547,14 +559,12 @@ class RichOutputHandler(OutputHandler):
         return self._is_interactive and self.is_spinner_active and not self.verbose
 
     def print_data(self, data: Any, **kwargs) -> None:
-        with self._pause_live():
-            self._print_data_impl(data, **kwargs)
+        self._print_data_impl(data, **kwargs)
 
     def data_raw(self, text: str) -> None:
         # No markup, no highlighting, no wrapping: this text is copied and piped, so rich must
         # render it byte-for-byte. `soft_wrap` stops the console breaking a long path mid-token.
-        with self._pause_live():
-            self.stdout.print(text, markup=False, highlight=False, soft_wrap=True)
+        self._emit(self.stdout, text, markup=False, highlight=False, soft_wrap=True)
 
     def _print_data_impl(self, data: Any, **kwargs) -> None:
         import json
@@ -568,15 +578,15 @@ class RichOutputHandler(OutputHandler):
         # ConsoleRenderable covers Table, Group, Panel, Text, ... -- anything rich
         # can render goes through the console instead of str()'s repr.
         if isinstance(data, ConsoleRenderable):
-            self.stdout.print(data)
+            self._emit(self.stdout, data)
         elif isinstance(data, (dict, list)):
             json_str = json.dumps(data, indent=2, default=str)
-            self.stdout.print(json_str)
+            self._emit(self.stdout, json_str)
         else:
-            self.stdout.print(str(data))
+            self._emit(self.stdout, str(data))
 
     def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
-        self.stderr.print(f"{emoji_code} {text}", **kwargs)
+        self._emit(self.stderr, f"{emoji_code} {text}", **kwargs)
 
     def exit(self, text: str, emoji_code: str = ":no_entry:", os_exit=False, error_msg=None):
         """
@@ -594,7 +604,7 @@ class RichOutputHandler(OutputHandler):
         if error_msg:
             to_print = f"{emoji_code} {text}\n Error : {error_msg}"
 
-        self.stderr.print(to_print)
+        self._emit(self.stderr, to_print)
 
         if os_exit:
             exit(1)
