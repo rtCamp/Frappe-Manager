@@ -106,7 +106,7 @@ class TestLoggedInDetection:
 class TestTheMessage:
     def _fail(self, image, stderr, logged_in):
         docker = MagicMock()
-        docker.images.return_value = []
+        docker.image_exists.return_value = False
         docker.pull.side_effect = _docker_error(stderr)
         with patch(f"{MODULE}.logged_in_to", return_value=logged_in), pytest.raises(TransportError) as excinfo:
             fetch_image(docker, image)
@@ -171,7 +171,7 @@ class TestTheCompanionImageIsNoLongerOptional:
 
     def test_a_missing_companion_image_is_now_fatal(self):
         docker = MagicMock()
-        docker.images.return_value = [{"Repository": "ghcr.io/acme/app", "Tag": "v1"}]
+        docker.image_exists.side_effect = lambda ref: ref == "ghcr.io/acme/app:v1"
         docker.pull.side_effect = _docker_error("manifest unknown")
         output = MagicMock()
 

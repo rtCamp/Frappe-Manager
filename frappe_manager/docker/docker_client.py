@@ -311,6 +311,23 @@ class DockerClient:
             return {}
         return {}
 
+    def image_exists(self, image: str) -> bool:
+        """True when the daemon can resolve ``image``, by tag reference or by digest.
+
+        Asks the daemon to resolve the reference instead of matching ``docker images``'
+        ``Repository``/``Tag`` columns, which cannot represent a digest at all. ``inspect``
+        applies docker's own resolution rules, so ``repo@sha256:...`` succeeds exactly when
+        that content is present under that repository and fails otherwise -- including for
+        an image built locally and never pushed, which genuinely is not that digest as far
+        as the daemon is concerned.
+        """
+        cmd: list[str] = ["image", "inspect", image, "--format", "{{.Id}}"]
+        try:
+            output: SubprocessOutput = run_command_with_exit_code(self.docker_cmd + cmd, stream=False)
+        except DockerException:
+            return False
+        return bool(output.stdout)
+
     def images(
         self,
         format: Literal["json"] = "json",

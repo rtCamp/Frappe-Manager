@@ -18,11 +18,11 @@ import pytest
 from pydantic import ValidationError
 
 from frappe_manager.site_manager.bench_config import (
-    SiteConfig,
     BenchConfig,
     DatabaseConfig,
     FMBenchEnvType,
     RedisConfig,
+    SiteConfig,
 )
 from frappe_manager.utils.config_keys import collect_unknown_keys
 

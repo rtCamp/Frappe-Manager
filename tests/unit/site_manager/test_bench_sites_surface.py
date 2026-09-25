@@ -23,7 +23,6 @@ both roles cannot catch code that reaches for a site under the bench's name.
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 

@@ -734,6 +734,7 @@ def test_phase_one_copies_runtimes_only_for_a_plain_mount_create(tmp_path):
 def test_phase_one_pulls_a_base_image_only_when_it_is_not_already_local(tmp_path):
     harness = _Harness(_config(tmp_path), tmp_path)
     harness.config.base_image = "ghcr.io/fm/base:v2"
+    harness.bench.docker_client.image_exists.return_value = False
 
     harness.reraising_orchestrator(real=("_phase1_prepare_structure",)).create_bench()
 
@@ -742,20 +743,21 @@ def test_phase_one_pulls_a_base_image_only_when_it_is_not_already_local(tmp_path
 
 
 def test_phase_one_skips_the_pull_when_the_base_image_is_present(tmp_path):
-    """Presence is matched on repository AND tag, split on the LAST colon."""
+    """Presence is the daemon's answer for the whole reference, so a digest-pinned
+    `base_image` (mount runtime accepts one) is recognised like any other."""
     harness = _Harness(_config(tmp_path), tmp_path)
     harness.config.base_image = "ghcr.io/fm/base:v2"
-    harness.bench.docker_client.images.return_value = [{"Repository": "ghcr.io/fm/base", "Tag": "v2"}]
+    harness.bench.docker_client.image_exists.return_value = True
 
     harness.reraising_orchestrator(real=("_phase1_prepare_structure",)).create_bench()
 
     assert harness.events.has("pull") is False
 
 
-def test_phase_one_pulls_when_only_a_different_tag_of_the_base_image_is_local(tmp_path):
+def test_phase_one_pulls_a_base_image_the_daemon_cannot_resolve(tmp_path):
     harness = _Harness(_config(tmp_path), tmp_path)
     harness.config.base_image = "ghcr.io/fm/base:v2"
-    harness.bench.docker_client.images.return_value = [{"Repository": "ghcr.io/fm/base", "Tag": "v1"}]
+    harness.bench.docker_client.image_exists.return_value = False
 
     harness.reraising_orchestrator(real=("_phase1_prepare_structure",)).create_bench()
 

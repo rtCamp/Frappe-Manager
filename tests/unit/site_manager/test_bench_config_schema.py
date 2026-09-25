@@ -10,8 +10,8 @@ from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     BenchRuntime,
     FMBenchEnvType,
-    TelemetryConfig,
     NewRelicConfig,
+    TelemetryConfig,
 )
 from frappe_manager.utils.config_keys import collect_unknown_keys
 

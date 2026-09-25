@@ -13,17 +13,15 @@ holds it, with multi-registry support and credential helpers (osxkeychain, pass,
 ecr-login) that fm has no way to reach. So a private registry is a one-time
 ``docker login`` on the host, or a login step in CI, and everything here inherits it.
 
-Airgap works without a mode flag, for a TAG reference: ship the image yourself
-(``docker save <img> | ssh host docker load``) and the presence check finds it,
-because save/load preserves the ``repo:tag`` docker printed it under and the
-check matches on exactly that pair (see ``image_present``). If it is genuinely
-missing and cannot be pulled, the pull failure says so.
+Airgap works without a mode flag: ship the image yourself
+(``docker save <img> | ssh host docker load``) and the presence check finds it, because
+the check asks the daemon to resolve the reference rather than matching printed columns
+(see ``image_present``). If it is genuinely missing and cannot be pulled, the pull
+failure says so.
 
-A digest-pinned reference (``name@sha256:...``) is a different case: the
-presence check has no way to see it (it matches only on ``Repository`` and
-``Tag``), so shipping one this way always looks like a miss, and the
-fallback pull then needs exactly the registry access airgapping was meant
-to avoid.
+A digest reference (``name@sha256:...``) is answered by the same rule, with one honest
+limit: ``save``/``load`` does not carry registry provenance, so a hand-shipped image
+satisfies the tag it was saved under and not a digest.
 """
 
 import os
@@ -160,33 +158,20 @@ def _push_failure_message(image: str, error: object, pushed: list[str]) -> str:
 
 
 def image_present(docker: DockerClient, image: str) -> bool:
-    """True when ``image`` (repo:tag) is present on the target daemon.
+    """True when the target daemon already has ``image``, by tag reference or by digest.
 
-    Matches on ``docker images``' own ``Repository`` and ``Tag`` columns, so this
-    sees exactly a plain ``repo:tag`` reference. It cannot see a digest-pinned
-    reference (``name@sha256:...``) at all: such an image is always reported
-    missing here, regardless of whether it is actually sitting on the daemon,
-    and callers pull it every time. A failed pull is now fatal, so a caller must
-    not hand this a digest reference expecting a local image to satisfy it.
+    Asks the daemon to resolve the reference (``docker image inspect``) rather than
+    matching ``docker images``' ``Repository``/``Tag`` columns. Those columns cannot
+    represent a digest at ALL, so every ``name@sha256:...`` reference was reported
+    missing here whatever the daemon actually held: a pull on every deploy, and a
+    ``docker save``/``docker load`` airgap that could never satisfy the check. Resolution
+    is docker's own, so it answers for both reference shapes with one rule.
 
-    A digest-aware match would need ``docker images -a --digests``: the default
-    listing omits an image pulled purely by digest with no local tag, and only
-    ``--digests`` ever populates ``Digest`` instead of the literal ``<none>``.
-    It would also have to key on ``Repository`` + ``Digest``, since such an
-    image's ``Tag`` is itself ``<none>``. Even that would not close the gap in
-    general: ``Digest`` is registry provenance, not a locally computed content
-    hash, so it stays empty (``RepoDigests: []``) for an image that was built
-    locally or moved by ``docker save``/``docker load`` rather than pulled, and
-    no flag combination recovers a digest docker was never given.
+    A locally built image that was never pushed still does not satisfy a digest
+    reference, and that is correct rather than a remaining gap: a digest names content
+    the registry attested, and the daemon has no such record for it.
     """
-    repo, _, tagpart = image.rpartition(":")
-    try:
-        for img in docker.images():
-            if img.get("Repository") == repo and img.get("Tag") == tagpart:
-                return True
-    except Exception:
-        return False
-    return False
+    return docker.image_exists(image)
 
 
 def fetch_image(docker: DockerClient, image: str, output=None) -> None:

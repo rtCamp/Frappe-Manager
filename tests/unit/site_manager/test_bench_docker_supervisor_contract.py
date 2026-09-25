@@ -41,8 +41,8 @@ from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     BenchRuntime,
     FMBenchEnvType,
-    TelemetryConfig,
     NewRelicConfig,
+    TelemetryConfig,
 )
 from frappe_manager.site_manager.exceptions import BenchOperationException, BenchServiceNotRunning
 from frappe_manager.site_manager.modules.bench_docker import BenchDockerOps

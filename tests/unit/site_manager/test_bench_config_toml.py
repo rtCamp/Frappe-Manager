@@ -1125,7 +1125,7 @@ class TestVersionGateNeverRaisesOnAnOddMigratedTo:
         no bench_config.toml or import_from_toml involved at all."""
         from frappe_manager.site_manager.bench_config import SchemaState
 
-        assert SchemaState(**{"migrated_to": "0.19.0"}).version == "0.19.0"
+        assert SchemaState(migrated_to="0.19.0").version == "0.19.0"
 
     def _loads_silently(self, tmp_path, migration_state_body: str) -> BenchConfig:
         from unittest.mock import MagicMock

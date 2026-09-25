@@ -793,40 +793,32 @@ def test_display_info_headline_active_flag_comes_from_is_running(tmp_path, card_
 # =========================================================================== transport: presence
 
 
-def test_image_present_matches_repository_and_tag_separately():
+def test_image_present_asks_the_daemon_to_resolve_the_reference():
+    """Presence is docker's answer, not a match against printed columns: one rule covers a
+    tag reference and a digest reference alike."""
     docker = MagicMock()
-    docker.images.return_value = [{"Repository": "ghcr.io/acme/erp", "Tag": "jun01"}]
+    docker.image_exists.return_value = True
+
     assert image_present(docker, "ghcr.io/acme/erp:jun01") is True
+    docker.image_exists.assert_called_once_with("ghcr.io/acme/erp:jun01")
+
+
+def test_image_present_sees_a_digest_reference():
+    """The defect this replaced: `Repository`/`Tag` columns cannot represent a digest, so
+    every digest-pinned image read as missing however correctly the reference was parsed --
+    a pull on every deploy, and an airgapped `docker load` that could never satisfy it."""
+    docker = MagicMock()
+    docker.image_exists.return_value = True
+    digest_ref = "ghcr.io/acme/erp@sha256:" + "a" * 64
+
+    assert image_present(docker, digest_ref) is True
+    docker.image_exists.assert_called_once_with(digest_ref)
+
+
+def test_image_present_reports_an_unresolvable_reference_absent():
+    docker = MagicMock()
+    docker.image_exists.return_value = False
     assert image_present(docker, "ghcr.io/acme/erp:jun02") is False
-    assert image_present(docker, "ghcr.io/acme/other:jun01") is False
-
-
-def test_image_present_is_false_for_an_untagged_name():
-    """SUSPICION (pinned, not fixed): rpartition(':') on a bare name yields repo='', so a
-    tagless reference never matches even when the daemon has it as :latest."""
-    docker = MagicMock()
-    docker.images.return_value = [{"Repository": "erp", "Tag": "latest"}]
-    assert image_present(docker, "erp") is False
-
-
-def test_image_present_is_false_for_a_digest_reference():
-    """DELIBERATELY left unchanged (#digest-refs): `rpartition(':')` splits a digest reference
-    on the digest's own colon (``repo@sha256`` / ``abc123``), which never matches a real
-    `Repository`/`Tag` pair either -- always False, same as an untagged name above. Routing
-    this through `ImageRef` would not improve it: `docker images()` reports Repository/Tag
-    pairs, and a digest-only pulled image has no tag to match against regardless of how
-    correctly the reference is parsed. A digest can no longer reach this function anyway --
-    `fm switch` and `assert_runtime_coherent` both refuse one before it becomes
-    `deploy_state.current_image` -- so real digest presence-detection is out of scope."""
-    docker = MagicMock()
-    docker.images.return_value = [{"Repository": "ghcr.io/acme/erp", "Tag": "<none>"}]
-    assert image_present(docker, "ghcr.io/acme/erp@sha256:" + "a" * 64) is False
-
-
-def test_image_present_treats_a_daemon_error_as_absent():
-    docker = MagicMock()
-    docker.images.side_effect = RuntimeError("daemon down")
-    assert image_present(docker, "r:t") is False
 
 
 # =========================================================================== transport: fetch
@@ -842,10 +834,7 @@ def test_fetch_image_does_nothing_when_both_tags_are_present():
     below finds it. Nothing is pulled and no registry has to be configured or reachable.
     """
     docker = MagicMock()
-    docker.images.return_value = [
-        {"Repository": "ghcr.io/acme/erp", "Tag": "jun01"},
-        {"Repository": "ghcr.io/acme/erp-nginx", "Tag": "jun01"},
-    ]
+    docker.image_exists.return_value = True
     fetch_image(docker, "ghcr.io/acme/erp:jun01")
     docker.pull.assert_not_called()
     docker.login.assert_not_called()
@@ -853,7 +842,7 @@ def test_fetch_image_does_nothing_when_both_tags_are_present():
 
 def test_fetch_image_pulls_only_the_missing_tags():
     docker = MagicMock()
-    docker.images.return_value = [{"Repository": "ghcr.io/acme/erp", "Tag": "jun01"}]
+    docker.image_exists.side_effect = lambda ref: ref == "ghcr.io/acme/erp:jun01"
 
     fetch_image(docker, "ghcr.io/acme/erp:jun01", output=MagicMock())
 
@@ -862,7 +851,7 @@ def test_fetch_image_pulls_only_the_missing_tags():
 
 def test_fetch_image_pulls_both_tags_when_neither_is_present():
     docker = MagicMock()
-    docker.images.return_value = []
+    docker.image_exists.return_value = False
     fetch_image(docker, "r:t")
     assert [c.args[0] for c in docker.pull.call_args_list] == ["r:t", "r-nginx:t"]
 
@@ -874,7 +863,7 @@ def test_fetch_image_raises_when_the_companion_image_pull_fails():
     with the same diagnosis, instead of a warning fm used to swallow.
     """
     docker = MagicMock()
-    docker.images.return_value = [{"Repository": "r", "Tag": "t"}]
+    docker.image_exists.side_effect = lambda ref: ref == "r:t"
     docker.pull.side_effect = _docker_exc()
     output = MagicMock()
 
@@ -887,7 +876,7 @@ def test_fetch_image_raises_when_the_companion_image_pull_fails():
 
 def test_fetch_image_raises_when_the_app_image_pull_fails():
     docker = MagicMock()
-    docker.images.return_value = []
+    docker.image_exists.return_value = False
     docker.pull.side_effect = _docker_exc()
 
     with pytest.raises(TransportError) as err:
