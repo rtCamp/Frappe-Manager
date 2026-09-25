@@ -87,6 +87,9 @@ class Harness:
         # nginx_controller is an attribute read; MagicMock records the access via a property-like
         # sentinel so "did this function even look at it" is assertable.
         self.services.nginx_controller = self.nginx_controller
+        # renew repairs missing standalone vhosts before the challenge; default to "nothing was
+        # missing" so only the tests that care about the repair see it.
+        self.services.reconcile_standalone_vhosts.return_value = []
 
         self.output = MagicMock(name="output_handler")
         # temporary_stop() reads these two; keep it a deterministic no-op.
@@ -120,6 +123,10 @@ class Harness:
         self.cert_manager = self.SSLCertificateManager.return_value
 
         self.create_certificate_service = p("create_certificate_service")
+
+        # The "is anything already serving this hostname" guard walks real benches and the proxy;
+        # it has its own tests below. Neutralised here so every other add test stays about add.
+        self.refuse_if_already_served = p("_refuse_if_already_served")
 
     # -- convenience readers -----------------------------------------------------------
 
@@ -566,7 +573,7 @@ def test_add_without_test_ca_does_write_the_real_https_vhost(h):
     with patch(f"{MODULE}.StandaloneNginxConfigManager", StandaloneNginxConfigManager):
         _add(h, test_ca=False)
 
-    written = (confd / f"{DOMAIN}.conf").read_text()
+    written = (confd / f"zz-fm-standalone-{DOMAIN}.conf").read_text()
     assert f"ssl_certificate /ctr/certs/{DOMAIN}.crt;" in written
 
 
@@ -685,6 +692,7 @@ def test_add_value_error_reports_the_same_message_as_any_other_exception(h):
 
 def test_remove_rejects_unknown_domain(h):
     h.external_manager.domain_exists.return_value = False
+    h.standalone_nginx.config_state.return_value = None
 
     with pytest.raises(typer.Exit) as exc:
         external_helpers._remove_external_certificate(h.ctx, DOMAIN, yes=True)
@@ -844,15 +852,29 @@ def test_renew_rejects_unknown_domain_with_a_list_hint(h):
     assert h.prints() == ["To list external certificates: fm ssl list --standalone"]
 
 
-def test_renew_builds_storage_config_and_link_manager_but_no_standalone_nginx(h):
-    """Copy #4's distinguishing detail: renew never touches the standalone nginx config."""
+def test_renew_repairs_a_missing_vhost_before_the_challenge(h):
+    """The HTTP-01 challenge is answered by a location inside the domain's standalone vhost, so a
+    renewal against a missing one fails at the CA. Renew repairs it first, and reloads so the
+    restored block is live before acme.sh runs."""
+    h.external_manager.domain_exists.return_value = True
+    h.services.reconcile_standalone_vhosts.return_value = [DOMAIN]
+
+    external_helpers._renew_external_certificate(h.ctx, DOMAIN, test_ca=False)
+
+    h.services.reconcile_standalone_vhosts.assert_called_once_with()
+    h.nginx_controller.reload.assert_called_once_with()
+    assert f"Restored missing nginx configuration for: {DOMAIN}" in h.prints()
+
+
+def test_renew_with_every_vhost_present_reloads_nothing(h):
+    """Nothing to repair must stay a no-op: an unconditional reload on every renew would bounce the
+    shared proxy for every bench it fronts."""
     h.external_manager.domain_exists.return_value = True
 
     external_helpers._renew_external_certificate(h.ctx, DOMAIN, test_ca=False)
 
     assert h.storage_kwargs == _expected_storage_kwargs(h.dirs)
     h.CertificateLinkManager.assert_called_once_with(h.storage_config)
-    h.StandaloneNginxConfigManager.assert_not_called()
     h.standalone_nginx.create_https_config.assert_not_called()
     h.nginx_controller.reload.assert_not_called()
 
@@ -1236,6 +1258,10 @@ def listing(h):
         scan = stack.enter_context(patch(f"{MODULE}._get_non_bench_domains_from_nginx", return_value=[]))
         expiry = stack.enter_context(patch(f"{MODULE}.get_certificate_expiry_date"))
         h.link_manager.get_certificate_paths.return_value = (Path("/k.pem"), Path("/f.pem"))
+        # The listing now reports what actually answers for the hostname, so both seams need a
+        # deterministic answer: a healthy https vhost and no orphaned configs.
+        h.standalone_nginx.config_state.return_value = "https"
+        h.standalone_nginx.managed_configs.return_value = {}
         yield SimpleNamespace(
             table_cls=table_cls,
             table=table_cls.return_value,
@@ -1245,8 +1271,8 @@ def listing(h):
         )
 
 
-def _ssl_domain(domain: str, ssl_type: str = "letsencrypt") -> SimpleNamespace:
-    return SimpleNamespace(domain=domain, ssl_type=ssl_type)
+def _ssl_domain(domain: str, ssl_type: str = "letsencrypt", challenge_type: str = "http01") -> SimpleNamespace:
+    return SimpleNamespace(domain=domain, ssl_type=ssl_type, challenge_type=challenge_type)
 
 
 def test_list_with_nothing_configured_prints_the_getting_started_hint(h, listing):
@@ -1265,8 +1291,9 @@ def test_list_with_nothing_configured_prints_the_getting_started_hint(h, listing
     h.SSLStorageConfig.assert_not_called()
 
 
-def test_list_builds_storage_and_link_manager_but_never_the_nginx_collaborators(h, listing):
-    """Copy #4b: the listing view stops after the link manager."""
+def test_list_reads_the_nginx_configs_but_never_writes_or_reloads(h, listing):
+    """The listing view reports which vhost is serving, so it READS the standalone configs; it must
+    never write one, remove one, issue anything or reload the proxy."""
     h.external_manager.list_domains.return_value = [_ssl_domain(DOMAIN)]
     listing.expiry.return_value = datetime.now(UTC) + timedelta(days=60)
 
@@ -1274,7 +1301,9 @@ def test_list_builds_storage_and_link_manager_but_never_the_nginx_collaborators(
 
     assert h.storage_kwargs == _expected_storage_kwargs(h.dirs)
     h.CertificateLinkManager.assert_called_once_with(h.storage_config)
-    h.StandaloneNginxConfigManager.assert_not_called()
+    h.standalone_nginx.create_http_config.assert_not_called()
+    h.standalone_nginx.create_https_config.assert_not_called()
+    h.standalone_nginx.remove_config.assert_not_called()
     h.SSLCertificateManager.assert_not_called()
     h.create_certificate_service.assert_not_called()
     h.nginx_controller.reload.assert_not_called()
@@ -1290,6 +1319,7 @@ def test_list_table_columns_are_fixed(h, listing):
         "Domain",
         "Type",
         "Status",
+        "Serving",
         "Expiry",
         "Days Left",
         "Renewal",
@@ -1309,6 +1339,7 @@ def test_list_marks_a_healthy_certificate_ok(h, listing):
             DOMAIN,
             "letsencrypt",
             "✅ Issued",
+            "https",
             expiry_date.strftime("%Y-%m-%d %H:%M"),
             str(SSL_RENEW_BEFORE_DAYS + 1),
             "✓ OK",
@@ -1326,8 +1357,8 @@ def test_list_marks_renewal_due_at_exactly_the_threshold(h, listing):
 
     row = listing.rows()[0]
     assert row[2] == "✅ Issued"
-    assert row[4] == str(SSL_RENEW_BEFORE_DAYS)
-    assert row[5] == "⚠️ DUE"
+    assert row[5] == str(SSL_RENEW_BEFORE_DAYS)
+    assert row[6] == "⚠️ DUE"
 
 
 def test_list_reports_negative_days_for_an_expired_certificate(h, listing):
@@ -1342,8 +1373,8 @@ def test_list_reports_negative_days_for_an_expired_certificate(h, listing):
 
     row = listing.rows()[0]
     assert row[2] == "✅ Issued"
-    assert row[4] == "-3"
-    assert row[5] == "⚠️ DUE"
+    assert row[5] == "-3"
+    assert row[6] == "⚠️ DUE"
 
 
 def test_list_marks_status_unknown_when_expiry_cannot_be_parsed(h, listing):
@@ -1352,7 +1383,7 @@ def test_list_marks_status_unknown_when_expiry_cannot_be_parsed(h, listing):
 
     external_helpers._list_external_certificates(h.ctx)
 
-    assert listing.rows() == [(DOMAIN, "letsencrypt", "⚠️ Unknown", "N/A", "N/A", "N/A")]
+    assert listing.rows() == [(DOMAIN, "letsencrypt", "⚠️ Unknown", "https", "N/A", "N/A", "N/A")]
     h.output.debug.assert_not_called()
 
 
@@ -1362,7 +1393,7 @@ def test_list_marks_status_missing_when_the_certificate_lookup_raises(h, listing
 
     external_helpers._list_external_certificates(h.ctx)
 
-    assert listing.rows() == [(DOMAIN, "letsencrypt", "❌ Missing", "N/A", "N/A", "N/A")]
+    assert listing.rows() == [(DOMAIN, "letsencrypt", "❌ Missing", "https", "N/A", "N/A", "N/A")]
     h.output.debug.assert_called_once_with(f"Error getting certificate status for {DOMAIN}: gone")
 
 
@@ -1382,7 +1413,7 @@ def test_list_appends_detected_domains_without_ssl_and_a_tip(h, listing):
 
     external_helpers._list_external_certificates(h.ctx)
 
-    assert listing.rows()[-1] == ("plain.example.com", "none", "🔓 No SSL", "N/A", "N/A", "N/A")
+    assert listing.rows()[-1] == ("plain.example.com", "none", "🔓 No SSL", "backend", "N/A", "N/A", "N/A")
     assert h.prints() == [
         "\n[fm.warn]💡 Tip: Add SSL certificates for non-SSL domains:[/fm.warn]",
         "[fm.muted]  fm ssl add --standalone <domain>[/fm.muted]",
@@ -1405,7 +1436,7 @@ def test_list_shows_detected_domains_even_with_no_certificates_configured(h, lis
 
     external_helpers._list_external_certificates(h.ctx)
 
-    assert listing.rows() == [("plain.example.com", "none", "🔓 No SSL", "N/A", "N/A", "N/A")]
+    assert listing.rows() == [("plain.example.com", "none", "🔓 No SSL", "backend", "N/A", "N/A", "N/A")]
     assert "No external domains or SSL certificates configured" not in h.prints()
 
 
@@ -1418,3 +1449,112 @@ def test_list_omits_the_tip_when_every_detected_domain_has_ssl(h, listing):
 
     assert h.prints() == []
     h.output.print_data.assert_called_once_with(listing.table)
+
+
+# --------------------------------------------------------------------------------------
+# the guard: a standalone placeholder must never be written over a live hostname
+# --------------------------------------------------------------------------------------
+
+# Bound before the harness patches the name, so these tests exercise the real guard rather than
+# the no-op stand-in every other add test runs with.
+_REAL_GUARD = external_helpers._refuse_if_already_served
+
+
+def test_add_runs_the_guard_before_writing_any_nginx_config(h):
+    """The vhost is written into the SHARED conf.d as the first act of `add`, so the guard has to
+    run before it: a refusal that arrives afterwards has already put a 503 in front of a live site."""
+    h.refuse_if_already_served.side_effect = typer.Exit(1)
+
+    with pytest.raises(typer.Exit):
+        _add(h)
+
+    h.refuse_if_already_served.assert_called_once_with(h.services, DOMAIN, h.output)
+    h.standalone_nginx.create_http_config.assert_not_called()
+    h.nginx_controller.reload.assert_not_called()
+
+
+def _guard(h, bench_domains=(), proxy_domains=()):
+    bench = MagicMock()
+    bench.bench_config.domains = list(bench_domains)
+    with (
+        patch(f"{MODULE}.BenchService") as bench_service_cls,
+        patch(f"{MODULE}.Bench") as bench_cls,
+        patch(f"{MODULE}._get_non_bench_domains_from_nginx", return_value=list(proxy_domains)),
+    ):
+        bench_service_cls.return_value.get_bench_names.return_value = ["mybench"] if bench_domains else []
+        bench_cls.get_object.return_value = bench
+        return _REAL_GUARD(h.services, DOMAIN, h.output)
+
+
+def test_guard_refuses_a_domain_a_bench_already_serves(h):
+    """The failure this exists for: `fm ssl add <bench domain> --standalone` wrote a placeholder
+    over the bench's own server_name and the site started answering 503 mid-command."""
+    with pytest.raises(typer.Exit) as exc:
+        _guard(h, bench_domains=[DOMAIN])
+
+    assert exc.value.exit_code == 1
+    message = h.output.display_error.call_args.args[0]
+    assert "served by bench 'mybench'" in message
+    assert f"fm ssl add mybench/{DOMAIN}" in message
+
+
+def test_guard_refuses_a_domain_that_already_has_a_backend_in_the_proxy(h):
+    """Same shadowing, non-bench flavour: a container publishing VIRTUAL_HOST for this domain."""
+    with pytest.raises(typer.Exit) as exc:
+        _guard(h, proxy_domains=[DOMAIN])
+
+    assert exc.value.exit_code == 1
+    assert "already has a backend in the proxy" in h.output.display_error.call_args.args[0]
+
+
+def test_guard_allows_a_domain_nothing_is_serving(h):
+    """The whole point of standalone mode is a domain with no backend yet; the guard must not
+    refuse the only case the feature exists for."""
+    assert _guard(h) is None
+    h.output.display_error.assert_not_called()
+
+
+def test_guard_skips_a_bench_it_cannot_load_instead_of_failing_the_add(h):
+    """One broken bench_config must not make every standalone add impossible."""
+    with (
+        patch(f"{MODULE}.BenchService") as bench_service_cls,
+        patch(f"{MODULE}.Bench") as bench_cls,
+        patch(f"{MODULE}._get_non_bench_domains_from_nginx", return_value=[]),
+    ):
+        bench_service_cls.return_value.get_bench_names.return_value = ["broken"]
+        bench_cls.get_object.side_effect = RuntimeError("bad config")
+
+        assert _REAL_GUARD(h.services, DOMAIN, h.output) is None
+
+
+# --------------------------------------------------------------------------------------
+# orphan cleanup: a vhost written by an `add` that never got as far as registering
+# --------------------------------------------------------------------------------------
+
+
+def test_remove_cleans_up_an_orphaned_config_with_no_registry_entry(h):
+    """`add` writes the vhost before registering the domain, so an interrupted run leaves a block
+    serving 503 that registry-keyed removal could not see -- `rm` by hand was the only cure."""
+    h.external_manager.domain_exists.return_value = False
+    h.standalone_nginx.config_state.return_value = "http"
+
+    external_helpers._remove_external_certificate(h.ctx, DOMAIN, yes=True)
+
+    h.standalone_nginx.remove_config.assert_called_once_with(DOMAIN)
+    h.nginx_controller.reload.assert_called_once_with()
+    h.SSLCertificateManager.assert_not_called()
+    h.external_manager.remove_domain.assert_not_called()
+
+
+def test_removing_an_orphan_still_asks_first(h):
+    """It is still a live vhost for a real hostname; declining must change nothing."""
+    h.external_manager.domain_exists.return_value = False
+    h.standalone_nginx.config_state.return_value = "http"
+    h.output.prompt_ask.return_value = "no"
+
+    with pytest.raises(typer.Exit) as exc:
+        external_helpers._remove_external_certificate(h.ctx, DOMAIN, yes=False)
+
+    assert exc.value.exit_code == 1
+    h.standalone_nginx.remove_config.assert_not_called()
+    h.nginx_controller.reload.assert_not_called()
