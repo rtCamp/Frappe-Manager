@@ -1,4 +1,4 @@
-# Transports & Platforms
+# Transports and platforms
 
 ## Transports: getting the image to where it runs
 

@@ -1,9 +1,9 @@
-# Environments: Dev vs Prod
+# Environments: dev vs prod
 
 The environment is the **second axis** of a bench: it controls **how the web process runs** (`dev` uses Frappe's auto-reloading development server, `prod` uses Gunicorn), plus the convenience defaults that come with each (restart policy at create time, admin tools, developer mode).
 
 !!! note "Runtime comes first"
-    The environment does not decide where your code lives; that's the [runtime (mount vs image)](../concepts/runtimes.md). A `prod` bench can still be fully editable (`mount`), and an immutable `image` bench can run `dev`. Read [Concepts](../concepts/index.md) first if you haven't.
+    The environment does not decide where your code lives; that's the [runtime (mount vs image)](runtimes.md). A `prod` bench can still be fully editable (`mount`), and an immutable `image` bench can run `dev`. Read [Concepts](index.md) first if you haven't.
 
 Running `dev` on a public server exposes debug tools, serves single-threaded, and won't restart after crashes. Switch such benches to `prod`.
 
@@ -60,7 +60,7 @@ gunicorn -b 0.0.0.0:80 -w <workers> --worker-class=gthread --threads <threads>
          frappe.app:application --preload
 ```
 
-Every option on that line is **Gunicorn's own**, not an fm flag; fm only picks the values. It sizes `-w` from CPU count and RAM, `--threads` from CPU count, sets `--max-requests 1000` with a jitter of 10% of that, and takes `-t` from `http_timeout` (120 by default). See [Web Serving & Concurrency](../concepts/web-serving.md) for the sizing formula and the `common_site_config.json` keys that override each value.
+Every option on that line is **Gunicorn's own**, not an fm flag; fm only picks the values. It sizes `-w` from CPU count and RAM, `--threads` from CPU count, sets `--max-requests 1000` with a jitter of 10% of that, and takes `-t` from `http_timeout` (120 by default). See [Web serving and concurrency](web-serving.md) for the sizing formula and the `common_site_config.json` keys that override each value.
 
 !!! warning "`--preload` rules out an in-place code reload"
     fm always passes `--preload`, so Gunicorn imports `frappe.app` in the master process before forking workers. A HUP to the master therefore does not pick up changed Python, and restarting the web process takes the whole tier down for as long as the master needs to come back. Prod is not a place to edit code: ship it as an image with `fm bake` and `fm switch`, or work on a `dev` bench.
@@ -125,7 +125,7 @@ fm tools enable mybench
 fm tools disable mybench
 ```
 
-See [Admin Tools](admin-tools.md) for details.
+See [Admin tools](../guides/admin-tools.md) for details.
 
 ---
 
@@ -196,10 +196,10 @@ A bench can also start out monitored by passing the table in a create-time confi
 ---
 
 !!! info "See also"
-    - [VSCode Integration](vscode.md): attach debugger to dev benches
-    - [Hosting on a Server](hosting.md): the full dev-to-prod go-live sequence
-    - [Deployment (Image Benches)](../deploy/index.md): ship production code as immutable images
-    - [Admin Tools](admin-tools.md): Mailpit and Adminer details
-    - [Web Serving & Concurrency](../concepts/web-serving.md): Gunicorn workers and threads
-    - [SSL Guide](ssl.md): secure production benches with HTTPS
+    - [VS Code integration](../guides/vscode.md): attach debugger to dev benches
+    - [Hosting on a server](../guides/hosting.md): the full dev-to-prod go-live sequence
+    - [Deployment](../deploy/index.md): ship production code as immutable images
+    - [Admin tools](../guides/admin-tools.md): Mailpit and Adminer details
+    - [Web serving and concurrency](web-serving.md): Gunicorn workers and threads
+    - [HTTPS certificates](../guides/ssl.md): secure production benches with HTTPS
 

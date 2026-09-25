@@ -13,7 +13,7 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
 
 `fm bake`, `fm switch`, and `fm prune` operate on a bench in the **image runtime**, and all three run on the host that owns the bench. A `mount` bench (the default dev workspace) is converted once; after that, every release is a bake and a switch.
 
-1. **One-time conversion** of your working mount bench (if you don't have one yet, the [Quick Start](../getting-started/quick-start.md) gets you there). Give the bench a release image repo and flip its runtime in `bench_config.toml`:
+1. **One-time conversion** of your working mount bench (if you don't have one yet, the [Your first bench](../getting-started/quick-start.md) gets you there). Give the bench a release image repo and flip its runtime in `bench_config.toml`:
 
     ```toml
     image   = "local/mybench"   # where releases are tagged; a registry host prefix enables push/pull
@@ -217,7 +217,7 @@ Nothing a running or rollback-reachable release needs can be pruned.
 
     The 3am page: two commands to get back to the previous release, with or without the database.
 
--   :lucide-truck:{ .lg .middle } &nbsp; **[Transports & Platforms](transports.md)**
+-   :lucide-truck:{ .lg .middle } &nbsp; **[Transports and platforms](transports.md)**
 
     ---
 

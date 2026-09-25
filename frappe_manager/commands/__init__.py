@@ -253,14 +253,24 @@ from frappe_manager.commands.maintenance import maintenance_app
 from frappe_manager.commands.telemetry import telemetry_app
 from frappe_manager.commands.tools import tools_app
 
-app.add_typer(services_app, name="services", help="Handle global services.", rich_help_panel=_PANEL_GLOBAL)
+app.add_typer(
+    services_app,
+    name="services",
+    help="Manage the shared MariaDB server and nginx proxy every bench uses.",
+    rich_help_panel=_PANEL_GLOBAL,
+)
 app.add_typer(
     self_app,
     name="self",
-    help="Perform operations related to [bold][blue]fm[/bold][/blue] itself.",
+    help="Manage the fm installation itself: upgrade it, pull images, stop everything, uninstall.",
     rich_help_panel=_PANEL_GLOBAL,
 )
-app.add_typer(ssl_app, name="ssl", help="Perform operations related to ssl.", rich_help_panel=_PANEL_DOMAIN)
+app.add_typer(
+    ssl_app,
+    name="ssl",
+    help="Issue, import, renew, list and remove certificates, and manage DNS credentials and the dev CA.",
+    rich_help_panel=_PANEL_DOMAIN,
+)
 app.add_typer(apps_app, name="apps", help="Manage the apps installed on a bench.", rich_help_panel=_PANEL_SITE)
 app.add_typer(domain_app, name="domain", help="Manage a bench's alias domains.", rich_help_panel=_PANEL_DOMAIN)
 app.add_typer(tools_app, name="tools", help="Manage a bench's admin tools.", rich_help_panel=_PANEL_SITE)

@@ -1,4 +1,4 @@
-# External Database
+# External database
 
 By default every site fm creates lives on `mariadb`, the MariaDB container fm runs and owns. Point a site at your own server instead when you want a managed database, a replicated one, or one your DBA already administers.
 
@@ -151,7 +151,7 @@ Host hooks run on the machine that owns the bench, as the user running `fm`, so 
 
 ## Moving an existing bench
 
-There is no fm command that repoints a bench's site at a different server; `[database]` is written at create time and only its `ca` is editable afterwards. Hand-editing `site_config.json` is not a substitute: fm writes that file's database keys from `bench_config.toml` at create time and never reads them back, so an edited endpoint leaves fm and the site disagreeing. The guards above key on `[database]`, the CA and its client option file are installed per configured site, and none of that follows an edit fm cannot see. Back up the site, create a new bench with the flags above, and restore into it. Both halves are `bench` operations, and `bench restore` needs a login that can drop and recreate the schema on the target server, which fm does not hold for you. See [Backup & Restore](backup-restore.md).
+There is no fm command that repoints a bench's site at a different server; `[database]` is written at create time and only its `ca` is editable afterwards. Hand-editing `site_config.json` is not a substitute: fm writes that file's database keys from `bench_config.toml` at create time and never reads them back, so an edited endpoint leaves fm and the site disagreeing. The guards above key on `[database]`, the CA and its client option file are installed per configured site, and none of that follows an edit fm cannot see. Back up the site, create a new bench with the flags above, and restore into it. Both halves are `bench` operations, and `bench restore` needs a login that can drop and recreate the schema on the target server, which fm does not hold for you. See [Backup and restore](backup-restore.md).
 
 !!! warning
     Rehearse on a throwaway schema first. A restore drops every table it is about to write.

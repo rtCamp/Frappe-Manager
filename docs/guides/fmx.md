@@ -1,4 +1,4 @@
-# fmx: In-Container Service Manager
+# fmx: in-container service manager
 
 `fmx` is a small CLI tool that lives **inside** every Frappe Manager container. While `fm` is the host-side tool you use to create, start, and manage benches from your terminal, `fmx` is what controls the individual processes *running inside* a bench: the web server, workers, scheduler, and socket server.
 
@@ -226,7 +226,7 @@ fmx rq resume
 
 It communicates with each supervisor instance through a Unix socket at `/fm-sockets/{service}.sock` inside the container. The `fm-sockets` Docker volume is shared between the frappe container and other service containers so they can all be managed through the same interface.
 
-## VSCode integration
+## VS Code integration
 
 When you use `fm code mybench` to open a bench in VS Code, the generated `.vscode/tasks.json` includes an `fm-kill-port` task that runs:
 

@@ -1,4 +1,4 @@
-# VS Code Integration
+# VS Code integration
 
 `fm code` attaches VS Code to a bench's running frappe container, so you edit the mounted workspace with the bench's own Python interpreter and tooling.
 

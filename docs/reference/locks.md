@@ -1,4 +1,4 @@
-# Process Locks
+# Process locks
 
 fm processes on one host coordinate through lock files under `~/frappe/locks/`, so two of them can no longer corrupt a host or a bench by running blind to each other. The mechanism is the operating system's `flock`: a hold vanishes the instant its process exits or dies, however it dies, so there are no stale locks to clean up, ever; and acquisition never waits, so the losing side is refused instantly with a sentence naming what is running.
 

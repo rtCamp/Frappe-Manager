@@ -1,25 +1,20 @@
-## `fm telemetry`
+# `fm telemetry`
 
-Telemetry commands.
+Manage a bench's telemetry (APM) backends.
 
 **Usage**:
 
 ```console
-$ fm telemetry [OPTIONS] COMMAND [ARGS]...
+$ fm telemetry COMMAND [ARGS]...
 ```
 
-**Options**:
+| Command | Description |
+|---|---|
+| [`fm telemetry enable`](#fm-telemetry-enable) | Turn on APM reporting for a bench. |
+| [`fm telemetry disable`](#fm-telemetry-disable) | Turn off APM reporting for a bench. |
+| [`fm telemetry status`](#fm-telemetry-status) | Report which APM providers are configured on a bench and whether they are reporting. |
 
-* `--help`: Show this message and exit.
-
-**Commands**:
-
-* `enable`: Turn on APM reporting for a bench.
-* `disable`: Turn off APM reporting for a bench.
-* `status`: Report which APM providers are configured on a bench and whether they are reporting.
-
-
-### `fm telemetry enable`
+## `fm telemetry enable`
 
 Turn on APM reporting for a bench.
 
@@ -40,13 +35,12 @@ $ fm telemetry enable BENCH PROVIDER [OPTIONS]
 
 **Options**:
 
-* `--license-key`: Ingest license key for the provider. Required the first time; reused from bench_config.toml afterwards.
-* `--force-config`: Overwrite the provider's on-disk agent config with fm's generated one, discarding local edits.
+* `--license-key TEXT`: Ingest license key for the provider. Required the first time; reused from bench_config.toml afterwards.
+* `--force-config`: Overwrite the provider's on-disk agent config with fm's generated one, discarding local edits.  [default: false]
 
+### Examples
 
-## Examples
-
-### Start reporting to NewRelic
+#### Start reporting to NewRelic
 
 Recreates the frappe container so the web process starts under the agent.
 
@@ -54,7 +48,7 @@ Recreates the frappe container so the web process starts under the agent.
 fm telemetry enable mybench newrelic --license-key YOUR_INGEST_KEY
 ```
 
-### Re-enable after a disable, reusing the stored key
+#### Re-enable after a disable, reusing the stored key
 
 Your edits to config/newrelic.ini are kept.
 
@@ -62,20 +56,19 @@ Your edits to config/newrelic.ini are kept.
 fm telemetry enable mybench newrelic
 ```
 
-### Rotate the ingest key
+#### Rotate the ingest key
 
 ```bash
 fm telemetry enable mybench newrelic --license-key NEW_KEY
 ```
 
-### Throw away local agent tuning and restore fm's generated newrelic.ini
+#### Throw away local agent tuning and restore fm's generated newrelic.ini
 
 ```bash
 fm telemetry enable mybench newrelic --force-config
 ```
 
-
-### `fm telemetry disable`
+## `fm telemetry disable`
 
 Turn off APM reporting for a bench.
 
@@ -92,10 +85,9 @@ $ fm telemetry disable BENCH PROVIDER
 * `BENCH`: Bench to act on. Omit to pick from the benches you have.
 * `PROVIDER`: APM backend to disable.
 
+### Examples
 
-## Examples
-
-### Stop reporting to NewRelic
+#### Stop reporting to NewRelic
 
 The stored license key and your config/newrelic.ini are kept, so enabling again is one command.
 
@@ -103,8 +95,7 @@ The stored license key and your config/newrelic.ini are kept, so enabling again 
 fm telemetry disable mybench newrelic
 ```
 
-
-### `fm telemetry status`
+## `fm telemetry status`
 
 Report which APM providers are configured on a bench and whether they are reporting.
 
@@ -120,12 +111,10 @@ $ fm telemetry status BENCH
 
 * `BENCH`: Bench to act on. Omit to pick from the benches you have.
 
+### Examples
 
-## Examples
-
-### Show APM state for a bench
+#### Show APM state for a bench
 
 ```bash
 fm telemetry status mybench
 ```
-

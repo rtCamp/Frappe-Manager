@@ -1,4 +1,4 @@
-# Configuration Files
+# Configuration files
 
 Frappe Manager stores settings in TOML configuration files at two scopes:
 
@@ -17,9 +17,9 @@ Changes take effect on next `fm start` or service restart.
 
 ---
 
-## Quick Reference
+## Quick reference
 
-### Global Config (`fm_config.toml`)
+### Global config (`fm_config.toml`) {#global-config-example}
 
 Minimal example showing common settings:
 
@@ -43,7 +43,7 @@ api_token = "abc123..."
 api_token = "def456..."
 ```
 
-### Bench Config (`bench_config.toml`)
+### Bench config (`bench_config.toml`) {#bench-config-example}
 
 Minimal example showing common settings:
 
@@ -84,7 +84,7 @@ version = "1.0.0"
 
 ---
 
-## Global Configuration
+## Global configuration
 
 Settings in `~/frappe/fm_config.toml` apply to all benches and FM operations.
 
@@ -231,7 +231,7 @@ version = "1.0.0"
 
 ---
 
-## Bench Configuration
+## Bench configuration
 
 Settings in `~/frappe/sites/<benchname>/bench_config.toml` apply to a single bench.
 
@@ -273,7 +273,7 @@ developer_mode = true
 
 **Change via:** `fm update BENCH --developer-mode enable|disable` (needs an editable workspace: mount runtime)
 
-**See also:** [Environments guide](../guides/environments.md), [fm update command](../commands/update.md)
+**See also:** [Environments guide](../concepts/environments.md), [fm update command](../commands/update.md)
 
 ---
 
@@ -325,7 +325,7 @@ environment = "prod"
 
 **Change via:** `fm update BENCH --environment dev|prod`
 
-**See also:** [Environments guide](../guides/environments.md)
+**See also:** [Environments guide](../concepts/environments.md)
 
 ---
 
@@ -335,15 +335,30 @@ environment = "prod"
 **Type:** `string`  
 **File key:** `upload_limit`
 
-Maximum file upload size. One value drives three layers: `max_file_size` in `site_config.json`, `client_max_body_size` in the bench nginx, and the `vhost.d` entry nginx-proxy applies to every domain of the bench.
+Maximum file upload size. The bench has to be running: `fm update` refuses a stopped one, because it writes and reloads every layer that enforces the limit.
+
+| Layer | What is written |
+|---|---|
+| `bench_config.toml` | `upload_limit`, normalised to uppercase |
+| `workspace/frappe-bench/sites/<bench>/site_config.json` | Frappe's `max_file_size`, in bytes |
+| `configs/nginx/conf/custom/upload-limit.conf` | `client_max_body_size` for the bench's own nginx |
+| `services/nginx-proxy/vhostd/<domain>` | `client_max_body_size` on the global proxy, for each of the bench's domains |
+
+Both nginx layers are reloaded in place, so nothing restarts and no container is recreated.
 
 ```toml
 upload_limit = "500M"
 ```
 
-**Valid formats:** digits followed by `M` or `G`, case-insensitive (`50M`, `500M`, `1G`), stored uppercased. Bare byte counts and a `K` suffix are rejected even though nginx itself accepts them.
+**Valid formats:** digits followed by `M` or `G`, case-insensitive (`50M`, `500M`, `1G`), stored uppercased. The units are binary, so `100M` becomes `104857600` bytes. Bare byte counts and a `K` suffix are rejected even though nginx itself accepts them.
 
 **Change via:** `fm update BENCH --upload-limit 500M`
+
+!!! info "There is no compose variable for this"
+    The bench's nginx service used to also carry a `CLIENT_MAX_BODY_SIZE` environment variable, described as the value the proxy reads. It was read by nothing: the pinned `jwilder/nginx-proxy` template contains no `client_max_body_size`, and neither does any fm template. Because `fm update --upload-limit` does not re-render compose, that copy also went stale the moment the limit changed. It is no longer written, and it is removed from a bench's compose file the next time anything regenerates it.
+
+!!! tip
+    Avoid editing proxy or nginx files by hand; `fm update` writes every layer consistently and reloads nginx for you. Frappe's own **System Settings, Max Attachment Size** can still impose a lower limit from inside the application.
 
 ---
 
@@ -555,7 +570,7 @@ allow_ips = ["203.0.113.0/24"]
 allow_paths = ["/api/method/payment_webhook"]
 ```
 
-**Change via:** `fm auth BENCH --protect web --protect tools`; `fm auth BENCH --status` reports the current state.
+**Change via:** `fm auth enable BENCH --web --tools`; `fm auth status BENCH` reports the current state.
 
 #### Per-site auth {#site-auth}
 
@@ -572,11 +587,11 @@ user = "customer"
 password = "site-secret"
 ```
 
-**Change via:** `fm auth BENCH/SITE --protect web`; `fm auth BENCH/SITE` reports whether that site has its own auth or inherits the bench's.
+**Change via:** `fm auth enable BENCH/SITE --web`; `fm auth status BENCH/SITE` reports whether that site has its own auth or inherits the bench's.
 
 On disk each site's directives land in `configs/nginx/conf/custom/<site>/auth.conf`, which the bench nginx includes from that site's server block only. Basic auth is a server-context directive, so this is what makes a per-site prompt possible at all.
 
-A bench whose nginx conf predates per-site server blocks cannot serve this: the conf is rendered once at the nginx container's first boot, so it reflects whatever image created the bench. `fm auth BENCH/SITE` is refused there rather than recording an override nginx would never read, and a `[sites."<name>".auth]` table already on disk is reported as not enforced while the whole bench follows `[auth]`. Update the bench's nginx image, then `fm restart BENCH --nginx --container`.
+A bench whose nginx conf predates per-site server blocks cannot serve this: the conf is rendered once at the nginx container's first boot, so it reflects whatever image created the bench. `fm auth enable BENCH/SITE` is refused there rather than recording an override nginx would never read, and a `[sites."<name>".auth]` table already on disk is reported as not enforced while the whole bench follows `[auth]`. Update the bench's nginx image, then `fm restart BENCH --nginx --container`.
 
 #### Per-site admin tools {#site-admin-tools}
 
@@ -593,7 +608,7 @@ serve_admin_tools = false
 
 **Change via:** `fm tools disable BENCH/SITE`. The same command without a site part addresses the bench and starts or stops the containers instead.
 
-A site with no route carries no `location ^~ /adminer/` in its server block at all, so the request falls through to Frappe. That is a reduction rather than a second lock: every hostname reaches the same container pair, so a per-site password would be a bypass, which is why `fm auth` refuses a site part for `--protect tools`.
+A site with no route carries no `location ^~ /adminer/` in its server block at all, so the request falls through to Frappe. That is a reduction rather than a second lock: every hostname reaches the same container pair, so a per-site password would be a bypass, which is why `fm auth` refuses a site part for `--tools`.
 
 !!! warning "Stored in plaintext"
     The password is stored unencrypted in the TOML file, and basic auth sends it base64-encoded on every request. Restrict file permissions and only enable a surface on a bench with TLS:
@@ -645,13 +660,13 @@ ssl_type = "custom"
 !!! note "Browsers may still hold a pin from before `hsts` worked"
     Until v1.0.0 every bench sent `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` on HTTPS responses regardless of this setting, because the bench nginx image hardcoded it and nothing stripped it at the proxy. A browser that visited an fm-served site over HTTPS in that era cached a two-year HTTPS-only pin for the domain and its subdomains. The fix stops new pins; it cannot retract one already issued: those visitors keep being forced to HTTPS until the pin expires or is cleared per browser (`chrome://net-internals/#hsts` in Chrome and Edge, "Forget About This Site" in Firefox).
 
-A `custom` entry records only the domain, the type and the shared flags above: the imported bytes live under `~/frappe/services/nginx-proxy/ssl/custom/<domain>/`, and FM keeps no record of the original `--cert`/`--key`/`--ca` paths. `fm ssl renew` never renews one, because FM does not rotate a certificate it did not issue; re-run `fm ssl add BENCH/DOMAIN --custom` with the replacement files instead. The [SSL guide](../guides/ssl.md#custom-certificates) covers the import and its validation.
+A `custom` entry records only the domain, the type and the shared flags above: the imported bytes live under `~/frappe/services/nginx-proxy/ssl/custom/<domain>/`, and FM keeps no record of the original `--cert`/`--key`/`--ca` paths. `fm ssl renew` never renews one, because FM does not rotate a certificate it did not issue; re-run `fm ssl add BENCH/DOMAIN --custom` with the replacement files instead. The [HTTPS certificates](../guides/ssl.md#custom-certificates) covers the import and its validation.
 
 That is the whole entry, and an unrecognised key in one is an error. A certificate never holds a credential: DNS-01 credentials are resolved from [`[ssl.dns_providers]`](#dns-providers) at issuance and again at every renewal. Earlier releases copied the global token onto every certificate, which put a secret in this world readable file and kept it working after `fm ssl dns-config cloudflare --remove` had reported success; the 1.0.0 migration moves any such copy into `[ssl.dns_providers]` and deletes it from the certificate.
 
 **Managed by:** `fm ssl add`, `fm ssl remove`, `fm ssl renew`, `fm ssl list`
 
-**See also:** [SSL guide](../guides/ssl.md), [fm ssl commands](../commands/ssl.md)
+**See also:** [HTTPS certificates](../guides/ssl.md), [fm ssl commands](../commands/ssl.md)
 
 ---
 
@@ -714,7 +729,7 @@ A named label is never quietly substituted. If a certificate sets `dns_provider 
 
 **Set via:** `fm ssl dns-config cloudflare BENCH --name client-zones --api-token TOKEN`, or the same command without `BENCH` to store the label globally. Drop `--name` to write the `cloudflare` label instead. The [command reference](../commands/ssl-dns-config-cloudflare.md) has the full scope matrix.
 
-**See also:** [`ssl.dns_providers` in the global file](#global-dns-providers), [SSL guide](../guides/ssl.md)
+**See also:** [`ssl.dns_providers` in the global file](#global-dns-providers), [HTTPS certificates](../guides/ssl.md)
 
 ---
 
@@ -1004,11 +1019,11 @@ When `enabled` is `false`, `NEWRELIC_ENABLED` is written as an explicit `false` 
 
 **Set via:** `fm telemetry enable BENCH newrelic --license-key KEY` / `fm telemetry disable BENCH newrelic`, which recreate the frappe container to apply the change. At create time the table can be supplied through `fm create --config`; there are no monitoring flags on `fm create`.
 
-**See also:** [Monitoring (New Relic)](../guides/environments.md#monitoring-new-relic)
+**See also:** [Monitoring (New Relic)](../concepts/environments.md#monitoring-new-relic)
 
 ---
 
-## Environment Variables
+## Environment variables
 
 FM recognizes these environment variables for runtime configuration overrides.
 

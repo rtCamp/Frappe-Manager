@@ -1,8 +1,8 @@
-# Background Jobs & Workers
+# Background jobs and workers
 
 Frappe uses RQ (Redis Queue) to process background jobs in dedicated worker containers. Each worker type pulls from specific queues to handle different job workloads.
 
-## Overview
+## What runs where
 
 Worker containers run independently from the web server and process jobs asynchronously:
 
@@ -35,7 +35,7 @@ A separate `schedule` container runs [Frappe's scheduler](#the-scheduler); it en
 
 ---
 
-## Worker Types
+## Worker types
 
 FM creates these worker containers for every bench:
 
@@ -76,7 +76,7 @@ Handles jobs like:
 
 ---
 
-### Custom App Workers {#custom-app-workers}
+### Custom app workers {#custom-app-workers}
 
 Define custom queues in `common_site_config.json` under the `workers` key:
 
@@ -108,7 +108,7 @@ Adding or removing a queue changes the set of containers, so it needs a regenera
 
 ---
 
-## The Scheduler {#the-scheduler}
+## The scheduler {#the-scheduler}
 
 The `schedule` container runs `bench schedule`, Frappe's scheduler tick (a single process; it is not a queue worker).
 
@@ -116,7 +116,7 @@ At each tick it checks the `scheduler_events` declared in every installed app's 
 
 ---
 
-## Draining Workers Safely
+## Draining workers safely
 
 `fm restart` treats in-flight jobs explicitly. Workers drain by default:
 
@@ -151,7 +151,7 @@ The supervisor stop grace (`stopwaitsecs`) is a separate safety net, and it only
 
 ---
 
-## Pausing Workers
+## Pausing workers
 
 To temporarily stop workers from picking up new jobs without restarting (useful during manual database operations):
 

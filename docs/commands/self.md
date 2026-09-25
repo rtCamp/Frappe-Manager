@@ -1,26 +1,21 @@
-## `fm self`
+# `fm self`
 
-Self commands.
+Manage the fm installation itself: upgrade it, pull images, stop everything, uninstall.
 
 **Usage**:
 
 ```console
-$ fm self [OPTIONS] COMMAND [ARGS]...
+$ fm self COMMAND [ARGS]...
 ```
 
-**Options**:
+| Command | Description |
+|---|---|
+| [`fm self upgrade`](#fm-self-upgrade) | Upgrade fm to the latest release published on PyPI. |
+| [`fm self update-images`](#fm-self-update-images) | Pull the docker images fm's stack runs on. |
+| [`fm self stop`](#fm-self-stop) | Stop every bench on this host, then the global services (nginx-proxy, mariadb). |
+| [`fm self uninstall`](#fm-self-uninstall) | Remove everything fm put on this host: benches, shared services, its directory, and its dev CA. |
 
-* `--help`: Show this message and exit.
-
-**Commands**:
-
-* `upgrade`: Upgrade fm to the latest release published on PyPI.
-* `update-images`: Pull the docker images fm's stack runs on.
-* `stop`: Stop every bench on this host, then the global services (nginx-proxy, mariadb).
-* `uninstall`: Remove everything fm put on this host: benches, shared services, its directory, and its dev CA.
-
-
-### `fm self upgrade`
+## `fm self upgrade`
 
 Upgrade fm to the latest release published on PyPI.
 
@@ -34,25 +29,23 @@ $ fm self upgrade [OPTIONS]
 
 **Options**:
 
-* `-y, --yes`: Upgrade without asking for confirmation.
+* `-y, --yes`: Upgrade without asking for confirmation.  [default: false]
 
+### Examples
 
-## Examples
-
-### Upgrade fm to the latest release
+#### Upgrade fm to the latest release
 
 ```bash
 fm self upgrade
 ```
 
-### Upgrade without the confirmation prompt
+#### Upgrade without the confirmation prompt
 
 ```bash
 fm self upgrade --yes
 ```
 
-
-### `fm self update-images`
+## `fm self update-images`
 
 Pull the docker images fm's stack runs on.
 
@@ -66,17 +59,15 @@ Which tags get pulled is fixed by the installed fm version, so a newer stack sta
 $ fm self update-images
 ```
 
+### Examples
 
-## Examples
-
-### Pull the images fm's stack runs on
+#### Pull the images fm's stack runs on
 
 ```bash
 fm self update-images
 ```
 
-
-### `fm self stop`
+## `fm self stop`
 
 Stop every bench on this host, then the global services (nginx-proxy, mariadb).
 
@@ -90,29 +81,27 @@ A bench that fails to stop does not abort the run: the remaining benches and the
 $ fm self stop
 ```
 
+### Examples
 
-## Examples
-
-### Stop everything
+#### Stop everything
 
 ```bash
 fm self stop
 ```
 
-### Stop the global services, leave the benches up
+#### Stop the global services, leave the benches up
 
 ```bash
 fm self stop --global-only
 ```
 
-### Stop the benches, leave the global services up
+#### Stop the benches, leave the global services up
 
 ```bash
 fm self stop --benches-only
 ```
 
-
-### `fm self uninstall`
+## `fm self uninstall`
 
 Remove everything fm put on this host: benches, shared services, its directory, and its dev CA.
 
@@ -130,22 +119,21 @@ $ fm self uninstall [OPTIONS]
 
 **Options**:
 
-* `--only`: Act on this tier only (repeatable): benches, services, host, trust. Default: all four.
-* `--images`: Also remove fm's own docker images (ghcr.io/rtcamp/frappe-manager-*).
-* `--keep-backups`: Leave ~/frappe/backups on disk.
-* `-y, --yes`: Uninstall without asking, including the typed confirmation.
-* `--dry-run`: Print the plan and exit without removing anything; never prompts.
+* `--only [benches|services|host|trust]`: Act on this tier only (repeatable): benches, services, host, trust. Default: all four.
+* `--images`: Also remove fm's own docker images (ghcr.io/rtcamp/frappe-manager-*).  [default: false]
+* `--keep-backups`: Leave ~/frappe/backups on disk.  [default: false]
+* `-y, --yes`: Uninstall without asking, including the typed confirmation.  [default: false]
+* `--dry-run`: Print the plan and exit without removing anything; never prompts.  [default: false]
 
+### Examples
 
-## Examples
-
-### See everything that would be removed, change nothing
+#### See everything that would be removed, change nothing
 
 ```bash
 fm self uninstall --dry-run
 ```
 
-### Remove every trace of fm from this host
+#### Remove every trace of fm from this host
 
 Prints the full plan, then asks for the word 'uninstall' typed back.
 
@@ -153,15 +141,14 @@ Prints the full plan, then asks for the word 'uninstall' typed back.
 fm self uninstall
 ```
 
-### Also remove fm's own docker images
+#### Also remove fm's own docker images
 
 ```bash
 fm self uninstall --images
 ```
 
-### Reset the benches only, keep the shared services and fm's config
+#### Reset the benches only, keep the shared services and fm's config
 
 ```bash
 fm self uninstall --only benches
 ```
-

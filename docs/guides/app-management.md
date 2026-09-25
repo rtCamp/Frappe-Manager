@@ -1,4 +1,4 @@
-# App Management
+# App management
 
 Install apps when you create a bench, or add and update them later with `fm apps add`.
 

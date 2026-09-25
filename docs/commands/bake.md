@@ -1,4 +1,4 @@
-## `fm bake`
+# `fm bake`
 
 Bake an immutable app image.
 
@@ -21,17 +21,16 @@ $ fm bake BENCH [OPTIONS]
 
 **Options**:
 
-* `--image`: Image to build. A full ref (ghcr.io/acme/mysite:v42) is built as-is; a bare repo (ghcr.io/acme/mysite) gets a generated :<timestamp>-<sha> tag. Defaults to the bench's configured image.
-* `--base-image`: Image the runtime Dockerfile builds FROM. Defaults to \[build].base_image, else fm's published frappe image for this fm version.
+* `--image TEXT`: Image to build. A full ref (ghcr.io/acme/mysite:v42) is built as-is; a bare repo (ghcr.io/acme/mysite) gets a generated :<timestamp>-<sha> tag. Defaults to the bench's configured image.
+* `--base-image TEXT`: Image the runtime Dockerfile builds FROM. Defaults to \[build].base_image, else fm's published frappe image for this fm version.
 * `--push/--no-push`: Push the baked image to the registry after building. Defaults to \[build].push, which is off unless set. A bake that does not push still loads the image into the local daemon.
-* `--config`: TOML overlay, either a file path or inline TOML. With a bench it is merged into bench_config.toml and stays there; standalone it supplies the whole config. Repeatable; later --config wins.
-* `-a, --apps`: Standalone bake only: apps to bake (appname:branch or appname, e.g. erpnext:version-16). Repeatable.
-* `--python`: Standalone bake only: Python version to bake.
-* `--node`: Standalone bake only: Node version to bake.
-* `-t, --github-token`: Standalone bake only: GitHub token for private app repos (or use GITHUB_TOKEN env var).
-* `--source`: Where app code comes from: 'provision' (default) clones and installs fresh, 'workspace' snapshots the bench's current on-disk workspace (bench mode only).
-* `--include`: Host path to copy into the image, as 'src' or 'src:dest' with dest relative to the bench root (default: the src basename). Overwrites whatever the app source put there. Repeatable.
-
+* `--config TEXT`: TOML overlay, either a file path or inline TOML. With a bench it is merged into bench_config.toml and stays there; standalone it supplies the whole config. Repeatable; later --config wins.
+* `-a, --apps TEXT`: Standalone bake only: apps to bake (appname:branch or appname, e.g. erpnext:version-16). Repeatable.
+* `--python TEXT`: Standalone bake only: Python version to bake.
+* `--node TEXT`: Standalone bake only: Node version to bake.
+* `-t, --github-token TEXT`: Standalone bake only: GitHub token for private app repos (or use GITHUB_TOKEN env var).
+* `--source TEXT`: Where app code comes from: 'provision' (default) clones and installs fresh, 'workspace' snapshots the bench's current on-disk workspace (bench mode only).
+* `--include TEXT`: Host path to copy into the image, as 'src' or 'src:dest' with dest relative to the bench root (default: the src basename). Overwrites whatever the app source put there. Repeatable.
 
 ## Examples
 
@@ -83,6 +82,6 @@ The config supplies the image, [[apps]] and [build]; nothing else on disk is nee
 fm bake --config ci/build.toml
 ```
 
-## Related
+## See also
 
-- [Deployment guide](../deploy/index.md)
+- [Deployment](../deploy/index.md)

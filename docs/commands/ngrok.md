@@ -1,4 +1,4 @@
-## `fm ngrok`
+# `fm ngrok`
 
 Expose a running bench on a public ngrok URL.
 
@@ -18,9 +18,8 @@ $ fm ngrok BENCH(/DOMAIN) [OPTIONS]
 
 **Options**:
 
-* `-t, --auth-token`: ngrok auth token. Falls back to the one saved in fm's config.
+* `-t, --auth-token TEXT`: ngrok auth token. Falls back to the one saved in fm's config.
 * `--save-token/--no-save-token`: Save this token to fm's config for later runs, or leave the config alone. fm asks when a new token arrives and neither flag is passed.
-
 
 ## Examples
 
@@ -42,6 +41,6 @@ fm ngrok mybench --auth-token 2abcXYZ --save-token
 fm ngrok mybench/shop.example.com
 ```
 
-## Related
+## See also
 
-- [Domains & Remote Access](../guides/domains.md)
+- [Domains and remote access](../guides/domains.md)

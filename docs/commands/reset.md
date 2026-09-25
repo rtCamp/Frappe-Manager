@@ -1,4 +1,4 @@
-## `fm reset`
+# `fm reset`
 
 Destroy one site: drop its database and reinstall every app, losing all site data.
 
@@ -18,9 +18,8 @@ $ fm reset BENCH(/SITE) [OPTIONS]
 
 **Options**:
 
-* `-y, --yes`: Reset without the confirmation. The site data is gone either way.
-* `--admin-pass`: Administrator password for the reinstalled site. Taken from site_config.json, then common_site_config.json, or prompted for, when omitted.
-
+* `-y, --yes`: Reset without the confirmation. The site data is gone either way.  [default: false]
+* `--admin-pass TEXT`: Administrator password for the reinstalled site. Taken from site_config.json, then common_site_config.json, or prompted for, when omitted.
 
 ## Examples
 
@@ -51,4 +50,3 @@ Skips the confirmation. Nothing else about the reset changes.
 ```bash
 fm reset mybench --yes
 ```
-

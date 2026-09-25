@@ -1,4 +1,4 @@
-## `fm shell`
+# `fm shell`
 
 Open a shell in one of a bench's containers, or run a command in it.
 
@@ -18,13 +18,12 @@ $ fm shell BENCH(/SITE) [OPTIONS]
 
 **Options**:
 
-* `--command`: Run this command and exit.  [default: -c]
-* `--user`: User inside the container. Defaults to frappe on the frappe service, and is ignored with --run.
-* `--service`: Container to enter.
-* `--shell-path`: Shell to spawn. Defaults to /bin/bash, or sh on images without bash.
-* `--run`: Use a throwaway 'docker compose run --rm' container instead of the bench's.
-* `--bench-console`: Enter the Frappe context on the frappe service: bench console interactively, Python from -c or stdin.
-
+* `--command TEXT`: Run this command and exit.  [default: -c]
+* `--user TEXT`: User inside the container. Defaults to frappe on the frappe service, and is ignored with --run.
+* `--service TEXT`: Container to enter.  [default: frappe]
+* `--shell-path TEXT`: Shell to spawn. Defaults to /bin/bash, or sh on images without bash.
+* `--run`: Use a throwaway 'docker compose run --rm' container instead of the bench's.  [default: false]
+* `--bench-console`: Enter the Frappe context on the frappe service: bench console interactively, Python from -c or stdin.  [default: false]
 
 ## Examples
 
@@ -76,4 +75,3 @@ fm shell mybench --bench-console
 ```bash
 fm shell mybench --run -- bench migrate
 ```
-

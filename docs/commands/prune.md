@@ -1,4 +1,4 @@
-## `fm prune`
+# `fm prune`
 
 Reclaim this bench's disk: old deploy releases, old backup sessions, oversized logs.
 
@@ -16,14 +16,13 @@ $ fm prune BENCH [OPTIONS]
 
 **Options**:
 
-* `--only`: Run only this category (repeatable): releases, backups, logs. Default: all three.
-* `--keep, --keep-releases`: Releases to keep instead of \[switch].keep_releases. Minimum 1: the current release is never pruned.
-* `--keep-backups`: Backup sessions to keep per location instead of \[prune].keep_backup_sessions.
-* `--keep-logs`: Rotated archives to keep per log file instead of \[prune].keep_log_archives.
-* `--rotate-over`: Rotate log files larger than this (e.g. '500K', '10M') instead of \[prune].rotate_logs_over.
-* `-y, --yes`: Prune without asking for confirmation.
-* `--dry-run`: Print the plan and exit without deleting anything; never prompts.
-
+* `--only [releases|backups|logs]`: Run only this category (repeatable): releases, backups, logs. Default: all three.
+* `--keep, --keep-releases INTEGER`: Releases to keep instead of \[switch].keep_releases. Minimum 1: the current release is never pruned.
+* `--keep-backups INTEGER`: Backup sessions to keep per location instead of \[prune].keep_backup_sessions.
+* `--keep-logs INTEGER`: Rotated archives to keep per log file instead of \[prune].keep_log_archives.
+* `--rotate-over TEXT`: Rotate log files larger than this (e.g. '500K', '10M') instead of \[prune].rotate_logs_over.
+* `-y, --yes`: Prune without asking for confirmation.  [default: false]
+* `--dry-run`: Print the plan and exit without deleting anything; never prompts.  [default: false]
 
 ## Examples
 
@@ -53,6 +52,6 @@ fm prune mybench --only logs
 fm prune mybench --only releases --keep-releases 3
 ```
 
-## Related
+## See also
 
-- [Deployment guide](../deploy/index.md)
+- [Deployment](../deploy/index.md)

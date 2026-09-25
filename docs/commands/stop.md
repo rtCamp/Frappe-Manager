@@ -1,4 +1,4 @@
-## `fm stop`
+# `fm stop`
 
 Stop a bench's containers, admin tools and workers.
 
@@ -18,8 +18,7 @@ $ fm stop BENCH [OPTIONS]
 
 **Options**:
 
-* `--drain/--no-drain`: Wait for in-flight RQ jobs before stopping the workers, and abort the stop if they outlast \[workers].drain_timeout; --no-drain interrupts them instead.
-
+* `--drain/--no-drain`: Wait for in-flight RQ jobs before stopping the workers, and abort the stop if they outlast \[workers].drain_timeout; --no-drain interrupts them instead.  [default: true]
 
 ## Examples
 
@@ -36,4 +35,3 @@ fm stop mybench
 ```bash
 fm stop mybench --no-drain
 ```
-

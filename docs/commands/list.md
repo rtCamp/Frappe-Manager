@@ -1,4 +1,4 @@
-## `fm list`
+# `fm list`
 
 List all benches with status, runtime, installed apps and deploy state.
 
@@ -12,9 +12,8 @@ $ fm list [OPTIONS]
 
 **Options**:
 
-* `--json`: Emit the full inventory as JSON on clean stdout.
-* `-p, --paths`: Print plain 'name  path' lines instead of cards, so paths survive copying and piping.
-
+* `--json`: Emit the full inventory as JSON on clean stdout.  [default: false]
+* `-p, --paths`: Print plain 'name  path' lines instead of cards, so paths survive copying and piping.  [default: false]
 
 ## Examples
 
@@ -37,4 +36,3 @@ fm list --json | jq -r '.[] | select(.status == "active") | .name'
 ```bash
 fm list --json
 ```
-

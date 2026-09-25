@@ -130,5 +130,5 @@ fm ssl add mybench client.example.com --challenge dns01 --dns-provider client-zo
 
 ## Related
 
-- [SSL / HTTPS guide](../guides/ssl.md)
+- [HTTPS certificates](../guides/ssl.md)
 - [DNS providers](../reference/configuration.md#dns-providers): the stored file format and resolution order

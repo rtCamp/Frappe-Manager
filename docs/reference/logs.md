@@ -1,8 +1,8 @@
-# Logs & Debugging
+# Logs and debugging
 
 Three kinds of log: what the `fm` CLI itself did, what a bench's Frappe processes wrote to disk, and what a container printed to stdout.
 
-## Log Locations
+## Log locations
 
 | What | Where |
 |---|---|
@@ -93,7 +93,7 @@ With `--service`, the logs come from docker and that container has to be running
 
 ---
 
-## Bench Log Files
+## Bench log files
 
 Written by supervisor inside the container to `~/frappe/sites/<bench>/workspace/frappe-bench/logs/`:
 
@@ -141,7 +141,7 @@ jq -r 'select(.status >= 500) | .path' \
 
 ---
 
-## Console Verbosity Flags
+## Console verbosity flags
 
 These are options on `fm` itself, so they go before the subcommand.
 
@@ -183,7 +183,7 @@ $ fm --version
 
 ---
 
-## Rotating Bench Logs
+## Rotating bench logs
 
 Frappe does not rotate its own logs, and FM does not rotate them on a schedule. Two options, and on a long-lived Linux server you want the first:
 

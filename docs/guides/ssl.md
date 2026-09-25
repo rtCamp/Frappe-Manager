@@ -1,4 +1,4 @@
-# SSL / HTTPS
+# HTTPS certificates
 
 Frappe Manager issues and installs Let's Encrypt certificates for your benches using either the HTTP-01 challenge (the default) or DNS-01 through Cloudflare. It can also mint locally-trusted certificates from its own CA for development, import a certificate you already have with `--custom`, serve origins behind an external TLS terminator such as Cloudflare with `--behind-proxy`, and front external Docker projects that share its proxy network.
 
@@ -284,7 +284,7 @@ Removal mirrors this, and it is the security-relevant half: when `fm ssl remove`
 
 fm checks where the domain resolves when you run `fm ssl add`. A domain inside Cloudflare's published ranges without `--behind-proxy` gets a hint that the flag may be wanted; `--behind-proxy` on a domain that does not currently resolve into a known CDN range gets a note that it may be unnecessary. Both are advisory: nothing blocks, and when DNS cannot answer within a few seconds fm says nothing rather than guessing.
 
-`--behind-proxy` handles the scheme. Real client IPs are the other half of sitting behind an edge: run `fm services real-ip` so logs, `fm auth --allow-ip` and frappe's rate limiting see the visitor rather than the edge ([Hosting guide](hosting.md)).
+`--behind-proxy` handles the scheme. Real client IPs are the other half of sitting behind an edge: run `fm services real-ip` so logs, `fm auth enable --allow-ip` and frappe's rate limiting see the visitor rather than the edge ([Hosting guide](hosting.md)).
 
 ---
 
@@ -407,5 +407,5 @@ Everything lives under the global nginx-proxy service directory:
 !!! info "See also"
     - [fm ssl command reference](../commands/ssl.md): every flag and subcommand
     - [Cloudflare DNS config reference](../commands/ssl-dns-config-cloudflare.md)
-    - [Environments](environments.md): prod and dev differences
+    - [Environments](../concepts/environments.md): prod and dev differences
     - [Configuration reference](../reference/configuration.md#ssl-certificates): how certificates are recorded in `bench_config.toml`

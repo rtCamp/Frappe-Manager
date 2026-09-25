@@ -1,25 +1,20 @@
-## `fm tools`
+# `fm tools`
 
-Tools commands.
+Manage a bench's admin tools.
 
 **Usage**:
 
 ```console
-$ fm tools [OPTIONS] COMMAND [ARGS]...
+$ fm tools COMMAND [ARGS]...
 ```
 
-**Options**:
+| Command | Description |
+|---|---|
+| [`fm tools enable`](#fm-tools-enable) | Start the admin tools (Adminer at /adminer, Mailpit at /mailpit), or route a site to them. |
+| [`fm tools disable`](#fm-tools-disable) | Stop the admin tools (Adminer at /adminer, Mailpit at /mailpit), or unroute a site from them. |
+| [`fm tools status`](#fm-tools-status) | Report whether admin tools are configured, whether they are enabled, and which sites route to them. |
 
-* `--help`: Show this message and exit.
-
-**Commands**:
-
-* `enable`: Start the admin tools (Adminer at /adminer, Mailpit at /mailpit), or route a site to them.
-* `disable`: Stop the admin tools (Adminer at /adminer, Mailpit at /mailpit), or unroute a site from them.
-* `status`: Report whether admin tools are configured, whether they are enabled, and which sites route to them.
-
-
-### `fm tools enable`
+## `fm tools enable`
 
 Start the admin tools (Adminer at /adminer, Mailpit at /mailpit), or route a site to them.
 
@@ -37,12 +32,11 @@ $ fm tools enable BENCH(/SITE|all) [OPTIONS]
 
 **Options**:
 
-* `--mailpit-as-default-mail-server`: Route outgoing mail to Mailpit: on BENCH for every site the bench holds (via common_site_config), on BENCH/SITE for that one site only (via its site_config.json). Applies when the site has no default outgoing Email Account configured in Frappe.
+* `--mailpit-as-default-mail-server`: Route outgoing mail to Mailpit: on BENCH for every site the bench holds (via common_site_config), on BENCH/SITE for that one site only (via its site_config.json). Applies when the site has no default outgoing Email Account configured in Frappe.  [default: false]
 
+### Examples
 
-## Examples
-
-### Start the admin tools containers for a bench
+#### Start the admin tools containers for a bench
 
 Seeds the compose file on first use and mints the tools' htpasswd.
 
@@ -50,13 +44,13 @@ Seeds the compose file on first use and mints the tools' htpasswd.
 fm tools enable mybench
 ```
 
-### Also make Mailpit the bench's default outgoing mail server
+#### Also make Mailpit the bench's default outgoing mail server
 
 ```bash
 fm tools enable mybench --mailpit-as-default-mail-server
 ```
 
-### Route one site's hostnames to the already-running tools
+#### Route one site's hostnames to the already-running tools
 
 The bench's other sites and their existing routes are untouched.
 
@@ -64,7 +58,7 @@ The bench's other sites and their existing routes are untouched.
 fm tools enable mybench/site1.localhost
 ```
 
-### Route one site's mail to Mailpit, leaving the rest on their real mail server
+#### Route one site's mail to Mailpit, leaving the rest on their real mail server
 
 Writes the mail keys into that site's own site_config.json, which wins over the bench-wide config.
 
@@ -72,7 +66,7 @@ Writes the mail keys into that site's own site_config.json, which wins over the 
 fm tools enable mybench/site1.localhost --mailpit-as-default-mail-server
 ```
 
-### Restore every opted-out site's route at once
+#### Restore every opted-out site's route at once
 
 Fans the route out over every site the bench serves; the containers were already running.
 
@@ -80,8 +74,7 @@ Fans the route out over every site the bench serves; the containers were already
 fm tools enable mybench/all
 ```
 
-
-### `fm tools disable`
+## `fm tools disable`
 
 Stop the admin tools (Adminer at /adminer, Mailpit at /mailpit), or unroute a site from them.
 
@@ -97,22 +90,21 @@ $ fm tools disable BENCH(/SITE|all)
 
 * `BENCH(/SITE|all)`: Bench, BENCH/SITE for one of its sites, or BENCH/all for every site it serves.
 
+### Examples
 
-## Examples
-
-### Stop the admin tools containers for a bench
+#### Stop the admin tools containers for a bench
 
 ```bash
 fm tools disable mybench
 ```
 
-### Unroute one site, leaving the containers running for the rest
+#### Unroute one site, leaving the containers running for the rest
 
 ```bash
 fm tools disable mybench/site1.localhost
 ```
 
-### Unroute every site the bench serves
+#### Unroute every site the bench serves
 
 The Adminer and Mailpit containers keep running; stop them with a bare 'fm tools disable BENCH'.
 
@@ -120,8 +112,7 @@ The Adminer and Mailpit containers keep running; stop them with a bare 'fm tools
 fm tools disable mybench/all
 ```
 
-
-### `fm tools status`
+## `fm tools status`
 
 Report whether admin tools are configured, whether they are enabled, and which sites route to them.
 
@@ -135,12 +126,10 @@ $ fm tools status BENCH
 
 * `BENCH`: Bench to act on. Omit to pick from the benches you have.
 
+### Examples
 
-## Examples
-
-### Show admin tools state for a bench
+#### Show admin tools state for a bench
 
 ```bash
 fm tools status mybench
 ```
-

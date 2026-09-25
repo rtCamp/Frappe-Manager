@@ -1,4 +1,4 @@
-## `fm info`
+# `fm info`
 
 Show a bench's URL, credentials, apps, deploy history and live service state.
 
@@ -14,7 +14,6 @@ $ fm info BENCH
 
 * `BENCH`: Bench to act on. Omit to pick from the benches you have.
 
-
 ## Examples
 
 ### Show everything about a bench
@@ -22,4 +21,3 @@ $ fm info BENCH
 ```bash
 fm info mybench
 ```
-

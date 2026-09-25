@@ -1,30 +1,25 @@
-## `fm services`
+# `fm services`
 
-Services commands.
+Manage the shared MariaDB server and nginx proxy every bench uses.
 
 **Usage**:
 
 ```console
-$ fm services [OPTIONS] COMMAND [ARGS]...
+$ fm services COMMAND [ARGS]...
 ```
 
-**Options**:
+| Command | Description |
+|---|---|
+| [`fm services info`](#fm-services-info) | Show the global services' card: live container state, the root database credentials and the proxy's real-ip trust. |
+| [`fm services migrate`](#fm-services-migrate) | Bring fm's global services & configuration up to the current version. |
+| [`fm services start`](#fm-services-start) | Start the global services shared by every bench. |
+| [`fm services stop`](#fm-services-stop) | Stop the global services shared by every bench. |
+| [`fm services restart`](#fm-services-restart) | Restart the global services shared by every bench. |
+| [`fm services shell`](#fm-services-shell) | Open a bash shell in one of the global service containers. |
+| [`fm services real-ip`](#fm-services-real-ip) | Restore the visitor's real IP at the global nginx proxy when it sits behind a CDN or load balancer. |
+| [`fm services prune`](#fm-services-prune) | Reclaim the host tier's disk: fm's own backup sessions and the shared services' logs. |
 
-* `--help`: Show this message and exit.
-
-**Commands**:
-
-* `info`: Show the global services' card: live container state, the root database credentials and the proxy's real-ip trust.
-* `migrate`: Bring fm's global services & configuration up to the current version.
-* `start`: Start the global services shared by every bench.
-* `stop`: Stop the global services shared by every bench.
-* `restart`: Restart the global services shared by every bench.
-* `shell`: Open a bash shell in one of the global service containers.
-* `real-ip`: Restore the visitor's real IP at the global nginx proxy when it sits behind a CDN or load balancer.
-* `prune`: Reclaim the host tier's disk: fm's own backup sessions and the shared services' logs.
-
-
-### `fm services info`
+## `fm services info`
 
 Show the global services' card: live container state, the root database credentials and the proxy's real-ip trust.
 
@@ -36,8 +31,7 @@ The root database password is printed in cleartext. It belongs to the mariadb co
 $ fm services info
 ```
 
-
-### `fm services migrate`
+## `fm services migrate`
 
 Bring fm's global services & configuration up to the current version.
 
@@ -53,18 +47,17 @@ $ fm services migrate [OPTIONS]
 
 **Options**:
 
-* `-y, --yes`: Migrate without asking for confirmation.
-* `--dry-run`: Print the migration plan and exit without migrating; never prompts.
-* `--skip-backup`: Skip every pre-migration backup, both kinds (DANGEROUS; prefer --skip-db-backup, which keeps the near-free config backups the rollback restores).
-* `--skip-config-backup`: Skip the config-file backups (the services compose, fm's own config).
-* `--skip-db-backup`: Skip whole-engine database dumps (DANGEROUS; such a dump can be the only route back from a one-way engine upgrade, so use this only when taking it is impossible).
-* `--on-failure`: What to do when the migration fails: rollback (revert, the default), halt (leave everything as it stopped and report), prompt (ask).
-* `--rerun`: Re-run the migration steps even when already up to date.
+* `-y, --yes`: Migrate without asking for confirmation.  [default: false]
+* `--dry-run`: Print the migration plan and exit without migrating; never prompts.  [default: false]
+* `--skip-backup`: Skip every pre-migration backup, both kinds (DANGEROUS; prefer --skip-db-backup, which keeps the near-free config backups the rollback restores).  [default: false]
+* `--skip-config-backup`: Skip the config-file backups (the services compose, fm's own config).  [default: false]
+* `--skip-db-backup`: Skip whole-engine database dumps (DANGEROUS; such a dump can be the only route back from a one-way engine upgrade, so use this only when taking it is impossible).  [default: false]
+* `--on-failure [prompt|rollback|halt]`: What to do when the migration fails: rollback (revert, the default), halt (leave everything as it stopped and report), prompt (ask).
+* `--rerun`: Re-run the migration steps even when already up to date.  [default: false]
 
+### Examples
 
-## Examples
-
-### Migrate after a CLI update
+#### Migrate after a CLI update
 
 Updates the shared services (mariadb, nginx-proxy) and fm's own config. No bench version is touched; run fm migrate BENCH or fm migrate all afterwards.
 
@@ -72,19 +65,19 @@ Updates the shared services (mariadb, nginx-proxy) and fm's own config. No bench
 fm services migrate
 ```
 
-### Migrate unattended
+#### Migrate unattended
 
 ```bash
 fm services migrate --yes
 ```
 
-### See the plan without migrating
+#### See the plan without migrating
 
 ```bash
 fm services migrate --dry-run
 ```
 
-### Halt on failure for inspection
+#### Halt on failure for inspection
 
 A failed cutover is left exactly as it stopped, with the backup location printed, instead of being rolled back underneath you.
 
@@ -92,8 +85,7 @@ A failed cutover is left exactly as it stopped, with the backup location printed
 fm services migrate --on-failure halt
 ```
 
-
-### `fm services start`
+## `fm services start`
 
 Start the global services shared by every bench.
 
@@ -107,10 +99,9 @@ $ fm services start SERVICE_NAME
 
 * `SERVICE_NAME`  [required]
 
+### Examples
 
-## Examples
-
-### Bring the global stack up
+#### Bring the global stack up
 
 Services already running are left alone, so this is safe to re-run.
 
@@ -118,14 +109,13 @@ Services already running are left alone, so this is safe to re-run.
 fm services start all
 ```
 
-### Start the database only
+#### Start the database only
 
 ```bash
 fm services start mariadb
 ```
 
-
-### `fm services stop`
+## `fm services stop`
 
 Stop the global services shared by every bench.
 
@@ -141,10 +131,9 @@ $ fm services stop SERVICE_NAME
 
 * `SERVICE_NAME`  [required]
 
+### Examples
 
-## Examples
-
-### Take the global stack down
+#### Take the global stack down
 
 Services already stopped are left alone.
 
@@ -152,8 +141,7 @@ Services already stopped are left alone.
 fm services stop all
 ```
 
-
-### `fm services restart`
+## `fm services restart`
 
 Restart the global services shared by every bench.
 
@@ -169,10 +157,9 @@ $ fm services restart SERVICE_NAME
 
 * `SERVICE_NAME`  [required]
 
+### Examples
 
-## Examples
-
-### Apply a change to the proxy
+#### Apply a change to the proxy
 
 A restart is what puts a new proxy config into effect, for instance after fm services real-ip.
 
@@ -180,7 +167,7 @@ A restart is what puts a new proxy config into effect, for instance after fm ser
 fm services restart nginx-proxy
 ```
 
-### Restart the whole global stack
+#### Restart the whole global stack
 
 Benches are unreachable until the proxy is back up.
 
@@ -188,8 +175,7 @@ Benches are unreachable until the proxy is back up.
 fm services restart all
 ```
 
-
-### `fm services shell`
+## `fm services shell`
 
 Open a bash shell in one of the global service containers.
 
@@ -205,25 +191,23 @@ $ fm services shell SERVICE_NAME [OPTIONS]
 
 **Options**:
 
-* `--user`: Run the shell as this user instead of the container's default.
+* `--user TEXT`: Run the shell as this user instead of the container's default.
 
+### Examples
 
-## Examples
-
-### Open a shell in the global database
+#### Open a shell in the global database
 
 ```bash
 fm services shell mariadb
 ```
 
-### Open a shell in the proxy
+#### Open a shell in the proxy
 
 ```bash
 fm services shell nginx-proxy
 ```
 
-
-### `fm services real-ip`
+## `fm services real-ip`
 
 Restore the visitor's real IP at the global nginx proxy when it sits behind a CDN or load balancer.
 
@@ -237,16 +221,15 @@ $ fm services real-ip [OPTIONS]
 
 **Options**:
 
-* `--cdn`: Trust a CDN's published ranges. Supported: cloudflare.
-* `--trust`: CIDR range or single IP of a proxy in front of fm (repeatable).
-* `--header`: Header the client IP is read from. Defaults to CF-Connecting-IP for --cdn cloudflare and X-Forwarded-For otherwise; anything that is not a valid header name is refused.
-* `--off`: Remove the configuration and reload the proxy.
-* `--status`: Show the active configuration. Writes nothing.
+* `--cdn TEXT`: Trust a CDN's published ranges. Supported: cloudflare.
+* `--trust TEXT`: CIDR range or single IP of a proxy in front of fm (repeatable).
+* `--header TEXT`: Header the client IP is read from. Defaults to CF-Connecting-IP for --cdn cloudflare and X-Forwarded-For otherwise; anything that is not a valid header name is refused.
+* `--off`: Remove the configuration and reload the proxy.  [default: false]
+* `--status`: Show the active configuration. Writes nothing.  [default: false]
 
+### Examples
 
-## Examples
-
-### Trust Cloudflare
+#### Trust Cloudflare
 
 Proxy logs, fm maintenance --allow-ip and frappe's rate limiting then see the visitor instead of Cloudflare's edge.
 
@@ -254,7 +237,7 @@ Proxy logs, fm maintenance --allow-ip and frappe's rate limiting then see the vi
 fm services real-ip --cdn cloudflare
 ```
 
-### Trust your own load balancer
+#### Trust your own load balancer
 
 Each run replaces the whole configuration, so pass every range you sit behind in one call.
 
@@ -262,14 +245,13 @@ Each run replaces the whole configuration, so pass every range you sit behind in
 fm services real-ip --trust 203.0.113.0/24
 ```
 
-### Show what is trusted
+#### Show what is trusted
 
 ```bash
 fm services real-ip --status
 ```
 
-
-### `fm services prune`
+## `fm services prune`
 
 Reclaim the host tier's disk: fm's own backup sessions and the shared services' logs.
 
@@ -283,23 +265,22 @@ $ fm services prune [OPTIONS]
 
 **Options**:
 
-* `--only`: Run only this category: backups or logs. Default: both.
-* `--keep-backups`: Backup sessions to keep per location instead of \[prune].keep_backup_sessions.
-* `--keep-logs`: Rotated archives to keep per log file instead of \[prune].keep_log_archives.
-* `--rotate-over`: Rotate log files larger than this (e.g. '500K', '10M') instead of \[prune].rotate_logs_over.
-* `-y, --yes`: Prune without asking for confirmation.
-* `--dry-run`: Print the plan and exit without deleting anything; never prompts.
+* `--only TEXT`: Run only this category: backups or logs. Default: both.
+* `--keep-backups INTEGER`: Backup sessions to keep per location instead of \[prune].keep_backup_sessions.
+* `--keep-logs INTEGER`: Rotated archives to keep per log file instead of \[prune].keep_log_archives.
+* `--rotate-over TEXT`: Rotate log files larger than this (e.g. '500K', '10M') instead of \[prune].rotate_logs_over.
+* `-y, --yes`: Prune without asking for confirmation.  [default: false]
+* `--dry-run`: Print the plan and exit without deleting anything; never prompts.  [default: false]
 
+### Examples
 
-## Examples
-
-### See what a prune would remove, without removing it
+#### See what a prune would remove, without removing it
 
 ```bash
 fm services prune --dry-run
 ```
 
-### Reclaim host-tier disk: old backup sessions, oversized service logs
+#### Reclaim host-tier disk: old backup sessions, oversized service logs
 
 Shows the full plan (every path) first, then asks. A bare Enter aborts; type y to proceed, or pass --yes.
 
@@ -307,9 +288,8 @@ Shows the full plan (every path) first, then asks. A bare Enter aborts; type y t
 fm services prune
 ```
 
-### Only rotate the shared services' logs
+#### Only rotate the shared services' logs
 
 ```bash
 fm services prune --only logs
 ```
-

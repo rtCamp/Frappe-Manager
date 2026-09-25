@@ -1,10 +1,13 @@
 ---
 hide:
   - navigation
-  - toc
 ---
 
 # Frappe Manager
+
+Frappe Manager (`fm`) runs Frappe and ERPNext benches on Docker. One command builds a bench, starts its containers, and prints the URL and login. The same tool takes that bench to a server, gives it a real domain and a Let's Encrypt certificate, and ships it as an immutable image.
+
+It replaces the hand-rolled stack most Frappe developers end up maintaining: a bench directory, MariaDB, Redis, a supervisor config, an nginx vhost, and a pile of shell aliases.
 
 <div class="grid cards" markdown>
 
@@ -24,7 +27,7 @@ hide:
 
     ---
 
-    Issue a Let's Encrypt certificate for any bench domain with `fm ssl add`, over HTTP-01 or DNS-01, or import one you already have with `--custom`. Renewal is `fm ssl renew all`, which is safe to run from a daily cron.
+    Issue a Let's Encrypt certificate for any bench domain with `fm ssl add`, over HTTP-01 or DNS-01, or import one you already have with `--custom`. Renewal is `fm ssl renew all`, safe to run from a daily cron.
 
 -   :lucide-code-2:{ .lg .middle } &nbsp; **[Built for developers](guides/vscode.md)**
 
@@ -48,30 +51,50 @@ hide:
 
     ---
 
-    Bake your bench into a Docker image and deploy it with a zero-downtime rolling swap. Roll back with `fm switch --previous`, or `--previous --restore-db` to take the database back with the code.
+    Bake your bench into a Docker image and deploy it with a zero-downtime rolling swap. Roll back with `fm switch --previous`, or add `--restore-db` to take the database back with the code.
 
 </div>
+
+## Requirements
+
+| Requirement | Detail |
+|---|---|
+| Docker | Engine 20.10+ with the Compose v2 plugin, daemon running |
+| Python | 3.13 or 3.14 |
+| Platform | Linux, macOS, or Windows via WSL 2 |
+| Disk | About 4 GB for the first bench, less for each one after |
+
+fm talks to the Docker daemon on every command. If Docker is not running, `fm` exits before it does anything.
 
 ## Install
 
 ```bash
-uv tool install --python 3.14 frappe-manager
+uv tool install --python 3.13 frappe-manager
 ```
 
-Other methods (pipx, uvx, dev builds): see the [Installation guide](getting-started/installation.md).
+Then check it:
 
-## Create your first bench
+```bash
+fm --version
+```
+
+Other installers and how to upgrade: [Installation](getting-started/installation.md).
+
+## Create a bench
 
 ```bash
 fm create mybench
 ```
 
-A bare name becomes a `.localhost` domain, so this bench answers on **http://mybench.localhost**. fm starts it and prints the URL and credentials when it finishes; the default login is `Administrator` / `admin`.
+A bare name becomes a `.localhost` domain, so this bench answers on `http://mybench.localhost`. fm creates the bench, starts it, and prints the URL and credentials when it finishes. The default login is `Administrator` / `admin`.
 
-!!! tip "Need ERPNext?"
-    ```bash
-    fm create mybench --apps erpnext
-    ```
+To include ERPNext, name the apps you want:
+
+```bash
+fm create mybench --apps erpnext
+```
+
+Walk through the rest of the first session in [Your first bench](getting-started/quick-start.md).
 
 ## Where to go next
 
@@ -79,10 +102,10 @@ A bare name becomes a `.localhost` domain, so this bench answers on **http://myb
 
 !!! info "New to Frappe Manager?"
 
-    Start with the [Installation guide](getting-started/installation.md) (prerequisites in [Before you install](getting-started/installation.md#before-you-install)), then follow the [Quick Start](getting-started/quick-start.md).
+    Start with [Installation](getting-started/installation.md), then follow [Your first bench](getting-started/quick-start.md).
 
 !!! example "Already installed?"
 
-    Learn the model in [Concepts](concepts/index.md), work the daily loop in the [Guides](guides/index.md), and ship with the [Deployment guide](deploy/index.md).
+    Learn the model in [How fm works](concepts/index.md), work the daily loop in the [Guides](guides/index.md), and ship with the [Deployment guide](deploy/index.md).
 
 </div>

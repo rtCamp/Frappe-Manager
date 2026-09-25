@@ -1,4 +1,4 @@
-# Migration History
+# Migration history
 
 What each shipped migration actually did, in full. This is the archaeology page: read it when you are upgrading an install that sat out several releases, or hunting for when a particular file or key changed shape. How the migration *system* behaves lives in the [Migrations reference](migrations.md).
 
@@ -16,7 +16,7 @@ The v0.19.0 runtime rebuild is the slow part of any upgrade that crosses it: it 
 
 ## Version-specific backup artifacts {#version-backups}
 
-Beyond the standard set every migration takes (see [Backup & Restore](../guides/backup-restore.md#before-a-migration)), individual versions add their own:
+Beyond the standard set every migration takes (see [Backup and restore](../guides/backup-restore.md#before-a-migration)), individual versions add their own:
 
 | Artifact | Version | Why |
 |---|---|---|

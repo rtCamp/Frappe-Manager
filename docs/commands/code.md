@@ -1,4 +1,4 @@
-## `fm code`
+# `fm code`
 
 Open a bench in VSCode, attached to its running frappe container.
 
@@ -16,12 +16,11 @@ $ fm code BENCH [OPTIONS]
 
 **Options**:
 
-* `--user`: User VSCode connects as inside the container.
-* `-e, --extension`: Extra VSCode extension to install alongside fm's defaults, e.g. ms-python.python (repeatable).
-* `-f, --force-start`: Start the bench first if it is not running.
-* `-d, --debugger`: Write the Frappe debug launch config and install ruff in the container. Workspace directories only.
-* `-w, --work-dir`: Directory VSCode opens inside the container.
-
+* `--user TEXT`: User VSCode connects as inside the container.  [default: frappe]
+* `-e, --extension TEXT`: Extra VSCode extension to install alongside fm's defaults, e.g. ms-python.python (repeatable).  [default: ['ms-python.debugpy', 'rioj7.command-variable', 'ms-python.python', 'charliermarsh.ruff', 'dbaeumer.vscode-eslint', 'esbenp.prettier-vscode']]
+* `-f, --force-start`: Start the bench first if it is not running.  [default: false]
+* `-d, --debugger`: Write the Frappe debug launch config and install ruff in the container. Workspace directories only.  [default: false]
+* `-w, --work-dir TEXT`: Directory VSCode opens inside the container.  [default: /workspace/frappe-bench]
 
 ## Examples
 
@@ -42,4 +41,3 @@ fm code mybench --debugger
 ```bash
 fm code mybench -e vscodevim.vim
 ```
-

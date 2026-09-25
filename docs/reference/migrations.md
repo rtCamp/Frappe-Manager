@@ -2,14 +2,14 @@
 
 Updating the `fm` CLI does not update what it manages. Two commands bring the managed state up to the version of the CLI you just installed: `fm services migrate` for fm's global services & configuration, then `fm migrate` for your benches.
 
-## Overview
+## The two tiers
 
 FM migrates two things, tracked separately and migrated by separate commands:
 
 1. **Global services & configuration**: the shared services (`mariadb`, `nginx-proxy`) and `~/frappe/fm_config.toml`, migrated by `fm services migrate`
 2. **Benches**: each bench's `bench_config.toml`, compose files, generated nginx and supervisor config, migrated by `fm migrate BENCH` or `fm migrate all`
 
-Both are **version-aware**: FM records the version each one is migrated to and only runs the migrations newer than that. What each shipped migration actually changed is catalogued in the [Migration History](migration-history.md).
+Both are **version-aware**: FM records the version each one is migrated to and only runs the migrations newer than that. What each shipped migration actually changed is catalogued in the [Migration history](migration-history.md).
 
 !!! important "The services tier is a prerequisite, never a side effect"
     `fm migrate` never migrates the global services implicitly. While they are behind it refuses outright and names the fix, because the services tier performs host-wide cutovers (v1.0.0 renames the very addresses benches dial) that must be an explicit decision:
@@ -27,7 +27,7 @@ Both are **version-aware**: FM records the version each one is migrated to and o
 
 ---
 
-## Every Bench Command Requires a Migrated Bench {#migration-gate}
+## Every bench command requires a migrated bench {#migration-gate}
 
 A bench that is behind the CLI is refused, not silently used. Two gates enforce it:
 
@@ -38,14 +38,14 @@ Commands that skip the callback gate entirely: `list`, `compose`, `self update-i
 
 The bench half of the callback gate is additionally skipped for `stop`, `delete`, and `maintenance`. Of those, only `stop` and `delete` carry no in-command check either, so those two are the ones you can always run against a bench you cannot migrate. `maintenance` still refuses, just without the offer to migrate inline.
 
-While a migration runs, every other fm command on the host is refused (and a migration refuses to start while anything else runs); observation commands like `fm list` stay usable throughout. See [Process Locks](locks.md).
+While a migration runs, every other fm command on the host is refused (and a migration refuses to start while anything else runs); observation commands like `fm list` stay usable throughout. See [Process locks](locks.md).
 
 !!! note "Non-interactive runs"
     Under `--non-interactive` the callback's prompt cannot be answered, so a pending migration fails the command with a message naming `fm migrate`. Migrate explicitly before the rest of a CI job. Running `fm migrate` or `fm services migrate` itself under `--non-interactive` without `--yes` is refused the same way, naming `--yes` instead -- `--dry-run` is the one form of either command that never prompts and always exits 0, so it works non-interactively with no flag needed.
 
 ---
 
-## Version Tracking
+## Version tracking
 
 **Global services & configuration**, in `~/frappe/fm_config.toml` (fm still accepts the older `[migration_state]` table and the `migrated_to` / `system_migrated_to` key spellings, rewriting them to `[schema].version` on the next migration):
 
@@ -82,9 +82,9 @@ Migration path: v0.17.0 → v0.18.0 → v1.0.0
 
 ---
 
-## Running Migrations
+## Running migrations
 
-### Global services & configuration {#migrate-services}
+### Global services and configuration {#migrate-services}
 
 ```bash
 fm services migrate
@@ -128,7 +128,7 @@ Answering `no` prints the `uv tool install frappe-manager==<previous>` command t
 
 ## Backups
 
-Every migration backs up what it is about to touch, per bench and per version, before that version's steps run. Backups are never deleted as a side effect: a successful run prints a hint when old sessions exceed the configured keep, and trimming is an explicit command (`fm prune BENCH`, `fm services prune`; retention in the [`[prune]` config table](configuration.md#fm-prune)). The layout on disk, restoring by hand, and the troubleshooting recipes live in [Backup & Restore](../guides/backup-restore.md#before-a-migration); version-specific extra artifacts are listed in the [Migration History](migration-history.md#version-backups).
+Every migration backs up what it is about to touch, per bench and per version, before that version's steps run. Backups are never deleted as a side effect: a successful run prints a hint when old sessions exceed the configured keep, and trimming is an explicit command (`fm prune BENCH`, `fm services prune`; retention in the [`[prune]` config table](configuration.md#fm-prune)). The layout on disk, restoring by hand, and the troubleshooting recipes live in [Backup and restore](../guides/backup-restore.md#before-a-migration); version-specific extra artifacts are listed in the [Migration history](migration-history.md#version-backups).
 
 ### Skipping backups {#skip-backups}
 
@@ -150,7 +150,7 @@ fm migrate all --skip-backup          # skip both kinds
 
 ---
 
-## Failure Handling {#on-failure}
+## Failure handling {#on-failure}
 
 When a bench's migration raises, FM restores that bench's backups for the failing version and undoes the version's bench-level changes before deciding what to do next. `--on-failure` picks that decision.
 
@@ -184,7 +184,7 @@ The services tier defaults to `rollback` and adds `halt`: leave everything exact
 
 ---
 
-## How Migrations Are Selected {#internals}
+## How migrations are selected {#internals}
 
 Migration classes are discovered from the modules in `migration_manager/migrations/` and filtered by `from_version < migration.version <= current_version`, then sorted by version.
 
@@ -197,4 +197,4 @@ For each selected version, in ascending order:
 
 Benches are never migrated in parallel. Once a bench has failed, later versions skip it instead of compounding the damage.
 
-**See also:** [Migration History](migration-history.md), [Process Locks](locks.md), [Backup & Restore](../guides/backup-restore.md), [`fm migrate`](../commands/migrate.md)
+**See also:** [Migration history](migration-history.md), [Process locks](locks.md), [Backup and restore](../guides/backup-restore.md), [`fm migrate`](../commands/migrate.md)

@@ -1,4 +1,4 @@
-# Hosting on a Server
+# Hosting on a server
 
 The end-to-end runbook: from a fresh Ubuntu server to production benches served over HTTPS, one domain per client. Every step links to the guide that covers it in depth.
 
@@ -30,7 +30,7 @@ Name the bench after the domain it will serve; the bench name is the primary dom
 fm create clientone.example.com -e prod
 ```
 
-`prod` gives you Gunicorn, restart-on-crash defaults, and no admin tools (the right defaults for a public server). See [Environments](environments.md) for exactly what changes.
+`prod` gives you Gunicorn, restart-on-crash defaults, and no admin tools (the right defaults for a public server). See [Environments](../concepts/environments.md) for exactly what changes.
 
 ## 4. Add HTTPS
 
@@ -46,7 +46,7 @@ fm installs no renewal timer, so add the renewal once per server:
 0 3 * * * fm ssl renew all
 ```
 
-The [SSL guide](ssl.md) covers the rest, including the DNS-01 (Cloudflare) challenge for when port 80 is blocked or you need a wildcard certificate (`--challenge dns01`).
+The [HTTPS certificates](ssl.md) covers the rest, including the DNS-01 (Cloudflare) challenge for when port 80 is blocked or you need a wildcard certificate (`--challenge dns01`).
 
 ## 5. Verify
 
@@ -72,12 +72,12 @@ fm ssl add clienttwo.example.com/clienttwo.example.com
 
 ## Staying safe
 
-- **Backups**: fm does not back up site data; `bench backup` does, and the artefacts live inside the bench you are backing up. See [Backup & Restore](backup-restore.md), then get the files off the server.
+- **Backups**: fm does not back up site data; `bench backup` does, and the artefacts live inside the bench you are backing up. See [Backup and restore](backup-restore.md), then get the files off the server.
 - **Upgrading fm**: keep the CLI and your benches in sync; see [Upgrading fm](../getting-started/installation.md#upgrading-fm) (`fm self upgrade` then `fm migrate all`).
-- **Behind a CDN or load balancer**: run `fm services real-ip` so the proxy logs and any `fm auth --allow-ip` list see the visitor's address instead of the CDN's, and issue that bench's certificates with `--behind-proxy` so the origin's redirect and Frappe's request handling stop assuming a direct TLS connection ([SSL guide](ssl.md#behind-proxy)).
-- **Monitoring**: report the web process to New Relic APM; see [Monitoring](environments.md#monitoring-new-relic).
-- **Web concurrency**: Gunicorn worker and thread counts have sensible RAM/CPU-based defaults; see [Web Serving & Concurrency](../concepts/web-serving.md).
-- **Background jobs**: queue and worker tuning; see [Background Jobs & Workers](../concepts/background-jobs.md).
+- **Behind a CDN or load balancer**: run `fm services real-ip` so the proxy logs and any `fm auth enable --allow-ip` list see the visitor's address instead of the CDN's, and issue that bench's certificates with `--behind-proxy` so the origin's redirect and Frappe's request handling stop assuming a direct TLS connection ([HTTPS certificates](ssl.md#behind-proxy)).
+- **Monitoring**: report the web process to New Relic APM; see [Monitoring](../concepts/environments.md#monitoring-new-relic).
+- **Web concurrency**: Gunicorn worker and thread counts have sensible RAM/CPU-based defaults; see [Web serving and concurrency](../concepts/web-serving.md).
+- **Background jobs**: queue and worker tuning; see [Background jobs and workers](../concepts/background-jobs.md).
 
 ## Prefer immutable releases?
 
