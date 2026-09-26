@@ -50,7 +50,7 @@ def _image_bench_bake_refusal(name: str, bc: BenchConfig) -> str:
     return (
         f"'{name}' is an image-runtime bench, so it has no editable workspace to bake from and its "
         f"apps live inside the image, not in bench_config.toml.{runs} Build a new image from your app "
-        f"source with a standalone bake -- 'fm bake --apps <app:branch> --image {repo}' (or a --config "
+        f"source with a standalone bake -- 'fm bake --apps <app:branch> --app-image {repo}' (or a --config "
         f"carrying \\[\\[apps]]) -- then deploy it here with 'fm switch {name} <image>'."
     )
 

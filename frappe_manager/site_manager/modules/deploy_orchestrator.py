@@ -280,7 +280,7 @@ class DeployOrchestrator:
                 f"(runtime={self.config.runtime.value}). Set runtime = 'image'.",
             )
         if not self.config.image:
-            raise DeployError("No image configured; set top-level image (or --image).")
+            raise DeployError("No image configured; set top-level image (or --app-image).")
         self.switch_config = self.config.switch or SwitchConfig()
         self.workers_config = self.config.workers or WorkersConfig()
 
@@ -1782,7 +1782,11 @@ class DeployOrchestrator:
         if not state or not state.history:
             return summary
 
-        limit = self.switch_config.keep_releases if keep is None else keep
+        # Resolved here, not read off `self.switch_config`: that attribute is set by
+        # `_require_image_mode`, which only the deploy paths call, so reaching this from
+        # `fm prune` found it unset and died with an AttributeError on a NoneType.
+        switch_config = self.config.switch or SwitchConfig()
+        limit = switch_config.keep_releases if keep is None else keep
         protected = {
             image
             for image in (

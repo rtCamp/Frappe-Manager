@@ -180,7 +180,12 @@ class TestSwitchResolvers:
                 migrate_status="migrated",
                 backups={"x.localhost": "/b/db.sql", "shop.x.localhost": "/b/db-shop.sql"},
             ),
-            previous=Deployment(app_image="local/x:t2", deployed_at="d2", migrate_status="skipped"),
+            previous=Deployment(
+                app_image="local/x:t2",
+                nginx_image="local/x-nginx:t2",
+                deployed_at="d2",
+                migrate_status="skipped",
+            ),
             history=[
                 Deployment(app_image="local/x:t2", deployed_at="d2", migrate_status="skipped"),
                 Deployment(
@@ -195,31 +200,44 @@ class TestSwitchResolvers:
     def test_explicit_image_wins(self):
         from frappe_manager.commands.deploy import _resolve_switch_image
 
-        assert _resolve_switch_image(self._state(), "local/x:t9", False) == ("local/x:t9", None)
+        assert _resolve_switch_image(self._state(), "local/x:t9", False, None) == ("local/x:t9", None, None)
 
-    def test_previous_resolves_recorded_image(self):
+    def test_previous_resolves_the_recorded_pair(self):
+        """A rollback target brings its own companion: the two ran together and both are on the
+        record, so `--previous` must not send the resolver looking for a label that a release
+        baked before the label existed will never have."""
         from frappe_manager.commands.deploy import _resolve_switch_image
 
-        assert _resolve_switch_image(self._state(), None, True) == ("local/x:t2", None)
+        assert _resolve_switch_image(self._state(), None, True, None) == (
+            "local/x:t2",
+            "local/x-nginx:t2",
+            None,
+        )
+
+    def test_an_explicit_companion_still_wins_over_the_recorded_one(self):
+        from frappe_manager.commands.deploy import _resolve_switch_image
+
+        _, nginx, _error = _resolve_switch_image(self._state(), None, True, "local/other-nginx:t9")
+        assert nginx == "local/other-nginx:t9"
 
     def test_image_and_previous_conflict(self):
         from frappe_manager.commands.deploy import _resolve_switch_image
 
-        target, error = _resolve_switch_image(self._state(), "local/x:t9", True)
+        target, _nginx, error = _resolve_switch_image(self._state(), "local/x:t9", True, None)
         assert target is None
         assert "not both" in error
 
     def test_previous_without_history_errors(self):
         from frappe_manager.commands.deploy import _resolve_switch_image
 
-        target, error = _resolve_switch_image(None, None, True)
+        target, _nginx, error = _resolve_switch_image(None, None, True, None)
         assert target is None
         assert "No previous image recorded" in error
 
     def test_neither_image_nor_previous_errors(self):
         from frappe_manager.commands.deploy import _resolve_switch_image
 
-        target, error = _resolve_switch_image(self._state(), None, False)
+        target, _nginx, error = _resolve_switch_image(self._state(), None, False, None)
         assert target is None
         assert "Missing target" in error
 
@@ -230,7 +248,7 @@ class TestSwitchResolvers:
         reference is a repository plus a version."""
         from frappe_manager.commands.deploy import _resolve_switch_image
 
-        target, error = _resolve_switch_image(self._state(), "v15", False)
+        target, _nginx, error = _resolve_switch_image(self._state(), "v15", False, None)
         assert target is None
         assert "not an image reference" in error
         assert "names no version" in error
@@ -241,7 +259,7 @@ class TestSwitchResolvers:
         rather than sending the reader after the wrong half of their command."""
         from frappe_manager.commands.deploy import _resolve_switch_image
 
-        _, error = _resolve_switch_image(self._state(), "v15", False)
+        _, _nginx, error = _resolve_switch_image(self._state(), "v15", False, None)
         assert "If you passed a tag on its own" in error
 
     def test_a_registry_host_port_without_a_tag_is_still_refused(self):
@@ -250,7 +268,7 @@ class TestSwitchResolvers:
         naive ``':' in value`` check."""
         from frappe_manager.commands.deploy import _resolve_switch_image
 
-        target, error = _resolve_switch_image(self._state(), "localhost:5000/repo", False)
+        target, _nginx, error = _resolve_switch_image(self._state(), "localhost:5000/repo", False, None)
         assert target is None
         assert "not an image reference" in error
 
@@ -262,7 +280,7 @@ class TestSwitchResolvers:
         from frappe_manager.commands.deploy import _resolve_switch_image
 
         digest_ref = "ghcr.io/acme/mybench@sha256:" + "a" * 64
-        target, error = _resolve_switch_image(self._state(), digest_ref, False)
+        target, _nginx, error = _resolve_switch_image(self._state(), digest_ref, False, None)
         assert error is None
         assert target == digest_ref
 
@@ -272,7 +290,7 @@ class TestSwitchResolvers:
         from frappe_manager.commands.deploy import _resolve_switch_image
 
         both = "ghcr.io/acme/mybench:v1@sha256:" + "a" * 64
-        target, error = _resolve_switch_image(self._state(), both, False)
+        target, _nginx, error = _resolve_switch_image(self._state(), both, False, None)
         assert error is None
         assert target == both
 

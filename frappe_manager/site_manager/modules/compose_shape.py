@@ -351,7 +351,7 @@ def apply_specs(compose_file_manager, specs: tuple[ServiceSpec, ...], sites: Seq
             compose_file_manager.set_envs(spec.name, dict(spec.env), append=True)
         if spec.image:
             # spec.image is the FULL reference (MountShape.base_image can legitimately be a
-            # digest pin, e.g. `fm create --base-image app@sha256:...`; ImageShape.image_ref
+            # digest pin, e.g. `fm create --app-image app@sha256:...`; ImageShape.image_ref
             # can carry a registry host:port). A naive `rpartition(":")` happens to reconstruct
             # the same compose "image:" string for any of those, but it labels the split wrong
             # (a digest's hex lands in "tag"), so route it through ImageRef -- the one canonical

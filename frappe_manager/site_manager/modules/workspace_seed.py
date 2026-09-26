@@ -5,7 +5,7 @@ The baked image carries the complete provisioned ``/workspace/frappe-bench``
 installed against the same container path a mount bench binds its workspace to,
 so extracting those paths onto the host yields a working editable tree with no
 clone / dependency install / asset build. This is ``fm bake`` in reverse; it
-powers image-seeded mount creates (``fm create NAME --seed-image REPO:TAG``).
+powers apps-from mount creates (``fm create NAME --apps-from REPO:TAG``).
 
 Site data (``sites/<site>``, ``common_site_config.json``, ``apps.txt``,
 ``logs/``, ``config/``) is NEVER written: it is seeded by the normal create

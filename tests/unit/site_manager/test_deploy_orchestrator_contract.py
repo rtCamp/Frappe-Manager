@@ -2562,3 +2562,24 @@ class TestBackupStep:
         orch._backup_all(tmp_path / "out")
         warned = " ".join(str(c.args) for c in orch.output.warning.call_args_list)
         assert "ca-bundle.pem" in warned
+
+
+class TestPruneWithoutADeploy:
+    """`fm prune` reaches `prune_releases` without going through a deploy.
+
+    Retention used to be read off `self.switch_config`, which only `_require_image_mode` sets and
+    only the deploy paths call, so `fm prune` on an image bench died with an AttributeError on a
+    NoneType before printing a plan.
+    """
+
+    def test_prune_releases_resolves_retention_on_its_own(self, tmp_path):
+        history = [
+            Deployment(app_image=f"repo:{t}", nginx_image=f"repo-nginx:{t}", deployed_at=t, migrate_status="migrated")
+            for t in ("a", "b", "c")
+        ]
+        orch = make_orch(tmp_path, deployments=Deployments(current=history[-1], history=history))
+        orch.docker.rmi = MagicMock()
+
+        summary = orch.prune_releases(dry_run=True)
+
+        assert summary["kept"] >= 1

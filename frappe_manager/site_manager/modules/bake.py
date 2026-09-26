@@ -158,7 +158,7 @@ class BakeManager:
         repo = self.bench_config.image
         if not repo:
             raise BakeError(
-                "No image configured. Set top-level image (or pass --image) before baking.",
+                "No image configured. Set top-level image (or pass --app-image) before baking.",
             )
         ref = ImageRef.parse(repo)
         if ref.is_pinned:
@@ -166,7 +166,7 @@ class BakeManager:
                 f"top-level image must be a bare repository, not {repo!r}: fm bake generates its "
                 f"own tag from a timestamp and git sha, so a value already carrying a ':tag' or "
                 f"'@digest' would silently produce '{repo}:<timestamp>-<sha>'. Drop the tag/digest, "
-                f"or pass a full reference to fm bake's --image instead.",
+                f"or pass a full reference to fm bake's --app-image instead.",
             )
         timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
         return f"{repo}:{timestamp}-{self._git_short_sha()}"

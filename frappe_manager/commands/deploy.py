@@ -20,8 +20,8 @@ def _load_image_bench(ctx: typer.Context, benchname: str) -> Bench:
     if bench.bench_config.runtime != BenchRuntime.image:
         output.display_error(
             f"Bench '{benchname}' is not image runtime. Runtime is fixed at create time: an image "
-            "bench is created with 'fm create NAME --runtime image --base-image REPO:TAG', and an "
-            "editable copy of an image's workspace is 'fm create NAME --seed-image REPO:TAG'.",
+            "bench is created with 'fm create NAME --runtime image --app-image REPO:TAG', and an "
+            "editable copy of an image's workspace is 'fm create NAME --apps-from REPO:TAG'.",
         )
         raise typer.Exit(1)
     return bench
@@ -51,21 +51,29 @@ def _switch_target_shape_error(image: str) -> str | None:
     return None
 
 
-def _resolve_switch_image(state, image: str | None, previous: bool) -> tuple[str | None, str | None]:
-    """(target_image, error) for ``fm switch``: explicit IMAGE xor ``--previous``."""
+def _resolve_switch_image(
+    state, image: str | None, previous: bool, nginx_image: str | None
+) -> tuple[str | None, str | None, str | None]:
+    """(target_image, target_nginx_image, error) for ``fm switch``: explicit IMAGE xor ``--previous``.
+
+    A rollback target brings its own companion: the pair that ran together is recorded on the
+    deployment, so `--previous` must not send the resolver looking for a label. An image baked
+    before `fm.nginx.image` existed has none, and refusing to roll back to a release fm itself
+    recorded the companion for would be inventing a problem out of the fix for one.
+    """
     if image and previous:
-        return None, "Pass either an explicit image or --previous, not both."
+        return None, None, "Pass either an explicit image or --previous, not both."
     if previous:
-        prev = state.previous.app_image if state and state.previous else None
-        if not prev:
-            return None, "No previous image recorded; nothing to roll back to (pass an explicit image)."
-        return prev, None
+        prev = state.previous if state and state.previous else None
+        if not prev or not prev.app_image:
+            return None, None, "No previous image recorded; nothing to roll back to (pass an explicit image)."
+        return prev.app_image, nginx_image or prev.nginx_image, None
     if not image:
-        return None, "Missing target: pass an image reference or --previous."
+        return None, None, "Missing target: pass an image reference or --previous."
     error = _switch_target_shape_error(image)
     if error:
-        return None, error
-    return image, None
+        return None, None, error
+    return image, nginx_image, None
 
 
 def _reject_impossible_keep(output, keep: int | None) -> None:
@@ -213,7 +221,7 @@ def switch(
     bench = _load_image_bench(ctx, benchname)
 
     state = bench.bench_config.deployments
-    target, error = _resolve_switch_image(state, image, previous)
+    target, target_nginx_image, error = _resolve_switch_image(state, image, previous, nginx_image)
     if error:
         output.display_error(error)
         raise typer.Exit(1)
@@ -241,7 +249,7 @@ def switch(
         orchestrator = DeployOrchestrator(bench, output_handler=output)
         orchestrator.deploy(
             target,
-            nginx_image=nginx_image,
+            nginx_image=target_nginx_image,
             rolling=rolling,
             migrate_override=migrate,
             restore_db_dumps=dumps,

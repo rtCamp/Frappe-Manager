@@ -811,8 +811,8 @@ class TestNoOptions:
 
 NOT_IMAGE_RUNTIME_REFUSAL = (
     f"Bench '{BENCH}' is not image runtime. Runtime is fixed at create time: an image "
-    "bench is created with 'fm create NAME --runtime image --base-image REPO:TAG', and an "
-    "editable copy of an image's workspace is 'fm create NAME --seed-image REPO:TAG'."
+    "bench is created with 'fm create NAME --runtime image --app-image REPO:TAG', and an "
+    "editable copy of an image's workspace is 'fm create NAME --apps-from REPO:TAG'."
 )
 
 
@@ -911,7 +911,7 @@ def _deploy_state(current="local/mybench:t2", previous="local/mybench:t1", backu
     current_record = SimpleNamespace(app_image=current, backups=backups)
     return SimpleNamespace(
         current=current_record,
-        previous=SimpleNamespace(app_image=previous, backups={}),
+        previous=SimpleNamespace(app_image=previous, nginx_image=f"{previous}-nginx" if previous else None, backups={}),
         history=[current_record],
     )
 

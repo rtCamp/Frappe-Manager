@@ -348,7 +348,7 @@ class BenchService:
             if row["base_image"]:
                 card.fact("base", row["base_image"])
             if row["apps_from"]:
-                card.fact("seeded", row["apps_from"])
+                card.fact("apps from", row["apps_from"])
             if row["alias_domains"]:
                 card.fact("domains", ", ".join(row["alias_domains"]))
             card.fact("dir", f"[fm.muted]{row['path']}[/fm.muted]")

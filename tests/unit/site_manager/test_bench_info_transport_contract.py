@@ -559,7 +559,7 @@ def test_display_info_mount_runtime_shows_base_and_apps_froms_not_an_image_ref(t
 
     (card,) = card_spy.made
     assert card.facts["base"] == "ghcr.io/acme/base:1"
-    assert card.facts["seeded"] == "ghcr.io/acme/seed:1"
+    assert card.facts["apps from"] == "ghcr.io/acme/seed:1"
     assert "image" not in card.facts
     assert "deploys" not in card.sections
 
@@ -1336,7 +1336,7 @@ def test_list_benches_view_adds_image_and_alias_facts_only_when_set(tmp_path, mo
     assert card.facts["apps"] == "frappe, hrms"
     assert card.facts["image"] == "r:new"
     assert card.facts["base"] == "ghcr.io/acme/base:1"
-    assert card.facts["seeded"] == "ghcr.io/acme/seed:1"
+    assert card.facts["apps from"] == "ghcr.io/acme/seed:1"
     assert card.facts["domains"] == "alias.localhost, b.localhost"
 
 

@@ -448,7 +448,7 @@ class BenchOrchestrator:
             self._apply_seed_overrides(overrides, frappe_bench_dir, baked)
 
         if bench.bench_config.python_version or bench.bench_config.node_version:
-            # --python/--node with --seed-image: swap the seeded toolchain. The
+            # --python/--node with --apps-from: swap the copied toolchain. The
             # setup helper no-ops when the image's venv already satisfies the
             # requirement; otherwise it recreates the venv, and every app (baked +
             # overrides) is reinstalled into it (same sequence as `fm update`).

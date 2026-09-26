@@ -442,7 +442,7 @@ class BenchInfo:
             if config.base_image:
                 card.fact("base", config.base_image)
             if config.apps_from:
-                card.fact("seeded", config.apps_from)
+                card.fact("apps from", config.apps_from)
 
         # ---- deploys (image deploy history, newest first)
         deployments = config.deployments if config.runtime == BenchRuntime.image else None
