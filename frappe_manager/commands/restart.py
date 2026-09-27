@@ -266,6 +266,15 @@ def restart(
                     bench.docker_ops.restart_services([svc], force=force)
                 output.print(f"Restarted {svc}")
 
+            # Same trap as the grouped path (`Bench.restart_web_containers_services`): nginx
+            # caches its upstream addresses at config parse, so recreating the containers they
+            # name leaves it proxying to addresses nothing answers on. Only when a CONTAINER
+            # moved, and never when nginx was restarted in the same run anyway.
+            moved_upstreams = container and {"frappe", "socketio"} & set(service)
+            if moved_upstreams and "nginx" not in service:
+                output.change_head("Restarting nginx to pick up the new container addresses")
+                bench.restart_nginx_service(force=force)
+
             if {"frappe", "nginx"} & set(service):
                 try:
                     bench.orchestrator.verify_bench_server_responding()

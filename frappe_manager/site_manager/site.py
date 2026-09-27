@@ -1842,6 +1842,14 @@ class Bench:
 
         if use_container_restart:
             self.docker_ops.restart_services(web_services, force=force)
+            # nginx resolves `frappe` and `socketio` ONCE, at config parse, and caches the
+            # addresses for the life of the process (the same property the compose template
+            # notes at its `depends_on`). A container restart gives both new addresses, so
+            # nginx keeps proxying to ones nothing answers on and every request 504s until
+            # something restarts it. Seen on a live bench: the app answered 200 from inside its
+            # own container while the site was dead from outside, for as long as it was left.
+            # The supervisor path below never moves a container, so it does not need this.
+            self.restart_nginx_service(force=force)
         else:
             for service in web_services:
                 self.output.change_head(f"Restarting web services - {service}")

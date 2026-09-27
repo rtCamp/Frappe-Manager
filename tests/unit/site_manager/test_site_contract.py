@@ -1870,9 +1870,31 @@ class TestRestarts:
         bench = harness.bench
         bench.docker_ops = MagicMock()
         bench.restart_supervisor_service = MagicMock()
+        bench.restart_nginx_service = MagicMock()
         bench.restart_web_containers_services(use_container_restart=True, force=True)
         bench.docker_ops.restart_services.assert_called_once_with(["frappe", "socketio"], force=True)
         bench.restart_supervisor_service.assert_not_called()
+
+    def test_cycling_the_web_containers_also_restarts_nginx(self, harness):
+        """nginx resolves `frappe` and `socketio` once, at config parse, and caches the
+        addresses. Recreating those containers gives them new ones, so nginx keeps proxying
+        where nothing answers: seen on a live bench as the app returning 200 inside its own
+        container while the site served 504 from outside, indefinitely."""
+        bench = harness.bench
+        bench.docker_ops = MagicMock()
+        bench.restart_nginx_service = MagicMock()
+        bench.restart_web_containers_services(use_container_restart=True)
+        bench.restart_nginx_service.assert_called_once()
+
+    def test_cycling_supervisor_processes_leaves_nginx_alone(self, harness):
+        """The supervisor path never moves a container, so the addresses nginx cached still
+        answer; restarting it there would be downtime bought for nothing."""
+        bench = harness.bench
+        bench.docker_ops = MagicMock()
+        bench.restart_supervisor_service = MagicMock(return_value=True)
+        bench.restart_nginx_service = MagicMock()
+        bench.restart_web_containers_services()
+        bench.restart_nginx_service.assert_not_called()
 
     def test_a_supervisor_process_that_did_not_restart_is_not_reported_as_restarted(self, harness):
         bench = harness.bench
