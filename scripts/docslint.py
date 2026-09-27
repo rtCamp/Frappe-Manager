@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Docs checks that mkdocs does not do: dash style, link hygiene, and flags that do not exist.
+"""Docs checks that mkdocs does not do: dash style, link hygiene, and flags that do not exist,
+in the docs and in the messages fm prints.
 
 Run via `just docs-lint`. CI runs it on every PR.
 
@@ -12,7 +13,10 @@ Why each check exists, so nobody has to guess before deleting one:
   pointing at a `deploy.md` that was no longer generated.
 - **Flags.** Renaming a flag does not rename it in prose. The real flag set is read from the
   live CLI, not a checked-in list, so this cannot drift: rename a flag and the stale mention
-  fails here.
+  fails here. Checked in docs AND in fm's own messages, because a rename rots fastest where
+  nothing looks: six stale mentions shipped past a green suite at once, including the refusal
+  `fm bake` printed telling the operator to run a flag that had just been renamed. Tests pin
+  what a message says, never whether what it says still exists.
 
 Generated pages (`docs/commands/`) are exempt from *style* checks, because their content comes
 from help text that this script cannot fix, but their *links* are checked: that is where a
@@ -29,6 +33,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
+
+# Another tool's flags, named in a message that also names an fm command. The flag is real, it
+# just is not ours: fm explains what IT will run on your behalf.
+SOURCE_FOREIGN = {
+    "--no-setup-db",  # bench new-site, in the external-database flow explanations
+}
 
 FMX_SRC = ROOT / "Docker" / "frappe" / "fmx"
 
@@ -221,6 +231,64 @@ def check_flags(files: list[Path], real: set[str]) -> dict[str, set[str]]:
     return unknown
 
 
+def source_strings() -> list[tuple[Path, str]]:
+    """Every string literal in fm's own source that can REACH AN OPERATOR, with its file.
+
+    Parsed rather than grepped so only real literals count, and docstrings are dropped: they
+    explain the code to whoever reads it next, including by naming flags that have since been
+    retired ("this owns what `fm update --newrelic` used to"). That is history stated on purpose,
+    not an instruction anyone can follow, and failing on it would train people to delete the
+    explanation instead of fixing the message.
+    """
+    out: list[tuple[Path, str]] = []
+    for path in sorted(Path("frappe_manager").rglob("*.py")):
+        if not _ours(path):
+            continue
+        try:
+            tree = ast.parse(path.read_text())
+        except SyntaxError:
+            continue
+        docstrings = {
+            id(node.body[0].value)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef)
+            and node.body
+            and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Constant)
+            and isinstance(node.body[0].value.value, str)
+        }
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
+                out.append((path, node.value))
+    return out
+
+
+def check_source_flags(real: set[str]) -> dict[str, set[str]]:
+    """Flags named in fm's own operator-facing instructions that the CLI does not have.
+
+    Docs were checked against the live flag set from the start; MESSAGES were not, and that is
+    exactly where a rename rots unseen. A green suite shipped six of them at once, including the
+    refusal `fm bake` prints for an image bench, which told the operator to run `--image` after
+    that flag had become `--app-image`. Tests pin what a message SAYS, never whether what it says
+    still exists.
+
+    Scoped to strings that tell someone to run an fm command, because fm's source is full of
+    legitimate third-party flags it passes to docker, git, bench, acme.sh and uv. Widening this to
+    every literal reports 58 findings of which ~56 are `docker --filter` and friends, and a check
+    that must be skimmed is a check that gets ignored. A flag is only a lie when it sits next to
+    the `fm` command that supposedly accepts it.
+    """
+    unknown: dict[str, set[str]] = {}
+    for path, text in source_strings():
+        if not re.search(r"(?<![\w-])fm [a-z]", text):
+            continue
+        for m in re.finditer(r"(?<![\w-])(--[a-z][a-z0-9-]{2,})", text):
+            flag = m.group(1)
+            if flag not in real:
+                unknown.setdefault(flag, set()).add(str(path))
+    return unknown
+
+
 def main() -> int:
     os.chdir(ROOT)
     files = hand_written()
@@ -235,6 +303,7 @@ def main() -> int:
     dash_hits = check_dashes(files)
     absolute, broken = check_links()
     unknown = check_flags(files, fm | fmx | FOREIGN)
+    unknown_src = check_source_flags(fm | fmx | FOREIGN | SOURCE_FOREIGN)
 
     for label, items in (
         ("dash violations", dash_hits),
@@ -247,8 +316,11 @@ def main() -> int:
     print(f"flags in docs that exist in neither fm nor fmx: {len(unknown)}")
     for flag, where in sorted(unknown.items()):
         print(f"  {flag:<32} {sorted(where)[:2]}")
+    print(f"flags in fm's own messages that the CLI does not have: {len(unknown_src)}")
+    for flag, where in sorted(unknown_src.items()):
+        print(f"  {flag:<32} {sorted(where)[:2]}")
 
-    failed = bool(dash_hits or absolute or broken or unknown)
+    failed = bool(dash_hits or absolute or broken or unknown or unknown_src)
     if not failed:
         print(f"\nclean: {len(files)} hand-written docs checked against {len(fm | fmx)} real flags")
     return 1 if failed else 0
