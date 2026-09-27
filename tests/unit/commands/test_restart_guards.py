@@ -6,13 +6,13 @@ and `--service`, `--force` conflicts with `--rolling`, while `--force` or
 `--service` alone silently imply no-drain and proceed past flag validation.
 """
 
+import importlib
 from unittest.mock import patch
 
 import pytest
 import typer
 from typer.testing import CliRunner
 
-import importlib
 from frappe_manager.commands.restart import restart
 
 restart_mod = importlib.import_module("frappe_manager.commands.restart")

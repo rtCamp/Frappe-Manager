@@ -50,6 +50,7 @@ from frappe_manager.site_manager.modules.deploy_orchestrator import (
     BENCH_BIN,
     DeployError,
     DeployOrchestrator,
+    DrainQueueUnreachable,
     DrainUnavailable,
     RestoreNotConfirmed,
 )
@@ -406,6 +407,26 @@ class TestDrainWorkers:
         assert "image" in str(exc.value)
         assert "no such file or directory" in str(exc.value)
         assert "timed out" not in str(exc.value)
+
+    def test_a_queue_that_does_not_answer_is_its_own_failure(self, tmp_path):
+        """fmx ran; the redis behind it did not answer. Reporting that as a timeout sends the
+        operator to raise `drain_timeout`, which cannot reach an endpoint that is down, and the
+        message never mentions redis at all. The endpoint is named, whether it is fm's own
+        container or an external \\[redis].queue."""
+        orch = self._drainable(tmp_path)
+        orch._exec_frappe = MagicMock(
+            side_effect=docker_error(
+                "Error: Failed to connect to Redis: Error 111 connecting to r.example:6379.",
+                exit_code=3,
+            )
+        )
+
+        with pytest.raises(DrainQueueUnreachable) as exc:
+            orch.drain_workers()
+
+        assert "--no-drain" in str(exc.value)
+        assert "timed out" not in str(exc.value)
+        assert "fm self update-images" not in str(exc.value), "not the missing-fmx remedy"
 
     def test_resume_is_a_noop_when_drain_is_disabled(self, tmp_path):
         orch = self._drainable(tmp_path, drain=False)

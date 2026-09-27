@@ -113,6 +113,18 @@ class DrainUnavailable(DeployError):
     """
 
 
+class DrainQueueUnreachable(DeployError):
+    """Raised when the drain ran but the redis holding the queue did not answer.
+
+    Its own class because it is neither of the two outcomes the gate already knows. Not a
+    timeout: the workers are not busy, nobody could ask. Not `DrainUnavailable` either, which
+    is warned past because an image without fmx can never drain and the operator has no other
+    move; here there IS one, so the gate refuses and names it. The endpoint may be fm's own
+    per-bench container or an external `[redis].queue`, and an external one is the likelier
+    place to get a host, port, TLS or auth wrong.
+    """
+
+
 def _exec_error_text(exc: Exception) -> str:
     """The one useful line out of a failed container exec.
 
@@ -983,6 +995,29 @@ class DeployOrchestrator:
         try:
             self._exec_frappe(f'{FMX_PYTHON} -c "{py}"')
         except Exception as e:
+            detail = _exec_error_text(e)
+            # Checked BEFORE the exit status, because fmx reports an unreachable queue on stderr
+            # and still exits 3 -- the same status a real timeout uses. Taken in the other order
+            # this reads as "workers still busy" and sends the operator to raise a
+            # `drain_timeout` that cannot reach an endpoint which is down, in a message that
+            # never mentions redis. fm's own container and an external `\[redis].queue` both land
+            # here, because fmx drains whichever one `common_site_config.json` names.
+            if "Failed to connect to Redis" in detail or "'redis_queue' URL not found" in detail:
+                # The clause that names the cause, not the traceback fmx exits through: that ends
+                # in "Redis connection unavailable (see above for details)", and the details it
+                # points at are exactly what an operator reading one message needs. stderr
+                # arrives joined into one line, so this is a match rather than a line scan.
+                # Stops at the traceback, not at the first full stop: the host in the message
+                # carries dots of its own (`r.invalid.example`), which a sentence-shaped match
+                # truncates into nonsense.
+                found = re.search(r"Failed to connect to Redis:.*?(?=\s*Traceback|$)", detail)
+                cause = found.group(0).strip() if found else "the queue did not answer"
+                raise DrainQueueUnreachable(
+                    f"Cannot drain RQ workers: the queue at {self._queue_endpoint()} did not answer "
+                    f"({cause}). No drain timeout can fix an endpoint fm cannot reach, so nothing "
+                    f"was changed. Bring that redis up, or re-run with --no-drain to proceed and "
+                    f"interrupt whatever the workers are doing."
+                ) from e
             # Exit 3 is the wait above giving up: the drain ran, workers are still
             # busy, and callers treat it as the gate closing. Any other status
             # means the command never got as far as waiting.
@@ -990,10 +1025,21 @@ class DeployOrchestrator:
                 return False
             raise DrainUnavailable(
                 f"Could not drain RQ workers: {FMX_PYTHON} failed to run in the frappe container "
-                f"({_exec_error_text(e)}). The image may predate fmx -- 'fm self update-images' "
+                f"({detail}). The image may predate fmx -- 'fm self update-images' "
                 "installs one that supports draining."
             ) from e
         return True
+
+    def _queue_endpoint(self) -> str:
+        """The redis the workers' queue lives on, fm's own container or an external one."""
+        from frappe_manager.utils.helpers import get_bench_connection_config, get_container_name_prefix
+
+        redis_config = self.config.redis
+        return get_bench_connection_config(
+            get_container_name_prefix(self.bench.name),
+            redis_config.cache if redis_config else None,
+            redis_config.queue if redis_config else None,
+        )["redis_queue"]
 
     def resume_workers(self) -> None:
         if not self.workers_config.drain:

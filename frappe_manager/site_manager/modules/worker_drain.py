@@ -29,7 +29,7 @@ from contextlib import contextmanager
 
 import typer
 
-from frappe_manager.site_manager.modules.deploy_orchestrator import DrainUnavailable
+from frappe_manager.site_manager.modules.deploy_orchestrator import DrainQueueUnreachable, DrainUnavailable
 
 
 def drain_gate(orchestrator, output, *, action: str) -> bool:
@@ -52,6 +52,12 @@ def drain_gate(orchestrator, output, *, action: str) -> bool:
     """
     try:
         drained = orchestrator.drain_workers()
+    except DrainQueueUnreachable as e:
+        # Refused, not warned past: unlike an image with no fmx, there is something the operator
+        # can do about a redis that does not answer, and proceeding silently would interrupt
+        # jobs nobody has been able to count.
+        output.display_error(f"{e} Nothing was changed, so the {action} can be retried.")
+        raise typer.Exit(1) from e
     except DrainUnavailable as e:
         # Not a timeout: an image predating fmx can never be drained, and no drain_timeout can fix
         # that. Warned about and carried on, rather than making the command impossible.

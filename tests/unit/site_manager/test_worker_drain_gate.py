@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 import pytest
 import typer
 
-from frappe_manager.site_manager.modules.deploy_orchestrator import DrainUnavailable
+from frappe_manager.site_manager.modules.deploy_orchestrator import DrainQueueUnreachable, DrainUnavailable
 from frappe_manager.site_manager.modules.worker_drain import (
     drain_gate,
     frappe_maintenance_mode,
@@ -45,6 +45,39 @@ def test_a_successful_drain_tells_the_caller_it_owes_a_resume():
 
     assert drain_gate(orchestrator, MagicMock(), action="restart") is True
     orchestrator.resume_workers.assert_not_called()
+
+
+
+def test_an_unreachable_queue_refuses_and_names_the_way_forward():
+    """Neither of the gate's other outcomes fits. Not a timeout: the workers are not busy, nobody
+    could ask. Not `DrainUnavailable`, which is warned past because an image without fmx leaves
+    the operator no move -- here there is one, so the gate stops and says it."""
+    orchestrator = _orchestrator()
+    orchestrator.drain_workers.side_effect = DrainQueueUnreachable(
+        "Cannot drain RQ workers: the queue at redis://r.example:6379/1 did not answer. "
+        "Bring that redis up, or re-run with --no-drain to proceed and interrupt whatever the "
+        "workers are doing."
+    )
+    output = MagicMock()
+
+    with pytest.raises(typer.Exit):
+        drain_gate(orchestrator, output, action="restart")
+
+    message = " ".join(str(c.args) for c in output.display_error.call_args_list)
+    assert "--no-drain" in message
+    assert "redis://r.example:6379/1" in message
+    assert "drain_timeout" not in message, "raising a timeout cannot reach an endpoint that is down"
+
+
+def test_an_unreachable_queue_is_not_warned_past_like_a_missing_fmx():
+    orchestrator = _orchestrator()
+    orchestrator.drain_workers.side_effect = DrainQueueUnreachable("queue down")
+    output = MagicMock()
+
+    with pytest.raises(typer.Exit):
+        drain_gate(orchestrator, output, action="restart")
+
+    output.warning.assert_not_called()
 
 
 def test_a_timeout_resumes_the_workers_before_aborting():
