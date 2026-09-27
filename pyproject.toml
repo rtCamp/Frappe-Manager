@@ -8,7 +8,7 @@ license = { text = "MIT" }
 authors = [ { name = "rtCamp", email = "sys@rtcamp.com" } ]
 maintainers = [ { name = "Alok Singh", email = "alok.singh@rtcamp.com" } ]
 dependencies = [
-    "typer>=0.21.0,<0.22.0",
+    "typer>=0.21.0,<0.27.0",
     "requests>=2.32.0,<3.0.0",
     "psutil>=7.0.0,<8.0.0",
     "configargparse!=1.7",
