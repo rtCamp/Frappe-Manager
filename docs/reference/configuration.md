@@ -591,7 +591,7 @@ password = "site-secret"
 
 On disk each site's directives land in `configs/nginx/conf/custom/<site>/auth.conf`, which the bench nginx includes from that site's server block only. Basic auth is a server-context directive, so this is what makes a per-site prompt possible at all.
 
-A bench whose nginx conf predates per-site server blocks cannot serve this: the conf is rendered once at the nginx container's first boot, so it reflects whatever image created the bench. `fm auth enable BENCH/SITE` is refused there rather than recording an override nginx would never read, and a `[sites."<name>".auth]` table already on disk is reported as not enforced while the whole bench follows `[auth]`. Update the bench's nginx image, then `fm restart BENCH --nginx --container`.
+A bench whose nginx conf predates per-site server blocks cannot serve this: the conf is rendered once at the nginx container's first boot, so it reflects whatever image created the bench. `fm auth enable BENCH/SITE` is refused there rather than recording an override nginx would never read, and a `[sites."<name>".auth]` table already on disk is reported as not enforced while the whole bench follows `[auth]`. Update the bench's nginx image, then `fm restart BENCH --nginx --recreate`.
 
 #### Per-site admin tools {#site-admin-tools}
 

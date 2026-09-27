@@ -380,7 +380,7 @@ class TestRestartWorkersWithoutAComposeFile:
         h.coordinator.restart_workers_containers_services(use_container_restart=True)
 
         h.docker_ops.restart_services.assert_called_once_with([SCHEDULE], force=False)
-        # `compose restart worker-name` is an unhandled DockerException: it fails `fm restart --container`
+        # `compose restart worker-name` is an unhandled DockerException: it fails `fm restart --recreate`
         h.workers_client.compose.restart.assert_not_called()
         assert not [c.args[0] for c in h.output.change_head.call_args_list if "worker-name" in c.args[0]]
 

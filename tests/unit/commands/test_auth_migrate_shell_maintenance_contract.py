@@ -459,7 +459,7 @@ def test_a_stale_nginx_conf_on_a_mount_bench_names_the_migrate_remedy(out, tmp_p
     assert r.exit.exit_code == 1
     body = joined(out.display_error)
     assert "fm migrate" in body
-    assert "fm restart mybench --nginx --container" in body
+    assert "fm restart mybench --nginx --recreate" in body
     assert "fm bake" not in body
 
 

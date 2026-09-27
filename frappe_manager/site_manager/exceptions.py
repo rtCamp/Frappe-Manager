@@ -145,7 +145,7 @@ class AdminToolsProbeUnavailable(BenchException):
         self.bench_name = bench_name
         self.message = (
             "Bench nginx is not running, so the admin tools cannot be served or checked. "
-            "Start it with 'fm restart <bench> --nginx --container' and check its logs "
+            "Start it with 'fm restart <bench> --nginx --recreate' and check its logs "
             "with 'fm logs <bench> --service nginx'."
         )
         super().__init__(self.bench_name, self.message)

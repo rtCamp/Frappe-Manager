@@ -553,6 +553,46 @@ class BenchOrchestrator:
 
         raise Exception("Bench server not responding after 60 seconds")
 
+    def verify_site_reachable_through_nginx(self) -> None:
+        """Verify the site answers THROUGH the bench nginx, not just inside the app container.
+
+        ``verify_bench_server_responding`` above asks gunicorn about itself, so it cannot see the
+        proxy in front of it. Two real outages exited 0 behind that blind spot: nginx left stopped
+        while web containers were restarted, and nginx still proxying to the addresses its
+        upstreams had before they were recreated. In both the app answered 200 from inside its own
+        container while every request from outside failed, for as long as it was left.
+
+        Probed from the frappe container because it has curl and shares the bench network, with
+        the site's Host header so nginx routes it like real traffic. 404 counts (a bench whose
+        site is not created yet) and so does 401 (basic auth in front of it): both prove nginx is
+        up, resolved its upstream and got an answer, which is the whole claim.
+        """
+        bench = self.bench
+        self.output.change_head("Verifying the site answers through nginx")
+
+        for attempt in range(15):
+            try:
+                result = bench.docker_client.compose.exec(
+                    service="frappe",
+                    command=(
+                        'curl -s -o /dev/null --max-time 10 -w "%{http_code}" '
+                        f'-H "Host: {bench.site_name}" http://nginx:80'
+                    ),
+                    user="frappe",
+                    stream=False,
+                )
+                if "".join(result.stdout).strip() in ("200", "404", "401"):
+                    self.output.print("Site is reachable through nginx")
+                    return
+            except Exception as e:
+                self.logger.debug(f"nginx reachability attempt {attempt + 1}: {e}")
+            time.sleep(2)
+
+        raise Exception(
+            f"the bench nginx did not serve {bench.site_name} after 30 seconds: the app may be "
+            f"running while nothing in front of it is"
+        )
+
     def _phase4_create_site(self, force: bool = False) -> None:
         """Phase 4: Create empty site (no apps installed yet)
 

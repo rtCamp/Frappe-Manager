@@ -104,7 +104,7 @@ def _regenerate_bench_supervisor_config(bench: Bench, output) -> bool:
     `--reconfigure-supervisor`, and even then nothing re-execs the running gunicorn process:
     `docker_ops.start` on an unchanged compose does not recreate the container, so the OLD script
     keeps running underneath. What applies a changed wrapper is `fm restart`: its default
-    (non-`--container`) leg runs `supervisorctl restart`, which re-execs the supervisor program's
+    (non-`--recreate`) leg runs `supervisorctl restart`, which re-execs the supervisor program's
     own `command=` line -- this exact script -- fresh from disk. This is the mirror image of
     `_regenerate_bench_compose`'s own docstring: that one exists because `fm restart` CANNOT reach
     a container's already-created mounts/env, and this one exists because `fm start` cannot reach

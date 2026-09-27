@@ -4,7 +4,7 @@ Restart bench services: web and workers by default, redis and nginx on request.
 
 Workers drain first: fm waits up to \[workers].drain_timeout for in-flight jobs, and rather than kill a job that overruns it resumes the workers and aborts the restart before any service is touched. --no-drain skips the wait and interrupts running jobs, --force kills everything fast, and a run naming --service skips the drain as well.
 
-Supervisor restarts need a running bench. For a stopped one use fm start, or --container to restart-and-start the containers.
+Restart bounces what is already running, and a stopped bench is fm start's job: unlike a restart, start also reconciles the bench nginx config and the global proxy entry.
 
 **Usage**:
 
@@ -22,7 +22,7 @@ $ fm restart BENCH [OPTIONS]
 * `--workers`: Restart the worker tier (schedule and the RQ workers).  [default: true]
 * `--redis`: Restart redis too; this briefly disconnects every consumer.  [default: false]
 * `--nginx`: Restart the bench nginx service, e.g. after a proxy or TLS config change.  [default: false]
-* `--container`: Restart whole containers instead of supervisor processes: slower, and it starts a stopped bench.  [default: false]
+* `--recreate`: Restart whole containers instead of the supervisor processes inside them: slower, and every consumer of the restarted service reconnects. The bench nginx is restarted with them, because it resolves its upstreams once and caches the addresses a recreate changes.  [default: false]
 * `--force`: Kill everything fast instead of restarting it gracefully. Implies --no-drain; conflicts with --drain and --rolling.  [default: false]
 * `--rolling`: Zero-downtime recreate of the web tier on the current image tag; image benches only. Web-only, so it conflicts with --redis, --nginx and --no-web.  [default: false]
 * `--drain/--no-drain`: Wait for in-flight RQ jobs before restarting workers, and abort the restart if they outlast \[workers].drain_timeout.  [default: true]

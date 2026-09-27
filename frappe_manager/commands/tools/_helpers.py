@@ -37,7 +37,7 @@ def route_sites(bench: Bench, site: str, output: OutputHandler, *, wanted: bool)
             f"Bench '{bench.name}' nginx conf predates one server block per site, so tool routing "
             "cannot be set per site yet: nginx would include none of it and the tools would answer "
             "on no hostname at all. Run 'fm migrate' to re-render it, or recreate the nginx "
-            f"container with 'fm restart {bench.name} --nginx --container'. "
+            f"container with 'fm restart {bench.name} --nginx --recreate'. "
             f"'fm tools enable {bench.name}' for the whole bench works today."
         )
         raise typer.Exit(1)

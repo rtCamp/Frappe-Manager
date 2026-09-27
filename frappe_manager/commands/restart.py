@@ -76,11 +76,11 @@ def restart(
             rich_help_panel=_PANEL_SCOPE,
         ),
     ] = False,
-    container: Annotated[
+    recreate: Annotated[
         bool,
         typer.Option(
-            "--container",
-            help="Restart whole containers instead of supervisor processes: slower, and it starts a stopped bench.",
+            "--recreate",
+            help="Restart whole containers instead of the supervisor processes inside them: slower, and every consumer of the restarted service reconnects. The bench nginx is restarted with them, because it resolves its upstreams once and caches the addresses a recreate changes.",
             rich_help_panel=_PANEL_ADVANCED,
         ),
     ] = False,
@@ -123,7 +123,7 @@ def restart(
 
     Workers drain first: fm waits up to \\[workers].drain_timeout for in-flight jobs, and rather than kill a job that overruns it resumes the workers and aborts the restart before any service is touched. --no-drain skips the wait and interrupts running jobs, --force kills everything fast, and a run naming --service skips the drain as well.
 
-    Supervisor restarts need a running bench. For a stopped one use fm start, or --container to restart-and-start the containers.
+    Restart bounces what is already running, and a stopped bench is fm start's job: unlike a restart, start also reconciles the bench nginx config and the global proxy entry.
     """
 
     output = get_global_output_handler()
@@ -131,8 +131,8 @@ def restart(
     # Pure flag-conflict guards run before any bench lookup.
     drain_explicit = ctx.get_parameter_source("drain") == ParameterSource.COMMANDLINE
 
-    if rolling and container:
-        output.error("--rolling cannot be combined with --container", exception=typer.Exit(code=1))
+    if rolling and recreate:
+        output.error("--rolling cannot be combined with --recreate", exception=typer.Exit(code=1))
 
     if force and rolling:
         output.error(
@@ -211,12 +211,17 @@ def restart(
 
     orchestrator = DeployOrchestrator(bench, output_handler=output)
 
-    # Supervisor-level restart execs into running containers; a stopped bench
-    # needs start (or --container, which starts containers as it restarts them).
-    if not container and not bench.running:
+    # `fm restart` bounces what is RUNNING; starting a bench is `fm start`, which also reconciles
+    # the bench nginx conf and the global proxy entry that a bounce deliberately leaves alone.
+    # `--recreate` used to be offered as a restart-and-start route here and could not honour it:
+    # a restart only ever addresses the services in scope, so it brought web and workers up and
+    # left nginx, redis and the admin tools stopped, then reported the bench healthy because the
+    # check asks the app rather than the proxy. `systemctl try-restart` answers this the same way:
+    # something deliberately stopped is not resurrected by a restart.
+    if not bench.running:
         output.error(
-            f"Bench '{benchname}' is not fully running; use 'fm start {benchname}' "
-            f"(or 'fm restart --container' to restart-and-start containers).",
+            f"Bench '{benchname}' is not fully running, and restart only bounces what is: "
+            f"use 'fm start {benchname}'.",
             exception=typer.Exit(code=1),
         )
 
@@ -254,13 +259,13 @@ def restart(
             for svc in service:
                 output.change_head(f"Restarting service - {svc}")
                 if svc in worker_services:
-                    if container:
+                    if recreate:
                         bench.workers.docker_client.compose.restart(services=[svc], timeout=0 if force else 100)
                     else:
                         bench.restart_supervisor_service(
                             svc, docker_client_obj=bench.workers.docker_client, force=force
                         )
-                elif svc in supervised and not container:
+                elif svc in supervised and not recreate:
                     bench.restart_supervisor_service(svc, force=force)
                 else:
                     bench.docker_ops.restart_services([svc], force=force)
@@ -270,7 +275,7 @@ def restart(
             # caches its upstream addresses at config parse, so recreating the containers they
             # name leaves it proxying to addresses nothing answers on. Only when a CONTAINER
             # moved, and never when nginx was restarted in the same run anyway.
-            moved_upstreams = container and {"frappe", "socketio"} & set(service)
+            moved_upstreams = recreate and {"frappe", "socketio"} & set(service)
             if moved_upstreams and "nginx" not in service:
                 output.change_head("Restarting nginx to pick up the new container addresses")
                 bench.restart_nginx_service(force=force)
@@ -278,8 +283,11 @@ def restart(
             if {"frappe", "nginx"} & set(service):
                 try:
                     bench.orchestrator.verify_bench_server_responding()
+                    # Through the proxy as well: the check above asks the app about itself and
+                    # cannot see an nginx that is down or pointed at the wrong addresses.
+                    bench.orchestrator.verify_site_reachable_through_nginx()
                 except Exception as e:
-                    output.display_error(f"Restart completed but the bench server is not responding: {e}")
+                    output.display_error(f"Restart completed but the site is not being served: {e}")
                     raise typer.Exit(1) from e
         return
 
@@ -305,7 +313,7 @@ def restart(
                     _restart_workers(use_container_restart=False)
         return
 
-    use_container_restart = container
+    use_container_restart = recreate
 
     with spinner(output, f"Restarting {benchname}"):
         # Gate first: on drain timeout the restart aborts before ANY leg
@@ -327,10 +335,14 @@ def restart(
         if nginx:
             bench.restart_nginx_service(force=force)
 
-        # A restart that leaves the site dead must not exit 0.
-        if web:
+        # A restart that leaves the site dead must not exit 0. Both halves are needed for that to
+        # be true: the first asks the app, the second asks the proxy that actually serves it, and
+        # only the second can see an nginx that is down or holding its upstreams' old addresses.
+        if web or nginx:
             try:
-                bench.orchestrator.verify_bench_server_responding()
+                if web:
+                    bench.orchestrator.verify_bench_server_responding()
+                bench.orchestrator.verify_site_reachable_through_nginx()
             except Exception as e:
-                output.display_error(f"Restart completed but the bench server is not responding: {e}")
+                output.display_error(f"Restart completed but the site is not being served: {e}")
                 raise typer.Exit(1) from e

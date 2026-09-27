@@ -136,7 +136,7 @@ The supervisor stop grace (`stopwaitsecs`) is a separate safety net, and it only
 
 **An image without fmx cannot be drained.** The drain runs inside the frappe container, so an image predating fmx has nothing to run: fm warns and restarts undrained instead of reporting a phantom timeout. `fm self update-images` installs an image that can drain.
 
-**Where docker fits.** These paths restart processes inside running containers. Only `fm restart mybench --container` restarts the containers themselves; there docker's stop timeout applies to everything inside (100 seconds, or 0 with `--force`) before SIGKILL.
+**Where docker fits.** These paths restart processes inside running containers. Only `fm restart mybench --recreate` restarts the containers themselves; there docker's stop timeout applies to everything inside (100 seconds, or 0 with `--force`) before SIGKILL.
 
 **Interrupted jobs are visible.** A job killed by `--no-drain`/`--force` lands in RQ's failed-job registry; `fm shell mybench -c "fmx rq status"` reports the failed count per queue.
 
@@ -175,7 +175,7 @@ The `background_workers` setting in `common_site_config.json` (defaults to `1`) 
 ```bash
 fm shell mybench -c "bench set-config -g background_workers 2"
 fm start mybench --reconfigure-workers               # regenerate the supervisor confs from the new value
-fm restart mybench --workers --no-web --container    # supervisord re-reads them on container start
+fm restart mybench --workers --no-web --recreate    # supervisord re-reads them on container start
 ```
 
 A plain `fm restart` is not enough on its own: it restarts the supervisor programs inside the running containers, and supervisord keeps the process count it booted with.

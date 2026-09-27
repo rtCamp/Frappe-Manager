@@ -12,7 +12,10 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
+import importlib
 from frappe_manager.commands.restart import restart
+
+restart_mod = importlib.import_module("frappe_manager.commands.restart")
 
 runner = CliRunner()
 
@@ -62,6 +65,41 @@ def test_force_alone_passes_flag_validation(cli):
     result = runner.invoke(cli, ["x.localhost", "--force"])
     assert "cannot be combined" not in result.output
     assert result.exit_code != 0
+
+
+def _stopped_bench(monkeypatch):
+    """A bench whose containers are not all up."""
+    from unittest.mock import MagicMock
+
+    bench = MagicMock()
+    bench.running = False
+    monkeypatch.setattr(restart_mod.Bench, "get_object", lambda *a, **k: bench)
+    monkeypatch.setattr(restart_mod, "check_bench_migration_required", lambda *a, **k: None)
+    return bench
+
+
+@pytest.mark.parametrize("extra", [[], ["--recreate"]])
+def test_a_stopped_bench_is_sent_to_fm_start_whichever_path(cli, monkeypatch, extra):
+    """`--recreate` used to be advertised here as a restart-and-start route and could not be one:
+    a restart only addresses the services in SCOPE, so it brought web and workers up and left
+    nginx, redis and the admin tools stopped, then reported the bench healthy. Restart bounces
+    what runs; starting a bench is `fm start`, which also reconciles nginx and the proxy entry."""
+    _stopped_bench(monkeypatch)
+
+    result = runner.invoke(cli, ["x.localhost", *extra], obj={"services": object()})
+
+    assert result.exit_code == 1
+    assert "fm start x.localhost" in result.output
+
+
+def test_the_stopped_bench_refusal_no_longer_offers_a_restart_flag(cli, monkeypatch):
+    """Naming a flag of this command as the way out is what made the old message wrong."""
+    _stopped_bench(monkeypatch)
+
+    result = runner.invoke(cli, ["x.localhost"], obj={"services": object()})
+
+    assert "--recreate" not in result.output
+    assert "--container" not in result.output
 
 
 def test_no_drain_with_force_is_allowed_past_guards(cli):

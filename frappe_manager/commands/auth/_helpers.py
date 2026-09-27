@@ -134,7 +134,7 @@ def apply_auth(
     # site keeps following the bench, and the status command would report a prompt nobody serves.
     if site and not bench.nginx_conf_serves_per_site():
         output.error(
-            f"Bench '{bench.name}' nginx conf predates one server block per site, so '{site}' cannot carry auth of its own yet: nginx would include none of it and the site would keep following the bench. Run 'fm migrate' to re-render it, or recreate the nginx container with 'fm restart {bench.name} --nginx --container'. 'fm auth enable {bench.name}' for the whole bench works today.",
+            f"Bench '{bench.name}' nginx conf predates one server block per site, so '{site}' cannot carry auth of its own yet: nginx would include none of it and the site would keep following the bench. Run 'fm migrate' to re-render it, or recreate the nginx container with 'fm restart {bench.name} --nginx --recreate'. 'fm auth enable {bench.name}' for the whole bench works today.",
             exception=typer.Exit(code=1),
         )
 
@@ -207,7 +207,7 @@ def apply_auth(
             if bench.bench_config.runtime == BenchRuntime.image:
                 remedy = f"Re-bake the bench image so nginx picks up the fix: 'fm bake {bench.name}' followed by 'fm switch {bench.name}'."
             else:
-                remedy = f"Run 'fm migrate' to re-render it, or recreate the nginx container with 'fm restart {bench.name} --nginx --container'."
+                remedy = f"Run 'fm migrate' to re-render it, or recreate the nginx container with 'fm restart {bench.name} --nginx --recreate'."
             output.error(
                 f"Bench '{bench.name}' nginx conf ({default_conf}) predates the Authorization-header fix: with web auth on, nginx would forward the credentials it just checked and frappe would reject every authenticated request with 401. {remedy} The tools surface is unaffected, so 'fm auth enable {bench.name} --tools' works today.",
                 exception=typer.Exit(code=1),
