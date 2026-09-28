@@ -5,14 +5,22 @@ LABEL org.opencontainers.image.source=https://github.com/rtcamp/Frappe-Manager
 
 COPY find-best-mirror.sh /tmp/find-best-mirror.sh
 
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y curl ca-certificates \
+# PGDG rather than Ubuntu's own postgresql-client: jammy ships 14, and `pg_dump` REFUSES a server
+# whose major is newer than its own ("aborting because of server version mismatch" -- measured
+# against a PostgreSQL 17 server from this very image). `psql` connects fine in that pairing, so the
+# skew shows up only when a backup is taken, which is the worst moment to discover it. The client
+# major shipped here is therefore a statement about which servers fm can back up, and it has to
+# lead the servers people run, not trail them.
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y curl ca-certificates gnupg \
     && chmod +x /tmp/find-best-mirror.sh \
     && /tmp/find-best-mirror.sh \
     && rm /tmp/find-best-mirror.sh \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
     git \
     mariadb-client \
-    postgresql-client \
+    postgresql-client-17 \
     gettext-base \
     wget \
     xfonts-75dpi \
