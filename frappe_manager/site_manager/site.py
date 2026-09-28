@@ -668,18 +668,7 @@ class Bench:
         }
         self.logger.debug(f"Starting bench: {self.name}", extra_fields=extra)
         try:
-            # A base whose `nginx.conf` already exists has been through a real boot before, so a
-            # `default.conf` beside it (if any) is genuinely something a PAST run rendered and
-            # worth checking for staleness. A base that needed seeding just now has not: nothing
-            # this call has rendered yet can be stale, so there is nothing here to heal.
-            nginx_base_conf_existed = (self.path / "configs" / "nginx" / "conf" / "nginx.conf").exists()
             self.ensure_nginx_conf_seeded()
-            if nginx_base_conf_existed:
-                try:
-                    self.heal_stale_site_map_conf()
-                except Exception as e:
-                    self.logger.warning(f"Failed to heal bench nginx site map: {self.name}", extra_fields=extra)
-                    self.output.warning(f"Could not repair the bench nginx site map: {e!s}")
             # The fm-managed overlay (real-ip, auth) is written by generate_compose, so a
             # bench whose compose has not been regenerated since that landed never receives
             # it. Without real-ip.conf every request reaches the app carrying the global
@@ -1298,15 +1287,8 @@ class Bench:
         read off this container by the global proxy too, so the same recreation is what makes the new
         hostname routable from outside at all.
 
-        Recreating is necessary but NOT sufficient. The entrypoint renders `conf.d/default.conf`
-        only when that file is absent (`Docker/nginx/entrypoint.sh`), and the file lives on a
-        host-mounted volume, so it survives any number of recreations. The rendered file carries the
-        `map $host $frappe_site_name` block and the `server_name` list, both baked from whatever
-        `SITE_MAPPINGS` held at first render. Leaving it in place meant an added site was served by
-        the FIRST site's schema: the container environment was correct, nginx never read it, and the
-        request fell through to the default server whose map answers with the original site. Wrong
-        data returned with a 200 is worse than the 503 the recreation was added to fix, so the
-        generated file goes first and the entrypoint rebuilds it from the new environment.
+        The entrypoint re-renders `conf.d/default.conf` on every boot, so recreating is also what
+        makes nginx read the new map: the generated file is output, never state.
 
         Callers save the config first: this reads it, it does not write it.
         """
@@ -1316,10 +1298,6 @@ class Bench:
         compose_inputs["environment"]["frappe"]["FRAPPE_ENV"] = self.bench_config.environment_type.value
         self.generate_compose(compose_inputs)
 
-        # Only the generated file. Everything a host adds lives in conf.d/ or custom/ beside it.
-        default_conf = self.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
-        default_conf.unlink(missing_ok=True)
-
         self.output.change_head("Publishing the site map to nginx")
         output = self.docker_client.compose.up(
             services=["nginx"], detach=True, pull="never", force_recreate=True, stream=True
@@ -1327,61 +1305,6 @@ class Bench:
         self.output.live_lines(
             cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE
         )
-
-    def heal_stale_site_map_conf(self) -> None:
-        """Delete a rendered `default.conf` that no longer covers every domain in `[sites]`.
-
-        `default.conf` is rendered ONCE, at the bench nginx container's first boot, from
-        `SITE_MAPPINGS`, and then persists on a host-mounted volume forever: the entrypoint only
-        renders it when the file is ABSENT (`Docker/nginx/entrypoint.sh`). `republish_site_map`
-        covers every site-map change fm itself makes, by deleting the file and recreating nginx
-        so the entrypoint re-renders it. What it cannot reach is a bench whose conf went stale
-        some OTHER way: an older fm that predates a domain now in `[sites]`, or a `configs/`
-        directory restored from a backup taken before that domain was added.
-
-        nginx's own fallback for a Host matching nothing is the FIRST site's block -- the `map`'s
-        `default` and the primary's `server_name` come first, by construction (see
-        `Docker/nginx/template.conf`) -- so an unrecognised domain is not refused, it is served
-        the PRIMARY site's data with an ordinary 200: silent cross-site data exposure, and nothing
-        short of reading every request would reveal it.
-
-        "Stale" is defined narrowly, as a coverage gap: every domain `[sites]` currently records
-        must appear SOMEWHERE in the rendered file (a `map` entry or a `server_name` line),
-        because that is exactly the condition under which nginx falls through to the primary's
-        block. It deliberately does not check that each domain maps to its OWN site: a domain
-        routed to a bench neighbour's block is a `[sites]`/`SITE_MAPPINGS` disagreement the map's
-        own render already prevents by construction, not the fallthrough this exists to close.
-
-        Costs one read of `default.conf` and a regex per domain, on every start of a bench that
-        was already up before this call (see the caller's `nginx_base_conf_existed` guard) -- and
-        nothing at all once healed, since a domain gap cannot reappear on its own. When a gap is
-        found, the fix is `republish_site_map`'s own deletion, plus -- unlike that path, which
-        only ever runs against a bench already up -- a force-recreate of nginx here ONLY IF it is
-        already running, since deleting the file on the host has no effect on a container that
-        already has last boot's rendered config loaded in memory. A bench that is not yet up needs
-        no extra push: `start`, right after this, brings nginx up for the first time this boot,
-        and its entrypoint finds the file gone.
-        """
-        default_conf = self.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
-        if not default_conf.is_file():
-            return
-
-        wanted = self.domains
-        if not wanted:
-            return
-
-        text = default_conf.read_text()
-        missing = [d for d in wanted if not re.search(rf"(?<![\w.-]){re.escape(d)}(?![\w.-])", text)]
-        if not missing:
-            return
-
-        extra = {"operation": "nginx_conf_heal_site_map", "bench_name": self.name, "missing_domains": missing}
-        self.logger.warning(
-            f"Bench nginx conf for {self.name} is missing domain(s): {', '.join(missing)}", extra_fields=extra
-        )
-        default_conf.unlink()
-        if self._is_service_running("nginx"):
-            self.docker_ops.start(services=["nginx"], force_recreate=True, pull="never")
 
     def remove_site(
         self, site: str, delete_db_from_mariadb: bool | None = None, delete_backups: bool = False
@@ -2050,11 +1973,10 @@ class Bench:
         re-runs the step rather than being stranded by it. Commands also refuse outright on an
         unmigrated bench (`check_bench_migration_required`).
 
-        What is left is narrow, and it is why this exists. The conf is rendered once, at the nginx
-        container's first boot, and then persists on a host mount: it belongs to the bench directory,
-        not to the image. Restoring a `configs/` directory from a backup taken before the per-site
-        template carries an old conf into a bench whose version is current, so no migration will
-        touch it again. A hand-edited conf does the same.
+        What is left is narrow, and it is why this exists. The entrypoint re-renders the conf on
+        every nginx boot, but the file it renders lives on a host mount and is read here from the
+        host: between restoring a `configs/` directory from an old backup (or hand-editing the file)
+        and the next time nginx boots, this reads the old template's conf.
 
         Worth the branch only because the failure is both SILENT and unsafe: per-site confs written
         against such a conf are included by nothing, the bench-wide conf that WAS gating the site is

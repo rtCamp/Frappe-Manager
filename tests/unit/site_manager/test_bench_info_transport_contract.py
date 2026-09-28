@@ -706,6 +706,33 @@ def test_display_info_gives_every_site_with_aliases_its_own_row(tmp_path, card_s
     ]
 
 
+def test_display_info_names_domains_the_operator_claimed(tmp_path, card_spy):
+    """A `conf.d/<domain>.server.conf` makes the nginx entrypoint leave that domain out of its own
+    render, so the bench's auth, admin-tools and maintenance settings stop reaching it. Unlisted,
+    nothing on the host says which hostname stopped following the bench."""
+    conf_d = tmp_path / "configs" / "nginx" / "conf" / "conf.d"
+    conf_d.mkdir(parents=True)
+    (conf_d / "z.example.com.server.conf").write_text("server { listen 80; }\n")
+    (conf_d / "a.example.com.server.conf").write_text("server { listen 80; }\n")
+    (conf_d / "default.conf").write_text("server { listen 80; }\n")
+
+    info = _displayable(tmp_path)
+    info.display_info()
+
+    (card,) = card_spy.made
+    assert card.facts["claimed"] == "a.example.com, z.example.com"
+
+
+def test_display_info_has_no_claimed_row_when_nobody_claimed_anything(tmp_path, card_spy):
+    """The common bench. `default.conf` is not a claim, and a bench that never booted nginx has no
+    `conf.d` at all."""
+    info = _displayable(tmp_path)
+    info.display_info()
+
+    (card,) = card_spy.made
+    assert "claimed" not in card.facts
+
+
 def test_display_info_alias_block_carries_one_label_and_aligns_the_rest(tmp_path, card_spy):
     """The label column is 14 characters. Putting the site in the label instead knocked `sites`,
     `aliases` and `dir` out of alignment on a real bench, which is how this was caught."""

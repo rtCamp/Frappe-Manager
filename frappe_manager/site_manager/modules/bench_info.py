@@ -419,6 +419,16 @@ class BenchInfo:
             listed = ", ".join(sorted(entry.alias_domains))
             card.fact("aliases" if not labelled else "", f"[fm.muted]{site}[/fm.muted]  {listed}")
             labelled = True
+        # A `conf.d/<domain>.server.conf` makes the entrypoint leave that domain out of its render,
+        # so the bench's own settings (auth, admin tools, maintenance) no longer reach it. Invisible
+        # otherwise, and months later nobody remembers why one hostname ignores `fm auth`.
+        claimed = sorted(
+            p.name.removesuffix(".server.conf")
+            for p in (self.bench_path / "configs" / "nginx" / "conf" / "conf.d").glob("*.server.conf")
+        )
+        if claimed:
+            card.fact("claimed", ", ".join(claimed))
+            card.fact("", "[fm.muted]served by your own conf.d file, not by fm[/fm.muted]")
         abs_path = self.bench_path.absolute()
         card.fact("dir", f"[fm.muted][link=file://{abs_path}]{abs_path}[/link][/fm.muted]")
 

@@ -77,6 +77,25 @@ TLS terminates at the global proxy, so the bench's nginx and Frappe both speak p
 - **`X-Forwarded-Proto`.** The global proxy sets it to the scheme it terminated, and passes an inbound value through untouched when one is already present (so a CDN's value wins). The bench nginx forwards that same value verbatim. Frappe reads the header directly, not the WSGI scheme: `frappe.utils.get_url()` treats exactly the value `https` as HTTPS and anything else as HTTP, and that decides every absolute URL it builds (email links, redirects, OAuth callbacks). Setting `host_name` in the site config overrides all of it, which is why `fm ssl add` writes it only when the certified domain is the site's own canonical name, and leaves it alone for an alias.
 - **`X-Real-IP`.** The bench nginx only ever sees the global proxy's address, so fm writes a `real-ip.conf` overlay that trusts the fm frontend network and takes the client from `X-Real-IP`, which the proxy sets from its own `remote_addr`. fm re-materialises that overlay on every `fm start`, since nginx reads its includes once, at boot. Behind a CDN the proxy's own `remote_addr` is the edge, not the visitor: `fm services real-ip` is what teaches it otherwise.
 
+## Customizing the bench's nginx
+
+fm owns exactly one file in a bench's nginx config: `configs/nginx/conf/conf.d/default.conf`. It is **generated output**, rendered from the bench's recorded sites every time the nginx container boots, so anything you write into it is lost the next time the container starts. Everything else in that directory is yours and is never touched.
+
+| You want | Write | Applies to |
+| --- | --- | --- |
+| Behaviour for every site in the bench | `configs/nginx/conf/custom/<name>.conf` | inside every site's `server` block |
+| Behaviour for one site | `configs/nginx/conf/custom/<site>/<name>.conf` | inside that site's `server` block only |
+| Your own `server`, `map`, or `upstream` | `configs/nginx/conf/conf.d/<name>.conf` | the `http` block |
+| To take over one domain completely | `configs/nginx/conf/conf.d/<domain>.server.conf` | that domain, instead of fm's block |
+
+The first two are included from inside a `server` block, so they take directives like `client_max_body_size`, `add_header` or a `location`, and a `server { ... }` there is a syntax error. The third is included at `http` level and takes whole server blocks.
+
+The last row is the escape hatch. Naming a file after a domain **claims** it: fm leaves that domain out of its own render entirely, no map entry and no server block, so your file is the only thing serving it. Every other domain in the bench keeps being regenerated normally. `fm info` lists claimed domains, because a claimed domain no longer follows the bench's own settings and that is easy to forget months later.
+
+Changes take effect when nginx re-reads its config. `fm restart --service nginx` is enough for a drop-in; a new or removed domain needs `fm restart` so the container is recreated with the new routing.
+
+If a render would produce a config nginx cannot load, fm keeps the previous one and says so on the container's logs rather than starting with broken routing. If the invalid file turns out to be one of yours, the message says that instead, so `fm logs` on a bench whose nginx will not start is the first place to look.
+
 ## See also
 
 - [Background jobs and workers](background-jobs.md): the other kind of "worker"
