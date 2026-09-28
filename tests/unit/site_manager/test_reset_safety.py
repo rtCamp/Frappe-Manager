@@ -21,6 +21,7 @@ Nothing here touches Docker: `docker_client.compose` is a mock and the assertion
 
 import shlex
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -76,6 +77,10 @@ def _manager(config: BenchConfig, site: str | None = None) -> BenchSiteManager:
     info.database_manager.database_server_info.password = ROOT_PASSWORD
     info.database_manager.database_server_info.host = "mariadb"
     info.database_manager.database_server_info.port = 3306
+    # The per-engine accessor the new-site builder uses; a bare MagicMock reaches shlex.quote.
+    info.database_server_info_for.return_value = SimpleNamespace(
+        host="mariadb", port=3306, user="root", password=ROOT_PASSWORD
+    )
     return manager
 
 

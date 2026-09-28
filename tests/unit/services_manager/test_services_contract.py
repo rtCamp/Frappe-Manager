@@ -815,7 +815,7 @@ def test_create_drops_the_explicit_container_user_on_darwin(tmp_path):
         manager.create()
 
     removed = [call.args[0] for call in manager.compose_file_manager.remove_container_user.call_args_list]
-    assert removed == ["nginx-proxy", "mariadb"]
+    assert removed == ["nginx-proxy", "mariadb", "postgres"]
 
 
 def test_create_keeps_the_container_user_on_linux_and_puts_the_proxy_in_the_docker_group(tmp_path):
@@ -839,7 +839,7 @@ def test_create_gives_the_proxy_no_explicit_user_entry_on_darwin(tmp_path):
         generate = harness.stub_generate_compose()
         manager.create()
 
-    assert set(generate.call_args.args[0]["user"]) == {"mariadb"}
+    assert set(generate.call_args.args[0]["user"]) == {"mariadb", "postgres"}
     harness.get_unix_groups.assert_not_called()
 
 

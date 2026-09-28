@@ -11,6 +11,7 @@ that with `--no-setup-db`, which is what makes `--force` inert. It never sends t
 mariadb root password to a host fm does not own.
 """
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -38,6 +39,10 @@ def _manager(captured, database_config: DatabaseConfig | None = None):
     info.database_manager.database_server_info.password = ROOT_PASSWORD
     info.database_manager.database_server_info.host = "mariadb"
     info.database_manager.database_server_info.port = 3306
+    # The per-engine accessor the new-site builder uses; a bare MagicMock reaches shlex.quote.
+    info.database_server_info_for.return_value = SimpleNamespace(
+        host="mariadb", port=3306, user="root", password=ROOT_PASSWORD
+    )
     m.output = MagicMock()
 
     def _run(cmd, **_kw):

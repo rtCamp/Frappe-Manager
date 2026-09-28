@@ -145,19 +145,23 @@ class BenchSiteManager:
         # endpoint fm does not run.
         candidates: list[tuple[ComposeFile | None, str | None, str, int]] = []
 
-        database_config = self.bench_config.get_database_config()
-        if database_config:
-            candidates.append((None, None, database_config.host, database_config.resolved_port))
+        database = self.bench_config.get_database()
+        if database.external:
+            candidates.append((None, None, database.host, database.resolved_port))
         else:
-            # This site is on fm's shared mariadb, which carries the `disabled` compose profile on
-            # a host where every other site is external. Enabling it HERE rather than from each
-            # create path is deliberate: this is the one funnel every pipeline that is about to
-            # need a database passes through, and the probe below then waits for the server it
-            # just started instead of racing it. Idempotent -- a no-op on the ordinary host where
-            # the service was never disabled.
-            self.services.reconcile_fm_mariadb(needed=True)
+            # This site is on one of fm's OWN database servers, which carries the `disabled`
+            # compose profile while nothing uses it. Enabling it HERE rather than from each create
+            # path is deliberate: this is the one funnel every pipeline that is about to need a
+            # database passes through, and the probe below then waits for the server it just
+            # started instead of racing it. The existing engines stay in the set, so bringing one
+            # up never switches the other off under a neighbour bench.
+            self.services.reconcile_database_services(
+                self.services.engines_in_use() | {database.type.value}
+            )
+            service = database.type.value
             db_info = self.services.database_manager.database_server_info
-            candidates.append((self.services.compose_file_manager, db_info.host, db_info.host, db_info.port))
+            port = database.resolved_port if service == "postgres" else db_info.port
+            candidates.append((self.services.compose_file_manager, service, service, port))
 
         # Per side, because `[redis]` is per side: an external queue is waited on at its own
         # endpoint while the local cache is waited on as fm's container (and vice versa). Treating
@@ -349,19 +353,29 @@ class BenchSiteManager:
             new_site_command += ["--admin-password", shlex.quote(admin_pass)]
             new_site_command += ["--verbose"]
         else:
-            new_site_command += [
-                "--db-root-password",
-                shlex.quote(self.services.database_manager.database_server_info.password),
-            ]
+            # fm's OWN server, for the engine this site records. Reading the root credentials off
+            # `services.database_manager` unconditionally was the bug: that manager is always the
+            # mariadb one, so a site asking for fm's postgres was handed mariadb's endpoint and
+            # built there -- a create that reported success against the wrong server entirely.
+            engine = self.bench_config.get_database(site).type
+            server = self.services.database_server_info_for(engine)
+            new_site_command += ["--db-root-password", shlex.quote(server.password)]
+            if engine is DatabaseEngine.postgres:
+                # Frappe defaults to mariadb, and the root LOGIN is `postgres`, not `root`.
+                new_site_command += ["--db-type", "postgres"]
+                new_site_command += ["--db-root-username", server.user]
             # A schema of this site's own. `bench_config.db_name` names the FIRST site's schema, so
             # a site-add has to pass a fresh one or Frappe would try to reuse it.
             schema = db_name or (self.bench_config.db_name if site == self.bench_config.primary_site else None)
             if schema:
                 new_site_command += ["--db-name", schema]
-            new_site_command += ["--db-host", self.services.database_manager.database_server_info.host]
+            new_site_command += ["--db-host", server.host]
             new_site_command += ["--admin-password", shlex.quote(admin_pass)]
-            new_site_command += ["--db-port", str(self.services.database_manager.database_server_info.port)]
-            new_site_command += ["--verbose", "--mariadb-user-host-login-scope", "%"]
+            new_site_command += ["--db-port", str(server.port)]
+            new_site_command += ["--verbose"]
+            if engine is DatabaseEngine.mariadb:
+                # A MariaDB grant scope; postgres roles are not scoped to a client host.
+                new_site_command += ["--mariadb-user-host-login-scope", "%"]
             if force:
                 # Image runtime pre-binds sites/<site>, so `compose up` created an empty dir;
                 # --force lets new-site populate that existing (empty) dir instead of aborting.

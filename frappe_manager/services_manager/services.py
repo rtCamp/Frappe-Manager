@@ -46,6 +46,9 @@ from frappe_manager.utils.network import (
     pick_proxy_ip,
 )
 
+# fm's own database servers, by compose service name. Each is switched off while no site uses it.
+DATABASE_SERVICES = ("mariadb", "postgres")
+
 
 class ServicesManager:
     def __init__(
@@ -60,14 +63,15 @@ class ServicesManager:
         self.invoked_subcommand = invoked_subcommand
         self.output = output_handler or RichOutputHandler()
 
-    def fm_mariadb_is_needed(self) -> bool:
-        """Whether ANY site on this host lives on fm's own mariadb.
+    def engines_in_use(self) -> set[str]:
+        """Which of fm's OWN database servers some site on this host lives on.
 
         The switch is per SITE and explicit: `[sites."<site>".database]` records which engine and
-        whose server, so the host-wide answer is "does any site name fm's own mariadb"
-        (`bench_config.py:1397`). Read off disk, without starting anything.
+        whose server (`bench_config.py:1397`), so the host-wide answer is a set read off disk,
+        without starting anything.
 
-        Deliberately pessimistic. Every uncertainty answers YES:
+        Deliberately pessimistic. Every uncertainty answers "mariadb", because that is the engine
+        every bench predating this had:
 
         - a bench whose config cannot be read or parsed. It may hold a site on fm's mariadb, and
           stopping the server under a live site is far worse than running one nobody uses;
@@ -81,8 +85,9 @@ class ServicesManager:
         from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
         from frappe_manager.site_manager.bench_config import BenchConfig, DatabaseEngine
 
+        engines: set[str] = set()
         if not CLI_BENCHES_DIRECTORY.is_dir():
-            return False
+            return engines
 
         for bench_dir in CLI_BENCHES_DIRECTORY.iterdir():
             if not (bench_dir / "docker-compose.yml").is_file():
@@ -91,53 +96,76 @@ class ServicesManager:
             try:
                 config = BenchConfig.import_from_toml(config_path)
             except Exception:
-                return True
+                engines.add(DatabaseEngine.mariadb.value)
+                continue
             sites = config.sites or {}
             if not sites:
-                return True
-            if any(
-                not site.database.external and site.database.type is DatabaseEngine.mariadb
-                for site in sites.values()
-            ):
-                return True
-        return False
+                engines.add(DatabaseEngine.mariadb.value)
+                continue
+            engines.update(
+                site.database.type.value for site in sites.values() if not site.database.external
+            )
+        return engines
 
-    def reconcile_fm_mariadb(self, needed: bool | None = None) -> None:
-        """Put the shared `mariadb` service in or out of the `disabled` compose profile, to match
-        whether any site on this host actually lives on it, and start or remove the container.
+    def reconcile_database_services(self, engines: set[str] | None = None) -> None:
+        """Put each of fm's database services in or out of the `disabled` compose profile, to match
+        whether any site on this host actually lives on it, and start or remove its container.
 
         A host whose every site is on an external database ran a MariaDB nobody connected to: a
         server, its datadir and its memory, maintained for nothing. The same mechanism already
         suppresses a bench's own redis containers when that bench points at a redis fm does not
-        own (`compose_shape.py:270`); this is that rule one level up, on the shared stack.
+        own (`compose_shape.py:270`); this is that rule one level up, on the shared stack, and with
+        a second engine it is what keeps a postgres-only host from running a MariaDB as well.
 
         Two things the profile does NOT do, both learned from the redis side (`update.py:463`):
         it does not stop a service already running, and `compose up` silently IGNORES a service
         whose profile is inactive rather than failing. So the container is removed by name here,
-        and started here too rather than left to the autostart below, which cannot address it
-        while the profile is off.
+        and started here too rather than left to the autostart, which cannot address it while the
+        profile is off.
 
-        `needed` is for a caller that already knows the answer and is about to change it -- `fm
+        `engines` is for a caller that already knows the answer and is about to change it -- `fm
         create` enables the server before `bench new-site` reaches for it, at which point the site
-        that needs it is not on disk yet and the scan would answer No.
+        that needs it is not on disk yet and the scan would answer with the old set.
         """
-        if needed is None:
-            needed = self.fm_mariadb_is_needed()
+        if engines is None:
+            engines = self.engines_in_use()
 
-        currently_disabled = self.compose_file_manager.is_service_profile_disabled("mariadb")
-        if currently_disabled == (not needed):
-            return
+        for service in DATABASE_SERVICES:
+            needed = service in engines
+            if self.compose_file_manager.is_service_profile_disabled(service) == (not needed):
+                continue
 
-        self.compose_file_manager.set_service_disabled("mariadb", disabled=not needed)
-        self.compose_file_manager.write_to_file()
+            self.compose_file_manager.set_service_disabled(service, disabled=not needed)
+            self.compose_file_manager.write_to_file()
 
-        if needed:
-            self.output.change_head("Starting fm's mariadb: a site on this host uses it")
-            self.docker_client.compose.up(services=["mariadb"], detach=True, pull="never")
-            self.database_manager.wait_till_db_start()
-        else:
-            self.output.print("Stopping fm's mariadb: every site on this host uses an external database.")
-            self.docker_client.compose.rm(services=["mariadb"], stop=True, force=True)
+            if needed:
+                self.output.change_head(f"Starting fm's {service}: a site on this host uses it")
+                self.docker_client.compose.up(services=[service], detach=True, pull="missing")
+            else:
+                self.output.print(f"Stopping fm's {service}: no site on this host uses it.")
+                self.docker_client.compose.rm(services=[service], stop=True, force=True)
+
+    def database_server_info_for(self, engine) -> DatabaseServerServiceInfo:
+        """Endpoint and root credentials for one of fm's OWN database servers.
+
+        `self.database_manager` is and stays the mariadb one, because everything that predates a
+        second engine reaches for it by that name. Anything that knows WHICH engine it wants asks
+        here instead, and gets a server whose host is that engine's compose service and whose
+        password is that engine's own secret -- so a credential can only ever travel to the server
+        it was minted for.
+        """
+        from frappe_manager.site_manager.bench_config import DatabaseEngine
+
+        if engine is DatabaseEngine.postgres:
+            return DatabaseServerServiceInfo(
+                host="postgres",
+                # The superuser the official image creates, and the login Frappe's postgres
+                # setup_db falls back to. Not `root`.
+                user="postgres",
+                port=5432,
+                password=(self.path / "secrets" / "postgres_root_password.txt").read_text().strip(),
+            )
+        return self.database_manager.database_server_info
 
     def switched_off_reason(self, service: str) -> str | None:
         """Why `service` will not respond to a start or a restart, or None when it will.
@@ -246,7 +274,7 @@ class ServicesManager:
         #   the command is about to need. `fm create` enables it itself, at the point it knows.
         reconcile_skip = set(MIGRATION_COMMANDS) | {"create"} | set(OBSERVE_ONLY_COMMANDS)
         if command.split(" ")[0] not in STACK_AUTOSTART_EXEMPT_PREFIXES and command not in reconcile_skip:
-            self.reconcile_fm_mariadb()
+            self.reconcile_database_services()
 
     def init(self):
         current_system = platform.system()
@@ -360,6 +388,10 @@ class ServicesManager:
                     "uid": os.getuid(),
                     "gid": os.getgid(),
                 },
+                "postgres": {
+                    "uid": os.getuid(),
+                    "gid": os.getgid(),
+                },
             }
 
             if not current_system == "Darwin":
@@ -458,8 +490,10 @@ class ServicesManager:
         if current_system == "Darwin":
             self.compose_file_manager.remove_container_user("nginx-proxy")
             self.compose_file_manager.remove_container_user("mariadb")
+            self.compose_file_manager.remove_container_user("postgres")
         else:
             dirs_to_create.append("mariadb/data")
+            dirs_to_create.append("postgres/data")
 
         for folder in dirs_to_create:
             temp_dir = self.path / folder
@@ -472,9 +506,16 @@ class ServicesManager:
 
         db_password_path = self.path / "secrets" / "db_password.txt"
         db_root_password_path = self.path / "secrets" / "db_root_password.txt"
+        postgres_root_password_path = self.path / "secrets" / "postgres_root_password.txt"
 
         db_password_path.write_text(random_password_generate(password_length=16, symbols=True))
         db_root_password_path.write_text(random_password_generate(password_length=24, symbols=True))
+        # Minted even when no site uses postgres yet: compose has to resolve every declared secret
+        # to parse the file at all, profile-disabled service or not, and a host that later creates
+        # a postgres site must not need its services rebuilt to get one. No symbols: the value
+        # reaches psql through PGPASSWORD and a connection URI in other tools, where several
+        # punctuation characters need escaping that nothing here would do.
+        postgres_root_password_path.write_text(random_password_generate(password_length=24, symbols=False))
 
         mariadb_conf = self.path / "mariadb/conf"
         mariadb_conf = str(mariadb_conf.absolute())
@@ -489,6 +530,9 @@ class ServicesManager:
 
         self.compose_file_manager.set_secret_file_path("db_password", str(db_password_path.absolute()))
         self.compose_file_manager.set_secret_file_path("db_root_password", str(db_root_password_path.absolute()))
+        self.compose_file_manager.set_secret_file_path(
+            "postgres_root_password", str(postgres_root_password_path.absolute())
+        )
         self.compose_file_manager.write_to_file()
 
         if clean_install:

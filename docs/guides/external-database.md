@@ -6,9 +6,13 @@ Every site records its database per site, not per bench, as a [`[sites."<sitenam
 
 ## Postgres
 
-A site can run on PostgreSQL instead of MariaDB. It must be a server you run: fm has no Postgres container of its own, so `--db-type postgres` requires `--db-host`.
+A site can run on PostgreSQL instead of MariaDB, on fm's own server or on yours.
 
 ```bash
+# fm's own postgres container
+fm create mybench --db-type postgres
+
+# a server you run
 fm create mybench \
   --db-type postgres \
   --db-host pg.example.com \
@@ -16,13 +20,14 @@ fm create mybench \
   --db-admin-user postgres --db-admin-password -
 ```
 
-`--db-port` defaults to the engine's own, so 5432 here and 3306 for MariaDB. Everything else on this page applies unchanged: the same refusals on a server fm does not own, the same TLS flags, the same attach flow.
+`--db-port` defaults to the engine's own, so 5432 here and 3306 for MariaDB. Everything else on this page applies unchanged: the same refusals on a server fm does not own, the same TLS flags, the same attach flow. fm's own Postgres runs only while some site uses it, exactly as its MariaDB does.
 
-Three differences worth knowing before you use it:
+Four differences worth knowing before you use it:
 
 - **Attaching to an existing role changes its password.** Frappe's Postgres setup runs `ALTER USER ... WITH PASSWORD` when the role already exists, where the MariaDB path leaves an existing login alone. Point fm at a role something else uses and that something else stops being able to log in.
 - **The login needs `CREATEDB` and `CREATEROLE`,** or superuser. Frappe creates the database and the site's role itself. The preflight checks this before anything is written, because finding out later leaves a site directory on disk and no database.
 - **App support is newer than fm's confidence in it.** Frappe's framework supports Postgres; ERPNext's support was hardened recently. Verify your own apps rather than assuming parity with MariaDB.
+- **fm's own Postgres is pinned to a major version and stays there.** Postgres has no equivalent of MariaDB's automatic datadir upgrade: a datadir written by one major refuses to start under the next, so fm will never move you across one by changing an image tag. Moving majors is a dump and a restore.
 
 ## What fm refuses to do on a server it does not own
 

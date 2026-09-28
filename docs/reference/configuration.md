@@ -866,8 +866,8 @@ user = "app_prod"
 ca = "/etc/ssl/certs/db-ca.pem"
 ```
 
-!!! info "Postgres is external-only"
-    `type = "postgres"` needs a `host`: fm runs no Postgres server of its own, so there is nothing for a managed Postgres site to live on. Everything else works -- the preflight, site creation, dumps and restores -- and `fm create --db-type postgres --db-host ...` is the way in. Frappe's framework supports Postgres and ERPNext's support is newer than fm's confidence in it, so verify your own apps rather than assuming parity with MariaDB.
+!!! info "Postgres"
+    `type = "postgres"` works on fm's own server (no `host`) and on one you run (`host` set). fm's Postgres container runs only while some site uses it, and its major version is pinned: Postgres has no automatic datadir upgrade, so fm will never move you across a major by changing an image tag. Frappe's framework supports Postgres and ERPNext's support is newer than fm's confidence in it, so verify your own apps rather than assuming parity with MariaDB.
 
 Passwords never live here: the site's database password goes into `site_config.json`.
 

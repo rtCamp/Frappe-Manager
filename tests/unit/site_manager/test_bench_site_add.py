@@ -14,6 +14,7 @@ cannot match by Host, onto the new site. So a site-add must not set the default.
 point two sites at one schema, which is data loss rather than a failure.
 """
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -44,6 +45,11 @@ def manager(captured):
     services.database_manager.database_server_info.password = ROOT_PASSWORD
     services.database_manager.database_server_info.host = "mariadb"
     services.database_manager.database_server_info.port = 3306
+    # Callers that know WHICH engine they want ask here; a bare MagicMock would hand the
+    # command builder a mock where a host and a port belong.
+    services.database_server_info_for.return_value = SimpleNamespace(
+        host="mariadb", port=3306, user="root", password=ROOT_PASSWORD
+    )
     m.output = MagicMock()
     m._container_run = lambda cmd, **_kw: captured.append(cmd)
     m._site_env = lambda site=None: {}

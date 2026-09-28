@@ -26,6 +26,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -143,6 +144,11 @@ class _Harness:
         services.database_manager.database_server_info.password = GLOBAL_DB_ROOT_PASSWORD
         services.database_manager.database_server_info.host = "mariadb"
         services.database_manager.database_server_info.port = 3306
+        # The per-engine accessor the command builder uses; a bare MagicMock would reach
+        # shlex.quote as a mock and fail far from the thing under test.
+        services.database_server_info_for.return_value = SimpleNamespace(
+            host="mariadb", port=3306, user="root", password=GLOBAL_DB_ROOT_PASSWORD
+        )
         site_manager._container_run = self.run  # type: ignore[method-assign]
         site_manager._container_exec_argv = self.exec_argv  # type: ignore[method-assign]
         bench.site_manager = site_manager

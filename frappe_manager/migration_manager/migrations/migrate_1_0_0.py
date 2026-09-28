@@ -93,6 +93,7 @@ admin-tools/config work, since the rename ran last.
 import contextlib
 import gzip
 import json
+import os
 import platform
 import shutil
 from collections.abc import MutableMapping, MutableSequence
@@ -100,6 +101,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import tomlkit
+import yaml
 from ruamel.yaml import YAML
 
 from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_FM_CONFIG_PATH, MARIADB_IMAGE
@@ -322,6 +324,65 @@ class MigrationV100(MigrationBase):
     def migrate_services(self):
         self._admin_tools_and_config_services()
         self._service_rename_services()
+        self._add_postgres_service()
+
+    def _add_postgres_service(self):
+        """Give an existing services compose the `postgres` service, switched off.
+
+        `ServicesManager.generate_compose` applies env, labels and users onto the file already on
+        disk; it never re-renders from the template. That is deliberate -- it is what preserves a
+        pinned subnet, a proxy IP and any profile fm set earlier -- and it means a host created
+        before this service existed would never grow one, and `fm create --db-type postgres`
+        against fm's own server would fail with "no such service".
+
+        Carried in the `disabled` profile, so adding it starts nothing: the reconciler switches it
+        on the first time a site actually lives on it.
+        """
+        from frappe_manager import CLI_SERVICES_DIRECTORY
+        from frappe_manager.utils.helpers import get_template_path, random_password_generate
+
+        compose_path = CLI_SERVICES_DIRECTORY / "docker-compose.yml"
+        if not compose_path.exists():
+            return
+
+        doc = yaml.safe_load(compose_path.read_text()) or {}
+        services = doc.get("services")
+        if not isinstance(services, dict) or "postgres" in services:
+            return
+
+        template_name = (
+            "docker-compose.services.osx.tmpl"
+            if platform.system() == "Darwin"
+            else "docker-compose.services.tmpl"
+        )
+        template = yaml.safe_load(get_template_path(template_name).read_text())
+        service = template["services"]["postgres"]
+        # The template carries USER placeholders that only `ServicesManager.generate_compose`
+        # substitutes, and it is not on this path: copying the service verbatim left
+        # `user: REPLACE_WITH_CURRENT_USER`, which docker rejects with "no matching entries in
+        # passwd file" the first time the container is started. Darwin drops the key entirely,
+        # the same call `create` makes there.
+        if platform.system() == "Darwin":
+            service.pop("user", None)
+        else:
+            service["user"] = f"{os.getuid()}:{os.getgid()}"
+            # The bind-mount SOURCE has to exist before compose starts the container, or docker
+            # creates it root-owned and postgres cannot write its datadir into it -- the same
+            # rule the admin-tools plugin mount follows (bench_admin_tools.py:248).
+            (CLI_SERVICES_DIRECTORY / "postgres" / "data").mkdir(parents=True, exist_ok=True)
+        services["postgres"] = service
+
+        secret_path = CLI_SERVICES_DIRECTORY / "secrets" / "postgres_root_password.txt"
+        if not secret_path.exists():
+            secret_path.parent.mkdir(parents=True, exist_ok=True)
+            secret_path.write_text(random_password_generate(password_length=24, symbols=False))
+        doc.setdefault("secrets", {})["postgres_root_password"] = {"file": str(secret_path.absolute())}
+
+        if "volumes" in template and platform.system() == "Darwin":
+            doc.setdefault("volumes", {})["postgres-data"] = template["volumes"]["postgres-data"]
+
+        compose_path.write_text(yaml.safe_dump(doc, sort_keys=False))
+        self.output.print("Added the postgres service to the global services (switched off)")
 
     def undo_services_migrate(self):
         # The rename ran last, so its rollback must undo first.

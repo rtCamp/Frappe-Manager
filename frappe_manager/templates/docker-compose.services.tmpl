@@ -30,6 +30,37 @@ services:
         - db_password
         - db_root_password
 
+  postgres:
+    container_name: fm_postgres
+    # Pinned to a MAJOR, and it must stay pinned. Postgres has no equivalent of MariaDB's
+    # MARIADB_AUTO_UPGRADE: a datadir written by one major refuses to start under the next, so a
+    # tag bump here would not upgrade an install, it would stop it. Moving majors is a dump and a
+    # restore, and it is an operation fm has to run deliberately.
+    image: postgres:17
+    user: REPLACE_WITH_CURRENT_USER:REPLACE_WITH_CURRENT_USER_GROUP
+    restart: always
+    # Carried in the profile fm switches off when no site uses this engine, the same way a bench's
+    # own redis is suppressed when it points at one fm does not own. A host that never creates a
+    # postgres site therefore never runs a postgres server.
+    profiles:
+    - disabled
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_root_password
+      # The default database every server has. Frappe creates the site's own; this one exists so
+      # a client has somewhere to connect while asking about the others.
+      POSTGRES_DB: postgres
+      # Initialise the datadir with UTF8 and the C collation. Frappe requires UTF8, and a locale
+      # taken from the image's environment makes index ordering depend on where the container was
+      # built, which a dump and restore then silently changes.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./postgres/data:/var/lib/postgresql/data
+    networks:
+        - backend-network
+    secrets:
+        - postgres_root_password
+
   nginx-proxy:
     container_name: fm_nginx-proxy
     user: REPLACE_WITH_CURRENT_USER:REPLACE_WITH_CURRENT_USER_GROUP
@@ -76,3 +107,5 @@ secrets:
      file: REPLACE_ME_WITH_DB_PASSWORD_TXT_PATH
    db_root_password:
      file: REPLACE_ME_WITH_DB_ROOT_PASSWORD_TXT_PATH
+   postgres_root_password:
+     file: REPLACE_ME_WITH_POSTGRES_ROOT_PASSWORD_TXT_PATH

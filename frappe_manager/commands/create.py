@@ -699,27 +699,23 @@ def _resolve_external_options(
         "--encryption-key": encryption_key is not None,
     }
 
-    if db_type is DatabaseEngine.postgres and db_host is None:
-        raise typer.BadParameter(
-            "--db-type postgres needs --db-host: fm runs no postgres server of its own yet, so there is "
-            "nothing for a postgres site to live on without one."
-        )
-
     if db_host is None:
         orphans = [flag for flag, given in endpoint_flags.items() if given]
         if orphans:
             raise typer.BadParameter(
                 f"{_flags(orphans)} --db-host. The endpoint is given on the command line as a whole, or not at "
-                "all; without it the bench uses the fm-managed mariadb container."
+                "all; without it the bench uses fm's own container for this engine."
             )
         if configured is None:
             orphans = [flag for flag, given in credential_flags.items() if given]
             if orphans:
                 raise typer.BadParameter(
                     f"{_flags(orphans)} an external database: pass --db-host, or declare [database] in a "
-                    "--config overlay. Without one the bench uses the fm-managed mariadb container."
+                    "--config overlay. Without one the bench uses fm's own container for this engine."
                 )
-            return None, redis, None
+            # No endpoint and no overlay: fm's own server for the engine asked for. The engine is
+            # still recorded, because "which engine" and "whose server" are separate facts.
+            return DatabaseConfig(type=db_type), redis, None
     elif not db_name:
         raise typer.BadParameter("--db-host requires --db-name: the schema on that server this site lives in.")
 
