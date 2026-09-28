@@ -61,6 +61,18 @@ def info(ctx: typer.Context):
     dots = "   ".join(f"{railcard.status_dot(state)} {svc}" for svc, state in sorted(statuses.items()))
     card.fact("global", dots)
 
+    # A service fm has switched off is absent from `statuses` above, and a card that simply omits
+    # it reads as "fm forgot about the database". Named, with the reason, because an operator who
+    # went looking for mariadb needs to know it is off ON PURPOSE and what turns it back on.
+    disabled = [
+        name
+        for name in services_manager.compose_file_manager.get_services_list()
+        if name not in statuses
+    ]
+    if disabled:
+        card.fact("off", ", ".join(sorted(disabled)))
+        card.fact("", "[fm.muted]every site here uses an external database; starts when one needs it[/fm.muted]")
+
     # CLI_MIGARATIONS_DIR read as a module attribute: the test suite repoints it away from
     # the developer's real ~/frappe/backups (see tests/conftest.py).
     from frappe_manager.migration_manager import backup_manager

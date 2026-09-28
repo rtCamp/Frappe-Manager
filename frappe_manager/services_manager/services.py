@@ -60,6 +60,97 @@ class ServicesManager:
         self.invoked_subcommand = invoked_subcommand
         self.output = output_handler or RichOutputHandler()
 
+    def fm_mariadb_is_needed(self) -> bool:
+        """Whether ANY site on this host lives on fm's own mariadb.
+
+        The switch is per SITE and declarative: `[sites."<site>".database]` present means that site
+        is on a database fm does not own, absent means it is on the shared `mariadb` container
+        (`bench_config.py:1387`). So the host-wide answer is "does any bench record a site with no
+        `[database]` table", read off disk without starting anything.
+
+        Deliberately pessimistic. Every uncertainty answers YES:
+
+        - a bench whose config cannot be read or parsed. It may hold a site on fm's mariadb, and
+          stopping the server under a live site is far worse than running one nobody uses;
+        - a bench that records no sites at all, which is what an unmigrated (pre-`[sites]`) config
+          looks like from here.
+
+        Answering on what is RECORDED rather than on what is running is the whole point: a stopped
+        bench still owns its schema, and a server disabled because nothing happened to be up is a
+        bench that cannot start again.
+        """
+        from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
+        from frappe_manager.site_manager.bench_config import BenchConfig
+
+        if not CLI_BENCHES_DIRECTORY.is_dir():
+            return False
+
+        for bench_dir in CLI_BENCHES_DIRECTORY.iterdir():
+            if not (bench_dir / "docker-compose.yml").is_file():
+                continue
+            config_path = bench_dir / CLI_BENCH_CONFIG_FILE_NAME
+            try:
+                config = BenchConfig.import_from_toml(config_path)
+            except Exception:
+                return True
+            sites = config.sites or {}
+            if not sites:
+                return True
+            if any(site.database is None for site in sites.values()):
+                return True
+        return False
+
+    def reconcile_fm_mariadb(self, needed: bool | None = None) -> None:
+        """Put the shared `mariadb` service in or out of the `disabled` compose profile, to match
+        whether any site on this host actually lives on it, and start or remove the container.
+
+        A host whose every site is on an external database ran a MariaDB nobody connected to: a
+        server, its datadir and its memory, maintained for nothing. The same mechanism already
+        suppresses a bench's own redis containers when that bench points at a redis fm does not
+        own (`compose_shape.py:270`); this is that rule one level up, on the shared stack.
+
+        Two things the profile does NOT do, both learned from the redis side (`update.py:463`):
+        it does not stop a service already running, and `compose up` silently IGNORES a service
+        whose profile is inactive rather than failing. So the container is removed by name here,
+        and started here too rather than left to the autostart below, which cannot address it
+        while the profile is off.
+
+        `needed` is for a caller that already knows the answer and is about to change it -- `fm
+        create` enables the server before `bench new-site` reaches for it, at which point the site
+        that needs it is not on disk yet and the scan would answer No.
+        """
+        if needed is None:
+            needed = self.fm_mariadb_is_needed()
+
+        currently_disabled = self.compose_file_manager.is_service_profile_disabled("mariadb")
+        if currently_disabled == (not needed):
+            return
+
+        self.compose_file_manager.set_service_disabled("mariadb", disabled=not needed)
+        self.compose_file_manager.write_to_file()
+
+        if needed:
+            self.output.change_head("Starting fm's mariadb: a site on this host uses it")
+            self.docker_client.compose.up(services=["mariadb"], detach=True, pull="never")
+            self.database_manager.wait_till_db_start()
+        else:
+            self.output.print("Stopping fm's mariadb: every site on this host uses an external database.")
+            self.docker_client.compose.rm(services=["mariadb"], stop=True, force=True)
+
+    def switched_off_reason(self, service: str) -> str | None:
+        """Why `service` will not respond to a start or a restart, or None when it will.
+
+        docker compose cannot address a service whose profile is inactive: `compose up` IGNORES it
+        and `compose restart` fails with "no such service". Either way the command would report
+        work it did not do, so every command that drives a named service asks here first.
+        """
+        if not self.compose_file_manager.is_service_profile_disabled(service):
+            return None
+        return (
+            f"{service} is switched off because every site on this host uses an external database. "
+            f"It starts by itself when a bench that needs it is created."
+        )
+
     def entrypoint_checks(self, start=False):
         if not self.path.exists():
             try:
@@ -142,6 +233,18 @@ class ServicesManager:
             self.docker_client,
             output_handler=self.output,
         )
+
+        # After `database_manager` is wired, because reconciling may have to wait for the server to
+        # accept connections. Skipped for the same commands the autostart above skips -- an observer
+        # reports the stack as it finds it, and the services/self families act ON the stack -- plus:
+        #
+        # - the migration commands, which own the stack's lifecycle for the length of their run and
+        #   dump every database through it;
+        # - `create`, whose bench is not on disk yet, so the scan would answer No and stop a server
+        #   the command is about to need. `fm create` enables it itself, at the point it knows.
+        reconcile_skip = set(MIGRATION_COMMANDS) | {"create"} | set(OBSERVE_ONLY_COMMANDS)
+        if command.split(" ")[0] not in STACK_AUTOSTART_EXEMPT_PREFIXES and command not in reconcile_skip:
+            self.reconcile_fm_mariadb()
 
     def init(self):
         current_system = platform.system()

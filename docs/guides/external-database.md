@@ -108,6 +108,26 @@ fm create mybench \
 
 Pass the original site's `encryption_key`. Without it Frappe mints a new one and every existing encrypted secret stops being readable. Two `-` flags mean two secrets: on a terminal fm prompts for each in turn, and from a pipe it reads one line per flag, in the order the flags are listed above.
 
+## fm's own mariadb switches itself off
+
+On a host where **every** site uses an external database, fm stops running the shared `mariadb` container. There is nothing to configure: the rule is read from the benches on disk, since a site is on fm's database exactly when it has no `[database]` table.
+
+```
+fm services info
+  services
+    global    ● nginx-proxy
+    off       mariadb
+              every site here uses an external database; starts when one needs it
+```
+
+It comes back by itself the moment a bench that needs it is created, before that bench's site is built. `fm services start mariadb` on a switched-off server says so rather than pretending to start it.
+
+Three details worth knowing:
+
+- The decision is made from what is **recorded**, not from what is running. A stopped bench still owns its schema, so it keeps the server on.
+- Anything fm cannot read confidently counts as needing it: an unreadable `bench_config.toml`, or a bench that records no sites. Running a database nobody queries costs memory; stopping one a site depends on costs the site.
+- The data directory is untouched. Switching off stops the container, it does not remove `services/mariadb/data`.
+
 ## External redis
 
 The same flag family covers redis, per bench rather than per site:

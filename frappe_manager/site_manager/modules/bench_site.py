@@ -148,6 +148,13 @@ class BenchSiteManager:
         if database_config:
             candidates.append((None, None, database_config.host, database_config.port))
         else:
+            # This site is on fm's shared mariadb, which carries the `disabled` compose profile on
+            # a host where every other site is external. Enabling it HERE rather than from each
+            # create path is deliberate: this is the one funnel every pipeline that is about to
+            # need a database passes through, and the probe below then waits for the server it
+            # just started instead of racing it. Idempotent -- a no-op on the ordinary host where
+            # the service was never disabled.
+            self.services.reconcile_fm_mariadb(needed=True)
             db_info = self.services.database_manager.database_server_info
             candidates.append((self.services.compose_file_manager, db_info.host, db_info.host, db_info.port))
 

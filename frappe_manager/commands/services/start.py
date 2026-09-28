@@ -25,9 +25,19 @@ def start_services(
     services_manager: ServicesManager = ctx.obj["services"]
     output = get_global_output_handler()
 
+    def refuse_if_switched_off(name: str) -> bool:
+        reason = services_manager.switched_off_reason(name)
+        if reason is None:
+            return False
+        output.warning(reason)
+        return True
+
     if service_name.value == ServicesEnum.all:
         for service in ServicesEnum:
             if service == ServicesEnum.all:
+                continue
+
+            if refuse_if_switched_off(service.value):
                 continue
 
             if services_manager.is_service_running(service.value):
@@ -36,6 +46,8 @@ def start_services(
 
             services_manager.start_service(services=[service.value])
             output.print(f"Started service {service.value}")
+    elif refuse_if_switched_off(service_name.value):
+        pass
     elif not services_manager.is_service_running(service_name.value):
         services_manager.start_service(services=[service_name.value])
         output.print(f"Started service {service_name.value}")

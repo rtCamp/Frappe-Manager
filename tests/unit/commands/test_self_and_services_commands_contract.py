@@ -605,9 +605,12 @@ def test_services_info_reports_a_missing_container_as_stopped(tmp_path, out, mon
 # =========================================================================== #
 
 
-def make_services_ctx(running: bool):
+def make_services_ctx(running: bool, switched_off: str | None = None):
     services = MagicMock(name="services_manager")
     services.is_service_running.return_value = running
+    # A bare MagicMock answers every predicate truthily, which would read as "this service is
+    # switched off" and skip the work these tests are about.
+    services.switched_off_reason.return_value = switched_off
     ctx = MagicMock(spec=typer.Context)
     ctx.obj = {"services": services}
     return ctx, services
@@ -646,6 +649,20 @@ def test_a_no_op_start_still_says_it_skipped(out):
 
     services.start_service.assert_not_called()
     assert "Skipping already running service mariadb" in joined(out.print)
+
+
+def test_starting_a_switched_off_service_says_so_instead_of_reporting_success(out):
+    """fm switches mariadb off (the `disabled` compose profile) on a host where every site uses an
+    external database. docker compose IGNORES a `compose up` for a service outside the active
+    profiles, so without this the command printed "Started service mariadb" and started nothing."""
+    from frappe_manager.services_manager import ServicesEnum
+
+    ctx, services = make_services_ctx(running=False, switched_off="mariadb is switched off because ...")
+
+    start_services(ctx, ServicesEnum.mariadb)
+
+    services.start_service.assert_not_called()
+    assert "switched off" in joined(out.warning)
 
 
 def test_services_shell_refuses_all_instead_of_running_a_bogus_exec():
