@@ -77,6 +77,12 @@ def make_manager(
         if statuses is not None
         else [{"Name": container, "Service": service, "State": "running"} for service, container in containers.items()]
     )
+    # entrypoint_checks calls this unconditionally (even when start=False) once the database
+    # manager is wired. It scans the REAL ~/frappe/sites for which engines are in use, which is
+    # both undesired here (this file pins the stack's create/start/stop lifecycle, not engine
+    # reconciliation -- see test_database_service_suppression.py) and host-dependent: on a
+    # machine with a real mariadb bench it fired an extra unasserted `compose up`.
+    manager.reconcile_database_services = mock.MagicMock()
     return manager
 
 
