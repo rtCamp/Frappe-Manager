@@ -206,14 +206,14 @@ def _sql_identifier(value: str) -> str:
     return "`" + value.replace("`", "``") + "`"
 
 
-def _require_safe_name(value: str, kind: str) -> str:
+def require_safe_name(value: str, kind: str) -> str:
     """Reject names that would have to be escaped through the shell/python/SQL sandwich."""
     if not _SAFE_NAME_RE.match(value):
         raise ValueError(f"unsafe {kind} for a database probe: {value!r}")
     return value
 
 
-def _summary(text: str, *secrets: str | None, limit: int = 400) -> str:
+def summarize(text: str, *secrets: str | None, limit: int = 400) -> str:
     """First meaningful line of a command's output, redacted, for a check detail."""
     for line in redact(text, *secrets).splitlines():
         stripped = line.strip()
@@ -263,7 +263,7 @@ class _Reply:
         return self.code == ER_SECURE_TRANSPORT_REQUIRED or "insecure transport" in self.text.lower()
 
 
-def _run(runner: Runner, command: str) -> _Reply:
+def run_query(runner: Runner, command: str) -> _Reply:
     try:
         text = runner(command)
     except Exception as exc:
@@ -404,7 +404,7 @@ def probe_stage_one(
     login_password = admin_password if use_admin else site_password
 
     def invoke(sql: str, *, user: str, password: str | None, tls: bool = True, plaintext: bool = False) -> _Reply:
-        return _run(
+        return run_query(
             runner,
             build_mysql_command(
                 sql,
@@ -440,7 +440,7 @@ def probe_stage_one(
                     CHECK_CA_VERIFICATION,
                     CheckStatus.fail,
                     "the supplied CA did not verify this server, or the certificate cannot name"
-                    f" {host}: {_summary(settings.text, *secrets)}. Fix the bundle or pass"
+                    f" {host}: {summarize(settings.text, *secrets)}. Fix the bundle or pass"
                     " --db-no-verify-hostname only if the certificate genuinely cannot name the"
                     " endpoint.",
                 )
@@ -553,7 +553,7 @@ def probe_stage_one(
 
 
 def _connect_failure(reply: _Reply, *, host: str, port: int, user: str, secrets: tuple[str | None, ...]) -> ProbeCheck:
-    detail = _summary(reply.text, *secrets)
+    detail = summarize(reply.text, *secrets)
     if reply.code == ER_ACCESS_DENIED:
         reason = (
             f"the server refused the credentials for {user!r} (1045). Note that MySQL returns the"
@@ -746,7 +746,7 @@ def _db_user_check(
         return ProbeCheck(
             CHECK_DB_USER_EXISTS,
             CheckStatus.warn,
-            f"could not determine whether the login {user!r}@'%' exists: {_summary(reply.text, *secrets)}",
+            f"could not determine whether the login {user!r}@'%' exists: {summarize(reply.text, *secrets)}",
         )
     if use_admin and not site_password_given and not attach:
         return ProbeCheck(
@@ -780,7 +780,7 @@ def _site_credentials_check(reply: _Reply, *, user: str, secrets: tuple[str | No
     return ProbeCheck(
         CHECK_SITE_CREDENTIALS,
         CheckStatus.fail,
-        f"could not authenticate as {user!r} with the supplied --db-password: {_summary(reply.text, *secrets)}",
+        f"could not authenticate as {user!r} with the supplied --db-password: {summarize(reply.text, *secrets)}",
     )
 
 
@@ -810,7 +810,7 @@ def _tls_enforcement(
         elif plaintext.ok:
             enforced, evidence = False, "a plaintext connection succeeded"
         else:
-            evidence = f"a plaintext connection failed for another reason: {_summary(plaintext.text, *secrets)}"
+            evidence = f"a plaintext connection failed for another reason: {summarize(plaintext.text, *secrets)}"
 
     if enforced is None:
         return (
@@ -928,7 +928,7 @@ def _admin_grants_check(reply: _Reply, *, user: str, secrets: tuple[str | None, 
         return ProbeCheck(
             CHECK_ADMIN_GRANTS,
             CheckStatus.warn,
-            f"could not read the grants of {user!r}: {_summary(reply.text, *secrets)}. Provisioning"
+            f"could not read the grants of {user!r}: {summarize(reply.text, *secrets)}. Provisioning"
             " needs CREATE, CREATE USER, RELOAD and GRANT OPTION at global scope.",
         )
     granted, roles, wildcard = _parse_grants([" ".join(row) for row in reply.rows])
@@ -995,8 +995,8 @@ def stage_two_script(site: str, schema: str) -> str:
     Every SQL literal goes through a placeholder, which keeps single quotes out of the source and
     the shell quoting of the whole one liner trivial.
     """
-    _require_safe_name(site, "site name")
-    _require_safe_name(schema, "schema name")
+    require_safe_name(site, "site name")
+    require_safe_name(schema, "schema name")
     config_path = f"{CONTAINER_SITES_DIR}/{site}/site_config.json"
     installed = installed_apps_sql(schema)
     statements = [
@@ -1040,7 +1040,7 @@ def stage_two_command(site: str, schema: str) -> str:
 
 def probe_stage_two(runner: Runner, *, site: str, schema: str) -> ProbeResult:
     """Phase 4 probe with the driver the site will actually use, plus the staleness re-check."""
-    reply = _run(runner, stage_two_command(site, schema))
+    reply = run_query(runner, stage_two_command(site, schema))
     payload = _stage_two_payload(reply.text)
 
     if payload is None:
