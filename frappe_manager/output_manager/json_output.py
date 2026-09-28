@@ -381,8 +381,28 @@ class JSONOutputHandler(OutputHandler):
     def should_stream_docker(self) -> bool:
         return False
 
+    @property
+    def wants_structured_data(self) -> bool:
+        return True
+
     def print_data(self, data: Any, **kwargs) -> None:
-        self._add_event(OutputEvent("print_data", {"data": data, "kwargs": kwargs}))
+        self._add_event(OutputEvent("print_data", {"data": self._json_safe(data), "kwargs": kwargs}))
+
+    def _json_safe(self, data: Any) -> Any:
+        # Safety net, not the contract: call sites are expected to pass a plain dict/list
+        # payload (see OutputHandler.wants_structured_data), not a rendered card. Without this,
+        # to_json's `default=str` falls back to repr() for a Table/Group/Panel -- a bare,
+        # non-deterministic memory address, which is strictly worse than nothing: lossy AND
+        # non-reproducible.
+        from rich.console import Console, ConsoleRenderable
+
+        if not isinstance(data, ConsoleRenderable):
+            return data
+
+        console = Console(width=120, no_color=True, force_terminal=False, markup=False)
+        with console.capture() as capture:
+            console.print(data)
+        return capture.get().rstrip("\n")
 
     def data_raw(self, text: str) -> None:
         self._add_event(OutputEvent("data_raw", {"text": text}))

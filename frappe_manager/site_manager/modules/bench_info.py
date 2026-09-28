@@ -216,6 +216,22 @@ class BenchInfo:
         tail = f"  [fm.muted]· {' · '.join(extras)}[/fm.muted]" if extras else ""
         return f"[fm.ok]{' + '.join(surfaces)}[/fm.ok]  [fm.muted]·[/fm.muted] {creds}{tail}"
 
+    @classmethod
+    def _auth_data(cls, auth: AuthConfig | WebAuthConfig | None) -> dict:
+        """Structured counterpart of ``_auth_fact``: same facts, no markup, for ``fm info --json``."""
+        auth = auth or AuthConfig()
+        tools = auth.tools if isinstance(auth, AuthConfig) else None
+        pairs = (("web", auth.web),) if tools is None else (("web", auth.web), ("tools", tools))
+        surfaces = [name for name, enabled in pairs if enabled]
+        return {
+            "surfaces": surfaces,
+            "user": auth.user if surfaces else None,
+            "password": auth.password if surfaces else None,
+            "password_pending": bool(surfaces) and not auth.password,
+            "allow_ips": list(auth.allow_ips) if surfaces else [],
+            "allow_paths": list(auth.allow_paths) if surfaces else [],
+        }
+
     def get_python_version(self) -> str:
         """Active Python version.
 
@@ -284,6 +300,223 @@ class BenchInfo:
             return self.get_site_config(site).get("admin_password", default)
         except BenchException:
             return default
+
+    def build_bench_info_data(self) -> dict:
+        """Structured facts for ``fm info --json``, gathered independently of ``display_info``'s
+        rich card (see ``list_benches_data``/``list_benches_view`` for the shared convention).
+
+        Every value is JSON-safe (str/int/float/bool/None/list/dict); no rich markup, no
+        pre-formatted sizes or glyphs -- the card is the presentation layer, this is the facts.
+        """
+        from frappe_manager.utils.prune import host_prune_settings, parse_size, plan_log_prune, plan_session_prune
+
+        config = self.bench_config
+        bench_db_info = self.get_db_connection_info()
+        has_cert = self.has_certificate()
+        protocol = "https" if has_cert else "http"
+        active = self.is_running()
+
+        sites = config.site_names if config.sites else []
+        primary = (
+            resolve_primary_site(
+                config.name, config.sites, read_default_site(_root(config)), read_sites_on_disk(_root(config))
+            )
+            if sites
+            else None
+        )
+        domain = primary or (sites[0] if sites else self.bench_name)
+
+        https: dict = {"enabled": has_cert, "type": None, "challenge_type": None, "expires_at": None}
+        if has_cert:
+            ssl_cert = config.get_primary_certificate()
+            https["type"] = ssl_cert.ssl_type.value
+            if ssl_cert.ssl_type == SUPPORTED_SSL_TYPES.le and isinstance(ssl_cert, LetsencryptSSLCertificate):
+                https["challenge_type"] = ssl_cert.challenge_type.value
+            https["expires_at"] = self.certificate_manager.get_certificate_expiry().isoformat()
+
+        site_rows = []
+        for site in sites:
+            database = config.get_database_config(site)
+            site_rows.append(
+                {
+                    "name": site,
+                    "primary": site == primary,
+                    # None means the site is on the mariadb container fm owns (see display_info).
+                    "external_database": {"host": database.host, "port": database.resolved_port} if database else None,
+                }
+            )
+
+        aliases = {
+            site: sorted((config.sites or {}).get(site).alias_domains)
+            for site in sites
+            if (config.sites or {}).get(site) and (config.sites or {}).get(site).alias_domains
+        }
+        missing_site_dirs = (
+            [site for site in config.sites if site not in read_sites_on_disk(_root(config))] if config.sites else []
+        )
+        claimed_domains = sorted(
+            p.name.removesuffix(".server.conf")
+            for p in (self.bench_path / "configs" / "nginx" / "conf" / "conf.d").glob("*.server.conf")
+        )
+
+        apps = [
+            {"name": app.get("name"), "ref": app.get("ref"), "commit": app.get("commit")}
+            for app in (self.get_bench_apps() or [])
+        ]
+
+        deployments = config.deployments if config.runtime == BenchRuntime.image else None
+        image = deployments.current.app_image if deployments and deployments.current else None
+        previous_image = deployments.previous.app_image if deployments and deployments.previous else None
+
+        deploys = []
+        if deployments and deployments.history:
+            current_at = deployments.current.deployed_at if deployments.current else None
+            current_marked = False
+            for entry in reversed(deployments.history):
+                # Matched by deployed_at (the record's identity): the same image deployed twice
+                # (rollback then forward) must mark only the newest occurrence as current.
+                is_current = not current_marked and entry.deployed_at == current_at
+                current_marked = current_marked or is_current
+                deploys.append(
+                    {
+                        "app_image": entry.app_image,
+                        "deployed_at": entry.deployed_at,
+                        "migrate_status": entry.migrate_status,
+                        "backup_count": len(entry.backups),
+                        "current": is_current,
+                    }
+                )
+
+        # One row per site: a bench-only bench (no sites) still reports one row keyed by
+        # site=None, mirroring the bench-wide fallback `display_info` prints for that case.
+        credentialled = sites or [None]
+        multi = len(credentialled) > 1
+        admin_credentials = [
+            {"site": site, "user": "administrator", "password": self._admin_password_for(site, config)}
+            for site in credentialled
+        ]
+        database_credentials = []
+        for site in credentialled:
+            info = self.get_db_connection_info(site) if multi else bench_db_info
+            database_credentials.append({"site": site, "name": info.get("name"), "password": info.get("password")})
+
+        unrouted = [site for site in sites if not config.serves_admin_tools(site)]
+        routed = [site for site in sites if config.serves_admin_tools(site)]
+        admin_tools = {
+            "enabled": bool(config.admin_tools),
+            "sites": [
+                {
+                    "site": site,
+                    "mailpit_url": f"{protocol}://{site}/mailpit",
+                    "adminer_url": f"{protocol}://{site}/adminer",
+                }
+                for site in routed
+            ],
+            "unrouted_sites": unrouted,
+        }
+
+        own_auth = [site for site in sites if (config.sites or {}).get(site) and config.sites[site].auth is not None]
+        auth = {
+            "bench": self._auth_data(config.auth),
+            "sites": {site: self._auth_data(config.sites[site].auth) for site in own_auth},
+        }
+
+        running_bench_services = self.get_services_running_status()
+        try:
+            containers = self.workers.compose_file_manager.get_container_names().values()
+            all_statuses = self.workers.docker_client.compose.get_all_services_status()
+            running_bench_workers = {
+                status["Service"]: status["State"] for status in all_statuses if status.get("Name") in containers
+            }
+        except DockerException:
+            running_bench_workers = {}
+
+        running_bench_admin_tools = {}
+        if self.admin_tools.compose_file_manager.exists():
+            try:
+                containers = self.admin_tools.compose_file_manager.get_container_names().values()
+                all_statuses = self.admin_tools.docker_client.compose.get_all_services_status()
+                running_bench_admin_tools = {
+                    status["Service"]: status["State"] for status in all_statuses if status.get("Name") in containers
+                }
+            except Exception:
+                running_bench_admin_tools = {}
+
+        host_prune = host_prune_settings()
+        bench_prune = config.prune
+
+        def _setting(name):
+            value = getattr(bench_prune, name, None) if bench_prune else None
+            return value if value is not None else getattr(host_prune, name)
+
+        releases_beyond = 0
+        if config.runtime == BenchRuntime.image and config.deployments and config.deployments.history:
+            keep_releases = config.switch.keep_releases if config.switch else 7
+            releases_beyond = max(0, len(config.deployments.history) - keep_releases)
+
+        keep_sessions = int(_setting("keep_backup_sessions"))
+        keep_archives = int(_setting("keep_log_archives"))
+        over_bytes = parse_size(_setting("rotate_logs_over"))
+
+        stale_backup_sessions = 0
+        stale_backup_bytes = 0
+        kept_backup_sessions = 0
+        for root in (self.bench_path / "backups" / "migrations", self.bench_path / "backups" / "workers"):
+            plan = plan_session_prune(root, keep_sessions)
+            stale_backup_sessions += plan.count
+            stale_backup_bytes += plan.size
+            kept_backup_sessions += plan.kept
+
+        log_plan = plan_log_prune(
+            [self.bench_path / "workspace" / "frappe-bench" / "logs", self.bench_path / "configs" / "nginx" / "logs"],
+            over_bytes,
+            keep_archives,
+        )
+
+        disk = {
+            "releases_beyond_keep": releases_beyond,
+            "stale_backup_sessions": stale_backup_sessions,
+            "stale_backup_bytes": stale_backup_bytes,
+            "kept_backup_sessions": kept_backup_sessions,
+            "logs_over_threshold": len(log_plan.rotations),
+            "log_rotate_threshold_bytes": over_bytes,
+            "log_rotate_bytes": log_plan.rotate_size,
+            "actionable": bool(releases_beyond or stale_backup_sessions or log_plan.rotations),
+        }
+
+        return {
+            "name": self.bench_name,
+            "status": "active" if active else "inactive",
+            "runtime": config.runtime.value,
+            "environment": config.environment_type.value,
+            "restart_policy": config.restart_policy.value,
+            "url": f"{protocol}://{domain}" if sites else None,
+            "https": https,
+            "dir": str(self.bench_path.absolute()),
+            "sites": site_rows,
+            "unmanaged_site_dirs": self.unmanaged_site_dirs(),
+            "missing_site_dirs": missing_site_dirs,
+            "aliases": aliases,
+            "claimed_domains": claimed_domains,
+            "python_version": str(self.get_python_version()),
+            "node_version": str(self.get_node_version()),
+            "apps": apps,
+            "image": image,
+            "previous_image": previous_image,
+            "base_image": config.base_image,
+            "apps_from": config.apps_from,
+            "deploys": deploys,
+            "admin_credentials": admin_credentials,
+            "database_credentials": database_credentials,
+            "admin_tools": admin_tools,
+            "auth": auth,
+            "services": {
+                "bench": running_bench_services,
+                "workers": running_bench_workers,
+                "tools": running_bench_admin_tools,
+            },
+            "disk": disk,
+        }
 
     def display_info(self) -> None:
         """Render the bench detail card.
@@ -603,5 +836,10 @@ class BenchInfo:
         else:
             card.fact("status", f"[fm.muted]{summary}[/fm.muted]")
 
-        # Themed singleton console via the handler (no raw Console() bypass).
-        self.output.print_data(card.render())
+        # `wants_structured_data` (JSONOutputHandler, and the --json flag through the logging
+        # wrapper) asks for facts instead of the card: a memory-address repr otherwise, since
+        # a rich Group/Table has no __str__ for json.dumps(default=str) to fall back on.
+        if self.output.wants_structured_data:
+            self.output.print_data(self.build_bench_info_data())
+        else:
+            self.output.print_data(card.render())

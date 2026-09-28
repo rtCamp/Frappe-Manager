@@ -53,6 +53,9 @@ runner = CliRunner()
 class _Harness:
     def __init__(self, stack: ExitStack, module: str):
         self.output = MagicMock(name="output_handler")
+        # A bare MagicMock is truthy for any undefined attribute; wants_structured_data is now a
+        # real property (default False on the base handler) that these Table-path tests rely on.
+        self.output.wants_structured_data = False
         self.ctx = MagicMock(name="ctx")
         self.ctx.obj = {"services": MagicMock(name="services_manager")}
 
@@ -250,6 +253,76 @@ def test_a_listing_where_every_bench_is_readable_exits_zero(listing):
     listing.bench_listing.side_effect = [None, None, None]
 
     assert list_certificates(listing.ctx, address="all", standalone=False) is None
+
+
+# ------------------------------------------------- fm ssl list all -- structured data (`--json`)
+
+
+@pytest.fixture
+def structured_listing():
+    """The `all` selector's JSON path calls `_external_certificate_rows` / `_bench_certificate_data`
+    directly (not the human report functions `listing` above patches), so it needs its own doubles.
+    """
+    with ExitStack() as stack:
+        harness = _Harness(stack, LIST_MODULE)
+        harness.output.wants_structured_data = True
+        harness.bench_names = stack.enter_context(
+            patch("frappe_manager.utils.callbacks._bench_names", return_value=list(BENCHES))
+        )
+        harness.external_rows = stack.enter_context(patch(f"{LIST_MODULE}._external_certificate_rows"))
+        harness.external_rows.return_value = []
+        harness.bench_data = stack.enter_context(patch(f"{LIST_MODULE}._bench_certificate_data"))
+        harness.bench_data.side_effect = lambda ctx, name: []
+        yield harness
+
+
+def test_list_all_structured_payload_is_one_document_keyed_by_bench_name_beside_one_external_list(
+    structured_listing,
+):
+    """The chosen shape: `{"external": [...], "benches": {name: {"domains": [...], "error": null}}}`
+    -- one coherent document a consumer reads, not six unrelated JSON events."""
+    structured_listing.external_rows.return_value = [{"domain": "ext.example.com"}]
+    structured_listing.bench_data.side_effect = lambda ctx, name: [{"domain": name}]
+
+    list_certificates(structured_listing.ctx, address="all", standalone=False)
+
+    payload = structured_listing.output.print_data.call_args.args[0]
+    assert payload == {
+        "external": [{"domain": "ext.example.com"}],
+        "benches": {name: {"domains": [{"domain": name}], "error": None} for name in BENCHES},
+    }
+
+
+def test_list_all_structured_payload_never_calls_the_human_report_functions(structured_listing):
+    with (
+        patch(f"{LIST_MODULE}._list_external_certificates") as external_report,
+        patch(f"{LIST_MODULE}._list_bench_certificates") as bench_report,
+    ):
+        list_certificates(structured_listing.ctx, address="all", standalone=False)
+
+    external_report.assert_not_called()
+    bench_report.assert_not_called()
+
+
+def test_list_all_structured_payload_records_a_failing_bench_by_name_with_empty_domains(structured_listing):
+    structured_listing.bench_data.side_effect = [
+        [{"domain": BENCHES[0]}],
+        RuntimeError("beta is broken"),
+        [{"domain": BENCHES[2]}],
+    ]
+
+    with pytest.raises(typer.Exit) as exc:
+        list_certificates(structured_listing.ctx, address="all", standalone=False)
+
+    assert exc.value.exit_code == 1
+    payload = structured_listing.output.print_data.call_args.args[0]
+    assert payload["benches"][BENCHES[1]] == {"domains": [], "error": "beta is broken"}
+    assert payload["benches"][BENCHES[0]]["error"] is None
+    assert payload["benches"][BENCHES[2]]["error"] is None
+
+
+def test_list_all_structured_payload_exits_zero_when_every_bench_is_readable(structured_listing):
+    assert list_certificates(structured_listing.ctx, address="all", standalone=False) is None
 
 
 # -------------------------------------------------------------------------------- fm ssl renew all

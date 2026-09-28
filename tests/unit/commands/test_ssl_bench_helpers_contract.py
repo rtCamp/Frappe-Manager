@@ -100,6 +100,9 @@ class SSLHarness:
         self.ctx.obj = {"services": self.services}
 
         self.output = MagicMock(name="output_handler")
+        # A bare MagicMock is truthy for any undefined attribute; wants_structured_data is now a
+        # real property (default False on the base handler) that these Table-path tests rely on.
+        self.output.wants_structured_data = False
 
         self.get_output_handler = stack.enter_context(patch(f"{SSL_MODULE}.get_output_handler"))
         self.get_output_handler.return_value = self.output
@@ -1234,6 +1237,153 @@ def test_list_is_a_pure_read_with_no_status_head_and_no_spinner(h):
     assert h.heads() == []
     assert h.spinner_texts() == []
     h.output.display_error.assert_not_called()
+
+# ======================================================================================
+# _list_bench_certificates -- structured data (`--json`, `wants_structured_data`)
+# ======================================================================================
+
+
+@pytest.mark.timeout(15)
+def test_structured_data_skips_the_table_entirely(h):
+    """`wants_structured_data` routes to `_bench_certificate_data`; the Table class must never
+    be touched, not just left unread."""
+    h.output.wants_structured_data = True
+    h.cert_manager.list_certificates.return_value = []
+
+    with patch(f"{SSL_MODULE}.Table") as table_cls:
+        _list_bench_certificates(h.ctx, BENCH)
+
+    table_cls.assert_not_called()
+    h.output.print_data.assert_called_once()
+    payload = h.output.print_data.call_args.args[0]
+    assert isinstance(payload, list)
+
+
+@pytest.mark.timeout(15)
+def test_structured_data_for_a_domain_with_no_certificate_is_null_not_na(h):
+    """The Table's cell for this row is the literal string 'N/A' five times over; the JSON row
+    must carry null/none instead, never that display text."""
+    h.output.wants_structured_data = True
+    h.set_sites({DOMAIN: []})
+    h.cert_manager.list_certificates.return_value = []
+
+    _list_bench_certificates(h.ctx, BENCH)
+
+    (row,) = h.output.print_data.call_args.args[0]
+    assert row == {
+        "domain": DOMAIN,
+        "certificate_type": "none",
+        "challenge_type": None,
+        "dns_provider": None,
+        "dns_provider_missing": False,
+        "status": "none",
+        "live": False,
+        "expiry": None,
+        "days_until_expiry": None,
+        "renewal": None,
+    }
+    assert "N/A" not in str(row.values())
+
+
+@pytest.mark.timeout(15)
+def test_structured_data_reports_an_issued_certificate_with_a_parseable_expiry(h):
+    h.output.wants_structured_data = True
+    h.set_sites({DOMAIN: []})
+    h.cert_manager.list_certificates.return_value = [
+        _cert_row(
+            DOMAIN,
+            expiry_date=datetime(2026, 3, 4, 5, 6, 7, tzinfo=UTC),
+            days_until_expiry=42,
+            needs_renewal=False,
+        )
+    ]
+
+    _list_bench_certificates(h.ctx, BENCH)
+
+    (row,) = h.output.print_data.call_args.args[0]
+    assert row["status"] == "issued"
+    assert row["renewal"] == "ok"
+    assert row["days_until_expiry"] == 42
+    assert datetime.fromisoformat(row["expiry"]) == datetime(2026, 3, 4, 5, 6, 7, tzinfo=UTC)
+
+
+@pytest.mark.timeout(15)
+def test_structured_data_renewal_due_is_a_lowercase_token(h):
+    h.output.wants_structured_data = True
+    h.set_sites({DOMAIN: []})
+    h.cert_manager.list_certificates.return_value = [
+        _cert_row(DOMAIN, expiry_date=datetime(2026, 1, 1, tzinfo=UTC), days_until_expiry=3, needs_renewal=True)
+    ]
+
+    _list_bench_certificates(h.ctx, BENCH)
+
+    (row,) = h.output.print_data.call_args.args[0]
+    assert row["renewal"] == "due"
+
+
+@pytest.mark.timeout(15)
+def test_structured_data_custom_certificate_uses_re_import_and_manual_not_due_or_ok(h):
+    h.output.wants_structured_data = True
+    h.set_sites({DOMAIN: []})
+    h.cert_manager.list_certificates.return_value = [
+        _cert_row(
+            DOMAIN,
+            ssl_type="custom",
+            challenge_type=None,
+            expiry_date=datetime(2026, 1, 1, tzinfo=UTC),
+            days_until_expiry=3,
+            needs_renewal=True,
+        )
+    ]
+
+    _list_bench_certificates(h.ctx, BENCH)
+
+    (row,) = h.output.print_data.call_args.args[0]
+    assert row["renewal"] == "re_import"
+
+    h.cert_manager.list_certificates.return_value = [
+        _cert_row(
+            DOMAIN,
+            ssl_type="custom",
+            challenge_type=None,
+            expiry_date=datetime(2026, 1, 1, tzinfo=UTC),
+            days_until_expiry=200,
+            needs_renewal=False,
+        )
+    ]
+
+    _list_bench_certificates(h.ctx, BENCH)
+
+    (row,) = h.output.print_data.call_args.args[0]
+    assert row["renewal"] == "manual"
+
+
+@pytest.mark.timeout(15)
+def test_structured_data_not_issued_certificate_has_null_expiry_fields(h):
+    h.output.wants_structured_data = True
+    h.set_sites({DOMAIN: []})
+    h.cert_manager.list_certificates.return_value = [_cert_row(DOMAIN, exists=False, days_until_expiry=99)]
+
+    _list_bench_certificates(h.ctx, BENCH)
+
+    (row,) = h.output.print_data.call_args.args[0]
+    assert row["status"] == "not_issued"
+    assert row["expiry"] is None
+    assert row["days_until_expiry"] is None
+    assert row["renewal"] is None
+
+
+@pytest.mark.timeout(15)
+def test_structured_data_live_reflects_whether_a_backend_serves_the_domain(h):
+    h.output.wants_structured_data = True
+    h.set_sites({DOMAIN: [ALIAS]})
+    h.cert_manager.list_certificates.return_value = []
+    h.proxy_backends.return_value = {DOMAIN}
+
+    _list_bench_certificates(h.ctx, BENCH)
+
+    live = {row["domain"]: row["live"] for row in h.output.print_data.call_args.args[0]}
+    assert live == {DOMAIN: True, ALIAS: False}
 
 
 # ======================================================================================

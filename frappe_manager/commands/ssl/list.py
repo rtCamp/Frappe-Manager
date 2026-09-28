@@ -8,8 +8,8 @@ from typer_examples import example
 from frappe_manager.commands.arguments import BenchOnlyAllArgument
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, prompt_for_bench_selection, resolve_bench_targets
 
-from .bench_helpers import _list_bench_certificates
-from .external_helpers import _list_external_certificates
+from .bench_helpers import _bench_certificate_data, _list_bench_certificates
+from .external_helpers import _external_certificate_rows, _list_external_certificates
 from .helpers import get_output_handler
 
 
@@ -78,6 +78,10 @@ def _list_all_certificates(ctx: typer.Context):
 
     output = get_output_handler(ctx)
 
+    if output.wants_structured_data:
+        _print_all_certificates_data(ctx, output)
+        return
+
     output.print("\n[fm.accent]═══ External Certificates ═══[/fm.accent]\n", emoji_code="")
     _list_external_certificates(ctx)
 
@@ -101,4 +105,28 @@ def _list_all_certificates(ctx: typer.Context):
 
     if failed:
         output.display_error(f"Could not list: {', '.join(failed)}")
+        raise typer.Exit(1)
+
+
+def _print_all_certificates_data(ctx: typer.Context, output) -> None:
+    """The `all` selector's structured payload: external domains plus every bench, keyed by name,
+    as ONE coherent document -- `{"external": [...], "benches": {name: {"domains": [...], "error":
+    null}}}` -- rather than N unrelated JSON events. A bench fm cannot read is a row carrying its
+    error, same as `_list_all_certificates`'s human report; the run still exits nonzero for it.
+    """
+    services_manager = ctx.obj["services"]
+    external = _external_certificate_rows(services_manager, output)
+
+    benches: dict[str, dict] = {}
+    failed = False
+    for bench_name in resolve_bench_targets(RESERVED_BENCH_NAME):
+        try:
+            benches[bench_name] = {"domains": _bench_certificate_data(ctx, bench_name), "error": None}
+        except Exception as e:
+            benches[bench_name] = {"domains": [], "error": str(e)}
+            failed = True
+
+    output.print_data({"external": external, "benches": benches})
+
+    if failed:
         raise typer.Exit(1)

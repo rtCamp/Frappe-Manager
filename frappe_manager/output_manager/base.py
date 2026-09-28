@@ -329,6 +329,18 @@ class OutputHandler(ABC):
             bool: True to stream docker output, False to suppress it
         """
 
+    @property
+    def wants_structured_data(self) -> bool:
+        """Whether the active handler wants raw data instead of a rendered card.
+
+        A call site holding a rich card it already built for a human (e.g.
+        `site_manager/modules/bench_info.py`, which has no `ctx` to consult) needs to ask,
+        right where it decides what to hand `print_data`, whether the active handler would
+        rather receive the underlying data instead. Default False: only JSON output wants
+        structured data; every other handler keeps rendering the normal card.
+        """
+        return False
+
     @abstractmethod
     def print_data(self, data: Any, **kwargs) -> None:
         """

@@ -156,7 +156,7 @@ def _kwargs(tmp_path, **over) -> dict:
         "get_services_running_status_fn": MagicMock(return_value={}),
         "unmanaged_site_dirs_fn": MagicMock(return_value=[]),
         "docker_client": None,
-        "output_handler": MagicMock(),
+        "output_handler": MagicMock(wants_structured_data=False),
     }
     kwargs.update(over)
     return kwargs

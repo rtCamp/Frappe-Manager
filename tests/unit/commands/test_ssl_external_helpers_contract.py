@@ -92,6 +92,9 @@ class Harness:
         self.services.reconcile_standalone_vhosts.return_value = []
 
         self.output = MagicMock(name="output_handler")
+        # A bare MagicMock is truthy for any undefined attribute; wants_structured_data is now a
+        # real property (default False on the base handler) that these Table-path tests rely on.
+        self.output.wants_structured_data = False
         # temporary_stop() reads these two; keep it a deterministic no-op.
         self.output.is_spinner_active = False
         self.output._current_text = None
@@ -1418,6 +1421,123 @@ def test_list_appends_detected_domains_without_ssl_and_a_tip(h, listing):
         "\n[fm.warn]💡 Tip: Add SSL certificates for non-SSL domains:[/fm.warn]",
         "[fm.muted]  fm ssl add --standalone <domain>[/fm.muted]",
     ]
+
+# --------------------------------------------------------------------------------------
+# _list_external_certificates -- structured data (`--json`, `wants_structured_data`)
+# --------------------------------------------------------------------------------------
+
+
+def test_structured_data_skips_the_table_and_the_getting_started_hint(h, listing):
+    """`wants_structured_data` must route around both the Table AND the nothing-configured
+    hint, which is display prose, not data."""
+    h.output.wants_structured_data = True
+    h.external_manager.list_domains.return_value = []
+
+    external_helpers._list_external_certificates(h.ctx)
+
+    listing.table_cls.assert_not_called()
+    assert h.prints() == []
+    h.output.print_data.assert_called_once()
+    assert h.output.print_data.call_args.args[0] == []
+
+
+def test_structured_data_issued_certificate_has_a_parseable_expiry_and_lowercase_tokens(h, listing):
+    h.output.wants_structured_data = True
+    h.external_manager.list_domains.return_value = [_ssl_domain(DOMAIN)]
+    expiry_date = datetime.now(UTC) + timedelta(days=SSL_RENEW_BEFORE_DAYS + 1, seconds=60)
+    listing.expiry.return_value = expiry_date
+
+    external_helpers._list_external_certificates(h.ctx)
+
+    (row,) = h.output.print_data.call_args.args[0]
+    assert row["status"] == "issued"
+    assert row["renewal"] == "ok"
+    assert row["serving"] == "https"
+    assert row["days_until_expiry"] == SSL_RENEW_BEFORE_DAYS + 1
+    assert datetime.fromisoformat(row["expiry"]) == expiry_date
+
+
+def test_structured_data_renewal_due_at_the_threshold_is_a_lowercase_token(h, listing):
+    h.output.wants_structured_data = True
+    h.external_manager.list_domains.return_value = [_ssl_domain(DOMAIN)]
+    listing.expiry.return_value = datetime.now(UTC) + timedelta(days=SSL_RENEW_BEFORE_DAYS, seconds=60)
+
+    external_helpers._list_external_certificates(h.ctx)
+
+    (row,) = h.output.print_data.call_args.args[0]
+    assert row["renewal"] == "due"
+
+
+def test_structured_data_unknown_expiry_has_null_values_not_na(h, listing):
+    h.output.wants_structured_data = True
+    h.external_manager.list_domains.return_value = [_ssl_domain(DOMAIN)]
+    listing.expiry.return_value = None
+
+    external_helpers._list_external_certificates(h.ctx)
+
+    (row,) = h.output.print_data.call_args.args[0]
+    assert row == {
+        "domain": DOMAIN,
+        "certificate_type": "letsencrypt",
+        "status": "unknown",
+        "serving": "https",
+        "expiry": None,
+        "days_until_expiry": None,
+        "renewal": None,
+    }
+    assert "N/A" not in str(row.values())
+
+
+def test_structured_data_missing_certificate_lookup_reports_status_missing(h, listing):
+    h.output.wants_structured_data = True
+    h.external_manager.list_domains.return_value = [_ssl_domain(DOMAIN)]
+    h.link_manager.get_certificate_paths.side_effect = FileNotFoundError("gone")
+
+    external_helpers._list_external_certificates(h.ctx)
+
+    (row,) = h.output.print_data.call_args.args[0]
+    assert row["status"] == "missing"
+    assert row["expiry"] is None
+    h.output.debug.assert_called_once_with(f"Error getting certificate status for {DOMAIN}: gone")
+
+
+def test_structured_data_http01_with_no_vhost_reports_the_no_vhost_renewal_token(h, listing):
+    """Counterpart of the `⛔ no vhost` display cell: DNS-01 needs no vhost, so only an
+    unserved http01 domain reaches this token."""
+    h.output.wants_structured_data = True
+    h.external_manager.list_domains.return_value = [_ssl_domain(DOMAIN, challenge_type="http01")]
+    listing.expiry.return_value = datetime.now(UTC) + timedelta(days=60)
+    h.standalone_nginx.config_state.return_value = None
+
+    external_helpers._list_external_certificates(h.ctx)
+
+    (row,) = h.output.print_data.call_args.args[0]
+    assert row["serving"] == "none"
+    assert row["renewal"] == "no_vhost"
+
+
+def test_structured_data_orphan_and_no_ssl_domains_carry_null_certificate_fields(h, listing):
+    h.output.wants_structured_data = True
+    h.external_manager.list_domains.return_value = []
+    h.standalone_nginx.managed_configs.return_value = {"orphan.example.com"}
+    listing.scan.return_value = ["plain.example.com"]
+
+    external_helpers._list_external_certificates(h.ctx)
+
+    rows = {row["domain"]: row for row in h.output.print_data.call_args.args[0]}
+    assert rows["orphan.example.com"]["status"] == "orphan"
+    assert rows["orphan.example.com"]["certificate_type"] == "none"
+    assert rows["orphan.example.com"]["expiry"] is None
+    assert rows["plain.example.com"] == {
+        "domain": "plain.example.com",
+        "certificate_type": "none",
+        "status": "no_ssl",
+        "serving": "backend",
+        "expiry": None,
+        "days_until_expiry": None,
+        "renewal": None,
+    }
+
 
 
 def test_list_hides_detected_domains_that_already_have_a_certificate(h, listing):

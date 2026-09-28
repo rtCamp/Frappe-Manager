@@ -5,8 +5,87 @@ import typer
 from frappe_manager.docker import DockerException
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.services_manager.services import ServicesManager
-from frappe_manager.site_manager.modules.realip import PROXY_CONF_FILENAME, summarize_proxy_realip_conf
+from frappe_manager.site_manager.modules.realip import (
+    PROXY_CONF_FILENAME,
+    is_fm_realip_conf,
+    summarize_proxy_realip_conf,
+)
 
+
+def _real_ip_data(conf_path: Path) -> dict:
+    """Structured counterpart of ``summarize_proxy_realip_conf``: raw ranges/header, not a
+    rendered sentence. ``None``/empty fields mean "not configured", same rule the sentence form
+    uses to never describe a hand-written file as fm's."""
+    text = conf_path.read_text() if conf_path.exists() else ""
+    if not text or not is_fm_realip_conf(text):
+        return {"configured": False, "ranges": [], "header": None, "recursive": False}
+    lines = text.splitlines()
+    ranges = [
+        line.removeprefix("set_real_ip_from ").rstrip(";").strip()
+        for line in lines
+        if line.startswith("set_real_ip_from ")
+    ]
+    header = next(
+        (
+            line.removeprefix("real_ip_header ").rstrip(";").strip()
+            for line in lines
+            if line.startswith("real_ip_header ")
+        ),
+        None,
+    )
+    recursive = any(line.startswith("real_ip_recursive") for line in lines)
+    return {"configured": True, "ranges": ranges, "header": header, "recursive": recursive}
+
+
+def build_services_info_data(services_manager: ServicesManager, statuses: dict, disabled: list, active: bool, prune_cfg) -> dict:
+    """Structured facts for ``fm services info --json``, mirroring the card built in ``info()``.
+
+    Only the mariadb root server is reported: fm's second engine (postgres, see
+    ``ServicesManager.database_server_info_for``) has no root endpoint surfaced on this card yet.
+    Nested under ``database_servers`` (keyed by engine) rather than a flat ``root_db`` so adding
+    postgres later is a new key, not a breaking rename.
+    """
+    from frappe_manager.migration_manager import backup_manager
+    from frappe_manager.utils.prune import parse_size, plan_log_prune, plan_session_prune
+
+    db = services_manager.database_manager.database_server_info
+    conf_path = Path(services_manager.proxy_storage.dirs.confd.host) / PROXY_CONF_FILENAME
+
+    stale_backup_sessions = 0
+    stale_backup_bytes = 0
+    kept_backup_sessions = 0
+    for root in [backup_manager.CLI_MIGARATIONS_DIR / "migrations"]:
+        plan = plan_session_prune(root, prune_cfg.keep_backup_sessions)
+        stale_backup_sessions += plan.count
+        stale_backup_bytes += plan.size
+        kept_backup_sessions += plan.kept
+
+    over_bytes = parse_size(prune_cfg.rotate_logs_over)
+    log_plan = plan_log_prune(
+        [services_manager.path / "mariadb" / "logs", services_manager.path / "nginx-proxy" / "logs"],
+        over_bytes,
+        prune_cfg.keep_log_archives,
+    )
+
+    return {
+        "status": "active" if active else "inactive",
+        "dir": str(services_manager.path.absolute()),
+        "database_servers": {
+            "mariadb": {"user": db.user, "password": db.password, "host": db.host, "port": db.port},
+        },
+        "proxy": {"real_ip": _real_ip_data(conf_path)},
+        "services": statuses,
+        "disabled_services": disabled,
+        "disk": {
+            "stale_backup_sessions": stale_backup_sessions,
+            "stale_backup_bytes": stale_backup_bytes,
+            "kept_backup_sessions": kept_backup_sessions,
+            "logs_over_threshold": len(log_plan.rotations),
+            "log_rotate_threshold_bytes": over_bytes,
+            "log_rotate_bytes": log_plan.rotate_size,
+            "actionable": bool(stale_backup_sessions or log_plan.rotations),
+        },
+    }
 
 def info(ctx: typer.Context):
     """
@@ -92,4 +171,10 @@ def info(ctx: typer.Context):
     else:
         card.fact("status", f"[fm.muted]{summary}[/fm.muted]")
 
-    output.print_data(card.render())
+    # `wants_structured_data` (JSONOutputHandler, and --json through the logging wrapper) asks
+    # for facts instead of the card: a memory-address repr otherwise, since a rich Group/Table
+    # has no __str__ for json.dumps(default=str) to fall back on.
+    if output.wants_structured_data:
+        output.print_data(build_services_info_data(services_manager, statuses, sorted(disabled), active, prune_cfg))
+    else:
+        output.print_data(card.render())

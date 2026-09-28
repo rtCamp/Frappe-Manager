@@ -253,7 +253,9 @@ def _info(tmp_path: Path, config: BenchConfig, *, unmanaged=(), site_config=None
         get_services_running_status_fn=MagicMock(return_value={}),
         unmanaged_site_dirs_fn=MagicMock(return_value=list(unmanaged)),
         docker_client=None,
-        output_handler=MagicMock(),
+        # A bare MagicMock attribute is TRUTHY, which would divert these card assertions onto the
+        # structured-data branch: this file defends the rendered card.
+        output_handler=MagicMock(wants_structured_data=False),
     )
     info.get_bench_apps = MagicMock(return_value=[])
     return info

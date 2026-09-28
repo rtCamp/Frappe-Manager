@@ -402,12 +402,109 @@ def _dns_provider_cell(bench_config: "BenchConfig", cert: SSLCertificate | None)
     return label or "default"
 
 
+def _dns_provider_facts(bench_config: "BenchConfig", cert: SSLCertificate | None) -> tuple[str | None, bool]:
+    """(label used, credential missing) for a DNS-01 certificate, mirroring `_dns_provider_cell`'s
+    classification as plain data instead of a display string with rich markup baked in."""
+    if cert is None or cert.challenge_type != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
+        return None, False
+
+    label = declared_field(cert, "dns_provider")
+
+    try:
+        resolved = resolve_dns_provider(cert, bench_config)
+    except Exception:
+        # Same reasoning as `_dns_provider_cell`: a broken credential lookup marks this row
+        # missing rather than aborting every other domain's listing.
+        resolved = None
+
+    if resolved is None:
+        return label or None, True
+
+    return label or "default", False
+
+
+def _bench_certificate_rows(bench: Bench, backends: set[str]) -> list[dict]:
+    """Structured per-domain certificate facts for `bench`: the data source `--json` reads,
+    mirroring `_list_bench_certificates`'s classification without the display formatting
+    (icons, "N/A", rich markup) that exists only for a terminal.
+    """
+    all_domains = bench.bench_config.domains
+    certs = bench.certificate_manager.list_certificates()
+
+    cert_map = {cert["domain"]: cert for cert in certs}
+    cert_models = {cert.domain: cert for cert in bench.bench_config.ssl_certificates}
+
+    rows: list[dict] = []
+
+    for domain in all_domains:
+        dns_provider, dns_provider_missing = _dns_provider_facts(bench.bench_config, cert_models.get(domain))
+
+        if domain in cert_map:
+            cert = cert_map[domain]
+            ssl_type = cert["ssl_type"]
+            challenge_type = cert.get("challenge_type") or None
+            status = "issued" if cert["exists"] else "not_issued"
+
+            if cert["exists"] and cert["expiry_date"]:
+                expiry = cert["expiry_date"].isoformat()
+                days_left = cert["days_until_expiry"]
+                if ssl_type == "custom":
+                    renewal = "re_import" if cert["needs_renewal"] else "manual"
+                else:
+                    renewal = "due" if cert["needs_renewal"] else "ok"
+            else:
+                expiry = None
+                days_left = None
+                renewal = None
+        else:
+            ssl_type = "none"
+            challenge_type = None
+            status = "none"
+            expiry = None
+            days_left = None
+            renewal = None
+
+        rows.append(
+            {
+                "domain": domain,
+                "certificate_type": ssl_type,
+                "challenge_type": challenge_type,
+                "dns_provider": dns_provider,
+                "dns_provider_missing": dns_provider_missing,
+                "status": status,
+                "live": domain in backends,
+                "expiry": expiry,
+                "days_until_expiry": days_left,
+                "renewal": renewal,
+            }
+        )
+
+    return rows
+
+
+def _bench_certificate_data(ctx: typer.Context, benchname: str) -> list[dict]:
+    """`_bench_certificate_rows` resolved through `ctx`, the way `_list_bench_certificates` does.
+    The single source `fm ssl list BENCH --json` and the `all` selector's structured payload
+    both call, so a bench's facts are computed once per call site and never scraped off a Table.
+    """
+    services_manager = ctx.obj["services"]
+    output = get_output_handler(ctx)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
+    backends = proxy_backend_domains(services_manager)
+    return _bench_certificate_rows(bench, backends)
+
+
 def _list_bench_certificates(ctx: typer.Context, benchname: str):
     """List all SSL certificates for a bench (existing logic extracted)."""
 
     services_manager = ctx.obj["services"]
 
     output = get_output_handler(ctx)
+
+    if output.wants_structured_data:
+        output.print_data(_bench_certificate_data(ctx, benchname))
+        return
+
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     all_domains = bench.bench_config.domains

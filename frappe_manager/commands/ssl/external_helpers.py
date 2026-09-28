@@ -508,11 +508,110 @@ def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
         return []
 
 
+def _external_certificate_rows(services_manager, output) -> list[dict]:
+    """Structured per-domain external certificate facts: the data source `--json` reads,
+    mirroring `_list_external_certificates`'s classification without the display formatting
+    (icons, "N/A", the getting-started hint) that exists only for a terminal.
+    """
+    external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
+    external_manager = ExternalDomainConfigManager(external_config_path)
+
+    external_domains = external_manager.list_domains()
+    detected_domains = _get_non_bench_domains_from_nginx(services_manager)
+
+    external_domain_names = {d.domain for d in external_domains}
+    non_ssl_domains = [d for d in detected_domains if d not in external_domain_names]
+
+    standalone_nginx = _build_standalone_nginx(services_manager)
+    orphan_domains = sorted(set(standalone_nginx.managed_configs()) - external_domain_names)
+
+    _storage_config, link_manager = _build_certificate_storage(services_manager)
+
+    def serving(domain: str) -> str:
+        if domain in detected_domains:
+            return "backend"
+        state = standalone_nginx.config_state(domain)
+        return state if state else "none"
+
+    rows: list[dict] = []
+
+    for domain_config in external_domains:
+        domain = domain_config.domain
+
+        expiry = None
+        days_left = None
+        renewal = None
+        try:
+            _privkey_path, fullchain_path = link_manager.get_certificate_paths(domain)
+
+            expiry_date = get_certificate_expiry_date(fullchain_path)
+            if expiry_date:
+                expiry = expiry_date.isoformat()
+                now = datetime.now(UTC)
+                days_left = (expiry_date - now).days
+                needs_renewal = days_left <= SSL_RENEW_BEFORE_DAYS
+                renewal = "due" if needs_renewal else "ok"
+                status = "issued"
+            else:
+                status = "unknown"
+        except Exception as e:
+            output.debug(f"Error getting certificate status for {domain}: {e}")
+            status = "missing"
+
+        served = serving(domain)
+        if served == "none" and (domain_config.challenge_type or "http01") == "http01":
+            renewal = "no_vhost"
+
+        rows.append(
+            {
+                "domain": domain,
+                "certificate_type": domain_config.ssl_type,
+                "status": status,
+                "serving": served,
+                "expiry": expiry,
+                "days_until_expiry": days_left,
+                "renewal": renewal,
+            }
+        )
+
+    for domain in orphan_domains:
+        rows.append(
+            {
+                "domain": domain,
+                "certificate_type": "none",
+                "status": "orphan",
+                "serving": serving(domain),
+                "expiry": None,
+                "days_until_expiry": None,
+                "renewal": None,
+            }
+        )
+
+    for domain in non_ssl_domains:
+        rows.append(
+            {
+                "domain": domain,
+                "certificate_type": "none",
+                "status": "no_ssl",
+                "serving": "backend",
+                "expiry": None,
+                "days_until_expiry": None,
+                "renewal": None,
+            }
+        )
+
+    return rows
+
+
 def _list_external_certificates(ctx: typer.Context):
     """List all external domain SSL certificates and detected non-SSL domains."""
 
     services_manager = ctx.obj["services"]
     output = get_output_handler(ctx)
+
+    if output.wants_structured_data:
+        output.print_data(_external_certificate_rows(services_manager, output))
+        return
 
     external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
     external_manager = ExternalDomainConfigManager(external_config_path)

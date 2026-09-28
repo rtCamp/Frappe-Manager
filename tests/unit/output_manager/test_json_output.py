@@ -43,16 +43,24 @@ class TestOutputEvent:
         assert parsed["event_type"] == "error"
         assert parsed["data"]["text"] == "Error occurred"
 
-    def test_to_json_survives_non_serializable_payloads(self):
-        """print_data carries arbitrary values (paths, rich renderables); a machine-output
-        line must never crash the command that produced it, so to_json stringifies them."""
-        from pathlib import Path
+    def test_print_data_backstop_renders_console_renderable_as_text(self):
+        """print_data's safety net renders an un-rendered rich Table to plain text instead
+        of leaking `default=str`'s object repr -- a bare, non-deterministic memory address
+        that is valid JSON and therefore would otherwise pass silently."""
+        from rich.table import Table
 
-        event = OutputEvent("print_data", {"data": Path("/tmp/x"), "kwargs": {}})
+        table = Table()
+        table.add_column("Name")
+        table.add_row("mysite")
 
-        parsed = json.loads(event.to_json())
+        handler = JSONOutputHandler()
+        handler.print_data(table)
 
-        assert parsed["data"]["data"] == "/tmp/x"
+        raw = handler.events[-1].to_json()
+        parsed = json.loads(raw)  # must still be valid JSON
+
+        assert "object at 0x" not in raw
+        assert "mysite" in parsed["data"]["data"]
 
 
 class TestStreamingMode:
@@ -357,3 +365,25 @@ class TestJSONOutputHandlerEventSequencing:
         events = handler.get_events()
         assert [e["event_type"] for e in events] == ["start", "stop", "start", "stop"]
         assert events[2]["data"]["text"] == "Operation 2"
+
+
+class TestWantsStructuredData:
+    """`wants_structured_data` is how a call site asks the active handler whether it wants
+    raw data instead of a rendered card, without threading `ctx` into modules that have
+    none. `fm --json` runs the JSON handler wrapped in `LoggingOutputHandler`
+    (commands/__init__.py), so the property must survive that wrap or the whole fix is dead."""
+
+    def test_json_handler_wants_structured_data(self):
+        """JSONOutputHandler answers True directly: it is the one handler this exists for."""
+        assert JSONOutputHandler().wants_structured_data is True
+
+    def test_logging_wrapper_delegates_to_wrapped_json_handler(self):
+        """LoggingOutputHandler must forward the property to its delegate -- the real
+        production shape (`fm --json` wraps JSONOutputHandler in LoggingOutputHandler) -- or
+        every call site checking it would see the wrapper's own False and silently keep
+        building cards instead of data."""
+        from frappe_manager.output_manager.logging_output import LoggingOutputHandler
+
+        wrapped = LoggingOutputHandler(JSONOutputHandler())
+
+        assert wrapped.wants_structured_data is True

@@ -321,6 +321,10 @@ class LoggingOutputHandler(OutputHandler):
     def should_stream_docker(self) -> bool:
         return self.delegate.should_stream_docker
 
+    @property
+    def wants_structured_data(self) -> bool:
+        return self.delegate.wants_structured_data
+
     def _format_data_for_log(self, data: Any) -> str:
         """Rich renderables -> plain text for the file log (never their repr)."""
         if isinstance(data, str):
