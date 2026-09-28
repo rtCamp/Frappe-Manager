@@ -4,7 +4,7 @@ from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.logger import get_logger
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
-from frappe_manager.migration_manager.migration_constants import MINIMUM_SUPPORTED_VERSION
+from frappe_manager.migration_manager.migration_constants import MIGRATION_DOCS_URL, MINIMUM_SUPPORTED_VERSION
 from frappe_manager.migration_manager.migration_discovery import MigrationDiscovery
 from frappe_manager.migration_manager.migration_error_handler import MigrationErrorHandler
 from frappe_manager.migration_manager.migration_exceptions import (
@@ -14,7 +14,7 @@ from frappe_manager.migration_manager.migration_helpers import MigrationBench, M
 from frappe_manager.migration_manager.migration_orchestrator import MigrationOrchestrator
 from frappe_manager.migration_manager.migration_validator import BenchFilter, MigrationValidator
 from frappe_manager.migration_manager.version import Version
-from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager import OutputHandler, railcard
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.utils.helpers import get_current_fm_version
 
@@ -122,6 +122,26 @@ class MigrationExecutor:
         finally:
             host_lock.close()
 
+    def _running_target_benches(self) -> list[str]:
+        """Targets that are up, and will therefore have their containers recreated mid-migration.
+
+        Worth naming in the plan rather than after the prompt: it is the one consequence an
+        operator can avoid by answering no and stopping them first.
+        """
+        if not self.target_benches:
+            return []
+
+        benches_manager = MigrationBenches(CLI_BENCHES_DIRECTORY)
+        all_benches = benches_manager.get_all_benches()
+        running = []
+        for bench_name in self.target_benches:
+            if bench_name not in all_benches:
+                continue
+            bench = MigrationBench(bench_name, all_benches[bench_name].parent, output=self.output)
+            if bench.running or bench.workers_running:
+                running.append(bench_name)
+        return running
+
     def _execute(self):  # noqa: PLR0911 - each early return is a distinct terminal outcome (nothing-to-do, unknown version, dry run, abort, failure policy)
         """The migration run itself; `execute` holds the host grip around it."""
 
@@ -162,67 +182,57 @@ class MigrationExecutor:
         self.migrations = self.discovery.discover_migrations(effective_prev_version, self.current_version, self)
 
         if self.migrations:
-            if global_services_need_migration:
-                self.output.print(
-                    f"Global services & configuration: [fm.warn]v{self.prev_version}[/fm.warn] → [fm.ok]v{self.current_version}[/fm.ok]",
-                    emoji_code="",
-                )
-                self.output.print("  • fm configuration", emoji_code="")
-                self.output.print("  • shared services (mariadb, nginx-proxy)", emoji_code="")
-
-            if benches_need_migration and self.target_benches:
-                self.output.print("", emoji_code="")
-                self.output.print("Benches:", emoji_code="")
-                benches_manager = MigrationBenches(CLI_BENCHES_DIRECTORY)
-                all_benches = benches_manager.get_all_benches()
-
-                for bench_name in self.target_benches:
-                    if bench_name in self.exclude_benches:
-                        continue
-
-                    if bench_name in all_benches:
-                        bench_path = all_benches[bench_name].parent
-                        bench_version = get_bench_migration_version(bench_path)
-
-                        if bench_version < self.current_version:
-                            self.output.print(
-                                f"  • {bench_name}: [fm.warn]v{bench_version}[/fm.warn] → [fm.ok]v{self.current_version}[/fm.ok]",
-                                emoji_code="",
-                            )
-
-            self.output.print("", emoji_code="")
-
-            self.output.print("Migration versions:", emoji_code="")
-            for migration in self.migrations:
-                self.output.print(f"  • v{migration.version}", emoji_code="")
-
-            self.output.print("", emoji_code="")
-            self.output.print("This process may take a while.", emoji_code="")
-            self.output.print(
-                "Manual guide: https://github.com/rtCamp/Frappe-Manager/wiki/Migrations#manual-migration-procedure",
-                emoji_code="",
+            # One card, the same grammar `fm list` and `fm info` use, rather than hand-placed
+            # blank `print("")` lines: those rendered as a bare rail glyph on an otherwise empty
+            # row, so the plan came out as a column of stray marks between paragraphs. The card
+            # owns its own spacing, so there is none to place.
+            running = self._running_target_benches()
+            steps = len(self.migrations)
+            # `effective_prev_version`, not `self.prev_version`: the latter is the SERVICES
+            # ledger, so a bench-only upgrade read "re-running v1.0.0" while the bench in the
+            # scope below was plainly moving from v0.19.0. The effective version is the lowest
+            # thing actually being migrated, which is what the arrow is about.
+            move = (
+                f"[fm.warn]re-running v{self.current_version}[/fm.warn]"
+                if effective_prev_version >= self.current_version
+                else f"[fm.warn]v{effective_prev_version}[/fm.warn] → [fm.ok]v{self.current_version}[/fm.ok]"
+            )
+            card = railcard.Card(
+                "migration plan",
+                f"{move} [fm.muted]· {steps} step{'s' if steps != 1 else ''} · may take a while[/fm.muted]",
             )
 
-            self.output.print("", emoji_code="")
+            card.section("scope")
+            if global_services_need_migration:
+                card.fact("services", "fm configuration, shared services (mariadb, nginx-proxy)")
 
-            if self.target_benches:
+            if benches_need_migration and self.target_benches:
                 benches_manager = MigrationBenches(CLI_BENCHES_DIRECTORY)
                 all_benches = benches_manager.get_all_benches()
-                running = []
+                labelled = False
                 for bench_name in self.target_benches:
-                    if bench_name in all_benches:
-                        bench_path = all_benches[bench_name].parent
-                        bench = MigrationBench(bench_name, bench_path, output=self.output)
-                        if bench.running or bench.workers_running:
-                            running.append(bench_name)
-                if running:
-                    self.output.warning(
-                        f"The following target benches are currently running and will be restarted (containers recreated) during migration: {', '.join(running)}",
+                    if bench_name in self.exclude_benches or bench_name not in all_benches:
+                        continue
+                    bench_version = get_bench_migration_version(all_benches[bench_name].parent)
+                    if bench_version >= self.current_version:
+                        continue
+                    card.fact(
+                        "benches" if not labelled else "",
+                        f"{bench_name}  [fm.muted]v{bench_version} →[/fm.muted] v{self.current_version}",
                     )
-                    self.output.print(
-                        "If you'd prefer no disruption, stop these benches (fm stop <bench>) and re-run migration.",
-                    )
-                    self.output.print("", emoji_code="")
+                    labelled = True
+
+            card.fact("steps", ", ".join(f"v{migration.version}" for migration in self.migrations))
+
+            if running:
+                card.section("warning")
+                card.fact("restart", f"{', '.join(running)} [fm.muted]· containers recreated[/fm.muted]")
+                card.fact("", f"[fm.muted]to avoid it: fm stop {running[0]}, then migrate[/fm.muted]")
+
+            card.section("docs")
+            card.fact("manual", MIGRATION_DOCS_URL)
+
+            self.output.print_data(card.render())
 
             if self.dry_run:
                 # The scriptable plan viewer: the whole preamble above IS the plan, and the

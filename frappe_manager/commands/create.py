@@ -1013,7 +1013,7 @@ def create(
         DatabaseEngine,
         typer.Option(
             "--db-type",
-            help="Database engine for this site: mariadb or postgres. Postgres requires --db-host; fm runs no postgres server of its own yet.",
+            help="Database engine for this site: mariadb or postgres. Without --db-host it is fm's own server for that engine.",
             rich_help_panel=_PANEL_DATABASE,
         ),
     ] = DatabaseEngine.mariadb,

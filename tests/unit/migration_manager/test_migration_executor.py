@@ -632,6 +632,16 @@ class TestDryRun:
         mock_output.prompt_ask.assert_not_called()
         migration.up.assert_not_called()
         mock_fm_config.set_system_migration_version.assert_not_called()
-        prints = " ".join(str(call) for call in mock_output.print.call_args_list)
-        assert "Migration versions" in prints  # the plan preamble was shown
-        assert "Dry run: nothing migrated." in prints
+        # The plan is one card now, so it reaches the handler through print_data as a rich
+        # renderable: rendering it is the only way to assert on what an operator actually reads.
+        from io import StringIO
+
+        from rich.console import Console
+
+        buffer = StringIO()
+        Console(file=buffer, width=200, no_color=True).print(mock_output.print_data.call_args.args[0])
+        plan = buffer.getvalue()
+        assert "migration plan" in plan
+        assert "v0.19.0" in plan
+        assert "opensource.rtcamp.com" in plan
+        assert "Dry run: nothing migrated." in " ".join(str(c) for c in mock_output.print.call_args_list)

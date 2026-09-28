@@ -33,6 +33,10 @@ RELATED_GUIDES: dict[str, list[tuple[str, str]]] = {
 }
 
 
+# The published, versioned command pages -- not the GitHub wiki, which is unversioned and has
+# drifted from the CLI these links are generated from. Same base as site_url in zensical.toml.
+DOCS_COMMAND_URL = "https://opensource.rtcamp.com/Frappe-Manager/commands/"
+
 def append_related_section(md: str, name: str) -> str:
     links = RELATED_GUIDES.get(name)
     if not links:
@@ -461,7 +465,7 @@ def update_wiki_home(home_path: Path, structure: dict) -> bool:
         all_items.append((group["name"], desc))
 
     for cmd_name, desc in all_items:
-        commands_lines.append(f"* [`{cmd_name}`](https://github.com/rtCamp/Frappe-Manager/wiki/{cmd_name}): {desc}\n")
+        commands_lines.append(f"* [`{cmd_name}`]({DOCS_COMMAND_URL}{cmd_name}/): {desc}\n")
 
     commands_lines.append("\n")
     new_commands = "".join(commands_lines)
@@ -501,7 +505,7 @@ def update_wiki_sidebar(sidebar_path: Path, structure: dict) -> bool:
         all_items.append(group["name"])
 
     for cmd_name in all_items:
-        commands_lines.append(f"> - [{cmd_name}](https://github.com/rtCamp/Frappe-Manager/wiki/{cmd_name})\n")
+        commands_lines.append(f"> - [{cmd_name}]({DOCS_COMMAND_URL}{cmd_name}/)\n")
 
     commands_lines.append("\n")
     new_commands = "".join(commands_lines)
@@ -542,13 +546,13 @@ def update_readme_command_reference(readme_path: Path, structure: dict) -> bool:
     for cmd in sorted(structure["commands"], key=lambda x: x["name"]):
         desc = cmd["description"].split("\n")[0] if cmd["description"] else f"{cmd['name'].title()} command"
         desc = desc[0].upper() + desc[1:] if desc else desc
-        all_items.append((cmd["name"], desc, f"https://github.com/rtCamp/Frappe-Manager/wiki/{cmd['name'].title()}"))
+        all_items.append((cmd["name"], desc, f"{DOCS_COMMAND_URL}{cmd['name']}/"))
 
     for group in sorted(structure["groups"], key=lambda x: x["name"]):
         desc = f"Manage {group['name']}"
         desc = desc[0].upper() + desc[1:] if desc else desc
         all_items.append(
-            (group["name"], desc, f"https://github.com/rtCamp/Frappe-Manager/wiki/{group['name'].title()}")
+            (group["name"], desc, f"{DOCS_COMMAND_URL}{group['name']}/")
         )
 
     all_items.sort(key=lambda x: x[0])

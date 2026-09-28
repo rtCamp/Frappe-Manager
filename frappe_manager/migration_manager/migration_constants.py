@@ -31,3 +31,7 @@ MIGRATION_CHECK_WHITELIST_COMMANDS: list[str] = [
 ]
 
 MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS: list[str] = ["maintenance"]
+
+# The published reference, not the GitHub wiki: the wiki is unversioned and drifted from the
+# behaviour this command actually has. site_url in zensical.toml is the same base.
+MIGRATION_DOCS_URL = "https://opensource.rtcamp.com/Frappe-Manager/reference/migrations/"
