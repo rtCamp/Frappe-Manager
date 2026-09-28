@@ -180,6 +180,15 @@ def migrate(
         raise typer.Exit(1)
 
     if dry_run:
+        # Only when the executor showed NO plan. A bench already at this version is dropped by the
+        # executor's nothing-to-do gate before discovery runs, so a dry run printed nothing at all
+        # and read as a failed no-op; `--dry-run` is documented to print the plan, and "nothing to
+        # migrate" is the plan. Saying it alongside a rendered plan would contradict it.
+        if not migrations.migrations:
+            for bench_name in target_benches:
+                version = next((v for name, v in benches_checked if name == bench_name), None)
+                already = f" (v{version})" if version else ""
+                output.print(f"{bench_name}: nothing to migrate{already}")
         return
 
     if target_benches:

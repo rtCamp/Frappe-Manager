@@ -676,6 +676,7 @@ def _run_migrate(
     current_version="0.19.0",
     bench_versions=None,
     migrate_benches=None,
+    discovered=(),
     execute_result=True,
     **kwargs,
 ):
@@ -716,6 +717,9 @@ def _run_migrate(
     ):
         executor_cls.return_value.execute.return_value = execute_result
         executor_cls.return_value.migrate_benches = migrate_benches if migrate_benches is not None else {}
+        # A bare MagicMock attribute is TRUTHY, and the dry-run report keys on whether the
+        # executor showed a plan, so this has to be set explicitly or it always reads "plan shown".
+        executor_cls.return_value.migrations = list(discovered)
         try:
             migrate(ctx, **params)
             raised = None
@@ -827,6 +831,44 @@ def test_nothing_to_do_when_no_bench_was_named_points_at_services_migrate(out, t
         in texts(out.print)
     )
     r.executor_cls.assert_not_called()
+
+
+def test_a_dry_run_on_an_up_to_date_bench_says_so_instead_of_printing_nothing(out, tmp_path):
+    """docs/commands/index.md: --dry-run prints the plan and exits 0, and names fm migrate with
+    nothing stale as the example. It used to print only the spinner line, which is
+    indistinguishable from a no-op that failed."""
+    _bench_dir(tmp_path, "a.localhost")
+
+    r = _run_migrate(
+        tmp_path,
+        address="a.localhost",
+        system_version="0.19.0",
+        current_version="0.19.0",
+        bench_versions={"a.localhost": "0.19.0"},
+        dry_run=True,
+    )
+
+    assert r.exit is None
+    assert any("a.localhost: nothing to migrate" in line for line in texts(out.print))
+    r.set_bench_version.assert_not_called()
+
+
+def test_a_dry_run_that_showed_a_plan_does_not_also_claim_there_is_nothing_to_do(out, tmp_path):
+    # The executor prints the plan itself; adding "nothing to migrate" beside it would contradict
+    # the plan the operator is reading.
+    _bench_dir(tmp_path, "a.localhost")
+
+    r = _run_migrate(
+        tmp_path,
+        address="a.localhost",
+        system_version="0.19.0",
+        current_version="0.19.0",
+        discovered=[MagicMock()],
+        dry_run=True,
+    )
+
+    assert r.exit is None
+    assert not any("nothing to migrate" in line for line in texts(out.print))
 
 
 @pytest.mark.usefixtures("out")

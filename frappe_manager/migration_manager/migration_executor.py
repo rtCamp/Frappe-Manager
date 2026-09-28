@@ -152,6 +152,9 @@ class MigrationExecutor:
         benches_need_migration = self.rerun or self._check_benches_need_migration()
 
         if not global_services_need_migration and not benches_need_migration:
+            # Returns BEFORE discovery, so neither dry-run message below is reachable from here.
+            # Callers own saying "nothing to do": `commands/migrate.py` reports it per bench and
+            # `commands/services/migrate.py` pre-checks the tier.
             return True
 
         effective_prev_version = self.prev_version
@@ -272,8 +275,9 @@ class MigrationExecutor:
                 return False
 
         if self.dry_run:
-            # Reached only when discovery selected nothing to show (the shown-plan path
-            # returned above): still never execute under a dry run.
+            # Reached when something needed migrating but discovery selected nothing to show; the
+            # shown-plan path returned above. NOT the already-current case, which the gate at the
+            # top of this method returns before discovery ever runs.
             self.output.print("Dry run: nothing migrated.", emoji_code="")
             return True
 
