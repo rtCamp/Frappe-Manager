@@ -292,7 +292,15 @@ def _pick_bench_name() -> str | None:
     if not names:
         return None
 
-    selected = get_global_output_handler().prompt_fuzzy(
+    output = get_global_output_handler()
+
+    # Said BEFORE the menu blocks, because this line is the only thing a hung job leaves in its
+    # log. A pty with nobody typing cannot be told apart from a human reading the menu, so fm can
+    # still end up waiting here; when it does, the log names the two ways out instead of showing a
+    # menu nobody can answer.
+    output.print("No bench name given. Pass one as an argument, or -n to refuse the prompt.", emoji_code="")
+
+    selected = output.prompt_fuzzy(
         prompt="Select bench (↑↓ navigate, type to search)",
         choices=get_sorted_sites_list(names),
         vi_mode=True,

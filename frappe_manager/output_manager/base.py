@@ -5,11 +5,38 @@ This abstract base class defines the contract that all output handlers must impl
 allowing business logic to be independent of the presentation layer.
 """
 
+import os
 import sys
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 from typing import Any
+
+CI_ENVIRONMENT_VARIABLES = (
+    "CI",
+    "CONTINUOUS_INTEGRATION",
+    "GITHUB_ACTIONS",
+    "GITLAB_CI",
+    "BUILDKITE",
+    "TEAMCITY_VERSION",
+    "JENKINS_URL",
+)
+"""Set by a CI runner. `CI` alone is not enough: not every runner sets it."""
+
+
+def running_in_ci() -> bool:
+    """Whether a CI runner is driving fm, which no `isatty` check can answer.
+
+    A runner commonly allocates a pty and then writes nothing to it, and that is
+    INDISTINGUISHABLE from a human reading a menu: both are a terminal with no bytes yet. So a
+    prompt waits for an answer that cannot arrive, and the job hangs until something outside kills
+    it. `ssh -tt host fm info < /dev/null` is the same shape. The environment is the only honest
+    signal, because the terminal has none to give.
+
+    An explicit falsey value means NOT ci: some tooling exports `CI=false` to say exactly that, and
+    reading mere presence would make fm unpromptable for anyone who does.
+    """
+    return any(os.environ.get(name, "").strip().lower() not in ("", "0", "false") for name in CI_ENVIRONMENT_VARIABLES)
 
 
 class OutputHandler(ABC):
@@ -34,7 +61,7 @@ class OutputHandler(ABC):
 
         # Interactive mode state (3-level priority system)
         self._interactive: bool | None = None  # None = not initialized
-        self._tty_available: bool = sys.stdin.isatty() and sys.stdout.isatty()
+        self._tty_available: bool = sys.stdin.isatty() and sys.stdout.isatty() and not running_in_ci()
 
     @abstractmethod
     def start(self, text: str) -> None:

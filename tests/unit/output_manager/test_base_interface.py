@@ -6,7 +6,8 @@ Ensures the abstract base class correctly enforces the interface contract.
 
 import pytest
 
-from frappe_manager.output_manager.base import OutputHandler
+from frappe_manager.output_manager.base import CI_ENVIRONMENT_VARIABLES, OutputHandler, running_in_ci
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 
 
 class TestOutputHandlerInterface:
@@ -110,3 +111,45 @@ class TestOutputHandlerInterface:
         # Should not raise
         handler = CompleteHandler()
         assert isinstance(handler, OutputHandler)
+
+
+class TestCiDetection:
+    """A CI runner must never be offered a prompt: it cannot answer one."""
+
+    @pytest.mark.parametrize(
+        "name",
+        ["CI", "CONTINUOUS_INTEGRATION", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "TEAMCITY_VERSION", "JENKINS_URL"],
+    )
+    def test_a_runners_own_variable_is_enough(self, monkeypatch, name):
+        # `CI` alone would miss every runner that does not set it.
+        for other in CI_ENVIRONMENT_VARIABLES:
+            monkeypatch.delenv(other, raising=False)
+        monkeypatch.setenv(name, "true")
+
+        assert running_in_ci() is True
+
+    @pytest.mark.parametrize("value", ["false", "0", "", "  "])
+    def test_an_explicitly_falsey_value_means_not_ci(self, monkeypatch, value):
+        # Tooling exports `CI=false` to say exactly that; reading mere presence would make fm
+        # unpromptable for anyone who does.
+        for other in CI_ENVIRONMENT_VARIABLES:
+            monkeypatch.delenv(other, raising=False)
+        monkeypatch.setenv("CI", value)
+
+        assert running_in_ci() is False
+
+    def test_a_clean_environment_stays_promptable(self, monkeypatch):
+        for other in CI_ENVIRONMENT_VARIABLES:
+            monkeypatch.delenv(other, raising=False)
+
+        assert running_in_ci() is False
+
+    def test_a_handler_built_under_ci_refuses_to_prompt(self, monkeypatch):
+        """The reason this exists: a runner commonly allocates a pty and writes nothing to it,
+        which no isatty check can tell apart from a human reading a menu, so the prompt waits
+        forever and the job hangs until something outside kills it."""
+        monkeypatch.setenv("CI", "true")
+        monkeypatch.setattr("sys.stdin.isatty", lambda: True, raising=False)
+        monkeypatch.setattr("sys.stdout.isatty", lambda: True, raising=False)
+
+        assert RichOutputHandler().is_interactive() is False
