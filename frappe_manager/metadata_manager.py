@@ -251,6 +251,36 @@ class FMConfigManager(BaseModel):
         self.export_to_toml()
 
 
+    def _baseline_a_new_host(self, path: Path) -> None:
+        """Record the current version on a config file that does not exist yet.
+
+        Creating the state and recording its version are ONE operation, the rule every schema
+        migration tool converged on -- `alembic stamp head` after `create_all`, `flyway baseline`,
+        `rails db:schema:load` inserting every version. Forget it and a freshly created store looks
+        ancient: fm's gates read an absent `[schema].version` as 0.0.0, refuse with "run
+        `fm services migrate` first", and that command refuses an unknown version rather than
+        replaying every migration ever shipped. A brand new host sat between the two refusals.
+
+        Here, in the writer, rather than at the callers: this file comes into existence as a
+        byproduct of whichever setting is saved first (the auto-sized subnet, an ngrok token, DNS
+        credentials), and none of those callers has any business knowing about migrations. Putting
+        it at the one point the file can be created makes an unstamped config unconstructable.
+
+        NOT applied when benches already exist beside the config. That is a host whose config was
+        lost or deleted, not a new one, and those benches may genuinely need migrating -- baselining
+        it would skip their migration silently. Flyway carries the same caveat on
+        `baselineOnMigrate`, for the same reason. fm refuses to guess and the gate says so.
+        """
+        from frappe_manager.utils.helpers import get_current_fm_version
+
+        benches = path.parent / "sites"
+        if benches.is_dir() and any(entry.is_dir() for entry in benches.iterdir()):
+            return
+
+        if not hasattr(self, "_raw_config"):
+            self._raw_config = {}
+        self._raw_config.setdefault("schema", {})["version"] = get_current_fm_version()
+
     def export_to_toml(self, path: Path | None = None) -> None:
         # Default to the file this config was LOADED from (`root_path`), never a module-level
         # constant: `set_system_migration_version` saves through this default, and with the
@@ -259,6 +289,9 @@ class FMConfigManager(BaseModel):
         # ledger, network table and ngrok token from the unit suite.
         if path is None:
             path = Path(self.root_path)
+
+        if not path.exists() and self.get_system_migration_version() == Version("0.0.0"):
+            self._baseline_a_new_host(path)
         # dns_providers is written by hand below, nested under [ssl]; leaving it in the dump would
         # also emit it as a flat top-level key.
         exclude = {"root_path", "dns_providers"}

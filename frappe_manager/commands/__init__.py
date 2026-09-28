@@ -477,21 +477,15 @@ def app_callback(
                         "then run the same command again."
                     )
 
-            # Stamp the services-tier ledger at the current version: everything this host will ever
-            # manage is being created by THIS fm, so there is nothing to migrate and the gates must
-            # read "current" from the very first command.
+            # Bring the config file into existence before anything else can, so that the gates
+            # below read a stamped ledger rather than an absent one. The version itself is written
+            # by `export_to_toml`, which stamps any file it CREATES -- see `_baseline_a_new_host`.
             #
-            # Keyed on the config being new, NOT on the prefetch above, which several commands skip
-            # for reasons that have nothing to do with the ledger. `fm list` on a fresh host is the
-            # one that bit: it is exempt from the prefetch so it stays fast, it writes
-            # fm_config.toml on its way through ServicesManager, and the file it wrote carried no
-            # `[schema].version`. Every later command then read 0.0.0, refused with "run
-            # 'fm services migrate' first", and that command refuses an unknown version rather than
-            # replaying every migration ever shipped -- so a brand new host was stuck between two
-            # refusals with no command that resolved it. Placed after the prefetch so a first
-            # install that could not pull its images is never stamped as complete.
+            # It has to happen here because a command may never save a setting at all (`fm info` on
+            # a missing bench writes nothing), and it has to happen AFTER the prefetch because an
+            # install that could not pull its images must not be recorded as a complete one.
             if config_is_new:
-                fm_config_manager.set_system_migration_version(Version(get_current_fm_version()))
+                fm_config_manager.export_to_toml()
 
             from frappe_manager.migration_manager.migration_constants import (
                 MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS,

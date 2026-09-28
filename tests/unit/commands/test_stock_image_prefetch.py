@@ -131,43 +131,44 @@ class TestPrefetchStillHappens:
         assert "start" not in STOCK_IMAGE_PREFETCH_SKIP_COMMANDS
 
 
-class TestTheLedgerIsStampedWheneverTheConfigIsNew:
-    """The stamp says "this host's config was created by THIS fm, so there is nothing to migrate".
-    It used to ride along with the image prefetch, which several commands skip for reasons that
-    have nothing to do with migrations -- and `fm list` skips it while still WRITING the config,
-    which left a brand new host with an unstamped ledger it had no command to resolve.
+class TestTheConfigIsCreatedBeforeTheGatesReadIt:
+    """A command that never saves a setting (`fm info` on a missing bench) would otherwise leave a
+    fresh host with NO config at all, and the migration gates read an absent ledger as 0.0.0. The
+    callback creates it; `export_to_toml` is what stamps a file it creates, which is tested against
+    a real file in tests/unit/test_metadata_manager_baseline.py.
     """
 
-    def test_a_prefetch_exempt_command_still_stamps(self, cli):
-        """`fm list` on a fresh host: no images pulled, ledger stamped anyway."""
+    def test_a_prefetch_exempt_command_still_creates_the_config(self, cli):
+        """`fm list` on a fresh host: no images pulled, config written anyway. It used to write the
+        file only as a side effect of saving the auto-sized subnet, which carried no version."""
         cli.invoke(["list"])
 
         assert not cli.prefetched
-        assert cli.config.set_system_migration_version.call_args.args[0] == Version(FM_VERSION)
+        cli.config.export_to_toml.assert_called_once()
 
-    def test_a_command_that_prefetches_stamps_too(self, cli):
+    def test_a_command_that_prefetches_creates_it_too(self, cli):
         cli.invoke(["start", "mybench"])
 
         assert cli.prefetched
-        cli.config.set_system_migration_version.assert_called_once()
+        cli.config.export_to_toml.assert_called_once()
 
-    def test_a_failed_prefetch_is_never_stamped(self, cli):
-        """Half an install is not a complete one: stamping current would tell every later command
-        there is nothing to set up."""
+    def test_a_failed_prefetch_writes_nothing(self, cli):
+        """Half an install is not a complete one: a config stamped current would tell every later
+        command there is nothing left to set up."""
         cli.pull.return_value = False
 
         cli.invoke(["start", "mybench"])
 
-        cli.config.set_system_migration_version.assert_not_called()
+        cli.config.export_to_toml.assert_not_called()
 
-    def test_an_existing_config_is_left_alone(self, cli, tmp_path):
-        """The other half: a host whose config predates this fm must still be told to migrate, not
-        quietly declared current."""
+    def test_an_existing_config_is_not_rewritten(self, cli):
+        """A host whose config predates this fm must still be told to migrate, not quietly
+        declared current."""
         cli.fm_config_path.write_text('[logs]\nfile_level = "DEBUG"\n')
 
         cli.invoke(["list"])
 
-        cli.config.set_system_migration_version.assert_not_called()
+        cli.config.export_to_toml.assert_not_called()
 
 
 class TestAFailedFirstInstallLeavesNothingBehind:

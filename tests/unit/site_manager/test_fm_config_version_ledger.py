@@ -152,3 +152,68 @@ class TestExportPathDefault:
 
         assert 'version = "1.0.1"' in path.read_text()
         assert decoy.read_text() == ""
+
+
+class TestANewHostIsBaselinedByTheWriter:
+    """Creating the file and recording its version are ONE operation, the rule every schema
+    migration tool converged on (`alembic stamp head`, `flyway baseline`, `rails db:schema:load`).
+
+    fm learned it the hard way: the file came into existence as a byproduct of whichever setting
+    was saved first -- the auto-sized subnet, an ngrok token, DNS credentials -- and the stamp
+    lived somewhere else entirely, behind a different condition. `fm list` on a brand new host
+    wrote an unstamped config, every later command read 0.0.0 and demanded a migration, and the
+    migration refused an unknown version. No command resolved it. Enforcing it in the writer is
+    what makes an unstamped config unconstructable, whichever caller happens to be first.
+    """
+
+    def _fm_version(self) -> str:
+        from frappe_manager.utils.helpers import get_current_fm_version
+
+        return get_current_fm_version()
+
+    def test_a_file_the_writer_creates_carries_the_current_version(self, tmp_path):
+        path = tmp_path / "fm_config.toml"
+
+        FMConfigManager.import_from_toml(path).export_to_toml(path)
+
+        assert dict(tomlkit.parse(path.read_text())["schema"]) == {"version": self._fm_version()}
+
+    def test_a_caller_that_knows_nothing_about_migrations_still_produces_a_stamped_file(self, tmp_path):
+        """The subnet writer in services.py is the one that actually created it in the field."""
+        path = tmp_path / "fm_config.toml"
+        config = FMConfigManager.import_from_toml(path)
+        config.network.subnet_cidr = "10.2.0.0/16"
+
+        config.export_to_toml(path)
+
+        assert FMConfigManager.import_from_toml(path).get_system_migration_version() == Version(self._fm_version())
+
+    def test_an_existing_file_is_never_baselined(self, tmp_path):
+        """A host whose config predates this fm must keep reading as unknown, so the gate refuses
+        loudly instead of declaring an old install current and skipping its migration."""
+        path = _config(tmp_path, 'ngrok_auth_token = "x"\n')
+
+        FMConfigManager.import_from_toml(path).export_to_toml(path)
+
+        assert FMConfigManager.import_from_toml(path).get_system_migration_version() == Version("0.0.0")
+
+    def test_a_host_that_already_has_benches_is_not_a_new_host(self, tmp_path):
+        """Config deleted, benches kept. Baselining would silently skip the migration those benches
+        need; fm refuses to guess and the gate says so. Flyway's `baselineOnMigrate` carries the
+        same caveat."""
+        (tmp_path / "sites" / "mybench").mkdir(parents=True)
+        path = tmp_path / "fm_config.toml"
+
+        FMConfigManager.import_from_toml(path).export_to_toml(path)
+
+        assert FMConfigManager.import_from_toml(path).get_system_migration_version() == Version("0.0.0")
+
+    def test_an_empty_benches_directory_is_still_a_new_host(self, tmp_path):
+        """The callback creates `sites/` before anything writes the config, so its mere existence
+        cannot be the signal -- only a bench inside it is."""
+        (tmp_path / "sites").mkdir()
+        path = tmp_path / "fm_config.toml"
+
+        FMConfigManager.import_from_toml(path).export_to_toml(path)
+
+        assert FMConfigManager.import_from_toml(path).get_system_migration_version() == Version(self._fm_version())
