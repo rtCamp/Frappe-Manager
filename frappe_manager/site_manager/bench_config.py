@@ -5,7 +5,7 @@ import subprocess
 from collections.abc import Collection, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
 from typing import Any, Literal
 
@@ -1381,19 +1381,61 @@ class TelemetryConfig(BaseModel):
     newrelic: NewRelicConfig | None = Field(None, description="NewRelic APM.")
 
 
-class DatabaseConfig(BaseModel):
-    """The database server one site lives on (`[sites."<site>".database]`).
+class DatabaseEngine(StrEnum):
+    """Which database engine a site runs on. Frappe's own `db_type`.
 
-    Absent means that site is on the fm-managed `mariadb` container. This is the only switch:
-    there is no separate boolean.
+    `StrEnum`, not `(str, Enum)` like this module's older enums: ruff's UP042 flags that form and
+    the repo is 3.13-only. Same call as `CDNProxyStatus` (cdn_detection.py:52).
+    """
+
+    mariadb = "mariadb"
+    postgres = "postgres"
+
+
+DEFAULT_DATABASE_PORTS: dict[DatabaseEngine, int] = {
+    DatabaseEngine.mariadb: 3306,
+    DatabaseEngine.postgres: 5432,
+}
+
+
+class DatabaseConfig(BaseModel):
+    """The database one site lives on (`[sites."<site>".database]`), written for EVERY site.
+
+    Two independent facts, and the table records both:
+
+    - `type` -- which engine. Frappe's `db_type`, so this is the value that reaches
+      `site_config.json`.
+    - `host` -- whose server. Present means one fm does not own; ABSENT means fm's own container
+      for that engine.
+
+    "No table means fm's mariadb" is retired. It was a sound rule while there was exactly one
+    managed thing; with two engines it degenerates into two unwritten facts, one of them true only
+    for historical reasons, and it produced a sites table where one site carried a `[database]` row
+    and its neighbour did not purely because the engine differed. Writing `host = "mariadb"` for
+    the managed case was the other way to make it uniform and was rejected: it leaks a compose
+    service name into config and destroys the meaning of "external".
     """
 
     # extra="allow": same reasoning as Deployment (certificate.py:19-23).
     model_config = ConfigDict(extra="allow")
 
-    host: str = Field(..., description="Database server hostname or IP. Any MariaDB; MySQL is not supported.")
-    port: int = Field(3306, description="Database server port.")
-    name: str = Field(..., description="Schema (database) name for this site.")
+    type: DatabaseEngine = Field(
+        DatabaseEngine.mariadb,
+        description="Database engine: 'mariadb' or 'postgres'. This is Frappe's own db_type.",
+    )
+    host: str | None = Field(
+        None,
+        description="Database server hostname or IP. Absent means fm's own container for this engine.",
+    )
+    port: int | None = Field(
+        None,
+        description="Database server port. Absent takes the engine's default (3306 / 5432).",
+    )
+    name: str | None = Field(
+        None,
+        description="Schema (database) name for this site. Absent on an fm-managed server, where "
+        "fm derives it.",
+    )
     user: str | None = Field(
         None,
         description="Login user for the schema; omitted means equal to name; must equal name on v15.",
@@ -1406,7 +1448,21 @@ class DatabaseConfig(BaseModel):
     )
 
     @property
-    def login_user(self) -> str:
+    def external(self) -> bool:
+        """Whether this site's server is one fm does not run.
+
+        The single reading of "whose server", replacing the old `get_database_config(...) is None`
+        test that every caller had to re-derive from a MISSING object.
+        """
+        return self.host is not None
+
+    @property
+    def resolved_port(self) -> int:
+        """The port to dial: what was written, else the engine's own default."""
+        return self.port if self.port is not None else DEFAULT_DATABASE_PORTS[self.type]
+
+    @property
+    def login_user(self) -> str | None:
         """The user fm logs in as: `user` when set, otherwise the schema name."""
         return self.user or self.name
 
@@ -1568,10 +1624,11 @@ class SiteConfig(BaseModel):
     # extra="allow": same reasoning as Deployment (certificate.py:19-23).
     model_config = ConfigDict(extra="allow")
 
-    database: DatabaseConfig | None = Field(
-        None,
-        description="External database server for this site. Absent means the site lives on the "
-        "fm-managed 'mariadb' container, exactly as before `[database]` existed.",
+    database: DatabaseConfig = Field(
+        default_factory=DatabaseConfig,
+        description="Which database this site runs on, and whose server it is. Written for every "
+        "site. The default is fm's own mariadb, which is also what a config written before this "
+        "table existed means.",
     )
     alias_domains: list[str] = Field(
         default=[],
@@ -1590,6 +1647,17 @@ class SiteConfig(BaseModel):
         "site follows the bench's top-level `admin_tools`. This is routing only: the containers "
         "are one pair per bench and the bench-level key is what starts and stops them.",
     )
+
+    @field_validator("database", mode="before")
+    @classmethod
+    def _default_database(cls, value):
+        """`None` means fm's own mariadb, which is the default record.
+
+        Callers that have no external endpoint to pass say so with None, and that is the same
+        statement as the field's default. Coercing here rather than making every one of them
+        construct a record keeps "no external database" a thing a caller can express.
+        """
+        return DatabaseConfig() if value is None else value
 
 
 class RedisConfig(BaseModel):
@@ -1929,18 +1997,31 @@ class BenchConfig(BaseModel):
         # `shop` would find no entry for a site called `shop.localhost`.
         return self.sites.get(site or self.primary_site)
 
-    def get_database_config(self, site: str | None = None) -> DatabaseConfig | None:
-        """
-        External database configuration for a site, or None when there is none.
+    def get_database(self, site: str | None = None) -> DatabaseConfig:
+        """The database record for a site: which engine, and whose server.
 
-        Absence means the site lives on the fm-managed `mariadb` container, exactly as before
-        `[database]` existed. This is the only switch: there is no separate boolean.
+        Always a record. Every site carries one, and a config written before the table existed
+        means the model's default, which is fm's own mariadb.
 
         Args:
             site: Site name; defaults to this bench's own name.
         """
         site_config = self.get_site(site)
-        return site_config.database if site_config else None
+        return site_config.database if site_config else DatabaseConfig()
+
+    def get_database_config(self, site: str | None = None) -> DatabaseConfig | None:
+        """The EXTERNAL database endpoint for a site, or None when the server is fm's own.
+
+        Every caller of this asks one question -- "is this site on a server fm does not run, and
+        if so, where?" -- so None still answers "fm's own". What changed is where the answer comes
+        from: an explicit `host`, not a missing table. Reach for `get_database` instead when the
+        ENGINE is what matters, because that question has an answer on a managed server too.
+
+        Args:
+            site: Site name; defaults to this bench's own name.
+        """
+        database = self.get_database(site)
+        return database if database.external else None
 
     def get_primary_certificate(self) -> SSLCertificate:
         """
@@ -2362,11 +2443,11 @@ class BenchConfig(BaseModel):
             return {}
 
         data: dict[str, Any] = {
-            "db_type": "mariadb",
+            "db_type": db_config.type.value,
             "db_name": db_config.name,
             "db_user": db_config.login_user,
             "db_host": db_config.host,
-            "db_port": db_config.port,
+            "db_port": db_config.resolved_port,
         }
         if self.db_password:
             data["db_password"] = self.db_password

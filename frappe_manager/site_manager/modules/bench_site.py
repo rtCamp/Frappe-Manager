@@ -146,7 +146,7 @@ class BenchSiteManager:
 
         database_config = self.bench_config.get_database_config()
         if database_config:
-            candidates.append((None, None, database_config.host, database_config.port))
+            candidates.append((None, None, database_config.host, database_config.resolved_port))
         else:
             # This site is on fm's shared mariadb, which carries the `disabled` compose profile on
             # a host where every other site is external. Enabling it HERE rather than from each

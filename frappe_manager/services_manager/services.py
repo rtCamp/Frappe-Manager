@@ -63,10 +63,9 @@ class ServicesManager:
     def fm_mariadb_is_needed(self) -> bool:
         """Whether ANY site on this host lives on fm's own mariadb.
 
-        The switch is per SITE and declarative: `[sites."<site>".database]` present means that site
-        is on a database fm does not own, absent means it is on the shared `mariadb` container
-        (`bench_config.py:1387`). So the host-wide answer is "does any bench record a site with no
-        `[database]` table", read off disk without starting anything.
+        The switch is per SITE and explicit: `[sites."<site>".database]` records which engine and
+        whose server, so the host-wide answer is "does any site name fm's own mariadb"
+        (`bench_config.py:1397`). Read off disk, without starting anything.
 
         Deliberately pessimistic. Every uncertainty answers YES:
 
@@ -80,7 +79,7 @@ class ServicesManager:
         bench that cannot start again.
         """
         from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
-        from frappe_manager.site_manager.bench_config import BenchConfig
+        from frappe_manager.site_manager.bench_config import BenchConfig, DatabaseEngine
 
         if not CLI_BENCHES_DIRECTORY.is_dir():
             return False
@@ -96,7 +95,10 @@ class ServicesManager:
             sites = config.sites or {}
             if not sites:
                 return True
-            if any(site.database is None for site in sites.values()):
+            if any(
+                not site.database.external and site.database.type is DatabaseEngine.mariadb
+                for site in sites.values()
+            ):
                 return True
         return False
 

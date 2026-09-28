@@ -197,13 +197,18 @@
 # live at [sites."<site>".database].
 # [sites.<key>]
 #
-# The database server one site lives on (`[sites."<site>".database]`).
+# The database one site lives on (`[sites."<site>".database]`), written for EVERY site.
 # [sites.<key>.database]
-# Database server hostname or IP. Any MariaDB; MySQL is not supported. [required]
+# Database engine: 'mariadb' or 'postgres'. This is Frappe's own db_type. [default: 'mariadb']
+# type = ...
+# Database server hostname or IP. Absent means fm's own container for this engine. [optional,
+# unset by default]
 # host = ...
-# Database server port. [default: 3306]
+# Database server port. Absent takes the engine's default (3306 / 5432). [optional, unset by
+# default]
 # port = ...
-# Schema (database) name for this site. [required]
+# Schema (database) name for this site. Absent on an fm-managed server, where fm derives it.
+# [optional, unset by default]
 # name = ...
 # Login user for the schema; omitted means equal to name; must equal name on v15. [optional, unset
 # by default]

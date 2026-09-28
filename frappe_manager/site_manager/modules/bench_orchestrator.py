@@ -688,11 +688,11 @@ class BenchOrchestrator:
         # whose password fm does not know.
         site_password = None if config.db_password_generated else config.db_password
 
-        self.output.change_head(f"Probing {database.host}:{database.port} from the bench container")
+        self.output.change_head(f"Probing {database.host}:{database.resolved_port} from the bench container")
         result = db_probe.probe_stage_one(
             self._probe_runner(use_run=True),
             host=database.host,
-            port=database.port,
+            port=database.resolved_port,
             admin_user=config.db_admin_user,
             admin_password=config.db_admin_password,
             site_user=database.login_user,
@@ -888,7 +888,7 @@ class BenchOrchestrator:
             result = db_probe.probe_stage_one(
                 self._probe_runner(use_run=False),
                 host=database.host,
-                port=database.port,
+                port=database.resolved_port,
                 admin_user=config.db_admin_user,
                 admin_password=config.db_admin_password,
                 site_user=database.login_user,

@@ -836,28 +836,38 @@ Worker care: how `fm restart` and the `fm switch` pipeline treat RQ workers and 
 
 ### `[sites."<site>".database]` {#sites-database}
 
-**Default:** (absent)  
+**Default:** `type = "mariadb"`, no host (fm's own container)  
 **File key:** `[sites."<site>".database]`, one table per site name
 
-External MariaDB for one site. An absent entry means that site lives on the FM-managed `mariadb` container; there is no separate on/off flag.
+Which database one site runs on. Written for every site, and it names two independent things: `type` is the engine, `host` is whose server. A table with no `host` means fm's own container for that engine, so being on fm's MariaDB is stated rather than implied by a missing table.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `host` | required | database server hostname or IP. Any MariaDB; MySQL is not a supported backend |
-| `port` | `3306` | database server port |
-| `name` | required | schema (database) name for this site |
+| `type` | `mariadb` | database engine: `mariadb` or `postgres`. This is Frappe's own `db_type`. MySQL is not a supported backend |
+| `host` | (none) | database server hostname or IP. Absent means fm's own container for this engine |
+| `port` | engine default | database server port; absent takes `3306` for MariaDB and `5432` for Postgres |
+| `name` | required when external | schema (database) name for this site |
 | `user` | (none) | login user for the schema; absent means equal to `name`, and it must equal `name` on a v15 bench |
 | `ca` | (none) | host path to the CA bundle; required when the server enforces TLS |
 | `check_hostname` | `true` | verify the server certificate names the host dialled. Set `false` only for a certificate that cannot name it |
 
 ```toml
+# fm's own MariaDB, which is what a site gets by default
 [sites."mybench.localhost".database]
+type = "mariadb"
+
+# a server fm does not own
+[sites."shop.localhost".database]
+type = "mariadb"
 host = "db.example.com"
 port = 3306
 name = "app_prod"
 user = "app_prod"
 ca = "/etc/ssl/certs/db-ca.pem"
 ```
+
+!!! warning "`postgres` is not usable yet"
+    The schema accepts `type = "postgres"` and every site now records its engine, which is the groundwork. The rest of the path is not built: the connection probe, dumps and restores, the client tooling in the bench image, and an fm-managed Postgres server. Setting it today produces a site fm cannot create or back up, so use `mariadb` until the guide says otherwise.
 
 Passwords never live here: the site's database password goes into `site_config.json`.
 

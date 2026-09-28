@@ -366,6 +366,9 @@ class MigrationV100(MigrationBase):
         # the step above left an entry for a site that never existed, and every step below resolves
         # a primary site out of this table.
         self._drop_phantom_sites(bench)
+        # After the phantoms are gone: this gives EVERY entry a table, so a phantom run through it
+        # first would stop looking empty and survive for good.
+        self._write_database_records(bench)
         # Before the backups reshape below: a tag-era file gets its keys renamed first, so a
         # config carrying BOTH old shapes leaves this method fully current.
         self._rename_deploy_tag_keys(bench)
@@ -825,6 +828,49 @@ class MigrationV100(MigrationBase):
             del sites[name]
         toml_document.save(config_path, doc)
         self.output.print(f"Dropped \\[sites] entries for {', '.join(phantoms)} (no such site on disk)")
+
+    def _write_database_records(self, bench: MigrationBench):
+        """Give every `[sites."<site>"]` entry a `[...database]` table naming its engine.
+
+        "No table means fm's mariadb" was sound while there was exactly one managed engine. With
+        postgres it degenerates into two unwritten facts -- which engine, and whose server -- one
+        of them true only for historical reasons, and it produced a sites table where one site
+        carried a `[database]` row and its neighbour did not purely because the engine differed.
+        Every site states both now; `host` stays the managed/external switch.
+
+        AFTER `_drop_phantom_sites`, and that ordering is load-bearing: a phantom is recognised by
+        recording NOTHING (`not any(entry.values())`), so adding a table to every entry first would
+        make every phantom look like a real record and leave it on disk for good.
+
+        Idempotent like its neighbours: an entry that already names a type is left alone, which is
+        what makes the re-run a `1.0.0.dev0` bench gets a no-op.
+        """
+        config_path = bench.path / "bench_config.toml"
+        if not config_path.exists():
+            return
+
+        doc = tomlkit.parse(config_path.read_text())
+        sites = doc.get("sites")
+        if not isinstance(sites, MutableMapping):
+            return
+
+        typed = []
+        for site_name, entry in sites.items():
+            if not isinstance(entry, MutableMapping):
+                continue
+            database = entry.get("database")
+            if not isinstance(database, MutableMapping):
+                database = tomlkit.table()
+                entry["database"] = database
+            if "type" not in database:
+                database["type"] = "mariadb"
+                typed.append(site_name)
+
+        if not typed:
+            return
+
+        toml_document.save(config_path, doc)
+        self.output.print(f"Recorded the database engine for {', '.join(typed)}")
 
     def _backfill_default_site(self, bench: MigrationBench):
         """Write `default_site` when the bench has none, so the answer stops being a guess.

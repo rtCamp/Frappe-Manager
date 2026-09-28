@@ -2,7 +2,7 @@
 
 By default every site fm creates lives on `mariadb`, the MariaDB container fm runs and owns. Point a site at your own server instead when you want a managed database, a replicated one, or one your DBA already administers.
 
-An external database is declared per site, not per bench, as a [`[sites."<sitename>".database]`](../reference/configuration.md#sites-database) table in `bench_config.toml`. No table means that site is on `mariadb`, which is the only switch there is.
+Every site records its database per site, not per bench, as a [`[sites."<sitename>".database]`](../reference/configuration.md#sites-database) table in `bench_config.toml`. That table names two independent things: `type` is the engine, and `host` is whose server. A table with no `host` means the site is on fm's own container for that engine, so a site on fm's MariaDB is stated rather than implied.
 
 ## What fm refuses to do on a server it does not own
 

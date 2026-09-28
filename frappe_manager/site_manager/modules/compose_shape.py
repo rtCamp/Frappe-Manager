@@ -253,9 +253,10 @@ def db_cli_env(config) -> tuple[tuple[str, str], ...]:
     These services are long-running and serve every site in the bench, so they get
     the bench-level bundle rather than any one site's file.
     """
-    # "Any site on an external database", not "this bench has a [database] table": the check is
-    # about whether the mariadb client in these bench-wide services will ever need TLS material.
-    if not any(site.database for site in (config.sites or {}).values()):
+    # "Any site on an EXTERNAL database": every site now carries a `[database]` record, so the
+    # question is `host`, not the table's presence. The check is about whether the mariadb client
+    # in these bench-wide services will ever need TLS material.
+    if not any(site.database.external for site in (config.sites or {}).values()):
         return ()
     return (("MYSQL_HOME", db_tls.bench_mysql_home()),)
 

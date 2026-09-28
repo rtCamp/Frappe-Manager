@@ -368,7 +368,7 @@ class BenchInfo:
                 database = config.get_database_config(site)
                 # Absence of a `[sites."<site>".database]` entry IS the switch: the site is on the
                 # mariadb container fm owns. Anything else is someone else's server, named.
-                where = f"external · {database.host}:{database.port}" if database else "mariadb"
+                where = f"external · {database.host}:{database.resolved_port}" if database else "mariadb"
                 marker = "  [fm.ok]● primary[/fm.ok]" if site == primary else ""
                 card.fact("sites" if i == 0 else "", f"{protocol}://{site}  [fm.muted]{where}[/fm.muted]{marker}")
 

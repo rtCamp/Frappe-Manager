@@ -217,12 +217,14 @@ def test_recording_a_site_that_a_config_overlay_already_described_updates_it():
 
 def test_a_bench_with_no_external_database_still_records_its_site():
     """The mariadb case, which is most benches. Without the entry the site would have no name of
-    its own anywhere on disk."""
+    its own anywhere on disk, and its database record says which engine it is on -- being on fm's
+    mariadb is a statement now, not the absence of one."""
     from frappe_manager.commands.create import record_site
 
     recorded = record_site(None, SITE, None)
 
-    assert recorded[SITE].database is None
+    assert recorded[SITE].database.external is False
+    assert recorded[SITE].database.type.value == "mariadb"
 
 
 def test_the_mariadb_schema_is_minted_from_the_site_not_the_bench():

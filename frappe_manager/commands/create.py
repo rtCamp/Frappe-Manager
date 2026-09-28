@@ -1272,7 +1272,7 @@ def create(
     site_database = bench_config.get_database_config(sitename)
     if site_database is not None:
         output.print(
-            f"External database: this site lives on [fm.info]{site_database.host}:{site_database.port}"
+            f"External database: this site lives on [fm.info]{site_database.host}:{site_database.resolved_port}"
             f"[/fm.info] in schema [fm.info]{site_database.name}[/fm.info], not the mariadb container",
             emoji_code=":floppy_disk:",
         )

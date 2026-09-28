@@ -1518,3 +1518,64 @@ def test_dropping_phantoms_is_idempotent(step, tmp_path):
     step._drop_phantom_sites(bench)
 
     assert path.read_text() == once
+
+
+# ------------------------------------------- every site names its database engine
+
+
+def test_a_site_on_fms_mariadb_gets_a_database_record(step, tmp_path):
+    """Being on fm's mariadb is a statement now, not the absence of one: with two engines,
+    "no table means mariadb" hides which engine a site is on behind a missing table."""
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n')
+
+    step._write_database_records(bench)
+
+    database = BenchConfig.import_from_toml(path).sites[SITE].database
+    assert database.type.value == "mariadb"
+    assert database.external is False
+
+
+def test_an_external_site_keeps_its_endpoint_and_gains_the_type(step, tmp_path):
+    """The moved table already names a host; only the engine is missing from it."""
+    bench, path = _bench(tmp_path, BASE + EXTERNAL)
+    step._write_sites_table(bench)
+
+    step._write_database_records(bench)
+
+    database = BenchConfig.import_from_toml(path).sites[SITE].database
+    assert (database.type.value, database.host, database.port) == ("mariadb", "rds.internal", 3307)
+
+
+def test_the_engine_is_recorded_after_phantoms_are_dropped(step, tmp_path):
+    """Ordering, and it is load-bearing: a phantom entry is recognised by recording NOTHING, so
+    giving every entry a database table first would make each phantom look like a real record and
+    strand it on disk for good."""
+    bench, path = _bench_named(tmp_path, "shop", BASE + f'\n[sites."{SITE}"]\n\n[sites.shop]\n')
+    _with_site_dirs(tmp_path, SITE)
+
+    step._drop_phantom_sites(bench)
+    step._write_database_records(bench)
+
+    sites = BenchConfig.import_from_toml(path).sites or {}
+    assert set(sites) == {SITE}
+    assert sites[SITE].database.type.value == "mariadb"
+
+
+def test_recording_the_engine_is_idempotent(step, tmp_path):
+    """1.0.0 is unreleased, so a bench recorded at 1.0.0.dev0 re-runs this migration."""
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}"]\n')
+
+    step._write_database_records(bench)
+    once = path.read_text()
+    step._write_database_records(bench)
+
+    assert path.read_text() == once
+
+
+def test_an_already_typed_site_is_not_rewritten(step, tmp_path):
+    """A postgres site must survive a re-run rather than being reset to the default engine."""
+    bench, path = _bench(tmp_path, BASE + f'\n[sites."{SITE}".database]\ntype = "postgres"\n')
+
+    step._write_database_records(bench)
+
+    assert BenchConfig.import_from_toml(path).sites[SITE].database.type.value == "postgres"

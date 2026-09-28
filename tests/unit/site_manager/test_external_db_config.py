@@ -1,9 +1,11 @@
-"""Contract tests for the external-database config model and its two payload builders.
+"""Contract tests for the per-site database config model and its two payload builders.
 
-`[database]` is keyed by site name and the presence of an entry for a site is the only
-switch between "this site is external" and "this site lives on the `mariadb`
-container". `[redis]` is per bench, not per site. Nothing secret is persisted: the admin
-credentials, the site password and the encryption key are create-time inputs only, so no
+Every site records a `[database]` table naming two independent facts: `type` is which engine
+(Frappe's own `db_type`), and `host` is whose server -- present means one fm does not run, absent
+means fm's own container for that engine. "No table means fm's mariadb" is retired: it was sound
+while there was exactly one managed engine, and with a second it hides which engine a site is on
+behind a missing table. `[redis]` remains per bench, not per site. Nothing secret is persisted:
+the admin credentials, the site password and the encryption key are create-time inputs only, so no
 *later* fm run can provision on someone's shared server.
 
 The two payload builders split along the same line: the database endpoint belongs in
@@ -74,8 +76,34 @@ def _db(**kwargs) -> DatabaseConfig:
 # --------------------------------------------------------------- keyed by site
 
 
-def test_no_database_table_means_the_mariadb_container(tmp_path):
+def test_a_site_with_no_host_is_on_fms_own_server(tmp_path):
+    """`get_database_config` answers "whose server", and None still means fm's own -- but now it
+    is derived from an explicit `host`, not from a table nobody wrote."""
     assert _bc(tmp_path).get_database_config() is None
+
+
+def test_every_site_still_names_its_engine(tmp_path):
+    """The question a missing table could not answer: a site on fm's own server is on SOME engine,
+    and with postgres that is a fact fm has to read rather than assume."""
+    database = _bc(tmp_path).get_database()
+
+    assert database.type.value == "mariadb"
+    assert database.external is False
+
+
+def test_a_managed_postgres_site_is_not_external(tmp_path):
+    """The two axes are independent: naming postgres does not mean naming someone else's server."""
+    bc = _bc(tmp_path, database={_SITE: DatabaseConfig(type="postgres")})
+
+    assert bc.get_database(_SITE).type.value == "postgres"
+    assert bc.get_database_config(_SITE) is None
+
+
+def test_each_engine_brings_its_own_default_port(tmp_path):
+    """A postgres endpoint that omits the port must not be dialled on 3306."""
+    assert DatabaseConfig(host="h").resolved_port == 3306
+    assert DatabaseConfig(type="postgres", host="h").resolved_port == 5432
+    assert DatabaseConfig(type="postgres", host="h", port=6543).resolved_port == 6543
 
 
 def test_get_database_config_defaults_to_the_benchs_own_name(tmp_path):
@@ -113,7 +141,8 @@ def test_toml_roundtrip_preserves_the_database_entry_and_redis(tmp_path):
     back = BenchConfig.import_from_toml(path)
     entry = back.get_database_config()
     assert entry is not None
-    assert (entry.host, entry.port, entry.name) == ("db.example", 3306, "app_prod")
+    # An omitted port round-trips as omitted; the engine's default is applied on read.
+    assert (entry.host, entry.port, entry.resolved_port, entry.name) == ("db.example", None, 3306, "app_prod")
     assert entry.user == "app_svc"
     assert entry.ca == "/host/rds-bundle.pem"
     assert entry.check_hostname is False
