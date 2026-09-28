@@ -29,6 +29,7 @@ from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     BenchRuntime,
     DatabaseConfig,
+    DatabaseEngine,
     Deployment,
     Deployments,
     FMBenchEnvType,
@@ -327,6 +328,7 @@ _EXPLICIT_SOURCES = (ParameterSource.COMMANDLINE, ParameterSource.ENVIRONMENT, P
 # by `record_site`. Kept as a flag-name map because a refusal has to name what the operator typed.
 _SITE_SCOPED_FLAGS: dict[str, str] = {
     "alias_domains": "--alias-domains",
+    "db_type": "--db-type",
     "db_host": "--db-host",
     "db_port": "--db-port",
     "db_name": "--db-name",
@@ -648,6 +650,7 @@ def _add_site_to_bench(
 def _resolve_external_options(
     *,
     configured: DatabaseConfig | None,
+    db_type: DatabaseEngine,
     db_host: str | None,
     db_port: int,
     db_port_given: bool,
@@ -695,6 +698,12 @@ def _resolve_external_options(
         "--attach-existing-site": attach_existing_site,
         "--encryption-key": encryption_key is not None,
     }
+
+    if db_type is DatabaseEngine.postgres and db_host is None:
+        raise typer.BadParameter(
+            "--db-type postgres needs --db-host: fm runs no postgres server of its own yet, so there is "
+            "nothing for a postgres site to live on without one."
+        )
 
     if db_host is None:
         orphans = [flag for flag, given in endpoint_flags.items() if given]
@@ -750,8 +759,11 @@ def _resolve_external_options(
     if db_host is not None:
         try:
             database = DatabaseConfig(
+                type=db_type,
                 host=db_host,
-                port=db_port,
+                # Unset unless typed, so an omitted port takes the ENGINE's default rather than
+                # MariaDB's: the flag's own default cannot know which engine it is defaulting for.
+                port=db_port if db_port_given else None,
                 name=db_name,
                 user=db_user,
                 ca=ca_path,
@@ -1001,11 +1013,19 @@ def create(
             rich_help_panel=_PANEL_SITE,
         ),
     ] = None,
+    db_type: Annotated[
+        DatabaseEngine,
+        typer.Option(
+            "--db-type",
+            help="Database engine for this site: mariadb or postgres. Postgres requires --db-host; fm runs no postgres server of its own yet.",
+            rich_help_panel=_PANEL_DATABASE,
+        ),
+    ] = DatabaseEngine.mariadb,
     db_host: Annotated[
         str | None,
         typer.Option(
             "--db-host",
-            help="External MariaDB host, replacing fm's mariadb container. MySQL is not a supported backend.",
+            help="External database host, replacing fm's mariadb container. MySQL is not a supported backend.",
             show_default=False,
             rich_help_panel=_PANEL_DATABASE,
         ),
@@ -1014,7 +1034,7 @@ def create(
         int,
         typer.Option(
             "--db-port",
-            help="Port of the external database server.",
+            help="Port of the external database server. Defaults to the engine's own: 3306 or 5432.",
             rich_help_panel=_PANEL_DATABASE,
         ),
     ] = 3306,
@@ -1220,6 +1240,7 @@ def create(
     # the compose file or a single connection exists.
     database_config, redis_config, credentials = _resolve_external_options(
         configured=bench_config.get_database_config(sitename),
+        db_type=db_type,
         db_host=db_host,
         db_port=db_port,
         db_port_given=ctx.get_parameter_source("db_port") in _EXPLICIT_SOURCES,

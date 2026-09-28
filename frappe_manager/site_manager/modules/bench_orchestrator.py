@@ -31,9 +31,15 @@ from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.site_manager.bench_config import BenchRuntime, DatabaseConfig, FMBenchEnvType, SwitchConfig
+from frappe_manager.site_manager.bench_config import (
+    BenchRuntime,
+    DatabaseConfig,
+    DatabaseEngine,
+    FMBenchEnvType,
+    SwitchConfig,
+)
 from frappe_manager.site_manager.exceptions import BenchException, BenchOperationException
-from frappe_manager.site_manager.modules import db_probe, db_tls
+from frappe_manager.site_manager.modules import db_probe, db_probe_postgres, db_tls
 from frappe_manager.site_manager.provisioner import provision
 from frappe_manager.utils.site import host_bench_dir
 
@@ -689,19 +695,34 @@ class BenchOrchestrator:
         site_password = None if config.db_password_generated else config.db_password
 
         self.output.change_head(f"Probing {database.host}:{database.resolved_port} from the bench container")
-        result = db_probe.probe_stage_one(
-            self._probe_runner(use_run=True),
-            host=database.host,
-            port=database.resolved_port,
-            admin_user=config.db_admin_user,
-            admin_password=config.db_admin_password,
-            site_user=database.login_user,
-            site_password=site_password,
-            schema=database.name,
-            mysql_home=mysql_home,
-            bench_apps=tuple(app.name for app in config.apps_list),
-            attach=attach,
-        )
+        if database.type is DatabaseEngine.postgres:
+            # A different client, different failure vocabulary and different checks -- see
+            # `db_probe_postgres`. The admin credentials are the ones that log in, because Postgres
+            # has no anonymous connection and the site's own role does not exist yet.
+            result = db_probe_postgres.probe_stage_one(
+                self._probe_runner(use_run=True),
+                host=database.host,
+                port=database.resolved_port,
+                user=config.db_admin_user or database.login_user,
+                password=config.db_admin_password or site_password,
+                dbname=database.name,
+                site_login=database.login_user,
+                sslrootcert=database.ca,
+            )
+        else:
+            result = db_probe.probe_stage_one(
+                self._probe_runner(use_run=True),
+                host=database.host,
+                port=database.resolved_port,
+                admin_user=config.db_admin_user,
+                admin_password=config.db_admin_password,
+                site_user=database.login_user,
+                site_password=site_password,
+                schema=database.name,
+                mysql_home=mysql_home,
+                bench_apps=tuple(app.name for app in config.apps_list),
+                attach=attach,
+            )
         self._report_probe_checks(result)
 
         decision = db_probe.decide_flow(
@@ -884,7 +905,22 @@ class BenchOrchestrator:
 
         self.output.change_head(f"Re-checking schema {database.name} on {database.host}")
 
-        if self._external_flow is db_probe.Flow.provision:
+        if database.type is DatabaseEngine.postgres:
+            # Stage one again, both flows. There is no postgres stage two yet: that one connects
+            # with the driver the site will use, and psycopg2 is not in the bench env. Re-running
+            # stage one still answers the question this step exists for -- has the database changed
+            # since the preflight -- through the client that is actually installed.
+            result = db_probe_postgres.probe_stage_one(
+                self._probe_runner(use_run=False),
+                host=database.host,
+                port=database.resolved_port,
+                user=config.db_admin_user or database.login_user,
+                password=config.db_admin_password,
+                dbname=database.name,
+                site_login=database.login_user,
+                sslrootcert=database.ca,
+            )
+        elif self._external_flow is db_probe.Flow.provision:
             result = db_probe.probe_stage_one(
                 self._probe_runner(use_run=False),
                 host=database.host,

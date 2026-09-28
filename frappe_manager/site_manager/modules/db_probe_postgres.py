@@ -179,6 +179,21 @@ def tls_sql() -> str:
     return "select ssl, coalesce(version, ''), coalesce(cipher, '') from pg_stat_ssl where pid = pg_backend_pid()"
 
 
+def get_lock_sql(schema: str) -> str:
+    """Postgres's own advisory lock, standing in for MariaDB's `GET_LOCK`.
+
+    Session scoped like `GET_LOCK`, so it is released when the connection that provisions goes
+    away -- including when that process is killed, which is the property the whole guard rests on.
+
+    `pg_try_advisory_lock` takes a BIGINT, not a name, so the name is hashed with `hashtext`. A
+    collision would make two creates of DIFFERENT schemas serialise, which is slower and still
+    correct; the failure this exists to prevent -- two creates racing on the SAME schema -- cannot
+    be caused by one. `try` rather than the blocking form: fm reports the conflict instead of
+    hanging on it, exactly as the MariaDB side does with a zero timeout.
+    """
+    return f"SELECT pg_try_advisory_lock(hashtext('{require_safe_name(schema, 'schema')}'))"
+
+
 def _connect_failure(text: str, *, host: str, port: int, user: str, secrets: tuple[str | None, ...]) -> ProbeCheck:
     """Name the cause psql described, or say plainly that it could not be reached.
 

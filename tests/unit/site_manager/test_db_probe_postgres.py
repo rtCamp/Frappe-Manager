@@ -284,3 +284,34 @@ class TestTLS:
         result = _probe(runner)
 
         assert result.server_enforces_tls is False
+
+
+class TestTheCreateLock:
+    """MariaDB's `GET_LOCK` has no Postgres equivalent by that name, and the stand-in has a
+    different argument type and a different answer."""
+
+    def test_the_lock_is_advisory_and_session_scoped(self):
+        """Released when the connection that provisions goes away, including when its process is
+        killed. That is the property the guard rests on: a crashed create must not leave a lock
+        nobody can clear."""
+        from frappe_manager.site_manager.modules.db_probe_postgres import get_lock_sql
+
+        assert "pg_try_advisory_lock" in get_lock_sql("shop_app")
+
+    def test_the_lock_never_blocks(self):
+        """`pg_advisory_lock` waits forever. fm reports the conflict instead of hanging on it,
+        exactly as the MariaDB side does with a zero timeout."""
+        from frappe_manager.site_manager.modules.db_probe_postgres import get_lock_sql
+
+        assert "pg_advisory_lock(" not in get_lock_sql("shop_app")
+
+    def test_the_schema_name_is_hashed_because_the_function_takes_a_number(self):
+        from frappe_manager.site_manager.modules.db_probe_postgres import get_lock_sql
+
+        assert "hashtext('shop_app')" in get_lock_sql("shop_app")
+
+    def test_an_unsafe_schema_name_is_refused_rather_than_interpolated(self):
+        from frappe_manager.site_manager.modules.db_probe_postgres import get_lock_sql
+
+        with pytest.raises(ValueError):
+            get_lock_sql("shop'; drop database x; --")

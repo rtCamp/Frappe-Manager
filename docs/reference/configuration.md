@@ -866,8 +866,8 @@ user = "app_prod"
 ca = "/etc/ssl/certs/db-ca.pem"
 ```
 
-!!! warning "`postgres` is not usable yet"
-    The schema accepts `type = "postgres"` and every site now records its engine, which is the groundwork. The rest of the path is not built: the connection probe, dumps and restores, the client tooling in the bench image, and an fm-managed Postgres server. Setting it today produces a site fm cannot create or back up, so use `mariadb` until the guide says otherwise.
+!!! info "Postgres is external-only"
+    `type = "postgres"` needs a `host`: fm runs no Postgres server of its own, so there is nothing for a managed Postgres site to live on. Everything else works -- the preflight, site creation, dumps and restores -- and `fm create --db-type postgres --db-host ...` is the way in. Frappe's framework supports Postgres and ERPNext's support is newer than fm's confidence in it, so verify your own apps rather than assuming parity with MariaDB.
 
 Passwords never live here: the site's database password goes into `site_config.json`.
 

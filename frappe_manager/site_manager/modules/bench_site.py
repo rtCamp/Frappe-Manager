@@ -20,7 +20,7 @@ from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.services import ServicesManager
-from frappe_manager.site_manager.bench_config import BenchConfig
+from frappe_manager.site_manager.bench_config import BenchConfig, DatabaseEngine
 from frappe_manager.site_manager.exceptions import (
     BenchOperationBenchSiteCreateFailed,
     BenchOperationException,
@@ -29,6 +29,7 @@ from frappe_manager.site_manager.exceptions import (
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.modules.compose_shape import RedisIdentity, redis_server_identity
 from frappe_manager.site_manager.modules.db_probe import get_lock_sql, lock_refusal
+from frappe_manager.site_manager.modules.db_probe_postgres import get_lock_sql as postgres_lock_sql
 from frappe_manager.utils.docker import run_command_with_exit_code
 from frappe_manager.utils.helpers import get_redis_cache_addr, get_redis_queue_addr
 from frappe_manager.utils.site import host_bench_dir
@@ -456,6 +457,20 @@ class BenchSiteManager:
                 " database is the mariadb container, which new-site provisions itself.",
             )
 
+        # Two engine-specific lines, and both have to move together: the root connection comes from
+        # the engine's own setup_db module, and the advisory lock is a different function with a
+        # different argument type. Everything else in the script is engine agnostic because Frappe's
+        # `setup_database` already dispatches on `db_type`.
+        postgres = database_config.type is DatabaseEngine.postgres
+        root_connection_import = (
+            "from frappe.database.postgres.setup_db import get_root_connection"
+            if postgres
+            else "from frappe.database.mariadb.setup_db import get_root_connection"
+        )
+        lock_sql = (
+            postgres_lock_sql(database_config.name) if postgres else get_lock_sql(database_config.name)
+        )
+
         script = "\n".join(
             [
                 "import sys",
@@ -467,11 +482,12 @@ class BenchSiteManager:
                 "frappe.flags.root_password = sys.stdin.readline().strip()",
                 # setup_database's own first line; set here because the lock query runs before it.
                 'frappe.local.session = frappe._dict({"user": "Administrator"})',
-                "from frappe.database.mariadb.setup_db import get_root_connection",
+                root_connection_import,
                 "from frappe.database import setup_database",
-                f"rows = get_root_connection().sql({json.dumps(get_lock_sql(database_config.name))})",
-                # GET_LOCK is 1 when taken, 0 on timeout and NULL on error.
-                "if not rows or rows[0][0] != 1:",
+                f"rows = get_root_connection().sql({json.dumps(lock_sql)})",
+                # Truthiness, not `== 1`: GET_LOCK answers 1/0/NULL and pg_try_advisory_lock
+                # answers a boolean, and "did not get the lock" is falsy under both.
+                "if not rows or not rows[0][0]:",
                 f"    sys.exit({LOCK_UNAVAILABLE_EXIT_CODE})",
                 'setup_database(False, True, "%")',
             ],
