@@ -18,6 +18,7 @@ from contextlib import ExitStack, contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from frappe_manager import STOCK_IMAGE_PREFETCH_SKIP_COMMANDS
@@ -45,6 +46,9 @@ class Harness:
         self.fm_config_path = self.cli_dir / "fm_config.toml"
 
         self.output = MagicMock(spec=OutputHandler)
+        # The real `exit` raises typer.Exit; a mock that returns None lets the callback run on past
+        # its own refusals, which is the difference between testing a guard and testing nothing.
+        self.output.exit.side_effect = typer.Exit(1)
         self.config = MagicMock(name="fm_config_manager")
         self.config.get_system_migration_version.return_value = Version(FM_VERSION)
         self.config.logs.file_level = "DEBUG"
@@ -127,6 +131,45 @@ class TestPrefetchStillHappens:
         assert "start" not in STOCK_IMAGE_PREFETCH_SKIP_COMMANDS
 
 
+class TestTheLedgerIsStampedWheneverTheConfigIsNew:
+    """The stamp says "this host's config was created by THIS fm, so there is nothing to migrate".
+    It used to ride along with the image prefetch, which several commands skip for reasons that
+    have nothing to do with migrations -- and `fm list` skips it while still WRITING the config,
+    which left a brand new host with an unstamped ledger it had no command to resolve.
+    """
+
+    def test_a_prefetch_exempt_command_still_stamps(self, cli):
+        """`fm list` on a fresh host: no images pulled, ledger stamped anyway."""
+        cli.invoke(["list"])
+
+        assert not cli.prefetched
+        assert cli.config.set_system_migration_version.call_args.args[0] == Version(FM_VERSION)
+
+    def test_a_command_that_prefetches_stamps_too(self, cli):
+        cli.invoke(["start", "mybench"])
+
+        assert cli.prefetched
+        cli.config.set_system_migration_version.assert_called_once()
+
+    def test_a_failed_prefetch_is_never_stamped(self, cli):
+        """Half an install is not a complete one: stamping current would tell every later command
+        there is nothing to set up."""
+        cli.pull.return_value = False
+
+        cli.invoke(["start", "mybench"])
+
+        cli.config.set_system_migration_version.assert_not_called()
+
+    def test_an_existing_config_is_left_alone(self, cli, tmp_path):
+        """The other half: a host whose config predates this fm must still be told to migrate, not
+        quietly declared current."""
+        cli.fm_config_path.write_text('[logs]\nfile_level = "DEBUG"\n')
+
+        cli.invoke(["list"])
+
+        cli.config.set_system_migration_version.assert_not_called()
+
+
 class TestAFailedFirstInstallLeavesNothingBehind:
     """A first command that cannot pull its images must not leave a half-made fm home: the next
     command would find `~/frappe` present, read as an existing install, and skip the very setup
@@ -138,6 +181,7 @@ class TestAFailedFirstInstallLeavesNothingBehind:
             (cli_dir / "sites").mkdir(parents=True)
 
         output = MagicMock(spec=OutputHandler)
+        output.exit.side_effect = typer.Exit(1)
         config = MagicMock(name="fm_config_manager")
         config.get_system_migration_version.return_value = Version(FM_VERSION)
         config.logs.file_level = "DEBUG"

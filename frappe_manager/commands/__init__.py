@@ -382,6 +382,11 @@ def app_callback(
         # left with a half-made ~/frappe that then read as an existing install.
         created_home = not CLI_DIR.exists()
 
+        # Read here, not at the prefetch below, because several things between the two CREATE this
+        # file: `fm list` builds a ServicesManager, which writes it. Asking afterwards made an
+        # observer command on a fresh host look like an existing install to every command after it.
+        config_is_new = not CLI_FM_CONFIG_PATH.exists()
+
         # The file-logging wrapper is built HERE, not above: constructing it opens
         # CLI_DIR/logs/fm.log, which creates the fm home as a side effect. Doing that before the
         # help gate meant `fm start --help` wrote a log directory onto a machine that had never
@@ -453,7 +458,7 @@ def app_callback(
             # exempt because they answer a question about state that does not exist yet: `fm list`
             # on a fresh host has nothing to list and must not spend minutes pulling images first.
             first_install = (
-                not CLI_FM_CONFIG_PATH.exists()
+                config_is_new
                 and not tolerates_broken_host(ctx)
                 and command_path(ctx) not in OBSERVE_ONLY_COMMANDS
             )
@@ -472,9 +477,20 @@ def app_callback(
                         "then run the same command again."
                     )
 
-                # Stamp the services-tier ledger at the current version: everything this host
-                # will ever manage is being created by THIS fm, so there is nothing to migrate
-                # and the gates must read "current" from the very first command.
+            # Stamp the services-tier ledger at the current version: everything this host will ever
+            # manage is being created by THIS fm, so there is nothing to migrate and the gates must
+            # read "current" from the very first command.
+            #
+            # Keyed on the config being new, NOT on the prefetch above, which several commands skip
+            # for reasons that have nothing to do with the ledger. `fm list` on a fresh host is the
+            # one that bit: it is exempt from the prefetch so it stays fast, it writes
+            # fm_config.toml on its way through ServicesManager, and the file it wrote carried no
+            # `[schema].version`. Every later command then read 0.0.0, refused with "run
+            # 'fm services migrate' first", and that command refuses an unknown version rather than
+            # replaying every migration ever shipped -- so a brand new host was stuck between two
+            # refusals with no command that resolved it. Placed after the prefetch so a first
+            # install that could not pull its images is never stamped as complete.
+            if config_is_new:
                 fm_config_manager.set_system_migration_version(Version(get_current_fm_version()))
 
             from frappe_manager.migration_manager.migration_constants import (
