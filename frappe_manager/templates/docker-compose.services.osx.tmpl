@@ -36,7 +36,13 @@ services:
     # MARIADB_AUTO_UPGRADE: a datadir written by one major refuses to start under the next, so a
     # tag bump here would not upgrade an install, it would stop it. Moving majors is a dump and a
     # restore, and it is an operation fm has to run deliberately.
-    image: postgres:17
+    #
+    # The major tracks the one frappe's OWN server-test matrix runs postgres against
+    # (frappe/frappe .github/workflows/server-tests.yml), which is where to look before changing
+    # it. Not frappe_docker's overrides/compose.postgres.yaml, which carries an older pin nobody
+    # has reason to bump. For a backend whose app-level support is newer than fm's confidence in
+    # it, the version upstream actually exercises is worth more than the newest one.
+    image: postgres:18
     user: REPLACE_WITH_CURRENT_USER:REPLACE_WITH_CURRENT_USER_GROUP
     restart: always
     # Carried in the profile fm switches off when no site uses this engine, the same way a bench's
