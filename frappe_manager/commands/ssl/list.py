@@ -40,7 +40,7 @@ def list_certificates(
 
     Lists one bench by default, including its domains that have no certificate yet. 'all' lists every bench and the external domains together, and --standalone lists only the external Docker project domains.
 
-    The DNS Provider column names the \\[ssl.dns_providers] credential set each DNS-01 certificate authenticates with, "default" for the unlabelled account, and "(missing)" when the label or the default account is not stored at either scope. Any row that is not a DNS-01 certificate reads "N/A".
+    A DNS-01 certificate's card carries a "dns provider" fact naming the \\[ssl.dns_providers] credential set it authenticates with, "default" for the unlabelled account, and "(missing)" when the label or the default account is not stored at either scope; every other domain's card omits that fact.
     """
 
     if ctx.obj and ctx.obj.get("domain"):
@@ -67,6 +67,19 @@ def list_certificates(
         _list_bench_certificates(ctx, address)
 
 
+def _survey_line(row: dict, width: int) -> str:
+    """One plain, copy-safe summary line for the `all` survey: no rich markup (a domain is a copy
+    target, and markup risks corrupting it same as a table cell would) and no per-domain card (an
+    estate of benches must not turn into a page of cards).
+    """
+    parts = [f"{row['domain']:<{width}}", row["status"].replace("_", " ")]
+    if row.get("days_until_expiry") is not None:
+        parts.append(f"{row['days_until_expiry']}d left")
+    if row.get("renewal"):
+        parts.append(f"renewal {row['renewal']}")
+    return "  ".join(parts)
+
+
 def _list_all_certificates(ctx: typer.Context):
     """List all SSL certificates (bench + external).
 
@@ -82,10 +95,15 @@ def _list_all_certificates(ctx: typer.Context):
         _print_all_certificates_data(ctx, output)
         return
 
-    output.print("\n[fm.accent]═══ External Certificates ═══[/fm.accent]\n", emoji_code="")
-    _list_external_certificates(ctx)
+    services_manager = ctx.obj["services"]
 
-    output.print("\n[fm.accent]═══ Bench Certificates ═══[/fm.accent]\n", emoji_code="")
+    # A survey, not a detail view: one plain line per domain straight off the same rows `--json`
+    # reads, never a page of cards -- five benches must not become five card decks.
+    external_rows = _external_certificate_rows(services_manager, output)
+    output.data_raw("External:")
+    width = max((len(row["domain"]) for row in external_rows), default=0)
+    for row in external_rows:
+        output.data_raw(_survey_line(row, width))
 
     benches = resolve_bench_targets(RESERVED_BENCH_NAME)
 
@@ -96,12 +114,16 @@ def _list_all_certificates(ctx: typer.Context):
     failed: list[str] = []
 
     for bench_name in benches:
-        output.print(f"\n[bold]Bench: {bench_name}[/bold]", emoji_code="")
+        output.data_raw(f"{bench_name}:")
         try:
-            _list_bench_certificates(ctx, bench_name)
+            rows = _bench_certificate_data(ctx, bench_name)
         except Exception as e:
             output.display_error(f"{bench_name}: {e}")
             failed.append(bench_name)
+            continue
+        width = max((len(row["domain"]) for row in rows), default=0)
+        for row in rows:
+            output.data_raw(_survey_line(row, width))
 
     if failed:
         output.display_error(f"Could not list: {', '.join(failed)}")

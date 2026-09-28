@@ -35,22 +35,24 @@ These tests pin CURRENT behaviour, including the quirks noted in comments below.
 not a wish list; do not "fix" a pinned quirk here without changing production first.
 """
 
-# SLF001: the private helpers and rich's cell store ARE the observable surface here.
+# SLF001: the private helpers and a railcard.Card's internal `_rows` ARE the observable surface here.
 
 import json
 from contextlib import ExitStack
 from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
 import pytest
 import typer
-from rich.table import Table
+from rich.console import Console, Group
 
 from frappe_manager.commands.ssl.bench_helpers import (
     _add_bench_certificate,
-    _dns_provider_cell,
+    _bench_certificate_card,
+    _dns_provider_facts,
     _list_bench_certificates,
     _remove_bench_certificate,
 )
@@ -142,6 +144,11 @@ class SSLHarness:
             patch(f"{SSL_MODULE}.proxy_backend_domains", return_value=set())
         )
         self.cdn_detect.return_value = CDNDetectionResult(status=CDNProxyStatus.undetermined)
+        # `railcard.cards` normally wraps a list of Card objects in a rendered Group; identity
+        # here so `print_data`'s argument stays the list of Card objects a test can inspect.
+        self.railcard_cards = stack.enter_context(
+            patch(f"{SSL_MODULE}.railcard.cards", side_effect=list)
+        )
 
     def set_sites(self, sites: dict[str, list[str]]) -> None:
         """Record `{site name: that site's aliases}` and derive the bench's hostname list from it.
@@ -197,7 +204,7 @@ class SSLHarness:
         helper names it rather than letting the bench pick."""
         return [(c.args[0], c.args[1]) for c in self.bench.set_bench_site_config.call_args_list]
 
-    def table(self) -> Table:
+    def cards(self) -> list:
         assert self.output.print_data.call_count == 1
         return self.output.print_data.call_args.args[0]
 
@@ -1016,38 +1023,43 @@ def _cert_row(
     }
 
 
-def _rows(table: Table) -> list[tuple]:
-    cells = [list(column._cells) for column in table.columns]
-    return [tuple(row) for row in zip(*cells, strict=True)]
+def _facts(card) -> dict[str, str]:
+    return {label: value for kind, label, value in card._rows if kind == "fact"}
 
 
 @pytest.mark.timeout(15)
-def test_list_renders_a_fixed_nine_column_certificate_table(h):
-    """`DNS Provider` sits beside `Challenge` because it only means anything for a dns01 challenge,
-    and because a certificate bound to the wrong Cloudflare account is otherwise invisible here."""
+def test_list_shows_the_dns_provider_only_for_a_dns01_certificate(h):
+    """`dns provider` only means anything for a dns01 challenge, and because a certificate bound
+    to the wrong Cloudflare account is otherwise invisible here."""
+    h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
+    h.cert_manager.list_certificates.return_value = [_cert_row(DOMAIN, challenge_type="dns01")]
+
     _list_bench_certificates(h.ctx, BENCH)
 
-    table = h.table()
-    assert [c.header for c in table.columns] == [
-        "Domain",
-        "Type",
-        "Challenge",
-        "DNS Provider",
-        "Status",
-        "Live",
-        "Expiry",
-        "Days Left",
-        "Renewal",
-    ]
+    facts = _facts(h.cards()[0])
+    assert facts["challenge"] == "dns01"
+    assert "dns provider" in facts
 
 
 @pytest.mark.timeout(15)
-def test_dns_provider_cell_ignores_a_stray_named_dns_provider_on_a_dev_certificate():
+def test_list_omits_challenge_and_dns_provider_for_an_http01_certificate(h):
+    h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
+    h.cert_manager.list_certificates.return_value = [_cert_row(DOMAIN, challenge_type="http01")]
+
+    _list_bench_certificates(h.ctx, BENCH)
+
+    facts = _facts(h.cards()[0])
+    assert "challenge" not in facts
+    assert "dns provider" not in facts
+
+
+@pytest.mark.timeout(15)
+def test_dns_provider_facts_ignores_a_stray_named_dns_provider_on_a_dev_certificate():
     """`dns_provider` is declared only on `LetsencryptSSLCertificate`. A `dev` certificate can
     still carry `challenge_type: dns01` (a plain base field) plus a stray `dns_provider` -- extra
     keys are retained, not refused, on a plain read. Before the fix, plain `getattr` resolved the
-    stray straight through `__pydantic_extra__` and this cell would have shown it as
-    "acct-b (missing)", i.e. displayed the operator's typo as though it were real, validated input.
+    stray straight through `__pydantic_extra__` and this would have reported "acct-b" as the label
+    in use, i.e. treated the operator's typo as though it were real, validated input.
     """
     stray_cert = SSLCertificate.model_validate(
         {"domain": DOMAIN, "ssl_type": "dev", "challenge_type": "dns01", "dns_provider": "acct-b"}
@@ -1057,15 +1069,15 @@ def test_dns_provider_cell_ignores_a_stray_named_dns_provider_on_a_dev_certifica
     with patch.object(
         FMConfigManager, "import_from_toml", staticmethod(lambda *a, **k: SimpleNamespace(dns_providers={}))
     ):
-        cell = _dns_provider_cell(bench_config, stray_cert)
+        label, missing = _dns_provider_facts(bench_config, stray_cert)
 
-    assert cell == "[fm.error]none (missing)[/fm.error]"
-    assert "acct-b" not in cell
+    assert label is None
+    assert missing is True
 
 
 @pytest.mark.timeout(15)
 def test_list_is_driven_by_the_config_domains_in_config_order(h):
-    # Config order is now site-then-its-aliases, so the row order is the site DOMAIN followed by
+    # Config order is now site-then-its-aliases, so the card order is the site DOMAIN followed by
     # its alias -- neither alphabetical (ALIAS sorts first) nor certificate-driven (only DOMAIN
     # has one). The reverse order the old bench-level list could express is unreachable.
     h.set_sites({DOMAIN: [ALIAS]})
@@ -1073,16 +1085,32 @@ def test_list_is_driven_by_the_config_domains_in_config_order(h):
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    assert [row[0] for row in _rows(h.table())] == [DOMAIN, ALIAS]
+    assert [card.name for card in h.cards()] == [DOMAIN, ALIAS]
 
 
 @pytest.mark.timeout(15)
-def test_list_shows_a_configured_domain_with_no_certificate_as_no_ssl(h):
+def test_list_prints_one_line_when_no_domain_in_the_bench_has_a_certificate(h):
+    """A card per domain, all reading 'no ssl', would be a page of identical cards; a bench with
+    zero certificates anywhere gets one line naming how to add one instead."""
     h.cert_manager.list_certificates.return_value = []
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    assert _rows(h.table())[0] == (DOMAIN, "none", "N/A", "N/A", "⚪ No SSL", "no", "N/A", "N/A", "N/A")
+    h.output.print_data.assert_not_called()
+    assert f"fm ssl add {BENCH} <domain>" in h.prints()[0]
+
+
+@pytest.mark.timeout(15)
+def test_list_shows_a_configured_domain_with_no_certificate_as_no_ssl_beside_one_that_has_one(h):
+    h.set_sites({DOMAIN: [ALIAS]})
+    h.cert_manager.list_certificates.return_value = [_cert_row(DOMAIN)]
+
+    _list_bench_certificates(h.ctx, BENCH)
+
+    no_ssl_card = next(card for card in h.cards() if card.name == ALIAS)
+    assert "no ssl" in no_ssl_card.meta
+    assert no_ssl_card.active is False
+    assert _facts(no_ssl_card) == {}
 
 
 @pytest.mark.timeout(15)
@@ -1094,7 +1122,7 @@ def test_list_hides_a_certificate_whose_domain_left_the_bench_config(h):
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    assert [row[0] for row in _rows(h.table())] == [DOMAIN]
+    assert [card.name for card in h.cards()] == [DOMAIN]
 
 
 @pytest.mark.timeout(15)
@@ -1111,18 +1139,17 @@ def test_list_reports_an_issued_certificate_with_expiry_and_days_left(h):
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    # `N/A` for the provider: this is an http01 certificate, so no DNS credential is involved.
-    assert _rows(h.table())[0] == (
-        DOMAIN,
-        "letsencrypt",
-        "http01",
-        "N/A",
-        "✅ Issued",
-        "no",
-        "2026-03-04 05:06",
-        "42",
-        "✓ OK",
-    )
+    card = h.cards()[0]
+    assert "issued" in card.meta
+    facts = _facts(card)
+    assert facts["type"] == "letsencrypt"
+    # An http01 certificate involves no DNS credential, so neither fact is on the card.
+    assert "challenge" not in facts
+    assert "dns provider" not in facts
+    # A card is read by a person: the row keeps ISO 8601 for `--json`, the card shows the date.
+    assert facts["expiry"] == "2026-03-04 05:06"
+    assert facts["days left"] == "42"
+    assert facts["renewal"] == "ok"
 
 
 @pytest.mark.timeout(15)
@@ -1134,13 +1161,13 @@ def test_list_flags_a_certificate_that_needs_renewal(h):
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    assert _rows(h.table())[0][-1] == "⚠️ DUE"
+    assert _facts(h.cards()[0])["renewal"] == "due"
 
 
 @pytest.mark.timeout(15)
 def test_list_never_calls_a_custom_certificate_due_for_renewal(h):
     """fm has no ACME account and no stored source bytes for a custom certificate, so `fm ssl
-    renew` never acts on it -- 'DUE' would promise that. Name the real action instead."""
+    renew` never acts on it -- 'due' would promise that. Name the real action instead."""
     h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
     h.cert_manager.list_certificates.return_value = [
         _cert_row(
@@ -1155,14 +1182,14 @@ def test_list_never_calls_a_custom_certificate_due_for_renewal(h):
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    renewal_cell = _rows(h.table())[0][-1]
-    assert renewal_cell == "⚠️ re-import"
-    assert "DUE" not in renewal_cell
+    renewal_fact = _facts(h.cards()[0])["renewal"]
+    assert renewal_fact == "re import"
+    assert "due" not in renewal_fact
 
 
 @pytest.mark.timeout(15)
 def test_list_shows_a_healthy_custom_certificate_as_manual_not_ok(h):
-    """'OK' beside every other type means 'fm has this covered'; for --custom that is never true,
+    """'ok' beside every other type means 'fm has this covered'; for --custom that is never true,
     even well before expiry, so it must read differently from the auto-renewable types."""
     h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
     h.cert_manager.list_certificates.return_value = [
@@ -1178,9 +1205,10 @@ def test_list_shows_a_healthy_custom_certificate_as_manual_not_ok(h):
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    renewal_cell = _rows(h.table())[0][-1]
-    assert renewal_cell == "manual"
-    assert renewal_cell != "✓ OK"
+    renewal_fact = _facts(h.cards()[0])["renewal"]
+    assert renewal_fact == "manual"
+    assert renewal_fact != "ok"
+
 
 @pytest.mark.timeout(15)
 def test_list_marks_a_configured_but_unissued_certificate_as_not_issued(h):
@@ -1189,30 +1217,44 @@ def test_list_marks_a_configured_but_unissued_certificate_as_not_issued(h):
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    row = _rows(h.table())[0]
-    # The type/challenge survive, but nothing expiry-derived is claimed.
-    assert row == (DOMAIN, "letsencrypt", "http01", "N/A", "❌ Not Issued", "no", "N/A", "N/A", "N/A")
+    card = h.cards()[0]
+    assert "not issued" in card.meta
+    assert card.active is False
+    facts = _facts(card)
+    # The type survives, but nothing expiry-derived is claimed for a certificate never issued.
+    assert facts["type"] == "letsencrypt"
+    assert "expiry" not in facts
+    assert "days left" not in facts
+    assert "renewal" not in facts
 
 
 @pytest.mark.timeout(15)
-def test_list_falls_back_to_na_when_an_issued_certificate_has_no_expiry_date(h):
+def test_list_omits_expiry_facts_when_an_issued_certificate_has_no_expiry_date(h):
     h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
     h.cert_manager.list_certificates.return_value = [_cert_row(DOMAIN, exists=True, expiry_date=None)]
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    assert _rows(h.table())[0] == (DOMAIN, "letsencrypt", "http01", "N/A", "✅ Issued", "no", "N/A", "N/A", "N/A")
+    card = h.cards()[0]
+    assert "issued" in card.meta
+    facts = _facts(card)
+    assert facts["type"] == "letsencrypt"
+    assert "expiry" not in facts
+    assert "days left" not in facts
+    assert "renewal" not in facts
 
 
 @pytest.mark.timeout(15)
 @pytest.mark.parametrize("challenge_type", [None, ""])
-def test_list_renders_a_missing_challenge_type_as_na(h, challenge_type):
+def test_list_omits_challenge_and_dns_provider_when_the_challenge_type_is_missing(h, challenge_type):
     h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
     h.cert_manager.list_certificates.return_value = [_cert_row(DOMAIN, challenge_type=challenge_type, exists=False)]
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    assert _rows(h.table())[0][2] == "N/A"
+    facts = _facts(h.cards()[0])
+    assert "challenge" not in facts
+    assert "dns provider" not in facts
 
 
 @pytest.mark.timeout(15)
@@ -1225,9 +1267,9 @@ def test_list_lets_the_last_duplicate_certificate_entry_win(h):
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    rows = _rows(h.table())
-    assert len(rows) == 1
-    assert rows[0][1] == "letsencrypt"
+    cards = h.cards()
+    assert len(cards) == 1
+    assert _facts(cards[0])["type"] == "letsencrypt"
 
 
 @pytest.mark.timeout(15)
@@ -1238,22 +1280,63 @@ def test_list_is_a_pure_read_with_no_status_head_and_no_spinner(h):
     assert h.spinner_texts() == []
     h.output.display_error.assert_not_called()
 
+
+@pytest.mark.timeout(15)
+def test_a_long_domain_is_not_truncated_at_eighty_columns():
+    """The old nine-column table truncated a long domain to a few characters plus an ellipsis; a
+    card renders it on its own headline line and wraps instead of cutting it."""
+    long_domain = "a-genuinely-long-subdomain-name-that-would-have-been-truncated.example.com"
+    row = {
+        "domain": long_domain,
+        "certificate_type": "letsencrypt",
+        "challenge_type": "http01",
+        "dns_provider": None,
+        "dns_provider_missing": False,
+        "status": "issued",
+        "live": True,
+        "expiry": "2026-01-01T00:00:00+00:00",
+        "days_until_expiry": 42,
+        "renewal": "ok",
+    }
+
+    card = _bench_certificate_card(row)
+    console = Console(width=80, file=StringIO(), force_terminal=False)
+    console.print(card)
+
+    assert long_domain in console.file.getvalue()
+
+
+@pytest.mark.timeout(15)
+def test_no_rendered_line_ever_reads_na(h):
+    """The old table's cell for a missing fact was the literal string 'N/A'; a card omits the
+    fact entirely instead, so that text must never appear."""
+    h.set_sites({DOMAIN: [ALIAS]})
+    h.cert_manager.list_certificates.return_value = [_cert_row(DOMAIN, exists=False)]
+
+    _list_bench_certificates(h.ctx, BENCH)
+
+    console = Console(width=80, file=StringIO(), force_terminal=False)
+    console.print(Group(*h.cards()))
+
+    assert "N/A" not in console.file.getvalue()
+
+
 # ======================================================================================
 # _list_bench_certificates -- structured data (`--json`, `wants_structured_data`)
 # ======================================================================================
 
 
 @pytest.mark.timeout(15)
-def test_structured_data_skips_the_table_entirely(h):
-    """`wants_structured_data` routes to `_bench_certificate_data`; the Table class must never
-    be touched, not just left unread."""
+def test_structured_data_skips_card_rendering_entirely(h):
+    """`wants_structured_data` routes to `_bench_certificate_data`; no card must ever be built,
+    not just left unread."""
     h.output.wants_structured_data = True
     h.cert_manager.list_certificates.return_value = []
 
-    with patch(f"{SSL_MODULE}.Table") as table_cls:
+    with patch(f"{SSL_MODULE}.railcard.cards") as cards_fn:
         _list_bench_certificates(h.ctx, BENCH)
 
-    table_cls.assert_not_called()
+    cards_fn.assert_not_called()
     h.output.print_data.assert_called_once()
     payload = h.output.print_data.call_args.args[0]
     assert isinstance(payload, list)
@@ -2179,5 +2262,6 @@ def test_list_says_whether_anything_is_actually_serving_the_domain(h):
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    serving = {row[0]: row[5] for row in _rows(h.table())}
-    assert serving == {DOMAIN: "yes", ALIAS: "no"}
+    cards = {card.name: card for card in h.cards()}
+    assert "[fm.ok]live[/fm.ok]" in cards[DOMAIN].meta
+    assert "[fm.muted]not live[/fm.muted]" in cards[ALIAS].meta

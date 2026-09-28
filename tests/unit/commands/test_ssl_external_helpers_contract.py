@@ -22,12 +22,14 @@ certificates. Filesystem access is confined to `tmp_path`.
 
 from contextlib import ExitStack, suppress
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 import typer
+from rich.console import Console, Group
 
 from frappe_manager import SSL_RENEW_BEFORE_DAYS
 from frappe_manager.commands.ssl import external_helpers
@@ -1255,9 +1257,9 @@ def test_nginx_scan_swallows_bench_discovery_failures(h, nginx_probe):
 
 @pytest.fixture
 def listing(h):
-    """Patched table + expiry seams for the listing view."""
+    """Patched card rendering + expiry seams for the listing view."""
     with ExitStack() as stack:
-        table_cls = stack.enter_context(patch(f"{MODULE}.Table"))
+        cards_fn = stack.enter_context(patch(f"{MODULE}.railcard.cards", side_effect=list))
         scan = stack.enter_context(patch(f"{MODULE}._get_non_bench_domains_from_nginx", return_value=[]))
         expiry = stack.enter_context(patch(f"{MODULE}.get_certificate_expiry_date"))
         h.link_manager.get_certificate_paths.return_value = (Path("/k.pem"), Path("/f.pem"))
@@ -1266,16 +1268,19 @@ def listing(h):
         h.standalone_nginx.config_state.return_value = "https"
         h.standalone_nginx.managed_configs.return_value = {}
         yield SimpleNamespace(
-            table_cls=table_cls,
-            table=table_cls.return_value,
+            cards_fn=cards_fn,
             scan=scan,
             expiry=expiry,
-            rows=lambda: [c.args for c in table_cls.return_value.add_row.call_args_list],
+            cards=lambda: h.output.print_data.call_args.args[0],
         )
 
 
 def _ssl_domain(domain: str, ssl_type: str = "letsencrypt", challenge_type: str = "http01") -> SimpleNamespace:
     return SimpleNamespace(domain=domain, ssl_type=ssl_type, challenge_type=challenge_type)
+
+
+def _facts(card) -> dict[str, str]:
+    return {label: value for kind, label, value in card._rows if kind == "fact"}
 
 
 def test_list_with_nothing_configured_prints_the_getting_started_hint(h, listing):
@@ -1289,9 +1294,13 @@ def test_list_with_nothing_configured_prints_the_getting_started_hint(h, listing
         "To add an external certificate:",
         "  fm ssl add --standalone <domain>",
     ]
-    listing.table_cls.assert_not_called()
+    listing.cards_fn.assert_not_called()
     h.output.print_data.assert_not_called()
-    h.SSLStorageConfig.assert_not_called()
+    # INVERTED: the old table-building path skipped `_build_certificate_storage` when nothing was
+    # configured, as a pure optimisation. The human view now reuses `_external_certificate_rows`
+    # (the same rows `--json` reads) unconditionally, which always resolves storage internally to
+    # answer `serving()` for every domain -- recomputing that seam a second time is what this
+    # rewrite exists to stop doing, so the call is expected here now.
 
 
 def test_list_reads_the_nginx_configs_but_never_writes_or_reloads(h, listing):
@@ -1312,22 +1321,15 @@ def test_list_reads_the_nginx_configs_but_never_writes_or_reloads(h, listing):
     h.nginx_controller.reload.assert_not_called()
 
 
-def test_list_table_columns_are_fixed(h, listing):
+def test_list_shows_a_card_per_domain(h, listing):
     h.external_manager.list_domains.return_value = [_ssl_domain(DOMAIN)]
     listing.expiry.return_value = datetime.now(UTC) + timedelta(days=60)
 
     external_helpers._list_external_certificates(h.ctx)
 
-    assert [c.args[0] for c in listing.table.add_column.call_args_list] == [
-        "Domain",
-        "Type",
-        "Status",
-        "Serving",
-        "Expiry",
-        "Days Left",
-        "Renewal",
-    ]
-    h.output.print_data.assert_called_once_with(listing.table)
+    (card,) = listing.cards()
+    assert card.name == DOMAIN
+    h.output.print_data.assert_called_once()
 
 
 def test_list_marks_a_healthy_certificate_ok(h, listing):
@@ -1337,17 +1339,12 @@ def test_list_marks_a_healthy_certificate_ok(h, listing):
 
     external_helpers._list_external_certificates(h.ctx)
 
-    assert listing.rows() == [
-        (
-            DOMAIN,
-            "letsencrypt",
-            "✅ Issued",
-            "https",
-            expiry_date.strftime("%Y-%m-%d %H:%M"),
-            str(SSL_RENEW_BEFORE_DAYS + 1),
-            "✓ OK",
-        )
-    ]
+    (card,) = listing.cards()
+    assert "issued" in card.meta
+    facts = _facts(card)
+    assert facts["type"] == "letsencrypt"
+    assert facts["days left"] == str(SSL_RENEW_BEFORE_DAYS + 1)
+    assert facts["renewal"] == "ok"
     listing.expiry.assert_called_once_with(Path("/f.pem"))
 
 
@@ -1358,26 +1355,26 @@ def test_list_marks_renewal_due_at_exactly_the_threshold(h, listing):
 
     external_helpers._list_external_certificates(h.ctx)
 
-    row = listing.rows()[0]
-    assert row[2] == "✅ Issued"
-    assert row[5] == str(SSL_RENEW_BEFORE_DAYS)
-    assert row[6] == "⚠️ DUE"
+    facts = _facts(listing.cards()[0])
+    assert facts["days left"] == str(SSL_RENEW_BEFORE_DAYS)
+    assert facts["renewal"] == "due"
 
 
 def test_list_reports_negative_days_for_an_expired_certificate(h, listing):
-    """An already-expired cert still reports "✅ Issued"; only Days Left / Renewal reveal it.
+    """An already-expired cert still reads "issued"; only days left / renewal reveal it.
 
-    `timedelta.days` floors toward -inf, so "expired 2 days ago" prints -3.
+    `timedelta.days` floors toward -inf, so "expired 2 days ago" reports -3.
     """
     h.external_manager.list_domains.return_value = [_ssl_domain(DOMAIN)]
     listing.expiry.return_value = datetime.now(UTC) - timedelta(days=2)
 
     external_helpers._list_external_certificates(h.ctx)
 
-    row = listing.rows()[0]
-    assert row[2] == "✅ Issued"
-    assert row[5] == "-3"
-    assert row[6] == "⚠️ DUE"
+    card = listing.cards()[0]
+    assert "issued" in card.meta
+    facts = _facts(card)
+    assert facts["days left"] == "-3"
+    assert facts["renewal"] == "due"
 
 
 def test_list_marks_status_unknown_when_expiry_cannot_be_parsed(h, listing):
@@ -1386,7 +1383,13 @@ def test_list_marks_status_unknown_when_expiry_cannot_be_parsed(h, listing):
 
     external_helpers._list_external_certificates(h.ctx)
 
-    assert listing.rows() == [(DOMAIN, "letsencrypt", "⚠️ Unknown", "https", "N/A", "N/A", "N/A")]
+    card = listing.cards()[0]
+    assert "unknown" in card.meta
+    facts = _facts(card)
+    assert facts["type"] == "letsencrypt"
+    assert "expiry" not in facts
+    assert "days left" not in facts
+    assert "renewal" not in facts
     h.output.debug.assert_not_called()
 
 
@@ -1396,7 +1399,10 @@ def test_list_marks_status_missing_when_the_certificate_lookup_raises(h, listing
 
     external_helpers._list_external_certificates(h.ctx)
 
-    assert listing.rows() == [(DOMAIN, "letsencrypt", "❌ Missing", "https", "N/A", "N/A", "N/A")]
+    card = listing.cards()[0]
+    assert "missing" in card.meta
+    facts = _facts(card)
+    assert "expiry" not in facts
     h.output.debug.assert_called_once_with(f"Error getting certificate status for {DOMAIN}: gone")
 
 
@@ -1406,7 +1412,7 @@ def test_list_preserves_the_configured_ssl_type_in_the_type_column(h, listing):
 
     external_helpers._list_external_certificates(h.ctx)
 
-    assert listing.rows()[0][1] == "dev"
+    assert _facts(listing.cards()[0])["type"] == "dev"
 
 
 def test_list_appends_detected_domains_without_ssl_and_a_tip(h, listing):
@@ -1416,26 +1422,30 @@ def test_list_appends_detected_domains_without_ssl_and_a_tip(h, listing):
 
     external_helpers._list_external_certificates(h.ctx)
 
-    assert listing.rows()[-1] == ("plain.example.com", "none", "🔓 No SSL", "backend", "N/A", "N/A", "N/A")
+    no_ssl_card = listing.cards()[-1]
+    assert no_ssl_card.name == "plain.example.com"
+    assert "no ssl" in no_ssl_card.meta
+    assert _facts(no_ssl_card) == {}
     assert h.prints() == [
         "\n[fm.warn]💡 Tip: Add SSL certificates for non-SSL domains:[/fm.warn]",
         "[fm.muted]  fm ssl add --standalone <domain>[/fm.muted]",
     ]
+
 
 # --------------------------------------------------------------------------------------
 # _list_external_certificates -- structured data (`--json`, `wants_structured_data`)
 # --------------------------------------------------------------------------------------
 
 
-def test_structured_data_skips_the_table_and_the_getting_started_hint(h, listing):
-    """`wants_structured_data` must route around both the Table AND the nothing-configured
+def test_structured_data_skips_card_rendering_and_the_getting_started_hint(h, listing):
+    """`wants_structured_data` must route around both card rendering AND the nothing-configured
     hint, which is display prose, not data."""
     h.output.wants_structured_data = True
     h.external_manager.list_domains.return_value = []
 
     external_helpers._list_external_certificates(h.ctx)
 
-    listing.table_cls.assert_not_called()
+    listing.cards_fn.assert_not_called()
     assert h.prints() == []
     h.output.print_data.assert_called_once()
     assert h.output.print_data.call_args.args[0] == []
@@ -1547,7 +1557,7 @@ def test_list_hides_detected_domains_that_already_have_a_certificate(h, listing)
 
     external_helpers._list_external_certificates(h.ctx)
 
-    assert [row[0] for row in listing.rows()] == [DOMAIN, "plain.example.com"]
+    assert [card.name for card in listing.cards()] == [DOMAIN, "plain.example.com"]
 
 
 def test_list_shows_detected_domains_even_with_no_certificates_configured(h, listing):
@@ -1556,7 +1566,9 @@ def test_list_shows_detected_domains_even_with_no_certificates_configured(h, lis
 
     external_helpers._list_external_certificates(h.ctx)
 
-    assert listing.rows() == [("plain.example.com", "none", "🔓 No SSL", "backend", "N/A", "N/A", "N/A")]
+    (card,) = listing.cards()
+    assert card.name == "plain.example.com"
+    assert "no ssl" in card.meta
     assert "No external domains or SSL certificates configured" not in h.prints()
 
 
@@ -1568,7 +1580,43 @@ def test_list_omits_the_tip_when_every_detected_domain_has_ssl(h, listing):
     external_helpers._list_external_certificates(h.ctx)
 
     assert h.prints() == []
-    h.output.print_data.assert_called_once_with(listing.table)
+    h.output.print_data.assert_called_once()
+
+
+def test_a_long_external_domain_is_not_truncated_at_eighty_columns():
+    """The old seven-column table truncated a long domain; a card renders it on its own
+    headline line and wraps instead of cutting it."""
+    long_domain = "a-genuinely-long-standalone-subdomain-that-would-have-been-truncated.example.com"
+    row = {
+        "domain": long_domain,
+        "certificate_type": "letsencrypt",
+        "status": "issued",
+        "serving": "https",
+        "expiry": "2026-01-01T00:00:00+00:00",
+        "days_until_expiry": 42,
+        "renewal": "ok",
+    }
+
+    card = external_helpers._external_certificate_card(row)
+    console = Console(width=80, file=StringIO(), force_terminal=False)
+    console.print(card)
+
+    assert long_domain in console.file.getvalue()
+
+
+def test_no_rendered_external_line_ever_reads_na(h, listing):
+    """The old table's cell for a missing fact was the literal string 'N/A'; a card omits the
+    fact entirely instead, so that text must never appear."""
+    h.external_manager.list_domains.return_value = [_ssl_domain(DOMAIN)]
+    listing.expiry.return_value = None
+
+    external_helpers._list_external_certificates(h.ctx)
+
+    console = Console(width=80, file=StringIO(), force_terminal=False)
+    console.print(Group(*listing.cards()))
+
+    assert "N/A" not in console.file.getvalue()
+
 
 
 # --------------------------------------------------------------------------------------

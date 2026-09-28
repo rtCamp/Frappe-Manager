@@ -30,7 +30,7 @@ import typer
 from typer.testing import CliRunner
 
 from frappe_manager.commands.ssl.add import add_certificate
-from frappe_manager.commands.ssl.list import list_certificates
+from frappe_manager.commands.ssl.list import _survey_line, list_certificates
 from frappe_manager.commands.ssl.remove import remove_certificate
 from frappe_manager.commands.ssl.renew import renew
 from frappe_manager.site_manager.exceptions import BenchSSLCertificateNotIssued
@@ -54,7 +54,7 @@ class _Harness:
     def __init__(self, stack: ExitStack, module: str):
         self.output = MagicMock(name="output_handler")
         # A bare MagicMock is truthy for any undefined attribute; wants_structured_data is now a
-        # real property (default False on the base handler) that these Table-path tests rely on.
+        # real property (default False on the base handler) that the human-report tests rely on.
         self.output.wants_structured_data = False
         self.ctx = MagicMock(name="ctx")
         self.ctx.obj = {"services": MagicMock(name="services_manager")}
@@ -67,6 +67,9 @@ class _Harness:
 
     def printed(self) -> str:
         return "\n".join(str(c) for c in self.output.print.call_args_list)
+
+    def raw(self) -> list[str]:
+        return [c.args[0] for c in self.output.data_raw.call_args_list]
 
     def errors(self) -> str:
         return "\n".join(str(c) for c in self.output.display_error.call_args_list)
@@ -135,6 +138,13 @@ def listing():
         harness.bench_names = stack.enter_context(
             patch("frappe_manager.utils.callbacks._bench_names", return_value=list(BENCHES))
         )
+        # `all`'s human report is a survey built straight off the row producers `--json` reads
+        # (one plain line per domain), never a delegate to the card-rendering functions below.
+        harness.external_rows = stack.enter_context(patch(f"{LIST_MODULE}._external_certificate_rows"))
+        harness.external_rows.return_value = []
+        harness.bench_data = stack.enter_context(patch(f"{LIST_MODULE}._bench_certificate_data"))
+        harness.bench_data.side_effect = lambda ctx, name: []
+        # --standalone (not `all`) still renders the full card view for the external domains.
         harness.external = stack.enter_context(patch(f"{LIST_MODULE}._list_external_certificates"))
         harness.bench_listing = stack.enter_context(patch(f"{LIST_MODULE}._list_bench_certificates"))
         yield harness
@@ -144,16 +154,40 @@ def test_list_all_covers_the_external_domains_and_then_every_bench(listing):
     """INVERTED from `all=True` to the address: the selector sits where a bench name goes."""
     list_certificates(listing.ctx, address="all", standalone=False)
 
-    listing.external.assert_called_once()
-    assert [c.args[1] for c in listing.bench_listing.call_args_list] == BENCHES
+    listing.external_rows.assert_called_once()
+    assert [c.args[1] for c in listing.bench_data.call_args_list] == BENCHES
 
 
-def test_list_all_puts_the_external_section_before_the_bench_one(listing):
-    """Order is the contract here: the two sections are only distinguishable by their headings."""
+def test_list_all_reports_external_domains_before_any_bench(listing):
+    """Order is the contract here: an operator reading top to bottom sees the external survey
+    before any bench's, without depending on two banner strings that no longer exist."""
+    manager = MagicMock()
+    manager.attach_mock(listing.external_rows, "external_rows")
+    manager.attach_mock(listing.bench_data, "bench_data")
+
     list_certificates(listing.ctx, address="all", standalone=False)
 
-    printed = listing.printed()
-    assert printed.index("External Certificates") < printed.index("Bench Certificates")
+    call_names = [c[0] for c in manager.mock_calls]
+    assert call_names.index("external_rows") < call_names.index("bench_data")
+
+
+def test_list_all_prints_one_plain_line_per_domain(listing):
+    """The survey line is a copy-safe plain line, not a rendered card fact: no rich markup can
+    ride along with a domain that gets copied out of the terminal."""
+    listing.external_rows.return_value = [
+        {"domain": "ext.example.com", "status": "issued", "days_until_expiry": 10, "renewal": "ok"}
+    ]
+    listing.bench_names.return_value = [BENCH]
+    listing.bench_data.side_effect = lambda ctx, name: [
+        {"domain": name, "status": "issued", "days_until_expiry": 5, "renewal": "due"}
+    ]
+
+    list_certificates(listing.ctx, address="all", standalone=False)
+
+    raw = listing.raw()
+    assert any("ext.example.com" in line for line in raw)
+    assert any(BENCH in line for line in raw)
+    assert not any("[fm." in line for line in raw)
 
 
 def test_list_all_walks_the_same_registry_as_every_other_all(listing):
@@ -170,7 +204,7 @@ def test_list_all_with_no_benches_still_lists_the_external_domains(listing):
 
     list_certificates(listing.ctx, address="all", standalone=False)
 
-    listing.external.assert_called_once()
+    listing.external_rows.assert_called_once()
     assert "No benches found" in listing.printed()
 
 
@@ -188,8 +222,8 @@ def test_list_all_wins_over_standalone(listing):
     """`all` is the wider of the two, and it already includes the external domains."""
     list_certificates(listing.ctx, address="all", standalone=True)
 
-    listing.external.assert_called_once()
-    assert [c.args[1] for c in listing.bench_listing.call_args_list] == BENCHES
+    listing.external_rows.assert_called_once()
+    assert [c.args[1] for c in listing.bench_data.call_args_list] == BENCHES
 
 
 def test_list_refuses_a_domain_in_the_address(listing):
@@ -217,12 +251,12 @@ def test_the_refusal_names_the_address_that_does_work(listing):
 def test_list_all_reports_a_failing_bench_and_lists_the_rest(listing):
     """INVERTED. The baseline pinned no try/except in the loop at all, so one unreadable bench hid
     every bench after it from a command whose whole job is to report."""
-    listing.bench_listing.side_effect = [None, RuntimeError("beta is broken"), None]
+    listing.bench_data.side_effect = [[], RuntimeError("beta is broken"), []]
 
     with pytest.raises(typer.Exit):
         list_certificates(listing.ctx, address="all", standalone=False)
 
-    assert [c.args[1] for c in listing.bench_listing.call_args_list] == BENCHES
+    assert [c.args[1] for c in listing.bench_data.call_args_list] == BENCHES
     assert "beta is broken" in listing.errors()
 
 
@@ -230,7 +264,7 @@ def test_a_failing_bench_makes_the_listing_exit_nonzero(listing):
     """Same shape as `renew`, for the scripting reason rather than the reporting one: a caller that
     checks the exit code must not be told the report was complete when a bench is missing from it.
     The listing still reaches every other bench first, which is what separates this from aborting."""
-    listing.bench_listing.side_effect = [None, RuntimeError("beta is broken"), None]
+    listing.bench_data.side_effect = [[], RuntimeError("beta is broken"), []]
 
     with pytest.raises(typer.Exit) as excinfo:
         list_certificates(listing.ctx, address="all", standalone=False)
@@ -241,7 +275,7 @@ def test_a_failing_bench_makes_the_listing_exit_nonzero(listing):
 def test_the_listing_exit_names_every_bench_it_could_not_read(listing):
     # One unreadable bench must not mask a second one: the summary is the only place the operator
     # sees them together, since each error was printed pages apart in the report above it.
-    listing.bench_listing.side_effect = [RuntimeError("alpha is broken"), None, RuntimeError("gamma is broken")]
+    listing.bench_data.side_effect = [RuntimeError("alpha is broken"), [], RuntimeError("gamma is broken")]
 
     with pytest.raises(typer.Exit):
         list_certificates(listing.ctx, address="all", standalone=False)
@@ -250,9 +284,20 @@ def test_the_listing_exit_names_every_bench_it_could_not_read(listing):
 
 
 def test_a_listing_where_every_bench_is_readable_exits_zero(listing):
-    listing.bench_listing.side_effect = [None, None, None]
+    listing.bench_data.side_effect = [[], [], []]
 
     assert list_certificates(listing.ctx, address="all", standalone=False) is None
+
+
+def test_survey_line_is_plain_and_never_reads_na():
+    """A domain with no certificate and no expiry facts must never fall back to 'N/A'; the fact
+    is omitted from the line entirely, the same rule a card follows."""
+    row = {"domain": "a.example.com", "status": "not_issued", "days_until_expiry": None, "renewal": None}
+
+    line = _survey_line(row, width=len(row["domain"]))
+
+    assert line == "a.example.com  not issued"
+    assert "N/A" not in line
 
 
 # ------------------------------------------------- fm ssl list all -- structured data (`--json`)

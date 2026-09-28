@@ -126,7 +126,7 @@ fm ssl add mybench/client.example.com --challenge dns01 --dns-provider client-zo
 
 `--dns-provider` records the label on the certificate, so every later renewal reaches for the same account. Omit it and the certificate uses the default pair described above. The flag applies to DNS-01 only, and `fm ssl add` resolves the label before it changes anything, so a typo is refused on the spot instead of halfway through issuance. A label stored at neither scope is an error at renewal too: fm refuses rather than authenticating against whichever other account happens to be configured.
 
-To see what a domain will actually use, `fm ssl list mybench` has a **DNS Provider** column: `default` for the unlabelled account, the label for a certificate that names one, and `missing` when the label resolves to nothing at either scope.
+To see what a domain will actually use, `fm ssl list mybench` shows a **dns provider** fact on each DNS-01 certificate: `default` for the unlabelled account, the label for a certificate that names one, and `missing` when the label resolves to nothing at either scope. Certificates that do not use DNS-01 omit the fact rather than filling it in.
 
 acme.sh adds `_acme-challenge.example.com`, waits for propagation on its own, validates, then deletes the record. Propagation is usually well under a minute on Cloudflare; if a run fails on a missing TXT record, retry.
 

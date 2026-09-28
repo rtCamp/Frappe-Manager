@@ -4,9 +4,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import typer
-from rich.table import Table
 
-from frappe_manager.output_manager import OutputHandler, spinner
+from frappe_manager.output_manager import OutputHandler, railcard, spinner
 from frappe_manager.site_manager.bench_config import FMBenchEnvType
 from frappe_manager.site_manager.modules.cdn_detection import CDNProxyStatus, detect_cloudflare_proxy
 from frappe_manager.site_manager.site import Bench
@@ -22,7 +21,7 @@ from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME
 from frappe_manager.utils.config_keys import declared_field
 
 from .external_helpers import proxy_backend_domains
-from .helpers import get_output_handler
+from .helpers import cert_expiry_words, cert_status_word, get_output_handler
 
 if TYPE_CHECKING:
     from frappe_manager.site_manager.bench_config import BenchConfig
@@ -381,30 +380,9 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
         output.display_error(f"Error details: {e!s}")
         raise typer.Exit(1) from None
 
-
-def _dns_provider_cell(bench_config: "BenchConfig", cert: SSLCertificate | None) -> str:
-    """The credential set a DNS-01 certificate will authenticate with, for display only."""
-    if cert is None or cert.challenge_type != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
-        return "N/A"
-
-    label = declared_field(cert, "dns_provider")
-
-    try:
-        resolved = resolve_dns_provider(cert, bench_config)
-    except Exception:
-        # A label pointing at a credential set nobody stored has to read as broken in its own row.
-        # Letting the resolver's refusal out would abort the listing of every other domain with it.
-        resolved = None
-
-    if resolved is None:
-        return f"[fm.error]{label} (missing)[/fm.error]" if label else "[fm.error]none (missing)[/fm.error]"
-
-    return label or "default"
-
-
 def _dns_provider_facts(bench_config: "BenchConfig", cert: SSLCertificate | None) -> tuple[str | None, bool]:
-    """(label used, credential missing) for a DNS-01 certificate, mirroring `_dns_provider_cell`'s
-    classification as plain data instead of a display string with rich markup baked in."""
+    """(label used, credential missing) for a DNS-01 certificate: the plain-data classification a
+    card later renders as its "dns provider" fact."""
     if cert is None or cert.challenge_type != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         return None, False
 
@@ -413,8 +391,8 @@ def _dns_provider_facts(bench_config: "BenchConfig", cert: SSLCertificate | None
     try:
         resolved = resolve_dns_provider(cert, bench_config)
     except Exception:
-        # Same reasoning as `_dns_provider_cell`: a broken credential lookup marks this row
-        # missing rather than aborting every other domain's listing.
+        # A label pointing at a credential set nobody stored has to read as broken in its own row,
+        # rather than aborting every other domain's listing.
         resolved = None
 
     if resolved is None:
@@ -485,7 +463,7 @@ def _bench_certificate_rows(bench: Bench, backends: set[str]) -> list[dict]:
 def _bench_certificate_data(ctx: typer.Context, benchname: str) -> list[dict]:
     """`_bench_certificate_rows` resolved through `ctx`, the way `_list_bench_certificates` does.
     The single source `fm ssl list BENCH --json` and the `all` selector's structured payload
-    both call, so a bench's facts are computed once per call site and never scraped off a Table.
+    both call, so a bench's facts are computed once per call site and never scraped off a card.
     """
     services_manager = ctx.obj["services"]
     output = get_output_handler(ctx)
@@ -494,8 +472,51 @@ def _bench_certificate_data(ctx: typer.Context, benchname: str) -> list[dict]:
     return _bench_certificate_rows(bench, backends)
 
 
+def _bench_cert_meta(row: dict) -> str:
+    """Headline meta for one domain's card: status is a WORD first (text carries state; the
+    token only enhances it), "live" second -- whether a container is actually publishing
+    VIRTUAL_HOST for this hostname is not the same question as whether the certificate is valid:
+    a stopped bench, or a domain the bench no longer serves, keeps a perfectly good certificate
+    that nothing is using.
+    """
+    live_token = "fm.ok" if row["live"] else "fm.muted"
+    live_word = "live" if row["live"] else "not live"
+    return f"{cert_status_word(row['status'])} [fm.muted]·[/fm.muted] [{live_token}]{live_word}[/{live_token}]"
+
+
+def _dns_provider_fact(row: dict) -> str:
+    """Display form of a row's plain `dns_provider`/`dns_provider_missing` facts, built from data
+    the row already carries rather than resolving the credential set a second time."""
+    if row["dns_provider_missing"]:
+        return f"[fm.error]{row['dns_provider'] or 'none'} (missing)[/fm.error]"
+    return row["dns_provider"] or "default"
+
+
+def _bench_certificate_card(row: dict) -> railcard.Card:
+    """One domain's certificate as a card: built from the exact `_bench_certificate_rows` row
+    `--json` reads, so a card and the structured payload can never disagree.
+    """
+    card = railcard.Card(row["domain"], _bench_cert_meta(row), active=row["status"] == "issued")
+
+    if row["status"] != "none":
+        card.fact("type", row["certificate_type"])
+        if row["challenge_type"] == LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
+            card.fact("challenge", row["challenge_type"])
+            card.fact("dns provider", _dns_provider_fact(row))
+        if row["expiry"] is not None:
+            card.fact("expiry", cert_expiry_words(row["expiry"]))
+        if row["days_until_expiry"] is not None:
+            card.fact("days left", str(row["days_until_expiry"]))
+        if row["renewal"] is not None:
+            card.fact("renewal", row["renewal"].replace("_", " "))
+
+    return card
+
+
 def _list_bench_certificates(ctx: typer.Context, benchname: str):
-    """List all SSL certificates for a bench (existing logic extracted)."""
+    """List all SSL certificates for a bench: one card per domain, built from the same rows
+    `--json` reads (never a second, display-only computation of the same facts).
+    """
 
     services_manager = ctx.obj["services"]
 
@@ -506,69 +527,20 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
         return
 
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
-
-    all_domains = bench.bench_config.domains
-
-    certs = bench.certificate_manager.list_certificates()
-
-    cert_map = {cert["domain"]: cert for cert in certs}
-    # The status dicts carry no label, so the models are needed too; both come from this bench config.
-    cert_models = {cert.domain: cert for cert in bench.bench_config.ssl_certificates}
-
-    table = Table(show_header=True, header_style="fm.accent")
-    table.add_column("Domain", style="fm.info")
-    table.add_column("Type", style="fm.warn")
-    table.add_column("Challenge", style="fm.info")
-    table.add_column("DNS Provider", style="fm.info")
-    table.add_column("Status", style="fm.ok")
-    # Whether a container is actually publishing VIRTUAL_HOST for this hostname. A certificate is
-    # not evidence that anything serves the domain: a stopped bench, or a domain the bench no
-    # longer serves, keeps a perfectly valid certificate that nothing is using.
-    table.add_column("Live", style="fm.info")
-    table.add_column("Expiry", style="fm.info")
-    table.add_column("Days Left", justify="right")
-    table.add_column("Renewal", style="fm.error")
-
     backends = proxy_backend_domains(services_manager)
+    rows = _bench_certificate_rows(bench, backends)
 
-    # Show all domains, whether they have certificates or not
-    for domain in all_domains:
-        dns_provider = _dns_provider_cell(bench.bench_config, cert_models.get(domain))
+    if not any(row["status"] != "none" for row in rows):
+        # No domain in the bench has a certificate at all: a card per domain would be a page of
+        # identical "no ssl" cards, so this says so once and names how to fix it instead.
+        output.print(
+            f"No SSL certificates configured for bench '{benchname}'. "
+            f"Add one with 'fm ssl add {benchname} <domain>'.",
+            emoji_code=":information:",
+        )
+        return
 
-        if domain in cert_map:
-            # Domain has a certificate configured
-            cert = cert_map[domain]
-            ssl_type = cert["ssl_type"]
-            challenge_type = cert.get("challenge_type") or "N/A"
-            status = "✅ Issued" if cert["exists"] else "❌ Not Issued"
-
-            if cert["exists"] and cert["expiry_date"]:
-                expiry = cert["expiry_date"].strftime("%Y-%m-%d %H:%M")
-                days_left = str(cert["days_until_expiry"])
-                if ssl_type == "custom":
-                    # fm never auto-renews this type (no ACME account, no stored source bytes),
-                    # so "DUE"/"OK" -- which imply `fm ssl renew` acts on this row -- would be a
-                    # promise the command does not keep. Name the real action instead.
-                    renewal = "⚠️ re-import" if cert["needs_renewal"] else "manual"
-                else:
-                    renewal = "⚠️ DUE" if cert["needs_renewal"] else "✓ OK"
-            else:
-                expiry = "N/A"
-                days_left = "N/A"
-                renewal = "N/A"
-        else:
-            # Domain has no certificate configured
-            ssl_type = "none"
-            challenge_type = "N/A"
-            status = "⚪ No SSL"
-            expiry = "N/A"
-            days_left = "N/A"
-            renewal = "N/A"
-
-        serving = "yes" if domain in backends else "no"
-        table.add_row(domain, ssl_type, challenge_type, dns_provider, status, serving, expiry, days_left, renewal)
-
-    output.print_data(table)
+    output.print_data(railcard.cards([_bench_certificate_card(row) for row in rows]))
 
 
 def _resolve_domains(ctx: typer.Context, benchname: str, domain: str) -> list[str]:

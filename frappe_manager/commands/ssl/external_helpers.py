@@ -5,11 +5,10 @@ import subprocess
 from datetime import UTC, datetime
 
 import typer
-from rich.table import Table
 
 from frappe_manager import CLI_BENCHES_DIRECTORY, SSL_RENEW_BEFORE_DAYS
 from frappe_manager.logger import get_logger, set_context
-from frappe_manager.output_manager import spinner
+from frappe_manager.output_manager import railcard, spinner
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.site import Bench
@@ -24,7 +23,7 @@ from frappe_manager.ssl_manager.standalone_nginx_config_manager import Standalon
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
 from frappe_manager.utils.helpers import get_certificate_expiry_date
 
-from .helpers import get_output_handler
+from .helpers import cert_expiry_words, cert_status_word, get_output_handler
 
 logger = get_logger(component="ssl_external")
 
@@ -603,8 +602,38 @@ def _external_certificate_rows(services_manager, output) -> list[dict]:
     return rows
 
 
+def _external_cert_meta(row: dict) -> str:
+    """Headline meta for one external domain's card: status is a WORD first (text carries state;
+    the token only enhances it), then what actually answers for the hostname -- a certificate is
+    not evidence anything serves the domain, a domain whose vhost went missing keeps a perfectly
+    valid certificate and serves nginx-proxy's default 503.
+    """
+    return f"{cert_status_word(row['status'])} [fm.muted]· serving:{row['serving']}[/fm.muted]"
+
+
+def _external_certificate_card(row: dict) -> railcard.Card:
+    """One external domain's certificate as a card: built from the exact `_external_certificate_rows`
+    row `--json` reads, so a card and the structured payload can never disagree.
+    """
+    card = railcard.Card(row["domain"], _external_cert_meta(row), active=row["status"] == "issued")
+
+    if row["certificate_type"] != "none":
+        card.fact("type", row["certificate_type"])
+    if row["expiry"] is not None:
+        card.fact("expiry", cert_expiry_words(row["expiry"]))
+    if row["days_until_expiry"] is not None:
+        card.fact("days left", str(row["days_until_expiry"]))
+    if row["renewal"] is not None:
+        card.fact("renewal", row["renewal"].replace("_", " "))
+
+    return card
+
+
 def _list_external_certificates(ctx: typer.Context):
-    """List all external domain SSL certificates and detected non-SSL domains."""
+    """List all external domain SSL certificates and detected non-SSL domains: one card per
+    domain, built from the same rows `--json` reads (never a second, display-only computation of
+    the same facts).
+    """
 
     services_manager = ctx.obj["services"]
     output = get_output_handler(ctx)
@@ -613,98 +642,18 @@ def _list_external_certificates(ctx: typer.Context):
         output.print_data(_external_certificate_rows(services_manager, output))
         return
 
-    external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
-    external_manager = ExternalDomainConfigManager(external_config_path)
+    rows = _external_certificate_rows(services_manager, output)
 
-    external_domains = external_manager.list_domains()
-
-    detected_domains = _get_non_bench_domains_from_nginx(services_manager)
-
-    # Filter out domains that already have SSL certificates
-    external_domain_names = {d.domain for d in external_domains}
-    non_ssl_domains = [d for d in detected_domains if d not in external_domain_names]
-
-    standalone_nginx = _build_standalone_nginx(services_manager)
-    # Configs fm owns in conf.d with no certificate recorded against them: an `add` that died
-    # between writing the vhost and registering the domain. They serve a 503 for a real hostname
-    # and appear in no other listing, so this is the only place they can be noticed.
-    orphan_domains = sorted(set(standalone_nginx.managed_configs()) - external_domain_names)
-
-    if not external_domains and not non_ssl_domains and not orphan_domains:
+    if not rows:
         output.print("No external domains or SSL certificates configured", emoji_code=":information:")
         output.print("", emoji_code="")
         output.print("To add an external certificate:", emoji_code="")
         output.print("  fm ssl add --standalone <domain>", emoji_code="")
         return
 
-    _storage_config, link_manager = _build_certificate_storage(services_manager)
+    output.print_data(railcard.cards([_external_certificate_card(row) for row in rows]))
 
-    def serving(domain: str) -> str:
-        """What actually answers for this hostname, which is not the same question as whether a
-        certificate is valid: a domain whose vhost went missing has a perfect certificate and
-        serves nginx-proxy's default 503."""
-        if domain in detected_domains:
-            return "backend"
-        state = standalone_nginx.config_state(domain)
-        return state if state else "none"
-
-    table = Table(title="External Domains & SSL Certificates", show_header=True, header_style="fm.accent")
-    table.add_column("Domain", style="fm.info")
-    table.add_column("Type", style="fm.warn")
-    table.add_column("Status", style="fm.ok")
-    table.add_column("Serving", style="fm.info")
-    table.add_column("Expiry", style="fm.info")
-    table.add_column("Days Left", justify="right")
-    table.add_column("Renewal", style="fm.error")
-
-    # Add SSL-enabled domains
-    for domain_config in external_domains:
-        domain = domain_config.domain
-        ssl_type = domain_config.ssl_type
-
-        try:
-            privkey_path, fullchain_path = link_manager.get_certificate_paths(domain)
-
-            expiry_date = get_certificate_expiry_date(fullchain_path)
-            if expiry_date:
-                expiry = expiry_date.strftime("%Y-%m-%d %H:%M")
-                # Make datetime.now() timezone-aware to match expiry_date
-                now = datetime.now(UTC)
-                days_left = (expiry_date - now).days
-                needs_renewal = days_left <= SSL_RENEW_BEFORE_DAYS
-                renewal = "⚠️ DUE" if needs_renewal else "✓ OK"
-                status = "✅ Issued"
-            else:
-                expiry = "N/A"
-                days_left = "N/A"
-                renewal = "N/A"
-                status = "⚠️ Unknown"
-        except Exception as e:
-            output.debug(f"Error getting certificate status for {domain}: {e}")
-            status = "❌ Missing"
-            expiry = "N/A"
-            days_left = "N/A"
-            renewal = "N/A"
-
-        served = serving(domain)
-        # The HTTP-01 challenge is answered by a location inside that missing vhost, so renewal
-        # cannot succeed however healthy the certificate looks. DNS-01 needs no vhost and is
-        # therefore still fine.
-        if served == "none" and (domain_config.challenge_type or "http01") == "http01":
-            renewal = "⛔ no vhost"
-
-        table.add_row(domain, ssl_type, status, served, expiry, str(days_left), renewal)
-
-    for domain in orphan_domains:
-        table.add_row(domain, "none", "⚠️ Orphan", serving(domain), "N/A", "N/A", "N/A")
-
-    # Add detected non-SSL domains
-    for domain in non_ssl_domains:
-        table.add_row(domain, "none", "🔓 No SSL", "backend", "N/A", "N/A", "N/A")
-
-    output.print_data(table)
-
-    if non_ssl_domains:
+    if any(row["status"] == "no_ssl" for row in rows):
         output.print("\n[fm.warn]💡 Tip: Add SSL certificates for non-SSL domains:[/fm.warn]", emoji_code="")
         output.print("[fm.muted]  fm ssl add --standalone <domain>[/fm.muted]", emoji_code="")
 
