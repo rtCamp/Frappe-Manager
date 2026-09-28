@@ -157,7 +157,86 @@ def test_every_image_is_attempted_even_after_a_failure():
     )
     assert "Bimg:2" in reported.pulled
     assert "Aimg:1" not in reported.pulled
-    assert "Failed to pull Aimg:1" in reported.failed
+    assert "Aimg:1" in reported.failed
+    assert "rate-limiting" in reported.failed
+
+
+def test_one_cause_failing_every_image_is_reported_once():
+    """A broken credential helper or an unreachable registry refuses all ten of a first install's
+    pulls identically. Ten copies of the same paragraph bury the one line that fixes it, so the
+    images are listed and their shared diagnosis printed once."""
+
+    def pull(container_name, stream):
+        raise DockerException(
+            ["docker", "pull", container_name],
+            SubprocessOutput(
+                stdout=[],
+                stderr=['error getting credentials - err: exec: "docker-credential-desktop": not found'],
+                combined=[],
+                exit_code=1,
+            ),
+        )
+
+    docker = MagicMock(name="docker_client")
+    docker.pull.side_effect = pull
+    handler = get_global_output_handler()
+
+    with (
+        patch("frappe_manager.docker.DockerClient", return_value=docker),
+        patch(
+            "frappe_manager.utils.site.get_all_docker_images",
+            return_value={
+                "a": {"name": "Aimg", "tag": "1"},
+                "b": {"name": "Bimg", "tag": "2"},
+                "c": {"name": "Cimg", "tag": "3"},
+            },
+        ),
+        patch.object(handler, "live_lines"),
+        patch.object(handler, "change_head"),
+        patch.object(handler, "print"),
+        patch.object(handler, "display_error") as errored,
+    ):
+        assert pull_docker_images() is False
+
+    lines = [c.args[0] for c in errored.call_args_list]
+    assert sum("credsStore" in line for line in lines) == 1
+    assert [line for line in lines if "Aimg:1" in line and "Bimg:2" in line and "Cimg:3" in line]
+
+
+def test_two_registries_failing_differently_each_get_their_own_diagnosis():
+    """Grouping must not merge causes: a first install pulls from ghcr.io AND Docker Hub, and a
+    stale login for one says nothing about the other."""
+
+    def pull(container_name, stream):
+        stderr = ["error from registry: denied"] if container_name.startswith("ghcr.io") else ["toomanyrequests"]
+        raise DockerException(
+            ["docker", "pull", container_name],
+            SubprocessOutput(stdout=[], stderr=stderr, combined=[], exit_code=1),
+        )
+
+    docker = MagicMock(name="docker_client")
+    docker.pull.side_effect = pull
+    handler = get_global_output_handler()
+
+    with (
+        patch("frappe_manager.docker.DockerClient", return_value=docker),
+        patch(
+            "frappe_manager.utils.site.get_all_docker_images",
+            return_value={
+                "a": {"name": "ghcr.io/rtcamp/frappe-manager-frappe", "tag": "v1"},
+                "b": {"name": "redis", "tag": "8-alpine"},
+            },
+        ),
+        patch.object(handler, "live_lines"),
+        patch.object(handler, "change_head"),
+        patch.object(handler, "print"),
+        patch.object(handler, "display_error") as errored,
+    ):
+        assert pull_docker_images() is False
+
+    text = "\n".join(c.args[0] for c in errored.call_args_list)
+    assert "ghcr.io" in text
+    assert "rate-limiting" in text
 
 
 def test_all_images_pulled_reports_success():

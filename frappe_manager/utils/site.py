@@ -260,23 +260,33 @@ def pull_docker_images() -> bool:
 
     images_list = list(dict.fromkeys(images_list))
 
-    no_error = True
+    from frappe_manager.site_manager.modules.transport import pull_failure_cause
+
+    # Ten images, one cause. A broken credential helper or an unreachable registry fails every
+    # pull for the same reason, and printing that paragraph ten times buries the one line under
+    # its own repetitions. The failed images are named on the row above their shared diagnosis
+    # instead, so an operator still sees which pulls did not happen.
+    failures: dict[str, list[str]] = {}
+    output = get_global_output_handler()
+
     for image in images_list:
-        output = get_global_output_handler()
         status = f"[fm.info]Pulling image[/fm.info] [fm.warn]{image}[/fm.warn]"
         output.change_head(status, style=None)
         try:
             pull_output = docker.pull(container_name=image, stream=True)
             output.live_lines(pull_output, padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE)
         except DockerException as e:
-            no_error = False
-            # display_error, not error(): error() always re-raises, which aborted the loop on the
-            # first failure and made `return no_error` (and its callers' cleanup) unreachable.
-            output.display_error(f"[fm.error]Error [/fm.error]: Failed to pull {image}: {e}")
+            failures.setdefault(pull_failure_cause(image, e), []).append(image)
         else:
             output.print(f"[fm.ok]Pulled[/fm.ok] [fm.info]{image}[/fm.info]")
 
-    return no_error
+    for cause, images_failed in failures.items():
+        # display_error, not error(): error() always re-raises, which aborted the loop on the
+        # first failure and made `return False` (and its callers' cleanup) unreachable.
+        output.display_error(f"[fm.error]Could not pull[/fm.error] {', '.join(images_failed)}")
+        output.display_error(cause)
+
+    return not failures
 
 
 def get_sitename_from_current_path() -> str | None:

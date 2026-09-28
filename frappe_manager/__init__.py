@@ -25,6 +25,11 @@ SSL_RENEW_BEFORE_DAYS = 30
 CLI_DEFAULT_DELIMETER = "__"
 CLI_SITE_NAME_DELIMETER = "_"
 
+# fm's OWN published images, as a repository prefix. Only ever compared against, never built from:
+# what an operator runs is decided by the compose file and by `--app-image`, and this is how code
+# tells one of fm's own images from anything else on the host.
+FM_IMAGE_PREFIX = "ghcr.io/rtcamp/frappe-manager"
+
 
 DEFAULT_EXTENSIONS = [
     # Debugger

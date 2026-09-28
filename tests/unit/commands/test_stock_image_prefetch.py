@@ -127,6 +127,61 @@ class TestPrefetchStillHappens:
         assert "start" not in STOCK_IMAGE_PREFETCH_SKIP_COMMANDS
 
 
+class TestAFailedFirstInstallLeavesNothingBehind:
+    """A first command that cannot pull its images must not leave a half-made fm home: the next
+    command would find `~/frappe` present, read as an existing install, and skip the very setup
+    that never finished."""
+
+    def _run(self, tmp_path, monkeypatch, *, home_exists: bool):
+        cli_dir = tmp_path / "fm"
+        if home_exists:
+            (cli_dir / "sites").mkdir(parents=True)
+
+        output = MagicMock(spec=OutputHandler)
+        config = MagicMock(name="fm_config_manager")
+        config.get_system_migration_version.return_value = Version(FM_VERSION)
+        config.logs.file_level = "DEBUG"
+
+        docker_client = MagicMock(name="DockerClient")
+        docker_client.return_value.server_running.return_value = True
+        fm_config_cls = MagicMock(name="FMConfigManager")
+        fm_config_cls.import_from_toml.return_value = config
+
+        # The real LoggingOutputHandler opens CLI_DIR/logs/fm.log, which CREATES the home. That
+        # side effect is the whole bug: whether the home pre-existed has to be read before it.
+        def make_handler(_inner):
+            (cli_dir / "logs").mkdir(parents=True, exist_ok=True)
+            return output
+
+        monkeypatch.setattr(sys, "argv", ["fm", "start", "mybench"])
+        with ExitStack() as stack:
+            p = stack.enter_context
+            p(patch("frappe_manager.commands.CLI_DIR", cli_dir))
+            p(patch("frappe_manager.commands.CLI_BENCHES_DIRECTORY", cli_dir / "sites"))
+            p(patch("frappe_manager.commands.CLI_FM_CONFIG_PATH", cli_dir / "fm_config.toml"))
+            p(patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", cli_dir / "sites"))
+            p(patch("frappe_manager.commands.spinner", _nullcontext))
+            p(patch("frappe_manager.commands.DockerClient", docker_client))
+            p(patch("frappe_manager.commands.FMConfigManager", fm_config_cls))
+            p(patch("frappe_manager.commands.LoggingOutputHandler", make_handler))
+            p(patch("frappe_manager.commands.get_current_fm_version", return_value=FM_VERSION))
+            p(patch("frappe_manager.commands.pull_docker_images", return_value=False))
+            CliRunner().invoke(app, ["start", "mybench"])
+        return cli_dir
+
+    def test_the_home_this_run_created_is_removed_again(self, tmp_path, monkeypatch):
+        cli_dir = self._run(tmp_path, monkeypatch, home_exists=False)
+
+        assert not cli_dir.exists()
+
+    def test_an_existing_home_survives_a_failed_pull(self, tmp_path, monkeypatch):
+        """The other half: wiping unconditionally deleted an existing install's logs and backups
+        because one image pull failed."""
+        cli_dir = self._run(tmp_path, monkeypatch, home_exists=True)
+
+        assert cli_dir.exists()
+
+
 class TestTheExemptionIsRealCommands:
     @pytest.mark.parametrize("name", sorted(STOCK_IMAGE_PREFETCH_SKIP_COMMANDS))
     def test_each_exempt_name_is_a_command_fm_actually_has(self, name):

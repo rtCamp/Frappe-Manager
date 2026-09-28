@@ -116,16 +116,22 @@ Work through these in order:
 - On Windows 10, `*.localhost` may not resolve; add a `hosts` entry as described in the [Installation](getting-started/installation.md#windows)
 - Still stuck? Read the log: `fm logs mybench -f`, then [Reading logs](reference/logs.md)
 
-### Docker images fail to pull from GHCR. What can I try?
+### Docker images fail to pull. What can I try?
 
-fm's images are public on `ghcr.io`, so no login is needed. A stale or expired GHCR credential left in your Docker keychain is the usual cause; drop it and pull again:
+fm reads the registry's own answer and names the fix in the error it prints, so start there. The causes it tells apart:
 
-```bash
-docker logout ghcr.io
-fm self update-images
-```
+| What fm says | What to do |
+| --- | --- |
+| rejected this host's stored credentials | `docker logout ghcr.io`. fm's images are public, so no login is needed, and a stale or expired token is refused where no token at all would have worked |
+| cannot run the credential helper named in `~/.docker/config.json` | install that helper, or delete the `credsStore`/`credHelpers` entry naming it. Nothing pulls at all while it is broken, public images included. A `config.json` copied from a Mac is the usual source: it names `docker-credential-desktop`, which a Linux host does not have |
+| no such image is published | fm publishes images for released versions only, so a git checkout or dev build has none. Install a released fm, or build the images yourself with `Docker/build.sh` |
+| could not reach the registry at all | DNS, the network, or an HTTP proxy. A proxy is the docker daemon's setting, not your shell's |
+| is rate-limiting this host's anonymous pulls | `docker login docker.io` with any account, or wait. Six of the ten images fm pulls come from Docker Hub |
+| the TLS certificate is not trusted | an intercepting proxy. Add its CA to the docker daemon's trust store |
+| the disk is full | `fm prune`, `docker system prune` |
+| refused an anonymous request | that image is private: `docker login <registry>`. fm uses the daemon's credentials and holds none itself |
 
-If pulls still fail, check the CLI logs for details: [Logs](reference/logs.md).
+Retry with `fm self update-images`, or by running the same command again if this was a first install. If pulls still fail, check the CLI logs for details: [Logs](reference/logs.md).
 
 ### How do I enable HTTPS for my bench?
 

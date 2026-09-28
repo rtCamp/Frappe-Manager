@@ -26,6 +26,7 @@ satisfies the tag it was saved under and not a digest.
 
 import os
 
+from frappe_manager import FM_IMAGE_PREFIX
 from frappe_manager.docker import DockerClient
 from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.utils.helpers import ImageRef
@@ -93,20 +94,85 @@ def _auth_cause(host: str, *, when_out: str, when_in: str) -> str:
     return when_in if logged_in_to(host) else when_out
 
 
-def _pull_failure_message(image: str, error: object) -> str:
-    """Why a pull failed, leading with what to do about it.
+def _registry_refusal_remedy(image: str, host: str, said: str) -> str | None:
+    """The fix for a pull failure the registry (or docker's own credential layer) described
+    precisely enough to act on, or None when it did not.
+
+    Checked BEFORE the login-presence heuristic below, because that heuristic answers one
+    question -- "has this host run `docker login`?" -- and most first-install pull failures are
+    not about that at all. Answering "run docker login" to a DNS failure or a full disk sends the
+    reader to the wrong place, which is worse than saying nothing.
+
+    The signatures are matched on the registry's own words, because the exit code is 1 for all of
+    them. The credential, auth, resolution and network ones are strings measured from a real
+    `docker pull`; the rate-limit and disk ones are the daemon's documented wording.
+    """
+    remedy = None
+    if "error getting credentials" in said or "docker-credential-" in said:
+        remedy = (
+            "docker cannot run the credential helper named in ~/.docker/config.json, so it cannot "
+            "pull anything at all, public images included. Install that helper or delete the "
+            '"credsStore"/"credHelpers" entry naming it'
+        )
+    elif "denied" in said or "unauthorized" in said or "authentication required" in said:
+        remedy = (
+            (
+                f"{host} rejected this host's stored credentials. fm's own images are public, so "
+                f"`docker logout {host}` is usually the fix; log in again if the image is private "
+                f"and the token has expired"
+            )
+            if logged_in_to(host)
+            else (
+                f"{host} refused an anonymous request. If that image is private, run "
+                f"`docker login {host}` here and retry: fm uses the daemon's own credentials and "
+                f"holds none itself"
+            )
+        )
+    elif "toomanyrequests" in said or "rate limit" in said:
+        remedy = (
+            f"{host} is rate-limiting this host's anonymous pulls. Run `docker login {host}` with "
+            f"any account to raise the limit, or wait for the window to reset"
+        )
+    elif "no such host" in said or "dial tcp" in said or "i/o timeout" in said or "connection refused" in said:
+        remedy = (
+            f"this host could not reach {host} at all. Check DNS, the network, and any HTTP proxy "
+            f"the docker daemon needs (proxies are the daemon's setting, not the shell's)"
+        )
+    elif "x509" in said or "certificate signed by unknown authority" in said:
+        remedy = (
+            f"the TLS certificate {host} presented is not trusted by the docker daemon, which is "
+            f"what an intercepting proxy looks like. Add its CA to the daemon's trust store"
+        )
+    elif "no space left on device" in said:
+        remedy = "the disk is full. Reclaim space (`fm prune`, `docker system prune`) and retry"
+    elif ("not found" in said or "manifest unknown" in said) and image.startswith(FM_IMAGE_PREFIX):
+        remedy = (
+            "no such image is published. fm only publishes images for RELEASED versions, so a dev "
+            "or git checkout has none: install a released fm, or build the images yourself "
+            "(Docker/build.sh)"
+        )
+    return remedy
+
+
+def pull_failure_cause(image: str, error: object) -> str:
+    """Why a pull failed, without naming the image.
+
+    Separate from the message because one cause commonly fails SEVERAL pulls -- a first install
+    asks for ten images, and a broken credential helper or an unreachable registry refuses all of
+    them identically. A caller with a list groups by this and prints it once.
 
     Registries disagree about how they refuse an anonymous request for a private image.
     Docker Hub says "may require 'docker login'". GHCR says ``manifest unknown``, which
     reads exactly like an image that was never pushed, so an operator who is merely not
     logged in goes hunting for a bad reference. fm holds no registry credentials of its own, so
-    this message is the only place it can point at the real fix.
+    this is the only place it can point at the real fix.
 
     The actionable sentence comes first and the registry's words last, because the reader
     stops at the first line.
     """
     host = normalized_domain(image)
-    cause = _auth_cause(
+    said = _registry_said(error)
+    cause = _registry_refusal_remedy(image, host, said.lower()) or _auth_cause(
         host,
         when_in=(
             f"this host is logged in to {host}, so check the image was actually pushed "
@@ -118,7 +184,12 @@ def _pull_failure_message(image: str, error: object) -> str:
             f"and holds none itself"
         ),
     )
-    return f"Could not pull {image}: {cause}. The registry said: {_registry_said(error)}"
+    return f"{cause}. The registry said: {said}"
+
+
+def pull_failure_message(image: str, error: object) -> str:
+    """`pull_failure_cause` with the image named, for a caller pulling exactly one."""
+    return f"Could not pull {image}: {pull_failure_cause(image, error)}"
 
 
 def _push_failure_message(image: str, error: object, pushed: list[str]) -> str:
@@ -191,7 +262,7 @@ def fetch_one(docker: DockerClient, image: str, output=None) -> None:
     try:
         docker.pull(image, stream=False)
     except DockerException as e:
-        raise TransportError(_pull_failure_message(image, e)) from e
+        raise TransportError(pull_failure_message(image, e)) from e
 
 
 def fetch_image(docker: DockerClient, image: str, nginx_image: str, output=None) -> None:

@@ -15,14 +15,14 @@ from frappe_manager import (
     CLI_CACHE_PATH,
     CLI_DIR,
     CLI_SERVICES_DIRECTORY,
+    FM_IMAGE_PREFIX,
 )
 from frappe_manager.ssl_manager.trust_store_manager import TrustStoreEntry, TrustStoreManager
 from frappe_manager.utils.prune import dir_size
 
-# Only fm's OWN images. mariadb, redis, nginx-proxy, mailpit and adminer are public images this
-# host may well be using for something else, and an uninstall that deletes another project's base
-# image is an uninstall nobody runs twice. They are left behind deliberately.
-FM_IMAGE_PREFIX = "ghcr.io/rtcamp/frappe-manager"
+# `FM_IMAGE_PREFIX` is fm's own images only. mariadb, redis, nginx-proxy, mailpit and adminer are
+# public images this host may well be using for something else, and an uninstall that deletes
+# another project's base image is an uninstall nobody runs twice. They are left behind deliberately.
 
 GLOBAL_CONTAINERS = ("fm_mariadb", "fm_nginx-proxy")
 GLOBAL_NETWORKS = ("fm-frontend-network", "fm-backend-network")

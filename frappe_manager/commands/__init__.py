@@ -376,6 +376,12 @@ def app_callback(
     ctx.obj["is_help_called"] = help_called
 
     if not help_called:
+        # Read BEFORE the line below, which creates CLI_DIR as a side effect of opening its log
+        # file. Asking afterwards always answered "it already existed", which quietly disabled the
+        # first-install cleanup: a host whose very first `fm` command failed to pull its images was
+        # left with a half-made ~/frappe that then read as an existing install.
+        created_home = not CLI_DIR.exists()
+
         # The file-logging wrapper is built HERE, not above: constructing it opens
         # CLI_DIR/logs/fm.log, which creates the fm home as a side effect. Doing that before the
         # help gate meant `fm start --help` wrote a log directory onto a machine that had never
@@ -386,7 +392,6 @@ def app_callback(
         output.set_interactive_mode(non_interactive_flag=non_interactive or json_output)
 
         with spinner(output, "Working"):
-            created_home = not CLI_DIR.exists()
             if not CLI_DIR.is_dir():
                 if CLI_DIR.exists():
                     output.exit(f"{CLI_DIR} exists but is not a directory! Aborting!")
@@ -462,7 +467,10 @@ def app_callback(
                     # deleted an existing install's logs and backups because one image pull failed.
                     if created_home and CLI_DIR.exists():
                         shutil.rmtree(CLI_DIR)
-                    output.exit("Aborting. Not able to pull all required Docker images")
+                    output.exit(
+                        "Aborting: could not pull every image fm needs. Fix the cause named above, "
+                        "then run the same command again."
+                    )
 
                 # Stamp the services-tier ledger at the current version: everything this host
                 # will ever manage is being created by THIS fm, so there is nothing to migrate

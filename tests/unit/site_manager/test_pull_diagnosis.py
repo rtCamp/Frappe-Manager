@@ -159,6 +159,96 @@ class TestTheMessage:
         assert _registry_said(RuntimeError("socket hung up")) == "socket hung up"
 
 
+class TestFailuresThatAreNotAboutLogin:
+    """Every stderr here was captured from a real `docker pull`, because the whole point is that
+    the login question -- the only one the fallback can answer -- is the WRONG question for most
+    of what goes wrong on a first install. Answering "run docker login" to a full disk or a DNS
+    failure costs the reader the one line they actually read.
+    """
+
+    def _fail(self, image, stderr, logged_in=False):
+        docker = MagicMock()
+        docker.image_exists.return_value = False
+        docker.pull.side_effect = _docker_error(stderr)
+        with patch(f"{MODULE}.logged_in_to", return_value=logged_in), pytest.raises(TransportError) as excinfo:
+            fetch_image(docker, image, f"{image}-nginx")
+        return str(excinfo.value)
+
+    def test_a_stale_login_for_a_public_registry_says_log_out(self):
+        """The trap this exists for: fm's images are PUBLIC, so a host that never logged in pulls
+        them fine and a host holding an expired ghcr token is refused. Telling that reader to log
+        in leaves them exactly where they were."""
+        message = self._fail(
+            "ghcr.io/rtcamp/frappe-manager-frappe:v1.0.0",
+            "Error response from daemon: error from registry: denied",
+            logged_in=True,
+        )
+
+        assert "docker logout ghcr.io" in message
+
+    def test_a_credential_helper_that_is_not_installed_is_named_as_the_cause(self):
+        """A config.json copied from a mac names `docker-credential-desktop`, which no Linux host
+        has, and then NOTHING pulls -- public images included. The registry is never even reached,
+        so blaming it sends the reader to the wrong machine."""
+        message = self._fail(
+            "ghcr.io/rtcamp/frappe-manager-frappe:v1.0.0",
+            'error getting credentials - err: exec: "docker-credential-desktop": '
+            "executable file not found in $PATH, out: ``",
+        )
+
+        assert "credsStore" in message
+        assert "docker login" not in message
+
+    def test_an_unpublished_fm_version_says_so_instead_of_blaming_auth(self):
+        """fm publishes images for RELEASED versions only, so a git checkout asks for a tag that
+        was never pushed. That is the single most likely first-install failure for a contributor,
+        and `not found` reads like a private-image refusal."""
+        message = self._fail(
+            "ghcr.io/rtcamp/frappe-manager-frappe:v99.99.99",
+            'failed to resolve reference "ghcr.io/rtcamp/frappe-manager-frappe:v99.99.99": not found',
+        )
+
+        assert "RELEASED versions" in message
+        assert "docker login" not in message
+
+    def test_an_unreachable_registry_is_a_network_problem_not_an_auth_one(self):
+        message = self._fail(
+            "ghcr.io/acme/app:v1",
+            'failed to do request: Head "https://ghcr.io/v2/": dial tcp: lookup ghcr.io on 127.0.0.53:53: no such host',
+        )
+
+        assert "DNS" in message
+        assert "docker login" not in message
+
+    def test_a_rate_limited_registry_is_told_apart_from_a_refusal(self):
+        """Docker Hub answers an over-limit anonymous pull with a 429, and six of the ten images
+        fm prefetches come from Hub. Logging in is the fix here, but for a different reason than
+        a private image, and the wait-and-retry option only exists for this one."""
+        message = self._fail("redis:8-alpine", "toomanyrequests: You have reached your pull rate limit")
+
+        assert "rate-limiting" in message
+        assert "docker login docker.io" in message
+
+    def test_an_intercepting_proxy_is_named_rather_than_the_registry(self):
+        message = self._fail("ghcr.io/acme/app:v1", "x509: certificate signed by unknown authority")
+
+        assert "trust store" in message
+
+    def test_a_full_disk_is_not_reported_as_a_registry_problem(self):
+        message = self._fail("ghcr.io/acme/app:v1", "write /var/lib/docker/tmp/x: no space left on device")
+
+        assert "disk is full" in message
+        assert "docker login" not in message
+
+    def test_a_third_party_private_image_still_gets_the_login_advice(self):
+        """The fallback must survive: a 401 from a registry this host never logged in to IS the
+        login case, and the signatures above must not swallow it."""
+        message = self._fail("quay.io/acme/app:v1", "unexpected status from HEAD request: 401 Unauthorized")
+
+        assert "docker login quay.io" in message
+
+
+
 class TestTheCompanionImageIsNoLongerOptional:
     """Reversed contract (was `TestTheNginxImageIsStillOptional`): `fm bake` now always
     builds the `-nginx` companion (bake.py's `_build_nginx_image` no longer skips it for an
