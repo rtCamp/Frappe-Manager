@@ -132,6 +132,12 @@ class ServicesManager:
 
         for service in DATABASE_SERVICES:
             needed = service in engines
+            # Before the no-op shortcut below: a host whose postgres is ALREADY enabled changes no
+            # profile, so a check that ran only on the transition would never fire on the one host
+            # that needs it -- the one whose datadir predates an image fm has since bumped.
+            if needed and service == "postgres":
+                self.check_postgres_datadir_major()
+
             if self.compose_file_manager.is_service_profile_disabled(service) == (not needed):
                 continue
 
@@ -144,6 +150,43 @@ class ServicesManager:
             else:
                 self.output.print(f"Stopping fm's {service}: no site on this host uses it.")
                 self.docker_client.compose.rm(services=[service], stop=True, force=True)
+
+    def check_postgres_datadir_major(self) -> None:
+        """Refuse to start fm's postgres against a datadir written by a different major.
+
+        Postgres has no equivalent of MariaDB's MARIADB_AUTO_UPGRADE. Started against a datadir
+        from another major it exits immediately with "database files are incompatible with
+        server", and compose's `restart: always` turns that into a crash loop -- a container that
+        keeps coming back and never serves, with the real sentence buried in `docker logs`.
+
+        `PG_VERSION` in the datadir is the server's own record of which major wrote it, so the
+        answer needs no running container and costs one file read.
+
+        Named as a REFUSAL rather than an upgrade, because there is no safe automatic move: going
+        up a major means a dump taken by the old server and a restore into a new datadir, and
+        doing that silently on start is the one thing an operator must not discover afterwards.
+        """
+        marker = self.path / "postgres" / "data" / "pgdata" / "PG_VERSION"
+        if not marker.is_file():
+            return
+
+        try:
+            on_disk = marker.read_text().strip()
+        except OSError:
+            return
+
+        service = self.compose_file_manager.yml.get("services", {}).get("postgres", {})
+        image = str(service.get("image", ""))
+        wanted = image.rpartition(":")[2].split(".")[0]
+        if not on_disk or not wanted or on_disk == wanted:
+            return
+
+        self.output.exit(
+            f"fm's postgres data was written by PostgreSQL {on_disk}, and fm now runs {wanted}. "
+            f"Postgres does not upgrade a datadir in place, so starting it would fail with "
+            f"'database files are incompatible with server'. Dump every database with the {on_disk} "
+            f"image, move {marker.parent} aside, and restore into the new one."
+        )
 
     def database_server_info_for(self, engine) -> DatabaseServerServiceInfo:
         """Endpoint and root credentials for one of fm's OWN database servers.

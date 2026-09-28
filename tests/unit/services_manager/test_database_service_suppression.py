@@ -186,3 +186,65 @@ class TestReconciling:
         manager.reconcile_database_services({"postgres"})
 
         manager.compose_file_manager.set_service_disabled.assert_any_call("postgres", disabled=False)
+
+
+class TestThePostgresMajorGuard:
+    """Postgres has no equivalent of MariaDB's automatic datadir upgrade. Started against a
+    datadir from another major it exits with "database files are incompatible with server", and
+    `restart: always` turns that into a container that keeps coming back and never serves, with
+    the real sentence buried in `docker logs`."""
+
+    def _manager(self, tmp_path, *, on_disk: str | None, image: str):
+        manager = _manager(tmp_path)
+        manager.compose_file_manager = mock.MagicMock()
+        manager.compose_file_manager.yml = {"services": {"postgres": {"image": image}}}
+        manager.output = mock.MagicMock()
+        manager.output.exit.side_effect = SystemExit(1)
+        if on_disk is not None:
+            marker = tmp_path / "services" / "postgres" / "data" / "pgdata" / "PG_VERSION"
+            marker.parent.mkdir(parents=True)
+            marker.write_text(f"{on_disk}\n")
+        return manager
+
+    def test_a_matching_major_starts(self, tmp_path):
+        manager = self._manager(tmp_path, on_disk="17", image="postgres:17")
+
+        manager.check_postgres_datadir_major()
+
+        manager.output.exit.assert_not_called()
+
+    def test_a_datadir_from_another_major_is_refused(self, tmp_path):
+        manager = self._manager(tmp_path, on_disk="16", image="postgres:17")
+
+        with pytest.raises(SystemExit):
+            manager.check_postgres_datadir_major()
+
+        assert "16" in manager.output.exit.call_args.args[0]
+
+    def test_the_refusal_says_what_to_do(self, tmp_path):
+        """There is no safe automatic move: going up a major is a dump by the OLD server and a
+        restore into a new datadir, and fm must not do that silently on a start."""
+        manager = self._manager(tmp_path, on_disk="16", image="postgres:17")
+
+        with pytest.raises(SystemExit):
+            manager.check_postgres_datadir_major()
+
+        message = manager.output.exit.call_args.args[0]
+        assert "Dump" in message
+
+    def test_a_host_with_no_datadir_yet_is_not_refused(self, tmp_path):
+        """First start on a fresh install: the datadir is what postgres is about to create."""
+        manager = self._manager(tmp_path, on_disk=None, image="postgres:17")
+
+        manager.check_postgres_datadir_major()
+
+        manager.output.exit.assert_not_called()
+
+    def test_a_minor_difference_is_not_a_mismatch(self, tmp_path):
+        """`PG_VERSION` records the major alone, and an image tag may carry a minor. Comparing the
+        whole strings would refuse every host on `postgres:17.2`."""
+        manager = self._manager(tmp_path, on_disk="17", image="postgres:17.2")
+
+        manager.check_postgres_datadir_major()
+
+        manager.output.exit.assert_not_called()
