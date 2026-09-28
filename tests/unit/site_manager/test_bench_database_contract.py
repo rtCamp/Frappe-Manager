@@ -42,7 +42,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.site_manager.bench_config import RedisConfig
+from frappe_manager.site_manager.bench_config import DatabaseEngine, RedisConfig
 from frappe_manager.site_manager.modules.bench_database import BenchDatabase
 
 MODULE = "frappe_manager.site_manager.modules.bench_database"
@@ -74,8 +74,14 @@ class _Harness:
         self.db = self.recorder.db
         self.set_config = self.recorder.set_config
         self.bench_path = tmp_path / "benches" / bench_name
-        self.bench_config = SimpleNamespace(redis=redis, primary_site=primary_site)
-        self.services = SimpleNamespace(database_manager=self.db)
+        self.bench_config = SimpleNamespace(
+            redis=redis,
+            primary_site=primary_site,
+            # These tests exercise the mariadb engine only; postgres routing is pinned in
+            # test_external_db_guards.py::test_a_postgres_schema_is_dropped_on_the_postgres_manager_not_mariadb.
+            get_database=lambda site=None: SimpleNamespace(type=DatabaseEngine.mariadb),
+        )
+        self.services = SimpleNamespace(database_manager=self.db, database_manager_for=lambda engine: self.db)
         self.database = BenchDatabase(
             bench_name=bench_name,
             bench_path=self.bench_path,

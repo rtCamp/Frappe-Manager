@@ -1051,9 +1051,9 @@ def test_delete_bench_delegates_the_whole_sequence(tmp_path):
     service = _service(tmp_path)
     bench = MagicMock()
     with patch.object(BenchService, "get_bench", return_value=bench):
-        service.delete_bench("a.localhost", delete_db_from_mariadb=True)
+        service.delete_bench("a.localhost", delete_fm_managed_db=True)
 
-    bench.remove_bench.assert_called_once_with(delete_db_from_mariadb=True, prompt=True)
+    bench.remove_bench.assert_called_once_with(delete_fm_managed_db=True, prompt=True)
     bench.remove_containers_and_dirs.assert_not_called()
     bench.remove_certificate.assert_not_called()
 
@@ -1063,9 +1063,9 @@ def test_the_yes_flag_becomes_prompt_false(tmp_path):
     service = _service(tmp_path)
     bench = MagicMock()
     with patch.object(BenchService, "get_bench", return_value=bench):
-        service.delete_bench("a.localhost", yes=True, delete_db_from_mariadb=False)
+        service.delete_bench("a.localhost", yes=True, delete_fm_managed_db=False)
 
-    bench.remove_bench.assert_called_once_with(delete_db_from_mariadb=False, prompt=False)
+    bench.remove_bench.assert_called_once_with(delete_fm_managed_db=False, prompt=False)
 
 
 def test_delete_bench_returns_what_the_removal_returned(tmp_path):
@@ -1090,7 +1090,7 @@ def test_delete_bench_falls_back_to_the_cleanup_bench_when_the_config_is_missing
         service.delete_bench("a.localhost", yes=True)
 
     cleanup.assert_called_once_with("a.localhost")
-    stub.remove_bench.assert_called_once_with(delete_db_from_mariadb=None, prompt=False)
+    stub.remove_bench.assert_called_once_with(delete_fm_managed_db=None, prompt=False)
 
 
 def test_create_cleanup_bench_builds_an_unchecked_bench_with_a_placeholder_config(tmp_path):

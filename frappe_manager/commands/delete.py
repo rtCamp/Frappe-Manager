@@ -23,16 +23,23 @@ def _blast_radius(schemas) -> list[str]:
     and a blast radius that under-reports is worse than none.
 
     `SiteSchema.droppable` and `SiteSchema.unreadable` partition the sites exactly, so every site
-    is reported once. A droppable schema is in the mariadb container fm owns and is dropped. An
+    is reported once. A droppable schema is on the server fm owns for its engine and is dropped. An
     unreadable one is neither dropped nor deliberately left: fm cannot drop a name it does not know
     and cannot promise it is gone, and that is the case that orphans a schema, so it is reported as
     itself. Everything else has a schema on a server fm does not own, which is named and left alone.
     """
     rows: list[tuple[str, str]] = [(_plural(len(schemas), "site"), ", ".join(s.site for s in schemas))]
 
-    dropped = [s.schema for s in schemas if s.droppable]
+    dropped = [s for s in schemas if s.droppable]
     if dropped:
-        rows.append((f"{_plural(len(dropped), 'schema')} dropped", f"{', '.join(dropped)}  (mariadb)"))
+        engines = {s.engine.value for s in dropped}
+        if len(engines) == 1:
+            label = f"{', '.join(s.schema for s in dropped)}  ({engines.pop()})"
+        else:
+            # A bench spanning both engines: a single trailing label would misattribute a schema
+            # to the wrong server, so each schema names its own.
+            label = ", ".join(f"{s.schema} ({s.engine.value})" for s in dropped)
+        rows.append((f"{_plural(len(dropped), 'schema')} dropped", label))
 
     kept = [f"{s.schema} on {s.external_host}" for s in schemas if not s.droppable and not s.unreadable]
     if kept:
@@ -102,7 +109,7 @@ def _site_schemas(bench_service: BenchService, benchname: str) -> list:
 
 @example(
     "Delete a bench and its database",
-    "{benchname} --delete-db-from-fm-mariadb",
+    "{benchname} --delete-fm-managed-db",
     benchname="mybench",
 )
 @example(
@@ -119,18 +126,18 @@ def _site_schemas(bench_service: BenchService, benchname: str) -> list:
 )
 @example(
     "Delete the bench but keep the database",
-    "{benchname} --no-delete-db-from-fm-mariadb",
-    detail="The bench is gone; the schema stays in mariadb.",
+    "{benchname} --no-delete-fm-managed-db",
+    detail="The bench is gone; the schema stays on its server.",
     benchname="mybench",
 )
 @example(
     "Delete unattended",
-    "{benchname} --yes --delete-db-from-fm-mariadb",
+    "{benchname} --yes --delete-fm-managed-db",
     benchname="mybench",
 )
 @example(
     "Delete a multi-site bench unattended",
-    "{benchname} --all-sites --yes --delete-db-from-fm-mariadb",
+    "{benchname} --all-sites --yes --delete-fm-managed-db",
     detail="--yes skips the confirmation; --all-sites is still required, so no script deletes more than it named.",
     benchname="mybench",
 )
@@ -153,11 +160,11 @@ def delete(
             help="Delete without the removal confirmation, including the typed-name confirmation a multi-site bench asks for. The database question is asked anyway, and --all-sites is still required.",
         ),
     ] = False,
-    delete_db_from_mariadb: Annotated[
+    delete_fm_managed_db: Annotated[
         bool | None,
         typer.Option(
-            "--delete-db-from-fm-mariadb/--no-delete-db-from-fm-mariadb",
-            help="Drop the schema and user from fm's own mariadb container, or keep them. Applies to every site being deleted that is on that container, and never touches a database on an external server. fm asks when neither is passed.",
+            "--delete-fm-managed-db/--no-delete-fm-managed-db",
+            help="Drop the schema and user from the database server fm manages, or keep them. A schema on a server fm does not own is never dropped, with or without this flag. fm asks when neither is passed.",
         ),
     ] = None,
     delete_backups: Annotated[
@@ -179,7 +186,7 @@ def delete(
 
     BENCH/SITE deletes just that site: its schema, its certificate, its proxy entries and its files. The bench and its other sites keep running.
 
-    The database is decided separately. fm can drop a site's schema and user from the mariadb container it owns, but a schema on a server fm does not own is always left in place, --delete-db-from-fm-mariadb or not. A schema fm cannot account for, one whose name is unreadable or whose drop failed, stops the deletion with the bench directory intact, because that directory holds the only record of the schema.
+    The database is decided separately. fm can drop a site's schema and user from the database server it manages, but a schema on a server fm does not own is always left in place, --delete-fm-managed-db or not. A schema fm cannot account for, one whose name is unreadable or whose drop failed, stops the deletion with the bench directory intact, because that directory holds the only record of the schema.
     """
 
     if not address:
@@ -225,7 +232,7 @@ def delete(
                 raise typer.Exit(1)
 
         bench.remove_site(
-            site, delete_db_from_mariadb=delete_db_from_mariadb, delete_backups=delete_backups
+            site, delete_fm_managed_db=delete_fm_managed_db, delete_backups=delete_backups
         )
         return
 
@@ -253,4 +260,4 @@ def delete(
         # about the same decision, so it is skipped exactly as --yes skips it.
         confirmed = True
 
-    bench_service.delete_bench(address, yes=yes or confirmed, delete_db_from_mariadb=delete_db_from_mariadb)
+    bench_service.delete_bench(address, yes=yes or confirmed, delete_fm_managed_db=delete_fm_managed_db)

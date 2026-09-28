@@ -164,7 +164,7 @@ That dump is what `fm switch <benchname> --previous --restore-db` imports when a
 fm reset mybench    # drop the site database and reinstall every app
 ```
 
-`fm reset` runs `bench reinstall`, so all site data is gone and only the app code survives. It works only for a site on the `mariadb` container fm owns: a bench with a `[database]` entry is refused, because that schema is not fm's to drop. `fm delete` draws the same line, and never drops an external schema whatever `--delete-db-from-fm-mariadb` says.
+`fm reset` runs `bench reinstall`, so all site data is gone and only the app code survives. It works only for a site on one of fm's own database servers: a bench with a `[database]` entry naming an external host is refused, because that schema is not fm's to drop. `fm delete` draws the same line, and never drops an external schema whatever `--delete-fm-managed-db` says.
 
 ---
 

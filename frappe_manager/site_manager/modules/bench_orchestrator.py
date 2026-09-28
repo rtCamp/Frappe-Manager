@@ -1354,11 +1354,11 @@ class BenchOrchestrator:
             # already asked above: a schema on a server fm does not own stays declined, flag or
             # no flag. The schema THIS bench owns on the fm-managed mariadb container is
             # different: it is the bench's own data, the same thing an ordinary `fm delete`
-            # already drops by default, so `delete_db_from_mariadb=True` is passed explicitly
+            # already drops by default, so `delete_fm_managed_db=True` is passed explicitly
             # rather than left for `_resolve_site_schema` to ask about -- unanswered, that prompt
             # would raise `NonInteractiveError` from inside `remove_bench` with nobody there to
             # answer it, defeating the one promise this flag makes.
-            bench.remove_bench(prompt=False, delete_db_from_mariadb=True)
+            bench.remove_bench(prompt=False, delete_fm_managed_db=True)
             self.output.warning(
                 f"--remove-on-failure: removed the failed bench {bench.name!r} and its containers "
                 f"from {bench.path}. The create still failed."

@@ -1347,7 +1347,7 @@ class TestRemoveBench:
         bench._handle_database_deletion.side_effect = lambda pref: order.append(f"db:{pref}")
         bench.remove_containers_and_dirs.side_effect = lambda: order.append("dirs")
 
-        assert bench.remove_bench(delete_db_from_mariadb=True) is True
+        assert bench.remove_bench(delete_fm_managed_db=True) is True
 
         assert order == ["cert", "db:True", "dirs"]
 
@@ -1532,7 +1532,7 @@ class TestMultiSiteRemoval:
         bench = self._bench(harness, {self.ALIAS: "fm_shop_a1", SITE: "fm_test_b2"})
         calls = record_removal_steps(harness)
 
-        assert bench.remove_bench(delete_db_from_mariadb=True, prompt=False) is True
+        assert bench.remove_bench(delete_fm_managed_db=True, prompt=False) is True
 
         assert calls.count(("dirs",)) == 1
         dirs = calls.index(("dirs",))
@@ -1549,7 +1549,7 @@ class TestMultiSiteRemoval:
         )
         calls = record_removal_steps(harness)
 
-        assert bench.remove_bench(delete_db_from_mariadb=True, prompt=False) is True
+        assert bench.remove_bench(delete_fm_managed_db=True, prompt=False) is True
 
         assert [c for c in calls if c[0] == "drop"] == [("drop", SITE)]
         assert calls.index(("dirs",)) > calls.index(("drop", SITE))
@@ -1571,7 +1571,7 @@ class TestMultiSiteRemoval:
         bench.remove_database_and_user.side_effect = drop
 
         with pytest.raises(BenchException, match="Database deletion failed for 1 of 2 site") as excinfo:
-            bench.remove_bench(delete_db_from_mariadb=True, prompt=False)
+            bench.remove_bench(delete_fm_managed_db=True, prompt=False)
 
         assert ("drop", SITE) in calls
         assert ("dirs",) not in calls
@@ -1587,7 +1587,7 @@ class TestMultiSiteRemoval:
         calls = record_removal_steps(harness)
 
         with pytest.raises(BenchException, match="Database deletion failed for 1 of 2 site") as excinfo:
-            bench.remove_bench(delete_db_from_mariadb=True, prompt=False)
+            bench.remove_bench(delete_fm_managed_db=True, prompt=False)
 
         assert ("dirs",) not in calls
         assert ("drop", SITE) in calls  # the readable site was still accounted for

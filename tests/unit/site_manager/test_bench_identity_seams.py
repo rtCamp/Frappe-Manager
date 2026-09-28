@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from frappe_manager.site_manager.bench_config import BenchConfig
+from frappe_manager.site_manager.bench_config import BenchConfig, DatabaseEngine
 from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.site_manager.site import Bench
 
@@ -446,6 +446,7 @@ def _bench_on_disk(tmp_path, *sites: tuple[str, str | None]) -> Bench:
     # what schema each one uses.
     bench.bench_config = SimpleNamespace(
         get_database_config=lambda site: None,
+        get_database=lambda site: SimpleNamespace(type=DatabaseEngine.mariadb),
         sites=dict.fromkeys(site for site, _ in sites),
     )
     for site, db_name in sites:
@@ -481,7 +482,7 @@ def test_the_refusal_points_at_the_site_config_when_the_schema_is_unreadable(tmp
 
     assert f"sites/{SITE}/site_config.json" in message
     assert f"sites/{BENCH}/site_config.json" not in message
-    assert f"fm delete {BENCH} --yes --no-delete-db-from-fm-mariadb" in message
+    assert f"fm delete {BENCH} --yes --no-delete-fm-managed-db" in message
 
 
 def test_the_refusal_keeps_the_bench_directory_and_says_so(tmp_path):

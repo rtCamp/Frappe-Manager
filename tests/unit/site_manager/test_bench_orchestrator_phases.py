@@ -2317,7 +2317,7 @@ def test_remove_on_failure_skips_the_interactive_prompt_and_removes(tmp_path):
     with pytest.raises(RuntimeError, match="phase 5 died"):
         _fail(orchestrator, "phase 5 died", remove_on_failure=True)
 
-    assert harness.bench.remove_bench.call_args.kwargs == {"prompt": False, "delete_db_from_mariadb": True}
+    assert harness.bench.remove_bench.call_args.kwargs == {"prompt": False, "delete_fm_managed_db": True}
     assert harness.output.prompt_ask.called is False
     assert "phase 5 died" not in str(harness.output.display_error.call_args_list)
 
@@ -2335,7 +2335,7 @@ def test_remove_on_failure_removes_non_interactively_and_reports(tmp_path):
     with pytest.raises(RuntimeError, match="phase 5 died"):
         _fail(orchestrator, "phase 5 died", remove_on_failure=True)
 
-    assert harness.bench.remove_bench.call_args.kwargs == {"prompt": False, "delete_db_from_mariadb": True}
+    assert harness.bench.remove_bench.call_args.kwargs == {"prompt": False, "delete_fm_managed_db": True}
     warned = " ".join(str(call) for call in harness.output.warning.call_args_list)
     assert "removed" in warned
     assert str(harness.bench.path) in warned

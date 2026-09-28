@@ -16,10 +16,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from frappe_manager.site_manager.bench_config import BenchConfig, Deployment, Deployments
+from frappe_manager.services_manager.services import ServicesManager
+from frappe_manager.site_manager.bench_config import BenchConfig, DatabaseEngine, Deployment, Deployments
 from frappe_manager.site_manager.bench_service import BenchService
+from frappe_manager.site_manager.modules.bench_database import BenchDatabase
 from frappe_manager.site_manager.modules.bench_site import BenchSiteManager
-from frappe_manager.site_manager.site import Bench
+from frappe_manager.site_manager.site import Bench, SiteSchema, orphaned_database_error
 
 GLOBAL_DB_SITE = "local.localhost"
 EXTERNAL_SITE = "app.example.com"
@@ -109,7 +111,7 @@ def _printed(output: MagicMock) -> str:
 
 @pytest.mark.parametrize("preference", [None, True, False])
 def test_delete_never_drops_an_external_schema(tmp_path, preference):
-    """Not even when the operator passed --delete-db-from-fm-mariadb: it is not fm's schema."""
+    """Not even when the operator passed --delete-fm-managed-db: it is not fm's schema."""
     bench = _bench(
         tmp_path,
         _config(tmp_path, name=EXTERNAL_BENCH, external_site=EXTERNAL_SITE),
@@ -216,7 +218,7 @@ def test_bench_service_delete_still_drops_a_mariadb_schema(tmp_path):
 
 def test_the_yes_flag_skips_only_the_removal_confirmation(tmp_path):
     """`--yes` means "do not ask whether to remove the bench". It does NOT mean "drop the schema":
-    that question is separate and `--delete-db-from-fm-mariadb` answers it, so one prompt remains."""
+    that question is separate and `--delete-fm-managed-db` answers it, so one prompt remains."""
     bench = _bench(tmp_path, _config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE, {GLOBAL_DB_SITE: GLOBAL_SCHEMA})
     bench.output.prompt_ask.return_value = "no"
 
@@ -225,6 +227,8 @@ def test_the_yes_flag_skips_only_the_removal_confirmation(tmp_path):
     asked = [str(call.kwargs.get("prompt", "")) for call in bench.output.prompt_ask.call_args_list]
     assert len(asked) == 1
     # Both prompts contain "want to remove", so the schema question is what names a database.
+    # It names the site's OWN engine: this fixture's site is fm's default, mariadb, and the
+    # prompt names it rather than something hardcoded (see the postgres case below).
     assert "mariadb" in asked[0]
     assert "the database" in asked[0]
     assert GLOBAL_DB_SITE in asked[0]  # and it names the SITE whose schema is at stake
@@ -237,6 +241,110 @@ def test_without_the_yes_flag_the_removal_is_confirmed_first(tmp_path):
 
     assert _service(MagicMock(), bench).delete_bench(GLOBAL_DB_SITE, yes=False) is False
     assert bench.database.remove_database_and_user.called is False
+
+
+# --------------------------------------------------------------------------- the engine routing bug
+
+
+def _postgres_config(tmp_path: Path, site: str) -> BenchConfig:
+    """An fm-managed POSTGRES site: `type = "postgres"`, no `host` -- one of fm's own servers,
+    not an external one."""
+    toml = (
+        f'name = "{site}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
+        f'\n[sites."{site}"]\n\n[sites."{site}".database]\ntype = "postgres"\n'
+    )
+    path = tmp_path / f"{site}.toml"
+    path.write_text(toml)
+    return BenchConfig.import_from_toml(path)
+
+
+def _engine_tracking_services() -> MagicMock:
+    """A services stand-in whose two engines are SEPARATE mocks, so a drop landing on the wrong
+    one is visible rather than merged into one undifferentiated call list."""
+    services = MagicMock(name="services")
+    mariadb, postgres = MagicMock(name="mariadb_manager"), MagicMock(name="postgres_manager")
+    for manager in (mariadb, postgres):
+        manager.check_db_exists.return_value = True
+        manager.check_user_exists.return_value = True
+    services.database_manager_for.side_effect = (
+        lambda engine: postgres if engine is DatabaseEngine.postgres else mariadb
+    )
+    services.mariadb, services.postgres = mariadb, postgres
+    return services
+
+
+def test_a_postgres_schema_is_dropped_on_the_postgres_manager_not_mariadb(tmp_path):
+    """The bug this module exists to catch: every drop used to reach for fm's mariadb manager
+    regardless of the site's own recorded engine, so an fm-managed POSTGRES site's schema and
+    user were never touched while fm reported the delete a success. `remove_database_and_user`
+    now resolves the manager from the site's OWN engine instead of assuming mariadb.
+    """
+    site = "pg.example.com"
+    config = _postgres_config(tmp_path, site)
+    bench_path = tmp_path / site
+    site_dir = bench_path / "workspace" / "frappe-bench" / "sites" / site
+    site_dir.mkdir(parents=True, exist_ok=True)
+    (site_dir / "site_config.json").write_text(json.dumps({"db_name": "fm_pg_schema", "db_password": "pw"}))
+    services = _engine_tracking_services()
+    database = BenchDatabase(
+        bench_name=site,
+        bench_path=bench_path,
+        bench_config=config,
+        services=services,
+        set_common_bench_config_fn=MagicMock(),
+        output_handler=MagicMock(),
+    )
+
+    database.remove_database_and_user(site)
+
+    services.postgres.remove_db.assert_called_once_with("fm_pg_schema")
+    services.postgres.remove_user.assert_called_once_with("fm_pg_schema", remove_all_host=True)
+    services.mariadb.remove_db.assert_not_called()
+    services.mariadb.remove_user.assert_not_called()
+
+
+def test_the_schema_question_names_a_postgres_sites_own_engine_not_mariadb(tmp_path):
+    """The authorization bug this closes: the prompt used to say "from mariadb" unconditionally,
+    so an operator approving a drop "from mariadb" could unknowingly authorize one on postgres.
+    It now names the site's own engine, so consent is for the server the drop will actually
+    reach."""
+    site = "pg.example.com"
+    bench = _bench(tmp_path, _postgres_config(tmp_path, site), site, {site: "fm_pg_schema"})
+    bench.output.prompt_ask.return_value = "no"
+
+    bench._handle_database_deletion(None)
+
+    asked = str(bench.output.prompt_ask.call_args.kwargs["prompt"])
+    assert "postgres" in asked
+    assert "mariadb" not in asked
+
+
+def test_orphaned_database_error_emits_postgres_syntax_for_a_postgres_entry(tmp_path):
+    """These statements are handed to an operator to run by hand: postgres has no `@'%'` host
+    part, refuses `DROP ROLE` on a role that still owns anything, and needs `WITH (FORCE)` to
+    drop past live connections, so mariadb's syntax would not even run against it."""
+    bench = _bench(tmp_path, _config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE, {})
+    entry = SiteSchema(site=GLOBAL_DB_SITE, schema=GLOBAL_SCHEMA, external_host=None, engine=DatabaseEngine.postgres)
+
+    message = orphaned_database_error(bench, [(entry, "postgres refused the drop")]).message
+
+    assert f'DROP DATABASE IF EXISTS "{GLOBAL_SCHEMA}" WITH (FORCE);' in message
+    assert f'DROP OWNED BY "{GLOBAL_SCHEMA}" CASCADE;' in message
+    assert f'DROP ROLE IF EXISTS "{GLOBAL_SCHEMA}";' in message
+    assert "DROP USER" not in message
+    assert "`" not in message
+
+
+def test_database_manager_for_refuses_an_unknown_engine_rather_than_defaulting_to_mariadb():
+    """A wrong manager silently answering for a server the schema was never on is the exact shape
+    of the orphaning bug this file guards against: it reports "no such database", the caller
+    reads that as a completed drop, and delete then destroys the only record of the schema name.
+    An engine `database_manager_for` does not recognise must refuse rather than quietly falling
+    back to mariadb."""
+    services = ServicesManager.__new__(ServicesManager)  # bypass __init__: no docker, no compose
+
+    with pytest.raises(ValueError):
+        services.database_manager_for("cockroachdb")
 
 
 # --------------------------------------------------------------------------- common_site_config
@@ -405,7 +513,7 @@ def test_an_absent_site_resolves_instead_of_blocking(tmp_path):
     entry = {e.site: e for e in bench.site_schemas()}["ghost.localhost"]
 
     # None means resolved: nothing outstanding, so removal may proceed.
-    assert bench._resolve_site_schema(entry, delete_db_from_mariadb=True) is None
+    assert bench._resolve_site_schema(entry, delete_fm_managed_db=True) is None
     assert _dropped(bench) == []
 
 
@@ -416,7 +524,7 @@ def test_the_absent_warning_says_the_schema_may_still_be_there(tmp_path):
     bench = _bench(tmp_path, config, "shop", {})
     entry = {e.site: e for e in bench.site_schemas()}["ghost.localhost"]
 
-    bench._resolve_site_schema(entry, delete_db_from_mariadb=True)
+    bench._resolve_site_schema(entry, delete_fm_managed_db=True)
 
     warned = "\n".join(str(c.args[0]) for c in bench.output.warning.call_args_list if c.args)
     assert "ghost.localhost" in warned
@@ -434,7 +542,7 @@ def test_an_unreadable_site_still_blocks(tmp_path):
     (site_dir / "site_config.json").write_text("{not json")
     entry = {e.site: e for e in bench.site_schemas()}["broken.localhost"]
 
-    why = bench._resolve_site_schema(entry, delete_db_from_mariadb=True)
+    why = bench._resolve_site_schema(entry, delete_fm_managed_db=True)
 
     assert why is not None
     assert "could not be read" in why
@@ -475,7 +583,7 @@ def test_the_removed_sites_proxy_upload_limit_files_go(tmp_path):
     for domain in ("shop.localhost", "b.example.com"):
         (_vhostd(bench) / domain).write_text("client_max_body_size 50m;\n")
 
-    bench.remove_site("b.example.com", delete_db_from_mariadb=True)
+    bench.remove_site("b.example.com", delete_fm_managed_db=True)
 
     assert not (_vhostd(bench) / "b.example.com").exists()
 
@@ -486,7 +594,7 @@ def test_a_surviving_sites_proxy_file_is_untouched(tmp_path):
     for domain in ("shop.localhost", "b.example.com"):
         (_vhostd(bench) / domain).write_text("client_max_body_size 50m;\n")
 
-    bench.remove_site("b.example.com", delete_db_from_mariadb=True)
+    bench.remove_site("b.example.com", delete_fm_managed_db=True)
 
     assert (_vhostd(bench) / "shop.localhost").read_text() == "client_max_body_size 50m;\n"
 
@@ -502,7 +610,7 @@ def test_the_removed_sites_backup_rows_are_dropped_but_the_dumps_are_kept(tmp_pa
                                   backups={"shop.localhost": str(tmp_path / "s.sql"), "b.example.com": str(dump)})]
     )
 
-    bench.remove_site("b.example.com", delete_db_from_mariadb=True)
+    bench.remove_site("b.example.com", delete_fm_managed_db=True)
 
     assert bench.bench_config.deployments.history[0].backups == {"shop.localhost": str(tmp_path / "s.sql")}
     assert dump.exists()
@@ -519,7 +627,7 @@ def test_the_dumps_go_when_asked(tmp_path):
                                   backups={"b.example.com": str(dump)})]
     )
 
-    bench.remove_site("b.example.com", delete_db_from_mariadb=True, delete_backups=True)
+    bench.remove_site("b.example.com", delete_fm_managed_db=True, delete_backups=True)
 
     assert not dump.exists()
 
@@ -539,7 +647,7 @@ def test_a_dump_another_release_still_names_survives_being_asked(tmp_path):
         ]
     )
 
-    bench.remove_site("b.example.com", delete_db_from_mariadb=True, delete_backups=True)
+    bench.remove_site("b.example.com", delete_fm_managed_db=True, delete_backups=True)
 
     assert shared.exists()
 
@@ -551,7 +659,7 @@ def test_the_removed_sites_database_tls_material_goes(tmp_path):
     tls.mkdir(parents=True)
     (tls / "db-ca.pem").write_text("cert")
 
-    bench.remove_site("b.example.com", delete_db_from_mariadb=True)
+    bench.remove_site("b.example.com", delete_fm_managed_db=True)
 
     assert not tls.exists()
 
@@ -561,7 +669,7 @@ def test_cleanup_that_fails_warns_and_still_finishes_the_removal(tmp_path):
     half-removed AND still recorded, which is worse than a leftover file."""
     bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
     with patch("frappe_manager.site_manager.site.remove_site_tls", side_effect=RuntimeError("permission denied")):
-        assert bench.remove_site("b.example.com", delete_db_from_mariadb=True) is True
+        assert bench.remove_site("b.example.com", delete_fm_managed_db=True) is True
 
     assert "b.example.com" not in bench.bench_config.sites
     warned = "\n".join(str(c.args[0]) for c in bench.output.warning.call_args_list if c.args)

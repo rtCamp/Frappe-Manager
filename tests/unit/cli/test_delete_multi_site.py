@@ -25,6 +25,7 @@ import typer
 from typer.testing import CliRunner
 
 from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.site_manager.bench_config import DatabaseEngine
 
 # `frappe_manager.commands` re-exports the `delete` FUNCTION under the same name, shadowing the
 # module, so the module has to be imported explicitly to patch its globals.
@@ -41,13 +42,16 @@ SITE_B = "b.example.com"
 class _Schema:
     """Stand-in for `SiteSchema`, the value `Bench.site_schemas()` yields per site on disk.
 
-    `external_host` None means the schema is in the shared mariadb container fm owns and fm may drop it;
-    set means a server fm does not own. `schema` None means site_config.json could not be read.
+    `external_host` None means the schema is on one of fm's own servers and fm may drop it; set
+    means a server fm does not own. `schema` None means site_config.json could not be read.
+    `engine` selects which of fm's own servers a droppable schema lives on, and is meaningless
+    once `external_host` is set.
     """
 
     site: str
     schema: str | None = None
     external_host: str | None = None
+    engine: DatabaseEngine = DatabaseEngine.mariadb
 
     @property
     def droppable(self) -> bool:
@@ -358,8 +362,21 @@ def test_the_blast_radius_names_the_schemas_it_will_drop(two_sites):
     schemas = [_Schema(SITE_A, "fm_a_example_com_9f2c"), _Schema(SITE_B, "fm_b_example_com_1d4e")]
     said = _run([BENCH, "--all-sites"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
     assert "2 schemas dropped" in said
-    assert "fm_a_example_com_9f2c, fm_b_example_com_1d4e" in said
-    assert "mariadb" in said
+    # Tied to the schema list itself, not merely present somewhere in the output: this is the
+    # server BOTH dropped schemas share, reported next to the names that are actually leaving it.
+    assert "fm_a_example_com_9f2c, fm_b_example_com_1d4e (mariadb)" in said
+
+
+def test_the_blast_radius_names_each_schemas_own_server_when_engines_differ(two_sites):
+    """A bench spanning both engines: one trailing label would misattribute a schema to the
+    wrong server, so a mixed set names each schema's server next to it instead."""
+    schemas = [
+        _Schema(SITE_A, "fm_a_example_com_9f2c", engine=DatabaseEngine.mariadb),
+        _Schema(SITE_B, "fm_b_example_com_1d4e", engine=DatabaseEngine.postgres),
+    ]
+    said = _run([BENCH, "--all-sites"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
+    assert "2 schemas dropped" in said
+    assert "fm_a_example_com_9f2c (mariadb), fm_b_example_com_1d4e (postgres)" in said
 
 
 def test_the_blast_radius_says_the_containers_and_workspace_go_too(two_sites):
@@ -380,10 +397,14 @@ def test_an_external_schema_is_named_as_kept_with_its_host(two_sites):
 
 
 def test_an_external_schema_is_not_counted_among_the_dropped(two_sites):
+    """An external schema must never be rendered the way a dropped one is -- tagged with the
+    engine of one of fm's own servers -- regardless of which engine that would name, because that
+    would tell the operator fm is about to drop a schema it has already said it will leave alone."""
     schemas = [_Schema(SITE_A, "fm_a_example_com_9f2c"), _Schema(SITE_B, "prod_erp", "rds.internal")]
     said = _run([BENCH, "--all-sites"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
     assert "1 schema dropped" in said
-    assert "prod_erp  (mariadb)" not in said
+    assert f"prod_erp ({DatabaseEngine.mariadb.value})" not in said
+    assert f"prod_erp ({DatabaseEngine.postgres.value})" not in said
 
 
 def test_an_unreadable_schema_is_reported_as_unreadable(two_sites):
@@ -471,10 +492,10 @@ def test_the_operator_is_told_the_rest_of_the_bench_survives(two_sites):
 
 
 def test_the_database_choice_reaches_a_single_site_removal(one_site):
-    run = _run([f"{BENCH}/{SITE_A}", "--yes", "--no-delete-db-from-fm-mariadb"], root=one_site, sites=[SITE_A])
+    run = _run([f"{BENCH}/{SITE_A}", "--yes", "--no-delete-fm-managed-db"], root=one_site, sites=[SITE_A])
     # `delete_backups` rides along on the same call: off unless asked, because dropping the site's
     # deploy-history rows is what makes its dumps unreachable by prune, and a dump is a last copy.
-    assert run.payload("remove_site")[1] == {"delete_db_from_mariadb": False, "delete_backups": False}
+    assert run.payload("remove_site")[1] == {"delete_fm_managed_db": False, "delete_backups": False}
 
 
 def test_asking_for_the_dumps_reaches_the_single_site_removal(one_site):
@@ -486,12 +507,12 @@ def test_the_database_choice_stays_bench_wide_and_tri_state(one_site):
     """Neither flag passed stays None, which is what makes fm ask. It is deliberately not per-site:
     the only sites it can apply to are the fm-managed ones."""
     run = _run([BENCH, "--yes"], root=one_site, sites=[SITE_A])
-    assert run.payload("delete_bench")[1]["delete_db_from_mariadb"] is None
+    assert run.payload("delete_bench")[1]["delete_fm_managed_db"] is None
 
 
 def test_the_database_choice_reaches_a_bench_wide_delete(one_site):
-    run = _run([BENCH, "--yes", "--delete-db-from-fm-mariadb"], root=one_site, sites=[SITE_A])
-    assert run.payload("delete_bench")[1]["delete_db_from_mariadb"] is True
+    run = _run([BENCH, "--yes", "--delete-fm-managed-db"], root=one_site, sites=[SITE_A])
+    assert run.payload("delete_bench")[1]["delete_fm_managed_db"] is True
 
 
 # ------------------------------------------------------------------- the help surface

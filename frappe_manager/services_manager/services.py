@@ -210,6 +210,34 @@ class ServicesManager:
             )
         return self.database_manager.database_server_info
 
+    def database_manager_for(self, engine) -> DatabaseServiceManager:
+        """The manager for one of fm's OWN database servers, keyed by engine.
+
+        `self.database_manager` is and stays the mariadb one, for the same reason
+        :meth:`database_server_info_for` stays mariadb by default: everything that predates a
+        second engine reaches for it by that name.
+
+        An engine this does not know RAISES rather than falling back. The fallback is the exact
+        shape of the bug this method exists to remove: a wrong manager answers "no such database"
+        about a server the schema was never on, the caller reports a drop it did not perform, and
+        delete then destroys the only record of the schema name. `DatabaseEngine` is a `StrEnum`,
+        so a plain `"postgres"` string is `==` but not `is` the member and would land here.
+        """
+        from frappe_manager.site_manager.bench_config import DatabaseEngine
+
+        if engine is DatabaseEngine.postgres:
+            from frappe_manager.services_manager.postgres_service_manager import PostgresManager
+
+            return PostgresManager(
+                self.database_server_info_for(engine),
+                self.compose_file_manager,
+                self.docker_client,
+                output_handler=self.output,
+            )
+        if engine is not DatabaseEngine.mariadb:
+            raise ValueError(f"no fm-managed database server for engine {engine!r}")
+        return self.database_manager
+
     def switched_off_reason(self, service: str) -> str | None:
         """Why `service` will not respond to a start or a restart, or None when it will.
 

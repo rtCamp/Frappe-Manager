@@ -33,11 +33,11 @@ Four differences worth knowing before you use it:
 
 Read this first: it is the part you have to trust, and it is deliberate rather than accidental. fm holds the site's own database password (it is in `site_config.json`, where Frappe needs it), and the grant Frappe asks for includes `DROP` at schema scope. fm is therefore perfectly capable of destroying your schema and chooses not to.
 
-| Operation | On `mariadb` | On your server |
+| Operation | On fm's own server | On your server |
 |---|---|---|
 | `fm reset <bench>` | drops the schema and reinstalls every app | **refused**: `bench reinstall` would drop a schema that is not fm's |
-| `fm delete <bench>/<site> --delete-db-from-fm-mariadb` | drops that site's schema and the user | schema and user are **left in place**, flag or no flag |
-| `fm delete <bench> --delete-db-from-fm-mariadb` | drops the schema and the user of every site in the bench | any schema on your server is **left in place**, flag or no flag |
+| `fm delete <bench>/<site> --delete-fm-managed-db` | drops that site's schema and the user | schema and user are **left in place**, flag or no flag |
+| `fm delete <bench> --delete-fm-managed-db` | drops the schema and the user of every site in the bench | any schema on your server is **left in place**, flag or no flag |
 | `fm switch <bench> --restore-db` | imports the dump | typed confirmation naming the host, the schema and its current table count; **refused** in non-interactive mode |
 | `fm create` into a schema that already has tables | n/a: fm creates the schema | **refused**, unless you pass `--attach-existing-site` |
 | `fm create` with a login that already exists and a password fm minted | n/a | **refused**: Frappe's `CREATE USER IF NOT EXISTS` would keep the old password and the site would be unconnectable |
