@@ -17,6 +17,46 @@ from rich.console import Group, RenderableType
 from frappe_manager.output_manager.style import get_output_style
 
 
+class _RailLine:
+    """One card line whose rail survives wrapping.
+
+    The rail used to be concatenated onto a plain string handed to rich, which wraps with no
+    knowledge that the first cells are a gutter: every continuation row started at column 0 and
+    fell out of the card. At the default 80 columns that is the common case, not an edge one, and
+    an image reference carrying a `@sha256:` digest is a single unbreakable ~90 character word that
+    folds even on a wide terminal.
+
+    So wrapping happens here, against the real console width, and the rail is drawn on each row it
+    produces. `overflow="fold"` because a digest has nowhere to break: folding keeps it inside the
+    card, where truncation would corrupt a value written to be copied.
+    """
+
+    def __init__(self, rail: str, indent: str, label: str, value: str) -> None:
+        self.rail = rail
+        self.indent = indent
+        self.label = label
+        self.value = value
+
+    def __rich_console__(self, console, options):
+        from rich.text import Text
+
+        rail = Text.from_markup(self.rail)
+        head = rail + Text(self.indent) + Text.from_markup(self.label)
+        if not self.value:
+            yield head
+            return
+
+        # The rail is redrawn on every continuation, and only the SPACING after it is blanked:
+        # blanking the whole prefix would reintroduce the gutterless line this class exists to
+        # stop. Continuations hang under the value, so a fact reads as one value.
+        hang = rail + Text(" " * (head.cell_len - rail.cell_len))
+        wrapped = Text.from_markup(self.value).wrap(console, max(options.max_width - head.cell_len, 1), overflow="fold")
+        for index, line in enumerate(wrapped):
+            row = head.copy() if index == 0 else hang.copy()
+            row.append_text(line)
+            yield row
+
+
 @dataclass
 class Card:
     """A bench (or any entity) card: headline + labeled facts + sections."""
@@ -58,13 +98,14 @@ class Card:
         rail_token = "fm.rail.active" if self.active else "fm.rail.inactive"
         glyph = style.rail_active if self.active else style.rail_inactive
         rail = f"[{rail_token}]{glyph}[/{rail_token}] " if glyph else "  "
-        lines: list[str] = [self._headline()]
+        width = get_output_style().label_width
+        lines: list[RenderableType] = [_RailLine("", "", "", self._headline())]
         for kind, label, value in self._rows:
             if kind == "section":
-                lines.append(rail.rstrip())
-                lines.append(f"{rail}[fm.section]{label}[/fm.section]")
+                lines.append(_RailLine(rail, "", "", ""))
+                lines.append(_RailLine(rail, "", "", f"[fm.section]{label}[/fm.section]"))
             else:
-                lines.append(self._fact_line(label, value, f"{rail}  "))
+                lines.append(_RailLine(rail, "  ", f"[fm.label]{label:<{width}}[/fm.label] ", value))
         return Group(*lines)
 
     def _render_box(self, style) -> RenderableType:
