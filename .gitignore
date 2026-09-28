@@ -23,3 +23,5 @@ AGENTS.md
 
 # Design/working notes: local scratch, never part of the repo
 notes/
+
+.omp/
