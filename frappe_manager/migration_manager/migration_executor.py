@@ -15,6 +15,7 @@ from frappe_manager.migration_manager.migration_orchestrator import MigrationOrc
 from frappe_manager.migration_manager.migration_validator import BenchFilter, MigrationValidator
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import OutputHandler, railcard
+from frappe_manager.output_manager.context_managers import temporary_stop
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.utils.helpers import get_current_fm_version
 
@@ -232,28 +233,33 @@ class MigrationExecutor:
             card.section("docs")
             card.fact("manual", MIGRATION_DOCS_URL)
 
-            self.output.print_data(card.render())
+            # The caller wraps this whole run in a spinner, and a spinner is a LIVE region: it
+            # repaints over whatever is beneath it. Rendered inside one, the card's first rows
+            # came out with `Starting migration...` sitting on top of them, and questionary
+            # redrew the prompt a second time. Both go outside the live region instead.
+            with temporary_stop(self.output):
+                self.output.print_data(card.render())
 
-            if self.dry_run:
-                # The scriptable plan viewer: the whole preamble above IS the plan, and the
-                # non-interactive path without --yes is a refusal by design, so this is the
-                # only way automation can see it. Exit clean, touch nothing, never prompt.
-                self.output.print("Dry run: nothing migrated.", emoji_code="")
-                return True
+                if self.dry_run:
+                    # The scriptable plan viewer: the plan above IS the output, and the
+                    # non-interactive path without --yes is a refusal by design, so this is the
+                    # only way automation can see it. Exit clean, touch nothing, never prompt.
+                    self.output.print("Dry run: nothing migrated.", emoji_code="")
+                    return True
 
-            if not self.auto_proceed:
-                continue_migration = self.output.prompt_ask(
-                    prompt="Do you want to proceed?",
-                    choices=[
-                        {"name": "yes - Start migration", "value": "yes"},
-                        {"name": "no - Abort and revert to previous fm version (default)", "value": "no"},
-                    ],
-                    default="no",
-                    required_flag="--yes",
-                )
-            else:
-                continue_migration = "yes"
-                self.output.print("Proceeding with migration (--yes)", emoji_code="")
+                if not self.auto_proceed:
+                    continue_migration = self.output.prompt_ask(
+                        prompt="Do you want to proceed?",
+                        choices=[
+                            {"name": "yes - Start migration", "value": "yes"},
+                            {"name": "no - Abort and revert to previous fm version (default)", "value": "no"},
+                        ],
+                        default="no",
+                        required_flag="--yes",
+                    )
+                else:
+                    continue_migration = "yes"
+                    self.output.print("Proceeding with migration (--yes)", emoji_code="")
 
             if continue_migration == "no":
                 self.output.print("", emoji_code="")
