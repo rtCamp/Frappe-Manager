@@ -51,6 +51,7 @@ def _config(*, sites=None, **over):
         "site_names": list(recorded) or [BENCH],
         "primary_site": resolved,
         "get_database_config": lambda site=None: recorded.get(site or resolved),
+        "get_database": lambda site=None: SimpleNamespace(type=SimpleNamespace(value="mariadb")),
     }
     base.update(over)
     config = SimpleNamespace(**base)

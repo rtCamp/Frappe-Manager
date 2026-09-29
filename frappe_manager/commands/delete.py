@@ -15,7 +15,7 @@ def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
-def _blast_radius(schemas) -> list[str]:
+def _blast_radius(schemas, delete_fm_managed_db: bool | None = True) -> list[str]:
     """The rows shown before a bench serving several sites is destroyed.
 
     Built from `Bench.site_schemas()`, which reads each site's `site_config.json` off disk rather
@@ -23,25 +23,42 @@ def _blast_radius(schemas) -> list[str]:
     and a blast radius that under-reports is worse than none.
 
     `SiteSchema.droppable` and `SiteSchema.unreadable` partition the sites exactly, so every site
-    is reported once. A droppable schema is on the server fm owns for its engine and is dropped. An
-    unreadable one is neither dropped nor deliberately left: fm cannot drop a name it does not know
-    and cannot promise it is gone, and that is the case that orphans a schema, so it is reported as
-    itself. Everything else has a schema on a server fm does not own, which is named and left alone.
+    is reported once. A droppable schema is on the server fm owns for its engine. An unreadable one
+    is neither dropped nor deliberately left: fm cannot drop a name it does not know and cannot
+    promise it is gone, and that is the case that orphans a schema, so it is reported as itself.
+    Everything else has a schema on a server fm does not own, which is named and left alone.
+
+    `droppable` says fm MAY drop it; `delete_fm_managed_db` says whether it will. Reading only the
+    first made the plan promise "1 schema dropped" for a run that had not been told to drop
+    anything, and which then stopped to ask -- or, non-interactively, refused after the containers
+    were already gone.
     """
     rows: list[tuple[str, str]] = [(_plural(len(schemas), "site"), ", ".join(s.site for s in schemas))]
 
-    dropped = [s for s in schemas if s.droppable]
-    if dropped:
-        engines = {s.engine.value for s in dropped}
+    fm_owned = [s for s in schemas if s.droppable]
+    if fm_owned:
+        engines = {s.engine.value for s in fm_owned}
         if len(engines) == 1:
-            label = f"{', '.join(s.schema for s in dropped)}  ({engines.pop()})"
+            label = f"{', '.join(s.schema for s in fm_owned)}  ({engines.pop()})"
         else:
             # A bench spanning both engines: a single trailing label would misattribute a schema
             # to the wrong server, so each schema names its own.
-            label = ", ".join(f"{s.schema} ({s.engine.value})" for s in dropped)
-        rows.append((f"{_plural(len(dropped), 'schema')} dropped", label))
+            label = ", ".join(f"{s.schema} ({s.engine.value})" for s in fm_owned)
+        if delete_fm_managed_db is True:
+            rows.append((f"{_plural(len(fm_owned), 'schema')} dropped", label))
+        elif delete_fm_managed_db is False:
+            rows.append((f"{_plural(len(fm_owned), 'schema')} kept", f"{label}  (fm's own, --delete-fm-managed-db drops)"))
+        else:
+            rows.append((f"{_plural(len(fm_owned), 'schema')} undecided", f"{label}  (you will be asked)"))
 
-    kept = [f"{s.schema} on {s.external_host}" for s in schemas if not s.droppable and not s.unreadable]
+    # `schema` is None for a site whose config records an external host but no database name --
+    # what a create that failed in preflight leaves behind. Interpolating it printed the literal
+    # "1 schema kept None on 172.17.0.1".
+    kept = [
+        f"{s.schema or 'no schema recorded'} on {s.external_host}"
+        for s in schemas
+        if not s.droppable and not s.unreadable
+    ]
     if kept:
         rows.append((f"{_plural(len(kept), 'schema')} kept", f"{', '.join(kept)}  (external, not fm's)"))
 
@@ -60,7 +77,7 @@ def _blast_radius(schemas) -> list[str]:
     return lines
 
 
-def _print_deletion_plan(output, benchname: str, schemas) -> None:
+def _print_deletion_plan(output, benchname: str, schemas, delete_fm_managed_db: bool | None = True) -> None:
     """The plan shown before any whole-bench deletion (and by --dry-run): what dies, where
     it lives and how big it is. Specificity belongs in the prompt, not the flag: this
     listing is what the typed-name ceremony below asks the operator to acknowledge."""
@@ -70,7 +87,7 @@ def _print_deletion_plan(output, benchname: str, schemas) -> None:
     bench_dir = CLI_BENCHES_DIRECTORY / benchname
     if bench_dir.exists():
         output.print(f"  dir    {bench_dir}  ({format_size(dir_size(bench_dir))})", emoji_code="")
-    for line in _blast_radius(schemas):
+    for line in _blast_radius(schemas, delete_fm_managed_db):
         output.print(line, emoji_code="")
 
 
@@ -238,10 +255,23 @@ def delete(
 
     schemas = _site_schemas(bench_service, address)
 
-    _print_deletion_plan(output, address, schemas)
+    _print_deletion_plan(output, address, schemas, delete_fm_managed_db)
     if dry_run:
         output.print("Dry run: nothing deleted.", emoji_code="")
         return
+
+    # Asked here, before a single container is removed. The question used to surface per site
+    # inside the removal, so a non-interactive run destroyed the containers and the network and
+    # THEN refused, leaving a half-deleted bench to be re-run with the flag. `--yes` deliberately
+    # does not answer it: dropping a schema is a decision about what happens, not permission to
+    # proceed, and it gets its own flag (docs/commands/index.md).
+    if delete_fm_managed_db is None and any(s.droppable for s in schemas) and not output.is_interactive():
+        output.display_error(
+            f"Bench '{address}' has {_plural(len([s for s in schemas if s.droppable]), 'schema')} on a database "
+            "server fm manages, and nothing has said what to do with them. Pass --delete-fm-managed-db to drop "
+            "them, or --no-delete-fm-managed-db to keep them."
+        )
+        raise typer.Exit(1)
 
     if len(schemas) > 1 and not all_sites:
         names = ", ".join(s.site for s in schemas)

@@ -333,7 +333,13 @@ def _resolve_bench(sitename: str | None) -> str:
             ) from e
 
     if sitename is None:
-        raise typer.BadParameter("Invalid selection. Must match existing sites")
+        # `_pick_bench_name` returns None only when there is no bench to offer, so this is a bare
+        # host, not a bad value. It used to raise "Invalid selection. Must match existing sites",
+        # which names a selection the operator never made and sites they were never shown.
+        raise MissingArgumentError(
+            "No benches exist yet on this host",
+            suggestions=["Create one with 'fm create <name>'"],
+        )
 
     # A bench name is a name, not a domain: it is taken as typed. `validate_sitename` still runs,
     # because the name has to be a legal DNS label to serve as a directory and a compose prefix,

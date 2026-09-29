@@ -53,6 +53,10 @@ class Harness:
         self.config.get_system_migration_version.return_value = Version(FM_VERSION)
         self.config.logs.file_level = "DEBUG"
         self.pull = MagicMock(name="pull_docker_images", return_value=True)
+        # Whether the stock images are already here is now asked of docker rather than inferred
+        # from the config being new, so the seam has to be driven explicitly: a unit test must not
+        # answer it from whatever images the developer's own daemon happens to hold.
+        self.images_missing = MagicMock(name="stock_images_missing", return_value=True)
 
     def invoke(self, argv):
         self.monkeypatch.setattr(sys, "argv", ["fm", *argv])
@@ -88,6 +92,7 @@ def cli(tmp_path, monkeypatch):
         p(patch("frappe_manager.commands.LoggingOutputHandler", logging_handler_cls))
         p(patch("frappe_manager.commands.get_current_fm_version", return_value=FM_VERSION))
         p(patch("frappe_manager.commands.pull_docker_images", harness.pull))
+        p(patch("frappe_manager.commands.stock_images_missing", harness.images_missing))
         # Stop each command before it does real work; the callback has already run by then.
         p(patch("frappe_manager.commands.bake.BakeManager", MagicMock()))
         p(patch("frappe_manager.commands.ServicesManager", MagicMock()))
@@ -122,6 +127,30 @@ class TestPrefetchStillHappens:
         machine pulled all eight stock images, and a failed pull then deleted the whole fm home.
         """
         cli.invoke(["list"])
+
+        assert not cli.prefetched
+
+    def test_an_observer_running_first_does_not_disarm_the_prefetch(self, cli):
+        """The bug a fresh-install E2E found: `fm list` then `fm create` died on missing images.
+
+        The prefetch used to fire on `config_is_new`, a PROXY for "this host is bare". `fm list`
+        is exempt from prefetching but still builds a ServicesManager, which writes
+        fm_config.toml -- so the observer consumed the signal without doing the work, and every
+        later command read an established host with not one image pulled.
+        """
+        cli.invoke(["list"])
+        assert not cli.prefetched
+
+        cli.fm_config_path.write_text('[logs]\nfile_level = "DEBUG"\n')
+        cli.invoke(["start", "mybench"])
+
+        assert cli.prefetched
+
+    def test_a_warm_host_pulls_nothing(self, cli):
+        """The trigger is the images being absent, so an established host pays no pull."""
+        cli.images_missing.return_value = False
+
+        cli.invoke(["start", "mybench"])
 
         assert not cli.prefetched
 
@@ -211,6 +240,7 @@ class TestAFailedFirstInstallLeavesNothingBehind:
             p(patch("frappe_manager.commands.LoggingOutputHandler", make_handler))
             p(patch("frappe_manager.commands.get_current_fm_version", return_value=FM_VERSION))
             p(patch("frappe_manager.commands.pull_docker_images", return_value=False))
+            p(patch("frappe_manager.commands.stock_images_missing", return_value=True))
             CliRunner().invoke(app, ["start", "mybench"])
         return cli_dir
 

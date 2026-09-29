@@ -131,6 +131,10 @@ def _config(*, sites=None, aliases=None, **over):
         "site_names": list(recorded) or [BENCH],
         "primary_site": resolved,
         "get_database_config": lambda site=None: recorded.get(site or resolved),
+        # The ENGINE, which `get_database_config` cannot answer: it returns None for fm's own
+        # server whichever engine that is. Defaults to mariadb so every existing assertion here
+        # describes the ordinary bench.
+        "get_database": lambda site=None: SimpleNamespace(type=SimpleNamespace(value="mariadb")),
     }
     base.update(over)
     config = SimpleNamespace(**base)

@@ -329,7 +329,11 @@ class BenchInfo:
                 {
                     "name": site,
                     "primary": site == primary,
-                    # None means the site is on the mariadb container fm owns (see display_info).
+                    # The ENGINE, always. `external_database: null` alone could not tell mariadb
+                    # from fm's own postgres, so the one fact `--db-type` sets at create was the
+                    # one fact info could not report back.
+                    "database": config.get_database(site).type.value,
+                    # None means the server is fm's own (see display_info).
                     "external_database": {"host": database.host, "port": database.resolved_port} if database else None,
                 }
             )
@@ -591,14 +595,19 @@ class BenchInfo:
         # One row per site, skipped for the single ordinary case (one site on fm's own mariadb)
         # because `url` above already names it and its schema is in the `access` section: the common
         # bench's card keeps printing exactly what it always has. Every other shape says something
-        # `url` cannot, namely that the bench serves more than one site, or that the one site's
-        # schema lives on a server fm does not own and whose host the operator needs to see.
-        if sites and (len(sites) > 1 or config.get_database_config(sites[0]) is not None):
+        # `url` cannot -- more than one site, a schema on a server fm does not own, or an engine
+        # that is not the default. That last case is why the engine is read rather than assumed:
+        # a site on fm's OWN postgres is not external, so a card keyed on externality alone said
+        # "mariadb" about a postgres site, and with one site printed no row at all.
+        engines = {site: config.get_database(site).type.value for site in sites}
+        if sites and (len(sites) > 1 or config.get_database_config(sites[0]) is not None or engines[sites[0]] != "mariadb"):
             for i, site in enumerate(sites):
                 database = config.get_database_config(site)
-                # Absence of a `[sites."<site>".database]` entry IS the switch: the site is on the
-                # mariadb container fm owns. Anything else is someone else's server, named.
-                where = f"external · {database.host}:{database.resolved_port}" if database else "mariadb"
+                where = (
+                    f"external {engines[site]} · {database.host}:{database.resolved_port}"
+                    if database
+                    else f"fm's {engines[site]}"
+                )
                 marker = "  [fm.ok]● primary[/fm.ok]" if site == primary else ""
                 card.fact("sites" if i == 0 else "", f"{public_url(site, protocol, http_port, https_port)}  [fm.muted]{where}[/fm.muted]{marker}")
 

@@ -7,6 +7,7 @@ in the CLI application callback.
 
 from unittest.mock import MagicMock, patch
 
+import click
 import pytest
 import typer
 
@@ -179,31 +180,24 @@ class TestFlagInteractionPrecedence:
 
 
 class TestInvalidLogLevel:
-    """Test handling of invalid log levels."""
+    def test_an_invalid_value_is_a_usage_error_naming_the_choices(self):
+        """A bad VALUE for a flag is a wrong command line: exit 2, like an unknown flag.
 
-    def test_invalid_log_level_raises_exit(self):
-        """Test that invalid log level shows error and exits."""
-
+        It used to print an error and exit 1, so `--log-level nosuchlevel` and `--nosuchflag`
+        answered the same mistake with two different codes.
+        """
         ctx = MagicMock(spec=typer.Context)
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.will_print_help", return_value=True):
-            from frappe_manager import output_manager
+            with pytest.raises(click.BadParameter) as excinfo:
+                app_callback(ctx, verbose=False, log_level="invalid", version=None)
 
-            original_get = output_manager.get_global_output_handler
-            mock_handler = MagicMock()
-
-            with patch.object(output_manager, "get_global_output_handler", return_value=mock_handler):
-                with pytest.raises(typer.Exit) as exc_info:
-                    app_callback(ctx, verbose=False, log_level="invalid", version=None)
-
-                assert exc_info.value.exit_code == 1
-                mock_handler.display_error.assert_called_once()
-                error_call = mock_handler.display_error.call_args[0][0]
-                assert "invalid" in error_call.lower()
-                assert "debug" in error_call.lower()
-                assert "info" in error_call.lower()
+        message = str(excinfo.value)
+        assert "invalid" in message
+        assert "debug" in message and "error" in message
+        assert excinfo.value.exit_code == 2
 
 
 class TestVerboseFlag:

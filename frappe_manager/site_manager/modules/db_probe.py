@@ -99,6 +99,11 @@ CHECK_APP_PARITY = "app_parity"
 CHECK_SITE_FILES = "site_files"
 
 _ERROR_RE = re.compile(r"ERROR\s+(\d+)\s*\(")
+# psql prints none of MariaDB's `ERROR 1045 (28000)` shape, so the regex above never matched a
+# postgres failure and `run_query` called every one of them a success: an unreachable host came
+# back as "connected", and the timeout text was then handed to the flavour check, which announced
+# that TEST-NET "speaks the PostgreSQL wire protocol but is not PostgreSQL".
+PSQL_ERROR_RE = re.compile(r"^(?:psql: (?:error|warning|fatal)|ERROR:|FATAL:|PANIC:)", re.IGNORECASE | re.MULTILINE)
 _PY_ERROR_RE = re.compile(r"\((\d{4}),")
 _GRANT_RE = re.compile(r"^GRANT\s+(?P<privs>.+?)\s+ON\s+(?P<scope>\S+)\s+TO\s", re.IGNORECASE)
 _ROLE_GRANT_RE = re.compile(r"^GRANT\s+(?!.*\sON\s).+\sTO\s", re.IGNORECASE)
@@ -261,13 +266,18 @@ class _Reply:
         return self.code == ER_SECURE_TRANSPORT_REQUIRED or "insecure transport" in self.text.lower()
 
 
-def run_query(runner: Runner, command: str) -> _Reply:
+def run_query(runner: Runner, command: str, error_re: "re.Pattern[str]" = _ERROR_RE) -> _Reply:
+    """Run one client invocation and say whether it worked.
+
+    `error_re` is the CLIENT's error grammar: psql and mariadb report failure in shapes that share
+    nothing, and a reply judged by the wrong one is reported as a success carrying error text.
+    """
     try:
         text = runner(command)
     except Exception as exc:
         # The runner owns execution; its failure is data here, not an error to propagate.
         return _Reply(str(exc), False)
-    return _Reply(text, _ERROR_RE.search(text) is None)
+    return _Reply(text, error_re.search(text) is None)
 
 
 

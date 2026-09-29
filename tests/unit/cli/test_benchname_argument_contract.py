@@ -31,7 +31,7 @@ import typer
 from frappe_manager.commands import app
 from frappe_manager.commands.compose import _benchname_callback as _compose_benchname_callback
 from frappe_manager.commands.maintenance._helpers import optional_bench_site_callback
-from frappe_manager.exceptions import FrappeManagerException, NonInteractiveError
+from frappe_manager.exceptions import FrappeManagerException, MissingArgumentError, NonInteractiveError
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchException, BenchNotFoundError
 from frappe_manager.utils import callbacks
@@ -743,8 +743,9 @@ class TestSitenameCallbackWithNoValue:
     """`None`/`""` fall back to cwd, then to an interactive picker."""
 
     @pytest.mark.parametrize("empty", [None, ""])
-    def test_no_value_and_no_benches_raises_bad_parameter(self, benches, empty):
-        with pytest.raises(typer.BadParameter, match=r"Invalid selection\. Must match existing sites"):
+    def test_no_value_and_no_benches_names_the_bare_host(self, benches, empty):
+        """Nothing was passed and there is nothing to pass: say that, not "Invalid selection"."""
+        with pytest.raises(MissingArgumentError, match=r"No benches exist yet"):
             sitename_callback(empty)
 
     def test_no_value_inside_a_bench_directory_uses_that_bench(self, benches, monkeypatch):

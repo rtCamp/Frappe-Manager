@@ -20,7 +20,7 @@ from unittest.mock import patch
 import pytest
 import typer
 
-from frappe_manager.exceptions import NonInteractiveError
+from frappe_manager.exceptions import MissingArgumentError, NonInteractiveError
 from frappe_manager.utils.callbacks import (
     _pick_bench_name,
     _resolve_bench,
@@ -147,10 +147,16 @@ def test_the_cwd_answers_before_the_menu_does(picks):
 
 
 def test_no_benches_at_all_is_not_an_empty_menu(picks):
-    """An empty fuzzy list is a dead end with no way out; the caller reports it instead."""
+    """An empty fuzzy list is a dead end with no way out; the caller reports it instead.
+
+    And it reports the actual situation: a bare host, not a rejected value. The old refusal said
+    "Invalid selection. Must match existing sites", naming a selection nobody made and sites the
+    operator was never shown.
+    """
     prompt_fuzzy, _ = picks
     with patch(f"{CALLBACKS}._bench_names", return_value=[]):
         assert prompt_for_bench_selection(None) is None
-        with pytest.raises(typer.BadParameter):
+        with pytest.raises(MissingArgumentError) as excinfo:
             _resolve_bench(None)
+    assert "No benches exist yet" in str(excinfo.value)
     assert not prompt_fuzzy.called

@@ -29,6 +29,7 @@ from frappe_manager.site_manager.modules.db_probe import (
     CHECK_CONNECT,
     CHECK_SCHEMA_STATE,
     CHECK_SERVER_VERSION,
+    PSQL_ERROR_RE,
     CheckStatus,
     ProbeCheck,
     ProbeResult,
@@ -356,6 +357,7 @@ def probe_stage_one(
                 sslmode=sslmode,
                 sslrootcert=sslrootcert,
             ),
+            PSQL_ERROR_RE,
         )
         return reply.ok, reply.text
 

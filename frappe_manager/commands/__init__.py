@@ -26,6 +26,7 @@ from frappe_manager import (
     EventStreamFormat,
 )
 from frappe_manager.commands.gating import (
+    FMCommand,
     FMGroup,
     command_args,
     command_path,
@@ -65,7 +66,7 @@ from frappe_manager.utils.callbacks import (
     version_callback,
 )
 from frappe_manager.utils.helpers import get_current_fm_version
-from frappe_manager.utils.site import pull_docker_images, validate_sitename
+from frappe_manager.utils.site import pull_docker_images, stock_images_missing, validate_sitename
 
 
 def get_bench_arg_from_context(ctx: typer.Context) -> str | None:
@@ -343,9 +344,13 @@ def app_callback(
 
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
         if level_name not in valid_levels:
-            output = get_global_output_handler()
-            output.display_error(f"Invalid log level: {log_level}. Must be one of: {', '.join(valid_levels).lower()}")
-            raise typer.Exit(1)
+            # BadParameter, not display_error + Exit(1): a bad VALUE for a flag is a wrong command
+            # line, so it exits 2 like an unknown flag does. Hand-rolling the message here made
+            # `--log-level nosuchlevel` exit 1 while `--nosuchflag` exited 2, for the same mistake.
+            raise typer.BadParameter(
+                f"{log_level!r} is not one of {', '.join(valid_levels).lower()}.",
+                param_hint="--log-level",
+            )
     elif verbose:
         level_name = "INFO"
     else:
@@ -461,14 +466,21 @@ def app_callback(
             # a first install and PULL the entire stack on the way to removing it. Observers are
             # exempt because they answer a question about state that does not exist yet: `fm list`
             # on a fresh host has nothing to list and must not spend minutes pulling images first.
-            first_install = (
-                config_is_new
-                and not tolerates_broken_host(ctx)
+            needs_stock_images = (
+                not tolerates_broken_host(ctx)
                 and command_path(ctx) not in OBSERVE_ONLY_COMMANDS
                 and command_path(ctx) not in PRE_INSTALL_COMMANDS
+                and invoked_command not in STOCK_IMAGE_PREFETCH_SKIP_COMMANDS
             )
-            if first_install and invoked_command not in STOCK_IMAGE_PREFETCH_SKIP_COMMANDS:
-                output.print("First installation detected. Pulling docker images...️", "🔍")
+            # Asked of docker, not inferred from `config_is_new`. The config is a PROXY for "this
+            # host has never been set up", and an observer breaks the proxy: `fm list` is exempt
+            # from prefetching but still builds a ServicesManager, which writes fm_config.toml. So
+            # on a fresh host `fm list` then `fm create` left the config looking established while
+            # not one image had been pulled, and create died on "Required docker images not
+            # available" -- the exact stall the prefetch exists to prevent, reachable by running
+            # the most innocuous command first.
+            if needs_stock_images and stock_images_missing():
+                output.print("Some images this needs are not on the machine yet. Pulling them...️", "🔍")
 
                 completed_status = pull_docker_images()
 
@@ -702,17 +714,17 @@ app.command(
 app.command(name="info", rich_help_panel=_PANEL_BENCH)(info)
 app.command(name="restart", rich_help_panel=_PANEL_BENCH)(restart)
 app.command(name="migrate", rich_help_panel=_PANEL_BENCH)(migrate)
-app.command(name="bake", no_args_is_help=True, rich_help_panel=_PANEL_BENCH)(bake)
-app.command(name="switch", no_args_is_help=True, rich_help_panel=_PANEL_BENCH)(switch)
-app.command(name="prune", no_args_is_help=True, rich_help_panel=_PANEL_BENCH)(prune)
-app.command(name="create", no_args_is_help=True, rich_help_panel=_PANEL_SITE)(create)
+app.command(name="bake", cls=FMCommand, no_args_is_help=True, rich_help_panel=_PANEL_BENCH)(bake)
+app.command(name="switch", cls=FMCommand, no_args_is_help=True, rich_help_panel=_PANEL_BENCH)(switch)
+app.command(name="prune", cls=FMCommand, no_args_is_help=True, rich_help_panel=_PANEL_BENCH)(prune)
+app.command(name="create", cls=FMCommand, no_args_is_help=True, rich_help_panel=_PANEL_SITE)(create)
 app.command(name="delete", rich_help_panel=_PANEL_SITE)(delete)
 app.command(
     name="shell",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
     rich_help_panel=_PANEL_SITE,
 )(shell)
-app.command(name="update", no_args_is_help=True, rich_help_panel=_PANEL_SITE)(update)
+app.command(name="update", cls=FMCommand, no_args_is_help=True, rich_help_panel=_PANEL_SITE)(update)
 app.command(name="reset", rich_help_panel=_PANEL_SITE)(reset)
 app.command(name="ngrok", rich_help_panel=_PANEL_DOMAIN)(ngrok)
 app.command(name="list", rich_help_panel=_PANEL_GLOBAL)(list_benches)

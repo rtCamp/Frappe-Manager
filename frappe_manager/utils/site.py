@@ -289,6 +289,19 @@ def pull_docker_images() -> bool:
     return not failures
 
 
+def stock_images_missing() -> bool:
+    """True when any image the stock stack needs is absent from this daemon.
+
+    One `docker image inspect` per distinct image, all local: no registry contact, so a host that
+    is already warm pays a few milliseconds and pulls nothing. Short-circuits on the first miss.
+    """
+    from frappe_manager.docker import DockerClient
+
+    docker = DockerClient()
+    images = {f"{info['name']}:{info['tag']}" for info in get_all_docker_images().values()}
+    return any(not docker.image_exists(image) for image in images)
+
+
 def get_sitename_from_current_path() -> str | None:
     current_path = Path().absolute()
     sites_path = CLI_BENCHES_DIRECTORY.absolute()

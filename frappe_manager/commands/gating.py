@@ -81,6 +81,28 @@ class FMGroup(TyperGroup):
         return super().invoke(ctx)
 
 
+class FMCommand(TyperCommand):
+    """A leaf command that names the argument it is missing instead of dumping its whole help.
+
+    `no_args_is_help` prints the full page and exits 2 with no error line anywhere in it, so
+    `fm create` answered a missing bench name with 228 lines that never say what was wrong -- and
+    a script reading stderr got a wall of help with nothing greppable in it. The flag stays on the
+    command because `will_print_help` reads it to skip the docker probe and the migration gates,
+    which is the whole reason a usage error here costs 0.4s instead of 1.5s.
+
+    Only when a REQUIRED argument is missing. A command whose arguments are all optional shows
+    help on purpose (`fm services start` will not guess which service you meant), and that is left
+    exactly as it was.
+    """
+
+    def parse_args(self, ctx: click.Context, args: "builtins.list[str]") -> "builtins.list[str]":
+        if not args and self.no_args_is_help and not ctx.resilient_parsing:
+            missing = next((p for p in self.params if isinstance(p, click.Argument) and p.required), None)
+            if missing is not None:
+                raise click.MissingParameter(ctx=ctx, param=missing)
+        return super().parse_args(ctx, args)
+
+
 def command_path(ctx: click.Context) -> str:
     """The resolved command, as a full path: "start", "ssl add", "ssl ca status"."""
     return ctx.meta.get(META_PATH, "")

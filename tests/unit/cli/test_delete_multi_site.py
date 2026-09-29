@@ -113,7 +113,7 @@ class _Run:
         return next(payload for what, payload in self.calls if what == name)
 
 
-def _run(argv, *, root, sites, schemas=None, answer=None, config_readable=True):
+def _run(argv, *, root, sites, schemas=None, answer=None, config_readable=True, interactive=True):
     """Invoke `fm delete` with the engine and the prompt recorded instead of performed."""
     handler = get_global_output_handler()
     calls: list[tuple[str, object]] = []
@@ -154,6 +154,10 @@ def _run(argv, *, root, sites, schemas=None, answer=None, config_readable=True):
         patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root),
         patch.object(delete_cmd, "BenchService", return_value=service),
         patch.object(handler, "prompt_ask", side_effect=_prompt),
+        # A handler that answers prompts is an INTERACTIVE one. Left at the runner's default it
+        # reported non-interactive while still answering, and delete now refuses up front in that
+        # state rather than destroying containers and then discovering it cannot ask.
+        patch.object(handler, "is_interactive", return_value=interactive),
     ):
         result = runner.invoke(_app(), argv, obj={"services": MagicMock(), "verbose": False})
 
@@ -353,14 +357,14 @@ def test_the_sites_are_enumerated_before_the_question_is_asked(two_sites):
 
 
 def test_the_blast_radius_names_the_bench_and_counts_its_sites(two_sites):
-    said = _run([BENCH, "--all-sites"], root=two_sites, sites=[SITE_A, SITE_B], answer="no").said
+    said = _run([BENCH, "--all-sites", "--delete-fm-managed-db"], root=two_sites, sites=[SITE_A, SITE_B], answer="no").said
     assert f"permanently delete bench '{BENCH}'" in said
     assert f"2 sites {SITE_A}, {SITE_B}" in said
 
 
 def test_the_blast_radius_names_the_schemas_it_will_drop(two_sites):
     schemas = [_Schema(SITE_A, "fm_a_example_com_9f2c"), _Schema(SITE_B, "fm_b_example_com_1d4e")]
-    said = _run([BENCH, "--all-sites"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
+    said = _run([BENCH, "--all-sites", "--delete-fm-managed-db"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
     assert "2 schemas dropped" in said
     # Tied to the schema list itself, not merely present somewhere in the output: this is the
     # server BOTH dropped schemas share, reported next to the names that are actually leaving it.
@@ -374,7 +378,7 @@ def test_the_blast_radius_names_each_schemas_own_server_when_engines_differ(two_
         _Schema(SITE_A, "fm_a_example_com_9f2c", engine=DatabaseEngine.mariadb),
         _Schema(SITE_B, "fm_b_example_com_1d4e", engine=DatabaseEngine.postgres),
     ]
-    said = _run([BENCH, "--all-sites"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
+    said = _run([BENCH, "--all-sites", "--delete-fm-managed-db"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
     assert "2 schemas dropped" in said
     assert "fm_a_example_com_9f2c (mariadb), fm_b_example_com_1d4e (postgres)" in said
 
@@ -382,7 +386,7 @@ def test_the_blast_radius_names_each_schemas_own_server_when_engines_differ(two_
 def test_the_blast_radius_says_the_containers_and_workspace_go_too(two_sites):
     """The parts that have no per-site half. Leaving them implicit is how a bench-wide delete gets
     mistaken for the sum of its sites."""
-    said = _run([BENCH, "--all-sites"], root=two_sites, sites=[SITE_A, SITE_B], answer="no").said
+    said = _run([BENCH, "--all-sites", "--delete-fm-managed-db"], root=two_sites, sites=[SITE_A, SITE_B], answer="no").said
     assert "containers, workspace, certificates" in said
 
 
@@ -390,7 +394,7 @@ def test_an_external_schema_is_named_as_kept_with_its_host(two_sites):
     """An external schema is never dropped and never asked about, so saying so here is the only
     way the operator learns it survives the delete and is theirs to clean up."""
     schemas = [_Schema(SITE_A, "fm_a_example_com_9f2c"), _Schema(SITE_B, "prod_erp", "rds.internal")]
-    said = _run([BENCH, "--all-sites"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
+    said = _run([BENCH, "--all-sites", "--delete-fm-managed-db"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
     assert "1 schema kept" in said
     assert "prod_erp on rds.internal" in said
     assert "external, not fm's" in said
@@ -401,7 +405,7 @@ def test_an_external_schema_is_not_counted_among_the_dropped(two_sites):
     engine of one of fm's own servers -- regardless of which engine that would name, because that
     would tell the operator fm is about to drop a schema it has already said it will leave alone."""
     schemas = [_Schema(SITE_A, "fm_a_example_com_9f2c"), _Schema(SITE_B, "prod_erp", "rds.internal")]
-    said = _run([BENCH, "--all-sites"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
+    said = _run([BENCH, "--all-sites", "--delete-fm-managed-db"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
     assert "1 schema dropped" in said
     assert f"prod_erp ({DatabaseEngine.mariadb.value})" not in said
     assert f"prod_erp ({DatabaseEngine.postgres.value})" not in said
@@ -411,7 +415,7 @@ def test_an_unreadable_schema_is_reported_as_unreadable(two_sites):
     """`schema is None` means site_config.json could not be read: fm cannot drop a name it does not
     know and cannot promise it is gone. That is exactly the case that orphans a schema."""
     schemas = [_Schema(SITE_A, "fm_a_example_com_9f2c"), _Schema(SITE_B)]
-    said = _run([BENCH, "--all-sites"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
+    said = _run([BENCH, "--all-sites", "--delete-fm-managed-db"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
     assert "1 schema unreadable" in said
     assert SITE_B in said
     assert "may be left behind" in said
@@ -419,7 +423,7 @@ def test_an_unreadable_schema_is_reported_as_unreadable(two_sites):
 
 def test_an_unreadable_schema_is_counted_as_neither_dropped_nor_kept(two_sites):
     schemas = [_Schema(SITE_A, "fm_a_example_com_9f2c"), _Schema(SITE_B)]
-    said = _run([BENCH, "--all-sites"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
+    said = _run([BENCH, "--all-sites", "--delete-fm-managed-db"], root=two_sites, sites=[SITE_A, SITE_B], schemas=schemas, answer="no").said
     assert "1 schema dropped" in said
     assert "kept" not in said
 
