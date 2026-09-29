@@ -104,12 +104,16 @@ A provider needs both a stored license key and the enabled flag to report; eithe
 **Usage**:
 
 ```console
-$ fm telemetry status BENCH
+$ fm telemetry status BENCH [OPTIONS]
 ```
 
 **Arguments**:
 
 * `BENCH`: Bench to act on. Omit to pick from the benches you have.
+
+**Options**:
+
+* `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
 
 ### Examples
 

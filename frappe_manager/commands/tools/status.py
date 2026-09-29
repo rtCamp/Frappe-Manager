@@ -2,7 +2,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
-from frappe_manager.commands.arguments import BenchNameArgument
+from frappe_manager.commands.arguments import BenchNameArgument, JsonResultOption
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.site import Bench
 
@@ -15,6 +15,7 @@ from frappe_manager.site_manager.site import Bench
 def status(
     ctx: typer.Context,
     benchname: BenchNameArgument = None,
+    json_result: JsonResultOption = False,
 ):
     """
     Report whether admin tools are configured, whether they are enabled, and which sites route to them.
@@ -28,6 +29,20 @@ def status(
 
     configured = bench.admin_tools.compose_file_manager.compose_path.exists()
     enabled = bench.bench_config.admin_tools
+
+    if json_result:
+        output.print_data(
+            {
+                "bench": bench.name,
+                "configured": configured,
+                "enabled": bool(enabled),
+                "sites": {
+                    site_name: bench.bench_config.serves_admin_tools(site_name)
+                    for site_name in bench.bench_config.site_names
+                },
+            }
+        )
+        return
 
     lines = [
         f"containers: {'configured' if configured else 'not configured'}",

@@ -119,12 +119,16 @@ Report whether admin tools are configured, whether they are enabled, and which s
 **Usage**:
 
 ```console
-$ fm tools status BENCH
+$ fm tools status BENCH [OPTIONS]
 ```
 
 **Arguments**:
 
 * `BENCH`: Bench to act on. Omit to pick from the benches you have.
+
+**Options**:
+
+* `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
 
 ### Examples
 

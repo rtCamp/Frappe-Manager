@@ -100,12 +100,16 @@ Copy targets get PLAIN lines, not table cells (commands/list.py:61): a rich cell
 **Usage**:
 
 ```console
-$ fm domain list BENCH
+$ fm domain list BENCH [OPTIONS]
 ```
 
 **Arguments**:
 
 * `BENCH`: Bench to act on. Omit to pick from the benches you have.
+
+**Options**:
+
+* `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
 
 ### Examples
 

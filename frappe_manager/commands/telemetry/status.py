@@ -2,7 +2,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
-from frappe_manager.commands.arguments import BenchNameArgument
+from frappe_manager.commands.arguments import BenchNameArgument, JsonResultOption
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.site import host_bench_dir
@@ -18,6 +18,7 @@ from ._helpers import describe_newrelic
 def status(
     ctx: typer.Context,
     benchname: BenchNameArgument = None,
+    json_result: JsonResultOption = False,
 ):
     """
     Report which APM providers are configured on a bench and whether they are reporting.
@@ -35,6 +36,22 @@ def status(
     # The agent config is user-owned once seeded, so its presence is worth reporting on its own:
     # it survives a disable, and it is what --force-config would overwrite.
     agent_config = host_bench_dir(bench.path) / "config" / "newrelic.ini"
+
+    if json_result:
+        output.print_data(
+            {
+                "bench": bench.name,
+                "providers": {
+                    "newrelic": {
+                        "reporting": bool(enabled and has_key),
+                        "enabled": bool(enabled),
+                        "license_key_stored": bool(has_key),
+                        "agent_config_present": agent_config.is_file(),
+                    }
+                },
+            }
+        )
+        return
 
     lines = [
         f"newrelic: {'reporting' if enabled and has_key else 'not reporting'}",

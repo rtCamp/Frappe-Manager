@@ -79,12 +79,16 @@ Recorded apps come from bench_config.toml, with their pinned refs. Installed app
 **Usage**:
 
 ```console
-$ fm apps list BENCH
+$ fm apps list BENCH [OPTIONS]
 ```
 
 **Arguments**:
 
 * `BENCH`: Bench to act on. Omit to pick from the benches you have.
+
+**Options**:
+
+* `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
 
 ### Examples
 

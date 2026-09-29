@@ -2,7 +2,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
-from frappe_manager.commands.arguments import BenchNameArgument
+from frappe_manager.commands.arguments import BenchNameArgument, JsonResultOption
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.site import Bench
 
@@ -15,6 +15,7 @@ from frappe_manager.site_manager.site import Bench
 def list_domains(
     ctx: typer.Context,
     benchname: BenchNameArgument = None,
+    json_result: JsonResultOption = False,
 ):
     """
     List every site's primary domain and its alias domains, one per line.
@@ -30,6 +31,19 @@ def list_domains(
     sites = bench.bench_config.sites or {}
     primary = bench.bench_config.primary_site_or_none()
     width = max((len(name) for name in site_names), default=0)
+
+    if json_result:
+        output.print_data(
+            [
+                {
+                    "site": site_name,
+                    "primary": site_name == primary,
+                    "aliases": (sites[site_name].alias_domains if site_name in sites else []) or [],
+                }
+                for site_name in site_names
+            ]
+        )
+        return
 
     for site_name in site_names:
         role = "primary" if site_name == primary else "site"
