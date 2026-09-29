@@ -163,8 +163,8 @@ def build_bench(
         "compose_file_manager": cfm,
         "docker_client": docker_client,
         "services": services,
-        "workers_check": False,
-        "admin_tools_check": False,
+        "start_workers_if_stopped": False,
+        "start_admin_tools_if_stopped": False,
         "verbose": False,
         "output_handler": MagicMock(name="output"),
     }
@@ -230,24 +230,24 @@ def record_removal_steps(harness) -> list[tuple]:
 class TestConstructionHooks:
     """The two opt-in reconciliation hooks that close `__init__`."""
 
-    def test_workers_check_true_reconciles_workers_during_construction(self, tmp_path):
+    def test_start_workers_if_stopped_true_reconciles_workers_during_construction(self, tmp_path):
         with patch.object(Bench, "ensure_workers_running_if_available") as hook:
-            build_bench(tmp_path, workers_check=True)
+            build_bench(tmp_path, start_workers_if_stopped=True)
         hook.assert_called_once_with()
 
-    def test_workers_check_false_leaves_workers_untouched(self, tmp_path):
+    def test_start_workers_if_stopped_false_leaves_workers_untouched(self, tmp_path):
         with patch.object(Bench, "ensure_workers_running_if_available") as hook:
-            build_bench(tmp_path, workers_check=False)
+            build_bench(tmp_path, start_workers_if_stopped=False)
         hook.assert_not_called()
 
-    def test_admin_tools_check_true_reconciles_admin_tools_during_construction(self, tmp_path):
+    def test_start_admin_tools_if_stopped_true_reconciles_admin_tools_during_construction(self, tmp_path):
         with patch.object(Bench, "ensure_admin_tools_running_if_available") as hook:
-            build_bench(tmp_path, admin_tools_check=True)
+            build_bench(tmp_path, start_admin_tools_if_stopped=True)
         hook.assert_called_once_with()
 
-    def test_admin_tools_check_false_leaves_admin_tools_untouched(self, tmp_path):
+    def test_start_admin_tools_if_stopped_false_leaves_admin_tools_untouched(self, tmp_path):
         with patch.object(Bench, "ensure_admin_tools_running_if_available") as hook:
-            build_bench(tmp_path, admin_tools_check=False)
+            build_bench(tmp_path, start_admin_tools_if_stopped=False)
         hook.assert_not_called()
 
     def test_both_hooks_run_workers_before_admin_tools(self, tmp_path):
@@ -256,7 +256,7 @@ class TestConstructionHooks:
             patch.object(Bench, "ensure_workers_running_if_available", side_effect=lambda: order.append("workers")),
             patch.object(Bench, "ensure_admin_tools_running_if_available", side_effect=lambda: order.append("admin")),
         ):
-            build_bench(tmp_path, workers_check=True, admin_tools_check=True)
+            build_bench(tmp_path, start_workers_if_stopped=True, start_admin_tools_if_stopped=True)
         # Workers first: admin tools reconciliation consults `self.running`, which is
         # only meaningful once the worker containers have been reconciled.
         assert order == ["workers", "admin"]
@@ -371,8 +371,8 @@ class TestGetObject:
         Bench.get_object("mybench", MagicMock(), benches_path=tmp_path)
         # `Bench.__init__` defaults both to True; `get_object` deliberately does not,
         # so merely looking a bench up never starts containers.
-        assert captured_get_object["workers_check"] is False
-        assert captured_get_object["admin_tools_check"] is False
+        assert captured_get_object["start_workers_if_stopped"] is False
+        assert captured_get_object["start_admin_tools_if_stopped"] is False
 
     def test_output_handler_kwarg_is_omitted_when_none_so_the_default_applies(self, tmp_path, captured_get_object):
         _bench_dir_with_config(tmp_path, "mybench.localhost")
@@ -1918,13 +1918,24 @@ class TestSaveBenchConfig:
 
     def test_quiet_saves_print_nothing(self, harness):
         harness.bench.save_bench_config(print_message=False)
-        harness.bench.output.change_head.assert_not_called()
         harness.bench.output.print.assert_not_called()
 
-    def test_loud_saves_announce_themselves(self, harness):
-        harness.bench.save_bench_config(print_message=True)
-        harness.bench.output.change_head.assert_called_once()
+    def test_a_real_save_announces_itself(self, harness):
+        assert harness.bench.save_bench_config(print_message=True) is True
         harness.bench.output.print.assert_called_once()
+
+    def test_a_save_that_changes_nothing_writes_nothing_and_says_nothing(self, harness):
+        """`fm start` saves unconditionally at the end of every run, so on a healthy bench this is
+        the NORMAL case. Writing anyway made the file's mtime report the last restart instead of
+        the last config change, and printed "Saved bench config" for a save that never happened."""
+        harness.bench.save_bench_config(print_message=False)
+        before = harness.config_toml.read_text()
+        harness.bench.output.print.reset_mock()
+
+        assert harness.bench.save_bench_config(print_message=True) is False
+
+        assert harness.config_toml.read_text() == before
+        harness.bench.output.print.assert_not_called()
 
 
 class TestHostSideLogFiles:

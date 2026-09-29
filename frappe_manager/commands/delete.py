@@ -101,7 +101,7 @@ def _site_schemas(bench_service: BenchService, benchname: str) -> list:
     bench deletes exactly as it did before a bench could hold several sites.
     """
     try:
-        bench = bench_service.get_bench(benchname, workers_check=False, admin_tools_check=False)
+        bench = bench_service.get_bench(benchname, start_workers_if_stopped=False, start_admin_tools_if_stopped=False)
     except FileNotFoundError:
         return []
     return bench.site_schemas()
@@ -210,7 +210,7 @@ def delete(
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
 
     if site:
-        bench = bench_service.get_bench(address, workers_check=False, admin_tools_check=False)
+        bench = bench_service.get_bench(address, start_workers_if_stopped=False, start_admin_tools_if_stopped=False)
 
         # The bench is loaded first, so a name that resolves to nothing fails as "not found"
         # rather than offering to destroy whatever it did find.

@@ -2057,13 +2057,15 @@ class BenchConfig(BaseModel):
     def container_name_prefix(self):
         return get_container_name_prefix(self.name)
 
-    def export_to_toml(self, path: Path) -> None:
+    def export_to_toml(self, path: Path) -> bool:
         """Export to TOML: `environment`, [telemetry], [switch], [build], [ssl],
         [database."<site>"], [redis]. Nested models round-trip through model_dump(exclude_none=True).
 
-        Raises on a failed write rather than reporting it in a return value. The old `-> bool`
-        was discarded by every one of its six callers, and `save_bench_config` printed "Saved bench
-        config" straight afterwards, so a failed save looked like a successful one.
+        Returns whether the file CHANGED, not whether the write succeeded -- a failure still
+        raises. The distinction matters: an earlier `-> bool` meant "succeeded", was discarded by
+        every one of its six callers, and `save_bench_config` printed "Saved bench config"
+        straight afterwards, so a failed save looked like a successful one. This one is read, to
+        keep that message off a start that saved nothing.
         """
         # by_alias: `schema_state` is written as `[schema]`. It is the only aliased field in the
         # package, so this changes exactly that one table name.
@@ -2113,9 +2115,18 @@ class BenchConfig(BaseModel):
         toml_doc = toml_document.load_or_new(path)
         toml_document.apply(toml_doc, desired, keep=READ_ONLY_INPUT_KEYS)
 
+        rendered = tomlkit.dumps(toml_doc)
+        # `fm start` saves unconditionally at the end of every run, and on a healthy bench the
+        # result is byte-identical: writing anyway made the mtime report the last restart rather
+        # than the last config change, and printed "Saved bench config" for a save that did not
+        # happen. Same guard, same reason, as `set_frappe_headers_conf`.
+        if path.exists() and path.read_text() == rendered:
+            return False
+
         # Atomic, and 0600 from creation: see toml_document.save. A truncating write here left an
         # empty bench_config.toml behind whenever serialisation failed.
-        toml_document.save(path, toml_doc)
+        toml_document.save_text(path, rendered)
+        return True
 
     @classmethod
     def collect_from_data(cls, data: Mapping[str, Any]) -> tuple["BenchConfig", list[str]]:

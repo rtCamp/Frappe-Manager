@@ -89,35 +89,21 @@ class BenchService:
     def get_bench(
         self,
         bench_name: str,
-        workers_check: bool = True,
-        admin_tools_check: bool = True,
+        start_workers_if_stopped: bool = False,
+        start_admin_tools_if_stopped: bool = False,
     ) -> Bench:
-        """
-        Get a bench instance by name.
+        """Get a bench instance by name.
 
-        This is a convenience method that wraps Bench.get_object() with
-        the service's configuration.
-
-        Args:
-            bench_name: Name of the bench to retrieve
-            workers_check: Whether to check worker status
-            admin_tools_check: Whether to check admin tools status
-
-        Returns:
-            Bench instance
-
-        Raises:
-            FileNotFoundError: If bench config not found
-
-        Example:
-            >>> bench = service.get_bench("mysite.localhost")
-            >>> bench.start()
+        The two start flags default OFF and are named for what they do: they reach `compose.up`,
+        so asking for them starts containers. They defaulted ON here, which made merely obtaining
+        a bench a mutating act -- safe only because nearly every caller in the tree goes through
+        `Bench.get_object`, whose own default was already off.
         """
         return Bench.get_object(
             bench_name=bench_name,
             services=self.services,
-            workers_check=workers_check,
-            admin_tools_check=admin_tools_check,
+            start_workers_if_stopped=start_workers_if_stopped,
+            start_admin_tools_if_stopped=start_admin_tools_if_stopped,
             verbose=self.verbose,
             output_handler=self.output,
         )
@@ -186,7 +172,7 @@ class BenchService:
         confirmation. It is now `prompt=False` on the one implementation.
         """
         try:
-            bench = self.get_bench(bench_name, workers_check=False, admin_tools_check=False)
+            bench = self.get_bench(bench_name, start_workers_if_stopped=False, start_admin_tools_if_stopped=False)
         except FileNotFoundError:
             bench = self._create_cleanup_bench(bench_name)
 
@@ -247,7 +233,7 @@ class BenchService:
                 # (incl. the liveness check's subprocess traces), not to whatever
                 # the invocation logs after the loop.
                 with bind(bench=bench_name):
-                    bench = self.get_bench(bench_name, workers_check=False, admin_tools_check=False)
+                    bench = self.get_bench(bench_name, start_workers_if_stopped=False, start_admin_tools_if_stopped=False)
                     config = bench.bench_config
 
                     apps_txt = host_bench_dir(bench.path) / "sites" / "apps.txt"
@@ -418,8 +404,8 @@ class BenchService:
             compose_file_manager=compose_file_manager,
             docker_client=docker_client,
             services=self.services,
-            workers_check=False,
-            admin_tools_check=False,
+            start_workers_if_stopped=False,
+            start_admin_tools_if_stopped=False,
             verbose=self.verbose,
             output_handler=self.output,
         )

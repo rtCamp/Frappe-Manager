@@ -172,8 +172,8 @@ class Bench:
         compose_file_manager: ComposeFile,
         docker_client: DockerClient,
         services: ServicesManager,
-        workers_check: bool = True,
-        admin_tools_check: bool = True,
+        start_workers_if_stopped: bool = False,
+        start_admin_tools_if_stopped: bool = False,
         verbose: bool = False,
         output_handler: OutputHandler | None = None,
     ) -> None:
@@ -321,10 +321,13 @@ class Bench:
 
         self.orchestrator = BenchOrchestrator(bench=self, output_handler=self.output)
 
-        if workers_check:
+        # These are not checks: both reach `compose.up`, so constructing a Bench with one on
+        # starts containers, silently. They were named `workers_check`/`admin_tools_check` and
+        # defaulted on, which read as a no-op to every caller.
+        if start_workers_if_stopped:
             self.ensure_workers_running_if_available()
 
-        if admin_tools_check:
+        if start_admin_tools_if_stopped:
             self.ensure_admin_tools_running_if_available()
 
     @classmethod
@@ -334,8 +337,8 @@ class Bench:
         services: ServicesManager,
         benches_path: Path = CLI_BENCHES_DIRECTORY,
         bench_config_file_name: str = CLI_BENCH_CONFIG_FILE_NAME,
-        workers_check: bool = False,
-        admin_tools_check: bool = False,
+        start_workers_if_stopped: bool = False,
+        start_admin_tools_if_stopped: bool = False,
         verbose: bool = False,
         output_handler: OutputHandler | None = None,
     ) -> "Bench":
@@ -376,8 +379,8 @@ class Bench:
             "compose_file_manager": compose_file_manager,
             "docker_client": docker_client,
             "services": services,
-            "workers_check": workers_check,
-            "admin_tools_check": admin_tools_check,
+            "start_workers_if_stopped": start_workers_if_stopped,
+            "start_admin_tools_if_stopped": start_admin_tools_if_stopped,
         }
 
         if output_handler is not None:
@@ -498,16 +501,21 @@ class Bench:
             self.logger.exception(f"Failed to sync bench config: {self.name}", extra_fields=extra)
             raise
 
-    def save_bench_config(self, print_message: bool = True):
+    def save_bench_config(self, print_message: bool = True) -> bool:
+        """Persist bench_config.toml. Returns whether the file changed.
+
+        `fm start` calls this unconditionally at the end of every run, and on a healthy bench
+        nothing differs, so the message is gated on a real write: announcing a save that did not
+        happen sends anyone debugging a config problem after the wrong thing.
+        """
         extra = {"operation": "config_save_bench_config", "bench_name": self.name, "print_message": print_message}
         self.logger.debug(f"Saving bench config: {self.name}", extra_fields=extra)
         try:
-            if print_message:
-                self.output.change_head("Saving bench config changes")
-            self.bench_config.export_to_toml(self.bench_config.root_path)
-            if print_message:
+            changed = self.bench_config.export_to_toml(self.bench_config.root_path)
+            if changed and print_message:
                 self.output.print("Saved bench config")
             self.logger.info(f"Bench config saved: {self.name}", extra_fields=extra)
+            return changed
         except Exception as e:
             extra["error"] = str(e)
             self.logger.exception(f"Failed to save bench config: {self.name}", extra_fields=extra)

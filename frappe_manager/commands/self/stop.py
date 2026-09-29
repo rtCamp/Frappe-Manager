@@ -61,7 +61,7 @@ def stop(
         else:
             for bench_name in bench_names:
                 try:
-                    bench = bench_service.get_bench(bench_name, workers_check=False, admin_tools_check=False)
+                    bench = bench_service.get_bench(bench_name, start_workers_if_stopped=False, start_admin_tools_if_stopped=False)
                     # No `if bench.running` guard: that predicate is all-or-nothing over the MAIN
                     # compose file only, so a partially running bench (crashed frappe, or only the
                     # worker/admin-tools containers left) reads as stopped and would keep its

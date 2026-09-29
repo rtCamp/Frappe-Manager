@@ -1004,17 +1004,31 @@ def _service(tmp_path, **over):
 def test_get_bench_forwards_the_service_configuration_to_bench_get_object(tmp_path):
     service = _service(tmp_path)
     with patch("frappe_manager.site_manager.bench_service.Bench") as bench_cls:
-        got = service.get_bench("a.localhost", workers_check=False)
+        got = service.get_bench("a.localhost")
 
+    # Both default OFF: these reach `compose.up`, so obtaining a bench must not start containers.
     bench_cls.get_object.assert_called_once_with(
         bench_name="a.localhost",
         services=service.services,
-        workers_check=False,
-        admin_tools_check=True,
+        start_workers_if_stopped=False,
+        start_admin_tools_if_stopped=False,
         verbose=True,
         output_handler=service.output,
     )
     assert got is bench_cls.get_object.return_value
+
+
+def test_get_bench_starts_containers_only_when_asked(tmp_path):
+    """Verified on a live bench: with these on, merely constructing the object ran `compose up`
+    and brought two stopped worker containers back, silently. The default has to be off, and a
+    caller that wants it has to say so."""
+    service = _service(tmp_path)
+    with patch("frappe_manager.site_manager.bench_service.Bench") as bench_cls:
+        service.get_bench("a.localhost", start_workers_if_stopped=True)
+
+    passed = bench_cls.get_object.call_args.kwargs
+    assert passed["start_workers_if_stopped"] is True
+    assert passed["start_admin_tools_if_stopped"] is False
 
 
 def test_create_bench_wires_the_compose_path_then_runs_creation(tmp_path):
@@ -1105,7 +1119,7 @@ def test_create_cleanup_bench_builds_an_unchecked_bench_with_a_placeholder_confi
         service._create_cleanup_bench("a.localhost")
 
     kwargs = bench_cls.call_args.kwargs
-    assert (kwargs["workers_check"], kwargs["admin_tools_check"]) == (False, False)
+    assert (kwargs["start_workers_if_stopped"], kwargs["start_admin_tools_if_stopped"]) == (False, False)
     fake = kwargs["bench_config"]
     assert fake.name == "a.localhost"
     assert fake.apps_list == []
@@ -1318,7 +1332,7 @@ def test_list_benches_data_never_asks_for_worker_or_admin_tool_checks(tmp_path):
     with patch.object(BenchService, "get_bench", return_value=_listable_bench(path, "a.localhost")) as get_bench:
         _service(tmp_path).list_benches_data()
 
-    assert get_bench.call_args.kwargs == {"workers_check": False, "admin_tools_check": False}
+    assert get_bench.call_args.kwargs == {"start_workers_if_stopped": False, "start_admin_tools_if_stopped": False}
 
 
 # --------------------------------------------------------------------------- list view

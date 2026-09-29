@@ -54,8 +54,8 @@ def mock_bench_dependencies():
         "compose_file_manager": MagicMock(),
         "docker_client": MagicMock(),
         "services": MagicMock(),
-        "workers_check": False,
-        "admin_tools_check": False,
+        "start_workers_if_stopped": False,
+        "start_admin_tools_if_stopped": False,
         "verbose": False,
         "output_handler": MagicMock(),
     }

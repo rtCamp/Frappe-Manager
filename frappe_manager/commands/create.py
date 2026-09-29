@@ -580,7 +580,9 @@ def _add_site_to_bench(
     """
     output = get_global_output_handler()
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
-    bench = bench_service.get_bench(benchname)
+    # Asked for explicitly: adding a site to a bench whose workers are stopped must bring them up,
+    # and the flags default off precisely so nothing else does this by accident.
+    bench = bench_service.get_bench(benchname, start_workers_if_stopped=True, start_admin_tools_if_stopped=True)
 
     output.print(
         f"Adding site [fm.info]{site}[/fm.info] to bench [fm.info]{benchname}[/fm.info].",
