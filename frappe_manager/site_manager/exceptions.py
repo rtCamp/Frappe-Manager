@@ -15,13 +15,14 @@ class BenchException(FrappeManagerException):
         bench_name: str,
         message: str,
         prefix_bench_name: bool = True,
+        suggestions: list[str] | None = None,
     ):
         self.message = message
 
         if prefix_bench_name:
             self.message = f"[fm.info][bold]{bench_name} :[/bold][/fm.info] {message}"
 
-        super().__init__(self.message)
+        super().__init__(self.message, suggestions=suggestions)
 
 
 class BenchServiceNotRunning(BenchException):
@@ -57,7 +58,15 @@ class BenchNotFoundError(FileNotFoundError, BenchException):
         # "[Errno nope.localhost]" prefix. It also skips `FrappeManagerException.__init__`
         # entirely, leaving no `.details`, which the top-level handler in main.py reads -- so
         # every "bench not found" ended in an AttributeError traceback and logged nothing.
-        BenchException.__init__(self, self.bench_name, self.message)
+        BenchException.__init__(
+            self,
+            self.bench_name,
+            self.message,
+            # The harder error of the two: a name that is WRONG has no obvious next step, while a
+            # name that is absent already names one. Nothing here can guess the intended bench, so
+            # it points at the command that lists them.
+            suggestions=["Run 'fm list' to see the benches on this host"],
+        )
 
 
 class BenchConfigNotFoundError(FileNotFoundError, BenchException):

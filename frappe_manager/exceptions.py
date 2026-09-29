@@ -19,16 +19,26 @@ class FrappeManagerException(Exception):
     - Structured error information for API responses
     """
 
-    def __init__(self, message: str, details: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        message: str,
+        details: dict[str, Any] | None = None,
+        suggestions: list[str] | None = None,
+    ):
         """
         Initialize exception with message and optional details.
 
         Args:
             message: Human-readable error message
             details: Optional dictionary with additional context (for logging/API)
+            suggestions: What the operator can do next, rendered by main.py's handler
         """
         self.message = message
         self.details = details or {}
+        # On the BASE, not on one subclass: `NonInteractiveError` grew its own `Solutions:` block
+        # and was for a long time the only error in fm that said what to do next, so the harder
+        # cases -- a bench name that is wrong rather than absent -- had no help at all.
+        self.suggestions = suggestions or []
         super().__init__(self.message)
 
     def to_dict(self) -> dict[str, Any]:

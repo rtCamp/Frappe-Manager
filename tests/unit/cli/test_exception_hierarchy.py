@@ -190,3 +190,31 @@ class TestTheHandlerContractHolds:
             error = cls("boom")
             assert error.message == "boom", name
             assert error.details == {}, name
+            assert error.suggestions == [], name
+
+
+class TestSuggestionsReachTheOperator:
+    """`NonInteractiveError` was for a long time the only error in fm that said what to do next,
+    so the HARDER case had no help: a bench name that is absent got a Solutions block, while a
+    name that is wrong got a bare "Bench not found"."""
+
+    def test_the_base_carries_suggestions_so_every_subclass_can(self):
+        error = FrappeManagerException("boom", suggestions=["do the thing"])
+
+        assert error.suggestions == ["do the thing"]
+
+    def test_an_unknown_bench_points_at_the_command_that_lists_them(self):
+        from pathlib import Path
+
+        from frappe_manager.site_manager.exceptions import BenchNotFoundError
+
+        error = BenchNotFoundError("nosuch", Path("/benches/nosuch"))
+
+        assert error.suggestions == ["Run 'fm list' to see the benches on this host"]
+
+    def test_an_exception_with_no_suggestions_renders_none(self):
+        """The handler loops over this, so a class that offers nothing must offer an empty list
+        rather than None."""
+        from frappe_manager.site_manager.exceptions import BenchServiceNotRunning
+
+        assert BenchServiceNotRunning("mybench", "frappe").suggestions == []

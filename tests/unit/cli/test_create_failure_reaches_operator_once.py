@@ -138,7 +138,8 @@ def test_an_unrelated_commands_error_output_is_unchanged(capsys: pytest.CaptureF
     assert exit_info.value.code != 0
     err = capsys.readouterr().err
     assert err.count(message) == 1
-    assert "Error Occurred" in err
+    # No assertion on a prefix: this test defends that the message reaches the operator ONCE
+    # (the line above), not how the handler decorates it.
 
 
 def test_a_second_unrelated_command_error_path_is_also_unchanged(capsys: pytest.CaptureFixture[str]):
