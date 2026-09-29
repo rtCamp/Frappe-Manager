@@ -126,6 +126,10 @@ Bench nginx writes a structured JSON access log, in the same format as the globa
 
 `client` is the visitor's address, not the proxy's: a `real-ip.conf` overlay tells bench nginx to trust `X-Real-IP` from the FM frontend network. It is re-materialised on every `fm start`.
 
+`scheme` is the VISITOR's scheme, not the connection the logging nginx received. Behind a TLS-terminating front every hop inside fm is plain HTTP, so recording the connection would log `http` for every request on a fully HTTPS site. Both layers read it from `$fm_client_scheme`, which is the forwarded value when the request came through a trusted proxy (`fm services trusted-proxies`) and the real connection otherwise, so a forged header from an untrusted address cannot change what is logged.
+
+An existing install keeps the format its proxy was created with until `fm services migrate` brings it up to the one your fm version ships, because a container reads its environment once, at creation. Bench nginx has the format baked into its image, so that half follows the bench image.
+
 ```bash
 # Slowest requests
 jq -sr 'sort_by(-.request_time) | .[:20] | .[] | "\(.request_time) \(.status) \(.path)"' \

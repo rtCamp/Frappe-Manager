@@ -18,7 +18,7 @@ def _render_sample(fmt: str) -> str:
         "remote_addr": "203.0.113.9",
         "http_x_forwarded_for": "203.0.113.9, 172.64.0.1",
         "host": "mybench.localhost",
-        "scheme": "https",
+        "fm_client_scheme": "https",
         "request_method": "GET",
         "request_uri": "/api/method/ping?x=1",
         "status": "503",

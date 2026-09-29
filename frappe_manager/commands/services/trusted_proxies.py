@@ -254,6 +254,7 @@ def set_trusted(
             )
 
     _report_self_call_risk(ctx, output)
+    _report_gunicorn_restart(output)
 
 
 @example(
@@ -284,6 +285,33 @@ def clear(ctx: typer.Context):
         output.print("No proxies are trusted any more; proxy reloaded")
     else:
         output.print("No proxies are trusted any more (the global proxy was not reloaded)")
+
+    _report_gunicorn_restart(output)
+
+
+def _report_gunicorn_restart(output) -> None:
+    """Name the benches whose web server is still on the old trust.
+
+    The trusted set decides whether gunicorn believes a forwarded scheme, but gunicorn reads that
+    from its wrapper script, re-exec'd only by `fm restart`. Nothing here can reach a running
+    supervisor program's in-memory command line, so the change is real on disk and pending in the
+    process until the operator restarts -- which has to be said, or a removed front leaves
+    gunicorn trusting a header nobody is vouching for.
+    """
+    from frappe_manager import CLI_BENCHES_DIRECTORY
+
+    if not CLI_BENCHES_DIRECTORY.exists():
+        return
+
+    benches = sorted(b.name for b in CLI_BENCHES_DIRECTORY.iterdir() if (b / "bench_config.toml").is_file())
+    if not benches:
+        return
+
+    output.print(
+        f"Run 'fm restart <bench>' to apply this to each bench's web server ({', '.join(benches)}); "
+        "the proxy change above does not reach an already-running gunicorn.",
+        emoji_code="",
+    )
 
 
 def _report_self_call_risk(ctx, output) -> None:

@@ -120,6 +120,8 @@ One command, three consequences, because they answer the same question: did this
 
 `fm services trusted-proxies clear` turns off all three at once. Run it whenever the front is removed: leaving a stale trusted set behind means anyone who can now reach fm directly can claim to be any client, over any scheme, and fm believes them.
 
+The first two take effect immediately. The third does not: gunicorn reads its trust from a wrapper script re-executed only by `fm restart <bench>`, which is why both `set` and `clear` end by naming the benches to restart. Until you run it a bench keeps the trust it had, and after a `clear` that means it is still believing a forwarded scheme nothing is vouching for.
+
 ### What fm cannot do for you
 
 Trusting the front makes fm's own redirect unforgeable, but the proxy still relays whatever `X-Forwarded-Proto` a request carries on to gunicorn, for every request, not only the ones that came through the front. fm cannot rewrite that header itself: overriding it in one nginx location replaces the base image's whole header set there instead of adding to it, and re-declaring that set by hand is a fork that drifts on every image update. So a request that reaches fm directly, bypassing the front, still carries whatever scheme it claims, and gunicorn believes it.

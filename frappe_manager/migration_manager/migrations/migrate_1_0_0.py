@@ -323,8 +323,51 @@ class MigrationV100(MigrationBase):
 
     def migrate_services(self):
         self._admin_tools_and_config_services()
+        # Before the rename: that step ends in a `compose up`, which is what puts a changed
+        # environment into the running proxy. Docker reads env once, at container creation, so a
+        # write after it would sit on disk until some later, unrelated recreate.
+        self._refresh_proxy_log_format()
         self._service_rename_services()
         self._add_postgres_service()
+
+    def _refresh_proxy_log_format(self):
+        """Bring an existing install's access-log format up to the one this fm ships.
+
+        `generate_compose` applies onto the file already on disk and never re-renders from the
+        template -- the same reason `_add_postgres_service` exists -- so the template decides what
+        a NEW install gets and nothing else. The format is fm's own constant, which makes this a
+        version-boundary change and therefore this tier's job, not a reconcile on some command's
+        start path.
+        """
+        from frappe_manager import CLI_SERVICES_DIRECTORY
+        from frappe_manager.site_manager.modules.nginx_logging import FM_JSON_LOG_FORMAT
+
+        compose_path = CLI_SERVICES_DIRECTORY / "docker-compose.yml"
+        if not compose_path.exists():
+            return
+
+        doc = yaml.safe_load(compose_path.read_text()) or {}
+        services = doc.get("services")
+        if not isinstance(services, dict):
+            return
+
+        # Either name: this runs before the rename, so a legacy install is still `global-nginx-proxy`.
+        proxy = services.get("nginx-proxy") or services.get("global-nginx-proxy")
+        if not isinstance(proxy, dict):
+            return
+
+        environment = proxy.get("environment")
+        if not isinstance(environment, dict):
+            return
+
+        desired = FM_JSON_LOG_FORMAT.replace("$", "$$")
+        if str(environment.get("LOG_FORMAT", "")) == desired:
+            return
+
+        environment["LOG_FORMAT"] = desired
+        environment["LOG_FORMAT_ESCAPE"] = "json"
+        compose_path.write_text(yaml.safe_dump(doc, sort_keys=False))
+        self.output.print("Updated the global proxy's access-log format")
 
     def _add_postgres_service(self):
         """Give an existing services compose the `postgres` service, switched off.

@@ -82,6 +82,7 @@ nav = [
     { "Migrations"          = "reference/migrations.md" },
     { "Migration history"   = "reference/migration-history.md" },
     { "Process locks"       = "reference/locks.md" },
+    { "What fm writes"      = "reference/state-changes.md" },
     { "Architecture"        = "reference/architecture.md" },
   ]},
   { "FAQ"       = "faq.md" },

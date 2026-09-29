@@ -32,6 +32,7 @@ from frappe_manager.services_manager.services_exceptions import (
     ServicesException,
     ServicesNotCreated,
 )
+from frappe_manager.site_manager.modules.nginx_logging import FM_JSON_LOG_FORMAT
 from frappe_manager.site_manager.modules.realip import (
     PROXY_TRUST_CONF_FILENAME,
     build_proxy_trust_conf,

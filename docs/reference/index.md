@@ -34,6 +34,12 @@ Lookup, not learning. These pages are written to be searched and deep-linked rat
 
     How fm processes on one host keep out of each other's way: the host-wide migration lock, the per-bench lock behind `switch` and `bake` refusals, and why observation commands are never fenced.
 
+-   :material-file-edit:{ .lg .middle } **[What fm writes](state-changes.md)**
+
+    ---
+
+    Which files fm regenerates without asking, which ones it shares with you through markers, and which are yours. Also when a write actually takes effect, since a reload, a restart and a recreate apply different things.
+
 -   :material-sitemap:{ .lg .middle } **[Architecture](architecture.md)**
 
     ---
