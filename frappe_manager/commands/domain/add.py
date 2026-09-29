@@ -92,6 +92,8 @@ def add_domain(
 
     A bare BENCH attaches the aliases to its primary site; name a site with BENCH/SITE when the bench serves more than one. 'all' is refused here -- an alias belongs to one site.
 
+    The address is the SITE you are adding to, and the domains follow as arguments, because they do not exist yet to be named. Removal is the mirror: fm domain remove BENCH/DOMAIN takes the domain itself.
+
     No certificate is issued for a new alias; run fm ssl add BENCH/DOMAIN afterwards.
     """
     output = get_global_output_handler()

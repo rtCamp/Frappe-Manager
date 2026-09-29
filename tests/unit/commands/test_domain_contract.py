@@ -81,16 +81,19 @@ class DomainWorld:
         return [c.args[0] for c in self.output.print.call_args_list if c.args]
 
 
-    def _ctx(self, *, site: str | None = None, domain: str | None = None) -> typer.Context:
+    def _ctx(self, *, site: str | None = None, domain: str | None = None, args: list[str] | None = None) -> typer.Context:
         ctx = MagicMock(spec=typer.Context)
         ctx.obj = {"services": self.services, "fm_config_manager": self.fm_config, "site": site, "domain": domain}
+        # `fm domain remove` is registered with allow_extra_args, so Click hands stray positionals
+        # here instead of rejecting them itself.
+        ctx.args = args or []
         return ctx
 
     def add(self, domains: list[str], *, site: str | None = None, allow_domain_conflicts: bool = False):
         return add_domain(self._ctx(site=site), address=BENCH, domains=domains, allow_domain_conflicts=allow_domain_conflicts)
 
-    def remove(self, *, domain: str | None):
-        return remove_domain(self._ctx(domain=domain), address=BENCH)
+    def remove(self, *, domain: str | None, args: list[str] | None = None, address: str = BENCH):
+        return remove_domain(self._ctx(domain=domain, args=args), address=address)
 
     def list(self):
         return list_domains(self._ctx(), benchname=BENCH)
@@ -211,6 +214,25 @@ class TestDomainRemove:
 
         with pytest.raises(BenchNotRunning):
             world.remove(domain="www.example.com")
+
+    def test_the_add_grammar_typed_at_a_removal_suggests_the_command_that_works(self, world):
+        """`fm domain add BENCH/SITE DOMAIN` transcribed into a removal put the domain in a
+        second positional, and Click answered "Got unexpected extra argument" -- naming neither
+        the grammar nor the command the operator meant, which is derivable from what they typed."""
+        with pytest.raises(typer.Exit):
+            world.remove(domain=None, address=f"{BENCH}/{BENCH}", args=["www.example.com"])
+
+        assert "takes one address, the domain itself" in world.errors[0]
+        assert f"fm domain remove {BENCH}/www.example.com" in world.errors[0]
+        world.bench.update_alias_domains.assert_not_called()
+
+    def test_a_flag_is_not_mistaken_for_a_domain(self, world):
+        """Only bare positionals are the transcription case; an unconsumed option is a different
+        error and must not produce a nonsense suggestion."""
+        world.remove(domain="www.example.com", args=["--some-flag"])
+
+        assert world.errors == []
+        world.bench.update_alias_domains.assert_called_once()
 
 
 class TestDomainList:

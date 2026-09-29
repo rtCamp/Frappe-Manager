@@ -20,6 +20,8 @@ Add alias domains to a bench's site.
 
 A bare BENCH attaches the aliases to its primary site; name a site with BENCH/SITE when the bench serves more than one. 'all' is refused here -- an alias belongs to one site.
 
+The address is the SITE you are adding to, and the domains follow as arguments, because they do not exist yet to be named. Removal is the mirror: fm domain remove BENCH/DOMAIN takes the domain itself.
+
 No certificate is issued for a new alias; run fm ssl add BENCH/DOMAIN afterwards.
 
 **Usage**:
@@ -69,7 +71,7 @@ fm domain add mybench shared.example.com --allow-domain-conflicts
 
 Remove an alias domain from whichever site of the bench serves it.
 
-Takes the address grammar, not an argument: once a domain exists it is addressable, the same way fm ssl remove BENCH/DOMAIN is. Creation takes arguments because the domain does not exist yet; removal takes the address.
+Takes the DOMAIN you are removing, not the site it belongs to: fm looks up which site serves it. That is the mirror of fm domain add, which takes the SITE you are adding to, because the domain does not exist yet to be named. Same rule as fm ssl remove BENCH/DOMAIN.
 
 **Usage**:
 

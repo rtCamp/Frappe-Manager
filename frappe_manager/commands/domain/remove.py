@@ -20,9 +20,22 @@ def remove_domain(
     """
     Remove an alias domain from whichever site of the bench serves it.
 
-    Takes the address grammar, not an argument: once a domain exists it is addressable, the same way fm ssl remove BENCH/DOMAIN is. Creation takes arguments because the domain does not exist yet; removal takes the address.
+    Takes the DOMAIN you are removing, not the site it belongs to: fm looks up which site serves it. That is the mirror of fm domain add, which takes the SITE you are adding to, because the domain does not exist yet to be named. Same rule as fm ssl remove BENCH/DOMAIN.
     """
     output = get_global_output_handler()
+
+    # The `fm domain add BENCH/SITE DOMAIN` shape, typed at a removal. Click's own error names
+    # the stray token and nothing else, while the command the operator meant is derivable from
+    # exactly what they typed.
+    extra = [arg for arg in (ctx.args or []) if not arg.startswith("-")]
+    if extra:
+        bench = (address or "").split("/")[0]
+        output.display_error(
+            f"fm domain remove takes one address, the domain itself: fm domain remove BENCH/DOMAIN. "
+            f"Did you mean 'fm domain remove {bench}/{extra[0]}'?"
+        )
+        raise typer.Exit(1)
+
     check_bench_migration_required(address)
 
     services_manager = ctx.obj["services"]
