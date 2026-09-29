@@ -27,6 +27,7 @@ from frappe_manager.services_manager.database_service_manager import (
     MariaDBManager,
 )
 from frappe_manager.services_manager.services_exceptions import (
+    DatabaseServicePasswordNotFound,
     ServicesComposeNotExist,
     ServicesException,
     ServicesNotCreated,
@@ -67,6 +68,21 @@ DATABASE_SERVICES = ("mariadb", "postgres")
 #   * POSTGRES_INITDB_ARGS="--encoding=UTF8 --locale=C": frappe requires UTF8, and a locale taken
 #     from the image environment makes index ordering depend on where the container was built,
 #     which a dump and restore then silently changes.
+
+
+def _cause_line(error: Exception) -> str:
+    """The one line of a docker failure worth putting in a refusal.
+
+    A DockerException carries the whole invocation and its stderr; the sentence that says WHY is
+    usually the last non-empty stderr line ("Pool overlaps with other one on this address space",
+    "port is already allocated"). Everything above it is noise the operator cannot act on.
+    """
+    text = str(error).strip()
+    lines = [line.strip().lstrip("'\"") for line in text.splitlines() if line.strip()]
+    for line in reversed(lines):
+        if "Error" in line or "error" in line:
+            return line.rstrip("'\"")
+    return lines[-1].rstrip("'\"") if lines else error.__class__.__name__
 
 
 class ServicesManager:
@@ -219,13 +235,22 @@ class ServicesManager:
         from frappe_manager.site_manager.bench_config import DatabaseEngine
 
         if engine is DatabaseEngine.postgres:
+            secret = self.path / "secrets" / "postgres_root_password.txt"
+            if not secret.is_file():
+                # Minted by `create` and by the v1.0.0 services migration, so a host reaching here
+                # without one was migrated by a path that added the service but not its secret.
+                # A bare FileNotFoundError from this depth named neither the file nor the fix.
+                raise DatabaseServicePasswordNotFound(
+                    "postgres",
+                    f"No postgres root password at {secret}. Run 'fm services migrate' to mint one.",
+                )
             return DatabaseServerServiceInfo(
                 host="postgres",
                 # The superuser the official image creates, and the login Frappe's postgres
                 # setup_db falls back to. Not `root`.
                 user="postgres",
                 port=5432,
-                password=(self.path / "secrets" / "postgres_root_password.txt").read_text().strip(),
+                password=secret.read_text().strip(),
             )
         return self.database_manager.database_server_info
 
@@ -271,32 +296,88 @@ class ServicesManager:
             f"It starts by itself when a bench that needs it is created."
         )
 
+    def heal_unstarted_stack(self) -> None:
+        """Re-validate a services install that exists on disk but has never had a container.
+
+        A first install that failed at `compose up` leaves the directory behind, and creation is
+        skipped from then on -- so whatever the rendered compose asks for is replayed on every
+        later command, including the thing docker refused. Re-picking the host-dependent parts
+        here is what lets "fix the cause and run it again" work, instead of forcing an uninstall
+        and a fresh pull of the whole stack.
+
+        Only when NOTHING of the stack exists. A stopped-but-created stack is a deliberate state
+        (`fm services stop`), and re-rendering under it would renumber networks its containers
+        are attached to.
+        """
+        if not self.compose_path.exists():
+            return
+        try:
+            if self.docker_client.compose.get_all_services_status():
+                return
+        except Exception:
+            return
+
+        self.output.change_head("Re-checking the global services setup")
+        self._forget_unusable_subnets()
+        self.configure_shared_networks()
+        self.compose_file_manager.write_to_file()
+
+    def _forget_unusable_subnets(self) -> None:
+        """Drop a recorded subnet whose network does not exist and whose range is now taken.
+
+        Recorded normally wins, because renumbering a live network strands the containers on it.
+        But a range recorded by an install that never came up is not live -- and if it is the very
+        thing docker refused ("Pool overlaps with other one on this address space"), keeping it
+        makes every retry fail identically. Only a range that is BOTH absent from docker and
+        overlapping something else is forgotten.
+        """
+        fm_config = FMConfigManager.import_from_toml()
+        existing = set(self.docker_client.network_ls())
+        used = get_docker_network_subnets()
+        changed = False
+
+        for network, field in (("fm-frontend-network", "subnet_cidr"), ("fm-backend-network", "backend_subnet_cidr")):
+            cidr = getattr(fm_config.network, field, None)
+            if not cidr or network in existing:
+                continue
+            if any(ipaddress.IPv4Network(cidr).overlaps(u) for u in used):
+                self.output.print(f"{cidr} is taken on this host now; picking another range for {network}")
+                setattr(fm_config.network, field, None)
+                if field == "subnet_cidr":
+                    fm_config.network.proxy_ip = None
+                changed = True
+
+        if changed:
+            fm_config.export_to_toml()
+
     def entrypoint_checks(self, start=False):
         if not self.path.exists():
+            # Everything from here to a running stack is ONE transaction. Creating the directory
+            # used to be guarded alone, and `compose up` was a separate call outside the try --
+            # true when the rollback was written, false since `start=` was folded in. So every
+            # reason a daemon refuses an up (a port already bound, a name already taken, a subnet
+            # clash, an unreachable registry) left a services directory behind, which made the
+            # next command skip creation and replay the same failing up, forever.
+            self._networks_before_install = set(self.docker_client.network_ls())
+            self._created_this_run = True
             try:
                 self.output.print(
                     f"Creating global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
                     emoji_code=":construction:",
                 )
                 self.create(clean_install=True)
-
+                self.docker_client.compose.pull(stream=False)
+                self.output.print(
+                    f"Created global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
+                )
+                if start:
+                    self.docker_client.compose.up(services=[], detach=True, pull="never")
             except Exception as e:
                 # display_error does not raise, so the ServicesNotCreated wrapper below actually
                 # propagates and the caller's `except ServicesNotCreated: remove_itself()` cleanup
-                # gets to remove the half-built services directory.
-                self.output.display_error("Error during service creation")
-                raise ServicesNotCreated(
-                    f"Not able to create global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
-                ) from e
-
-            output = self.docker_client.compose.pull(stream=False)
-
-            self.output.print(
-                f"Created global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
-            )
-
-            if start:
-                self.docker_client.compose.up(services=[], detach=True, pull="never")
+                # gets to remove the half-built install.
+                self.output.display_error("Error while setting up the global services")
+                raise ServicesNotCreated(f"Not able to create global services. {_cause_line(e)}") from e
 
         if not self.compose_path.exists():
             raise ServicesComposeNotExist(
@@ -333,6 +414,9 @@ class ServicesManager:
             # no host lock so they can run DURING a migration -- an auto-start here would boot
             # the half-migrated stack; they report the stack as they find it instead.
             if command.split(" ")[0] not in STACK_AUTOSTART_EXEMPT_PREFIXES and command not in OBSERVE_ONLY_COMMANDS:
+                # A previous first install may have died at `compose up`, leaving a directory that
+                # makes creation be skipped forever. Re-validate before replaying its compose.
+                self.heal_unstarted_stack()
                 services = self.compose_file_manager.get_services_list(exclude_disabled=True)
                 containers = self.compose_file_manager.get_container_names().values()
                 all_statuses = self.docker_client.compose.get_all_services_status()
@@ -698,7 +782,35 @@ class ServicesManager:
             raise typer.Exit(e.output.exit_code) from e
 
     def remove_itself(self):
-        shutil.rmtree(self.path)
+        """Undo a first install: its containers, volumes, the networks IT created, and the record.
+
+        Directory-only rollback is worse than none. It leaves containers and networks behind that
+        no config on disk describes, so the next attempt collides with objects fm no longer knows
+        it made. Only networks absent before this run are removed: the shared names are the same
+        on a host that already had a working install, and removing one under a live bench would
+        take it down. The `[network]` table goes too, or a subnet recorded by the failed run is
+        replayed by every attempt after it.
+        """
+        try:
+            self.docker_client.compose.down(remove_orphans=True, volumes=True, timeout=10, stream=False)
+        except Exception:
+            # Best effort: the compose file may never have been written, or be the very thing
+            # docker refused to parse. The directory still has to go.
+            pass
+
+        for network in set(self.docker_client.network_ls()) - getattr(self, "_networks_before_install", set()):
+            if network.startswith("fm-") or network.startswith("fm__"):
+                self.docker_client.network_rm(network)
+
+        if self.path.exists():
+            shutil.rmtree(self.path)
+
+        if getattr(self, "_created_this_run", False):
+            fm_config = FMConfigManager.import_from_toml()
+            fm_config.network.subnet_cidr = None
+            fm_config.network.proxy_ip = None
+            fm_config.network.backend_subnet_cidr = None
+            fm_config.export_to_toml()
 
     def is_service_running(self, service: str) -> bool:
         """Check if a service is running."""

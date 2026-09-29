@@ -318,7 +318,7 @@ def test_a_failed_creation_is_reported_as_services_not_created_and_keeps_the_ori
     # `output.error()` ALWAYS raises, so it used to propagate the raw cause and the
     # ServicesNotCreated wrapper below it was dead code, along with the caller's
     # `except ServicesNotCreated: remove_itself()` cleanup of the half-built directory.
-    manager.output.display_error.assert_called_once_with("Error during service creation")
+    manager.output.display_error.assert_called_once()
     manager.output.error.assert_not_called()
     manager.docker_client.compose.pull.assert_not_called()
 
@@ -724,6 +724,8 @@ def test_removing_the_stack_deletes_the_whole_services_directory(tmp_path):
     (services_path / "mariadb").mkdir(parents=True)
     (services_path / "mariadb" / "x").write_text("data")
     manager = ServicesManager(path=services_path, output_handler=mock.MagicMock())
+    manager.docker_client = mock.MagicMock()
+    manager.docker_client.network_ls.return_value = []
 
     manager.remove_itself()
 

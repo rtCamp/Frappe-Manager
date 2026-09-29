@@ -651,8 +651,14 @@ def app_callback(
                 try:
                     services_manager.entrypoint_checks(start=invoked_command != "migrate")
                 except ServicesNotCreated as e:
+                    # Rolled back to nothing, so the next run is a first install again: the fix is
+                    # to clear the cause and re-run, never to hunt for leftovers by hand. Same rule
+                    # as the prefetch cleanup above -- only the home THIS run created goes, so a
+                    # failure never deletes an existing install's logs and backups.
                     services_manager.remove_itself()
-                    output.exit(f"Not able to create services. {e}")
+                    if created_home and CLI_DIR.exists():
+                        shutil.rmtree(CLI_DIR)
+                    output.exit(f"{e}\nNothing was left behind. Fix the cause above, then run the command again.")
 
             ctx.obj["services"] = services_manager
             ctx.obj["fm_config_manager"] = fm_config_manager
