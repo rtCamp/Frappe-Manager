@@ -55,6 +55,24 @@ def _image_bench_bake_refusal(name: str, bc: BenchConfig) -> str:
     )
 
 
+def _mount_bench_bake_notice(name: str) -> str:
+    """Why `fm switch` will refuse this bake, before the build spends the minutes."""
+    return (
+        f"'{name}' is a mount-runtime bench, so 'fm switch {name}' will refuse this image: runtime "
+        "is fixed at create time. The image is still usable -- seed a new bench from it with "
+        "'fm create NAME --runtime image --app-image <image>'."
+    )
+
+
+def _mount_bench_bake_next_step(name: str, tag: str) -> str:
+    """The same fact once the tag exists, so the operator has a command to run rather than a
+    constraint to remember."""
+    return (
+        f"'{name}' is mount runtime, so this image cannot be deployed to it. Run it as a new bench: "
+        f"fm create NAME --runtime image --app-image {tag}"
+    )
+
+
 def _base_image_callback(value: str | None) -> str | None:
     """``--base-image`` pins a specific base, so a floating repo is almost certainly a mistake.
 
@@ -284,7 +302,7 @@ def bake(
     """
     Bake an immutable app image.
 
-    Baking only builds. The image is always loaded into the local daemon and pushed when asked, but the bench keeps serving its current tag until fm switch deploys the new one. Each bake also builds the matching <repo>-nginx:<tag> assets image, and a push sends both.
+    Baking only builds. The image is always loaded into the local daemon and pushed when asked, but an image-runtime bench keeps serving its current tag until fm switch deploys the new one. A mount bench cannot switch to a bake at all, since runtime is fixed at create time, so its image is for seeding a new bench with fm create --runtime image. Each bake also builds the matching <repo>-nginx:<tag> assets image, and a push sends both.
 
     Two modes:
 
@@ -329,6 +347,13 @@ def bake(
         if pre.runtime == BenchRuntime.image:
             output.display_error(_image_bench_bake_refusal(resolved_name, pre))
             raise typer.Exit(1)
+        # The mirror case, and a warning rather than a refusal: `fm switch` takes only an image
+        # bench, so a mount bench can never deploy its own bake -- but the image is still a valid
+        # seed for a NEW bench, which is a real workflow. Said BEFORE the build because that is
+        # the only point at which the minutes can still be saved; the tag does not exist yet, so
+        # the paste-able command is printed again at the end.
+        if pre.runtime != BenchRuntime.image:
+            output.warning(_mount_bench_bake_notice(resolved_name))
         try:
             apply_config_overlays(bench_config_path, config)
         except ConfigOverlayError as e:
@@ -395,3 +420,9 @@ def bake(
         raise typer.Exit(1) from e
 
     output.print(f"Baked image: {built_tag}", emoji_code=":package:")
+
+    # Repeated from the pre-build warning ON PURPOSE: that one could not name the tag, because it
+    # did not exist yet, and a constraint stated four minutes ago has scrolled off the screen by
+    # the time the operator needs the command.
+    if not standalone and bench_config.runtime != BenchRuntime.image:
+        output.print(_mount_bench_bake_next_step(resolved_name, built_tag), emoji_code=":information:")

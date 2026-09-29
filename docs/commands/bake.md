@@ -2,7 +2,7 @@
 
 Bake an immutable app image.
 
-Baking only builds. The image is always loaded into the local daemon and pushed when asked, but the bench keeps serving its current tag until fm switch deploys the new one. Each bake also builds the matching <repo>-nginx:<tag> assets image, and a push sends both.
+Baking only builds. The image is always loaded into the local daemon and pushed when asked, but an image-runtime bench keeps serving its current tag until fm switch deploys the new one. A mount bench cannot switch to a bake at all, since runtime is fixed at create time, so its image is for seeding a new bench with fm create --runtime image. Each bake also builds the matching <repo>-nginx:<tag> assets image, and a push sends both.
 
 Two modes:
 
