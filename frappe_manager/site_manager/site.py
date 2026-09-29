@@ -1120,7 +1120,7 @@ class Bench:
         """Print (and optionally follow) the bench's host-side log files.
 
         Through the data channel, not print(): these lines are fm's own result (it reads the
-        files itself), so they belong on stdout verbatim AND in the log and the --json stream.
+        files itself), so they belong on stdout verbatim AND in the log and the --events stream.
         Non-follow prints each file sequentially; follow then polls all files
         in one loop -- draining every available line per cycle and sleeping
         only when idle (plain files are always select()-readable, so polling

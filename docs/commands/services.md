@@ -29,8 +29,12 @@ The root database password is printed in cleartext. It belongs to the mariadb co
 **Usage**:
 
 ```console
-$ fm services info
+$ fm services info [OPTIONS]
 ```
+
+**Options**:
+
+* `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
 
 ## `fm services migrate`
 

@@ -68,7 +68,7 @@ def _relayed(output, stream: str) -> list[str]:
     """The child's lines the handler was asked to pass through, per stream.
 
     Asserted on the handler rather than on captured stdout: a raw write would be invisible to
-    the file log and would corrupt the --json stream, so "it reached the terminal" is the weaker
+    the file log and would corrupt the --events stream, so "it reached the terminal" is the weaker
     property.
     """
     return [c.args[0] for c in output.relay.call_args_list if c.kwargs.get("stream", "stdout") == stream]

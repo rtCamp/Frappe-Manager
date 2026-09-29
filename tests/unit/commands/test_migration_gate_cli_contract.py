@@ -238,7 +238,7 @@ class TestCommandResolution:
     """What the root group records for the gates: the resolved command, and the bench it names.
 
     Driven through the real click app, because the bug this replaced was a hand-written argv
-    scan that resolved `fm --json ssl ca status` to "ssl" and re-armed the gates that command
+    scan that resolved `fm --events json ssl ca status` to "ssl" and re-armed the gates that command
     is exempt from.
     """
 
@@ -263,7 +263,7 @@ class TestCommandResolution:
             (["fm"], "", None),
             # Three levels deep, and behind the global flags that used to shift the answer.
             (["fm", "ssl", "ca", "status"], "ssl ca status", None),
-            (["fm", "--json", "ssl", "ca", "status"], "ssl ca status", None),
+            (["fm", "--events", "json", "ssl", "ca", "status"], "ssl ca status", None),
             (["fm", "--log-level", "warning", "start", BENCH], "start", BENCH),
         ],
     )
@@ -281,7 +281,7 @@ class TestBrokenHostDeclaration:
         ("argv", "tolerated"),
         [
             (["fm", "ssl", "ca", "status"], True),
-            (["fm", "--json", "ssl", "ca", "remove"], True),
+            (["fm", "--events", "json", "ssl", "ca", "remove"], True),
             (["fm", "self", "uninstall"], True),
             (["fm", "ssl", "list", BENCH], False),
             (["fm", "self", "stop"], False),
@@ -309,7 +309,7 @@ class TestWillPrintHelp:
         [
             (["fm", "start", "--help"], True),
             (["fm", "ssl", "add", "--help"], True),
-            (["fm", "--json", "ssl", "ca", "status", "--help"], True),
+            (["fm", "--events", "json", "ssl", "ca", "status", "--help"], True),
             # Groups and commands that declare they show help when given nothing.
             (["fm", "ssl"], True),
             (["fm", "ssl", "ca"], True),

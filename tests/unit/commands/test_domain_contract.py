@@ -238,7 +238,7 @@ class TestDomainRemove:
 class TestDomainList:
     def test_prints_plain_lines_through_the_data_channel(self, world):
         """Plain lines, and through the handler: a rich cell would truncate a long hostname, and
-        a raw write would be invisible to the file log and corrupt the --json stream."""
+        a raw write would be invisible to the file log and corrupt the --events stream."""
         world.bench.bench_config.sites = {BENCH: SiteConfig(alias_domains=["www.example.com"])}
         world.bench.bench_config.site_names = [BENCH]
 

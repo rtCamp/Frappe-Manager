@@ -2,7 +2,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
-from frappe_manager.commands.arguments import BenchNameArgument
+from frappe_manager.commands.arguments import BenchNameArgument, JsonResultOption
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.site import Bench
 
@@ -12,9 +12,16 @@ from frappe_manager.site_manager.site import Bench
     "{benchname}",
     benchname="mybench",
 )
+@example(
+    "Read one fact out of it",
+    "{benchname} --json",
+    benchname="mybench",
+    detail="fm info mybench --json | jq -r '.url'",
+)
 def info(
     ctx: typer.Context,
     benchname: BenchNameArgument = None,
+    json_result: JsonResultOption = False,
 ):
     """
     Show a bench's URL, credentials, apps, deploy history and live service state.
@@ -28,6 +35,8 @@ def info(
     verbose = ctx.obj["verbose"]
 
     output = get_global_output_handler()
+    if json_result:
+        output.set_json_results()
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     with spinner(output, "Getting bench info"):

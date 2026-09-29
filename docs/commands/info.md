@@ -7,12 +7,16 @@ Every secret on the card is printed in cleartext: the administrator password, th
 **Usage**:
 
 ```console
-$ fm info BENCH
+$ fm info BENCH [OPTIONS]
 ```
 
 **Arguments**:
 
 * `BENCH`: Bench to act on. Omit to pick from the benches you have.
+
+**Options**:
+
+* `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
 
 ## Examples
 
@@ -20,4 +24,12 @@ $ fm info BENCH
 
 ```bash
 fm info mybench
+```
+
+### Read one fact out of it
+
+fm info mybench --json | jq -r '.url'
+
+```bash
+fm info mybench --json
 ```

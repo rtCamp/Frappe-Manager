@@ -73,7 +73,7 @@ class JSONOutputHandler(OutputHandler):
         Args:
             verbose: Capture info and debug level messages
             stream: Optional writable text stream; each event is written to it as
-                one JSON line as it happens (the `fm --json` mode: JSONL on stdout,
+                one JSON line as it happens (the `fm --events json` mode: JSONL on stdout,
                 consumable by `| jq` while the command runs)
         """
         super().__init__(verbose)
@@ -420,7 +420,7 @@ class JSONOutputHandler(OutputHandler):
         return [event.to_dict() for event in self.events]
 
     def emit_exit(self, ok: bool, code: int = 0) -> None:
-        """Terminal event for the ``fm --json`` stream: how the run ended.
+        """Terminal event for the ``fm --events json`` stream: how the run ended.
 
         A consumer tailing the JSONL cannot otherwise tell "finished cleanly" from
         "died mid-operation" -- the stream just stops either way. Seals the stream:

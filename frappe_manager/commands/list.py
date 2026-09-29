@@ -7,6 +7,7 @@ from typer_examples import example
 from frappe_manager import (
     CLI_BENCHES_DIRECTORY,
 )
+from frappe_manager.commands.arguments import JsonResultOption
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_service import BenchService
 
@@ -26,10 +27,7 @@ from frappe_manager.site_manager.bench_service import BenchService
 )
 def list(
     ctx: typer.Context,
-    json_output: Annotated[
-        bool,
-        typer.Option("--json", help="Emit the full inventory as JSON on clean stdout."),
-    ] = False,
+    json_output: JsonResultOption = False,
     paths: Annotated[
         bool,
         typer.Option(

@@ -12,7 +12,7 @@ $ fm list [OPTIONS]
 
 **Options**:
 
-* `--json`: Emit the full inventory as JSON on clean stdout.  [default: false]
+* `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
 * `-p, --paths`: Print plain 'name  path' lines instead of cards, so paths survive copying and piping.  [default: false]
 
 ## Examples

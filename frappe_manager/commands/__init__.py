@@ -23,6 +23,7 @@ from frappe_manager import (
     STABLE_APP_BRANCH_MAPPING_LIST,
     STOCK_IMAGE_PREFETCH_SKIP_COMMANDS,
     EnableDisableOptionsEnum,
+    EventStreamFormat,
 )
 from frappe_manager.commands.gating import (
     FMGroup,
@@ -312,13 +313,13 @@ def app_callback(
             help="Run without interactive prompts. All prompts will error with suggestions for required flags.",
         ),
     ] = False,
-    json_output: Annotated[
-        bool,
+    events: Annotated[
+        EventStreamFormat | None,
         typer.Option(
-            "--json",
-            help="Machine-readable output: every output event is written to stdout as one JSON line (JSONL), as it happens. Implies --non-interactive.",
+            "--events",
+            help="Stream what fm does as it happens, machine-readably: one JSON line per event (JSONL), sealed with a terminal exit event. This is the EVENT stream, not a command's result -- for a result, use a command's own --json. Implies --non-interactive.",
         ),
-    ] = False,
+    ] = None,
     version: Annotated[
         bool | None,
         typer.Option("--version", "-V", help="Show Version.", callback=version_callback),
@@ -352,15 +353,18 @@ def app_callback(
 
     ctx.obj["log_level"] = level_name
     ctx.obj["verbose"] = verbose or level_name in ["INFO", "DEBUG"]
-    ctx.obj["non_interactive"] = non_interactive or json_output
-    ctx.obj["json"] = json_output
+    # The flag names the STREAM, not a format for results: `--events json` replaces fm's rich
+    # rendering with one JSON line per event. A command's own `--json` is the other thing, a
+    # result document, and the two are deliberately not the same flag (compose does the same
+    # split with `--progress json` and `ps --format json`).
+    stream_events = events is not None
+    ctx.obj["non_interactive"] = non_interactive or stream_events
+    ctx.obj["json"] = stream_events
 
-    # Upgrade global output handler to LoggingOutputHandler now that we have CLI args.
-    # --json swaps the underlying handler FIRST, so file logging still wraps it: rich
-    # rendering is replaced by one JSON line per event on stdout, and prompts raise
-    # NonInteractiveError instead of corrupting the machine stream (hence the implied
-    # --non-interactive above).
-    if json_output:
+    # Swapped FIRST, so file logging still wraps it: rich rendering is replaced by one JSON line
+    # per event on stdout, and prompts raise NonInteractiveError instead of corrupting the machine
+    # stream (hence the implied --non-interactive above).
+    if stream_events:
         from frappe_manager.output_manager import JSONOutputHandler
 
         # JSONOutputHandler owns every write to stdout from here on.
@@ -370,7 +374,7 @@ def app_callback(
     set_global_output_handler(basic_handler)
 
     output = get_global_output_handler()
-    output.set_interactive_mode(non_interactive_flag=non_interactive or json_output)
+    output.set_interactive_mode(non_interactive_flag=non_interactive or stream_events)
 
     help_called = will_print_help(ctx)
     ctx.obj["is_help_called"] = help_called
@@ -394,7 +398,7 @@ def app_callback(
         # the benches directory was never made.
         set_global_output_handler(LoggingOutputHandler(basic_handler))
         output = get_global_output_handler()
-        output.set_interactive_mode(non_interactive_flag=non_interactive or json_output)
+        output.set_interactive_mode(non_interactive_flag=non_interactive or stream_events)
 
         with spinner(output, "Working"):
             if not CLI_DIR.is_dir():

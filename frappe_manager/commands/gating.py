@@ -8,7 +8,7 @@ only: "ssl", never "ssl ca status".
 
 Reading ``sys.argv`` to recover the rest is what this module replaces. That re-parse has to know
 every global option and which of them consume a value, and it silently mis-resolves when it does
-not: ``fm --json ssl ca status`` resolved to "ssl", re-arming the very gates the command is exempt
+not: ``fm --events json ssl ca status`` resolved to "ssl", re-arming the very gates the command is exempt
 from. Click has already parsed those options correctly by the time the root group is invoked.
 
 So the root group walks the resolved command chain ONCE, up front, and records it. Requirements

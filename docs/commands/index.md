@@ -51,12 +51,12 @@ These come before the subcommand and work everywhere.
 | `-v`, `--verbose` | off | Info-level output |
 | `--log-level TEXT` | from config | Set the level explicitly: `debug`, `info`, `warning`, `error` |
 | `-n`, `--non-interactive` | off | Never prompt. A prompt that would have been shown becomes an error naming the flag that answers it |
-| `--json` | off | Write every output event to stdout as one JSON line (JSONL) |
+| `--events json` | off | Stream what fm is doing as one JSON line per event (JSONL). Implies `--non-interactive` |
 | `-V`, `--version` | | Print the fm version and exit |
 
 ## Flag conventions
 
-Five rules hold across every command, so a flag means the same thing everywhere.
+Six rules hold across every command, so a flag means the same thing everywhere.
 
 **`--yes` / `-y` answers confirmation prompts.** It means "do the thing I typed, don't ask". It never expands what a command does. Every prompt defaults to No, so a bare Enter aborts. Under `--non-interactive`, an unanswered prompt refuses and names `--yes`.
 
@@ -67,6 +67,8 @@ Five rules hold across every command, so a flag means the same thing everywhere.
 **`--dry-run` prints the plan and changes nothing.** Exit 0, never prompts. Available on the plan-first commands: `prune`, `services prune`, `migrate`, `services migrate`, `delete`, `update`, `create`. It is the scriptable way to see a plan, because a non-interactive run without `--yes` refuses instead.
 
 **The exit code answers "did the thing I typed happen?"** Declining a confirmation exits non-zero, because the command was asked to act and did not. That is the same answer a non-interactive run without `--yes` gives, so a script cannot tell a human saying no from a refused flag, and neither reads as success. A command that finds nothing to do, such as `fm migrate` with no stale benches, exits 0: that one did finish.
+
+**`--events` is the stream, a command's `--json` is the result.** They answer different questions and are deliberately not the same flag. `fm --events json` describes *what fm did*, as it happens: one JSON line per event, ending in a terminal exit event, useful for a CI log or a progress UI. A command's own `--json`, such as `fm list --json`, returns *the answer*: one document, on clean stdout, ready for `jq`. `--events` comes before the subcommand because it changes how everything is rendered; `--json` comes after it, because it belongs to that command. Docker Compose splits the same way, with `--progress json` against `ps --format json`.
 
 ## Bench lifecycle
 

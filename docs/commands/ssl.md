@@ -107,6 +107,7 @@ $ fm ssl list BENCH|all [OPTIONS]
 **Options**:
 
 * `--standalone`: List external (non-bench) domains instead of a bench.  [default: false]
+* `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
 
 ### Examples
 

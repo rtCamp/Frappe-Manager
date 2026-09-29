@@ -232,3 +232,15 @@ BenchOnlyAllArgument = Annotated[
 
 Carries the domain callback so a slashed value is still parsed and reported by the command rather
 than dying in the parser, but the metavar does not offer a form the command will not act on."""
+
+
+JsonResultOption = Annotated[
+    bool,
+    typer.Option("--json", help="Emit this command's result as JSON on clean stdout."),
+]
+"""A command's own `--json`: its RESULT, one document, on stdout.
+
+Not `fm --events json`, which replaces rendering everywhere with an event stream. Both spelled
+`--json` made one token's POSITION decide which of two unrelated things you got. This one sits on
+the command, so `fm info mybench --json` parses; prose already goes to stderr, so stdout is
+parseable without suppressing anything."""

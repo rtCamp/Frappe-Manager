@@ -111,6 +111,17 @@ class EnableDisableOptionsEnum(str, Enum):
     disable = "disable"
 
 
+class EventStreamFormat(str, Enum):
+    """Wire formats `fm --events` can stream in.
+
+    A value, not a bare switch, because the flag names a FORMAT the way cargo's
+    `--message-format` and compose's `--progress` do: a second encoding is then a new member
+    rather than a second flag. Only one exists today.
+    """
+
+    json = "json"
+
+
 class TelemetryProviderEnum(str, Enum):
     """APM backends `fm telemetry` can act on.
 

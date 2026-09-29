@@ -68,7 +68,7 @@ def cli_entrypoint():
         _emit_json_exit(ok=True, code=0)
     except SystemExit as e:
         # typer.Exit / click abort paths: SystemExit is not an Exception, so it
-        # bypasses the handlers below; the --json stream still gets its terminal event.
+        # bypasses the handlers below; the --events stream still gets its terminal event.
         code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
         _emit_json_exit(ok=code == 0, code=code)
         raise
@@ -140,7 +140,7 @@ def cli_entrypoint():
 
 
 def _emit_json_exit(ok: bool, code: int) -> None:
-    """Close the ``fm --json`` JSONL stream with an exit event; no-op in rich mode."""
+    """Close the ``fm --events json`` JSONL stream with an exit event; no-op in rich mode."""
     try:
         from frappe_manager.output_manager.json_output import JSONOutputHandler
 

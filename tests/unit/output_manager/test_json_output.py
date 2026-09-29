@@ -24,7 +24,7 @@ class TestOutputEvent:
 
     def test_output_event_to_dict(self):
         """OutputEvent converts to a dictionary carrying the event, its data, and a
-        UTC timestamp (the envelope streamed by `fm --json`)."""
+        UTC timestamp (the envelope streamed by `fm --events json`)."""
         event = OutputEvent("print", {"text": "Hello", "emoji": ":zap:"})
 
         result = event.to_dict()
@@ -64,7 +64,7 @@ class TestOutputEvent:
 
 
 class TestStreamingMode:
-    """`fm --json`: every event is written to the stream as one JSON line, as it happens."""
+    """`fm --events json`: every event is written to the stream as one JSON line, as it happens."""
 
     def test_each_event_is_streamed_as_one_json_line_immediately(self):
         import io
@@ -370,7 +370,7 @@ class TestJSONOutputHandlerEventSequencing:
 class TestWantsStructuredData:
     """`wants_structured_data` is how a call site asks the active handler whether it wants
     raw data instead of a rendered card, without threading `ctx` into modules that have
-    none. `fm --json` runs the JSON handler wrapped in `LoggingOutputHandler`
+    none. `fm --events json` runs the JSON handler wrapped in `LoggingOutputHandler`
     (commands/__init__.py), so the property must survive that wrap or the whole fix is dead."""
 
     def test_json_handler_wants_structured_data(self):
@@ -379,7 +379,7 @@ class TestWantsStructuredData:
 
     def test_logging_wrapper_delegates_to_wrapped_json_handler(self):
         """LoggingOutputHandler must forward the property to its delegate -- the real
-        production shape (`fm --json` wraps JSONOutputHandler in LoggingOutputHandler) -- or
+        production shape (`fm --events json` wraps JSONOutputHandler in LoggingOutputHandler) -- or
         every call site checking it would see the wrapper's own False and silently keep
         building cards instead of data."""
         from frappe_manager.output_manager.logging_output import LoggingOutputHandler

@@ -328,6 +328,17 @@ class OutputHandler(ABC):
             bool: True to stream docker output, False to suppress it
         """
 
+    _json_results: bool = False
+
+    def set_json_results(self, enabled: bool = True) -> None:
+        """Ask this handler for a command's RESULT as JSON on stdout (a command's own `--json`).
+
+        Distinct from `fm --events json`, which replaces rendering wholesale with an event
+        stream. This only changes what `print_data` emits; prose keeps going to stderr, so
+        stdout stays parseable without silencing anything.
+        """
+        self._json_results = enabled
+
     @property
     def wants_structured_data(self) -> bool:
         """Whether the active handler wants raw data instead of a rendered card.
@@ -335,10 +346,9 @@ class OutputHandler(ABC):
         A call site holding a rich card it already built for a human (e.g.
         `site_manager/modules/bench_info.py`, which has no `ctx` to consult) needs to ask,
         right where it decides what to hand `print_data`, whether the active handler would
-        rather receive the underlying data instead. Default False: only JSON output wants
-        structured data; every other handler keeps rendering the normal card.
+        rather receive the underlying data instead.
         """
-        return False
+        return self._json_results
 
     @abstractmethod
     def print_data(self, data: Any, **kwargs) -> None:
@@ -361,7 +371,7 @@ class OutputHandler(ABC):
         The channel for copy targets and pipeable text: paths, hostnames, JSON dumps. Rich must
         not touch these -- a table cell truncates or folds a long path, and markup eats anything
         shaped like `[INFO]` -- which is why call sites used to reach for `typer.echo` and so
-        wrote straight past the stream contract, the file log and the --json stream. Use
+        wrote straight past the stream contract, the file log and the --events stream. Use
         `print_data` when the result is a structure fm renders, and this when it is text the
         caller will copy or pipe.
         """
@@ -373,7 +383,7 @@ class OutputHandler(ABC):
         Distinct from `data_raw`, which is fm's own result: a relayed line keeps the child's own
         stdout/stderr split, and rich must not touch it -- a docker log containing `[INFO]` is
         not markup, and a colourised path is not a path any more. Call sites used to reach for
-        `print()` here, which wrote past the file log and the --json stream, and (because rich
+        `print()` here, which wrote past the file log and the --events stream, and (because rich
         redirects both streams while a spinner runs) landed on stderr or stdout depending on
         whether a spinner happened to be active.
         """

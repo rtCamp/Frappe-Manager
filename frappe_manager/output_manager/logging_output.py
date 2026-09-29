@@ -325,6 +325,11 @@ class LoggingOutputHandler(OutputHandler):
     def wants_structured_data(self) -> bool:
         return self.delegate.wants_structured_data
 
+    def set_json_results(self, enabled: bool = True) -> None:
+        # Forwarded, never stored here: `wants_structured_data` above reads the delegate, so a
+        # copy on the wrapper would be the one nobody consults.
+        self.delegate.set_json_results(enabled)
+
     def _format_data_for_log(self, data: Any) -> str:
         """Rich renderables -> plain text for the file log (never their repr)."""
         if isinstance(data, str):

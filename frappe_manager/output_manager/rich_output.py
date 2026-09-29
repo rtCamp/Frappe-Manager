@@ -559,8 +559,10 @@ class RichOutputHandler(OutputHandler):
         if isinstance(data, ConsoleRenderable):
             self._emit(self.stdout, data)
         elif isinstance(data, (dict, list)):
+            # Same no-markup, no-wrap rendering as data_raw: a rich-highlighted or soft-wrapped
+            # JSON document is no longer the bytes a parser was handed.
             json_str = json.dumps(data, indent=2, default=str)
-            self._emit(self.stdout, json_str)
+            self._emit(self.stdout, json_str, markup=False, highlight=False, soft_wrap=True)
         else:
             self._emit(self.stdout, str(data))
 
