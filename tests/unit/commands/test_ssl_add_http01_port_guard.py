@@ -20,9 +20,12 @@ BENCH = "mybench"
 DOMAIN = "example.com"
 
 
-def _ctx():
+def _ctx(domain: str | None = DOMAIN):
+    # `domain` is the address's second segment, set by `bench_domain_callback`. A standalone call
+    # takes a BARE domain, so there is no second segment and this is None -- passing one makes
+    # standalone refuse the address shape before anything else is reached.
     ctx = MagicMock(name="ctx")
-    ctx.obj = {"services": MagicMock(name="services_manager"), "domain": DOMAIN}
+    ctx.obj = {"services": MagicMock(name="services_manager"), "domain": domain}
     ctx.get_parameter_source.return_value = ParameterSource.DEFAULT
     return ctx
 
@@ -123,8 +126,24 @@ def test_standalone_mode_is_also_refused_by_the_http01_port_guard(add):
     fm_config_manager.import_from_toml.return_value = _fm_config(8080)
 
     with pytest.raises(typer.Exit) as exc:
-        add_certificate(_ctx(), address=DOMAIN, standalone=True)
+        add_certificate(_ctx(domain=None), address=DOMAIN, standalone=True)
 
     assert exc.value.exit_code == 1
     assert "--challenge http01" in _errors(output)[0]
     external_issue.assert_not_called()
+
+
+def test_a_missing_address_is_reported_before_the_port_refusal(add):
+    """Ordering, not the guard itself: with the proxy off 80, `fm ssl add` with NO address used to
+    answer "use --challenge dns01" -- advice about a question the operator had not asked, while
+    the real problem was that no bench was named."""
+    output, issue, _external_issue, fm_config_manager = add
+    fm_config_manager.import_from_toml.return_value = _fm_config(8080)
+
+    with pytest.raises(typer.Exit) as exc:
+        add_certificate(_ctx(domain=None), address=None)
+
+    assert exc.value.exit_code == 1
+    assert "BENCH/DOMAIN is required" in _errors(output)[0]
+    assert "--challenge http01" not in " ".join(_errors(output))
+    issue.assert_not_called()

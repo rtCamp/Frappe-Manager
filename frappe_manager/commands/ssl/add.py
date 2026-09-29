@@ -15,6 +15,29 @@ from .external_helpers import _add_external_certificate
 from .helpers import get_output_handler
 
 
+def _refuse_http01_on_a_moved_proxy(ctx, challenge, dev: bool, custom: bool) -> None:
+    """Refuse HTTP-01 when the proxy is not on port 80.
+
+    The CA dials port 80 at the public name directly, so a moved proxy port makes every issuance
+    and renewal fail there with no workaround -- and otherwise only surfaces ~60 days later, at
+    expiry. Not `--dev`/`--custom`, which issue nothing through ACME.
+
+    Called after each mode has validated its address, never before: a policy refusal that beats
+    the arity check answers a question the operator has not asked yet.
+    """
+    if challenge != LETSENCRYPT_PREFERRED_CHALLENGE.http01 or dev or custom:
+        return
+    if FMConfigManager.import_from_toml().proxy.http_port == 80:
+        return
+
+    output = get_output_handler(ctx)
+    output.display_error(
+        "--challenge http01 needs the proxy on port 80 (the CA dials it directly). "
+        "Use --challenge dns01, --dev, or --custom instead."
+    )
+    raise typer.Exit(1)
+
+
 @example(
     "Issue a certificate for a bench domain",
     "{benchname}/example.com",
@@ -227,22 +250,9 @@ def add_certificate(
             output.display_error(f"{flag_name} file not found: {path}")
             raise typer.Exit(1)
 
-    # The CA dials port 80 directly for HTTP-01; a moved proxy port makes every issuance and
-    # renewal fail there, with no workaround (the failure otherwise only surfaces ~60 days later,
-    # at expiry). Applies to both modes whenever this call would actually perform the challenge --
-    # not --dev/--custom, which issue nothing.
-    if (
-        challenge == LETSENCRYPT_PREFERRED_CHALLENGE.http01
-        and not dev
-        and not custom
-        and FMConfigManager.import_from_toml().proxy.http_port != 80
-    ):
-        output = get_output_handler(ctx)
-        output.display_error(
-            "--challenge http01 needs the proxy on port 80 (the CA dials it directly). "
-            "Use --challenge dns01, --dev, or --custom instead."
-        )
-        raise typer.Exit(1)
+    # Checked only once the address is known (below, in both modes): a policy refusal that fires
+    # before the arity check told an operator to "use --challenge dns01" when they had not named a
+    # bench yet, which is unactionable advice about the wrong problem.
 
     # The address's second segment, put there by `bench_domain_callback`. In standalone mode there
     # is no bench, so the external domain arrives as the whole (unslashed) argument instead.
@@ -272,6 +282,7 @@ def add_certificate(
             output.data_raw(ctx.get_help())
             raise typer.Exit(1)
 
+        _refuse_http01_on_a_moved_proxy(ctx, challenge, dev, custom)
         _add_external_certificate(ctx, address, challenge, cname, test_ca, skip_dns_check, wait_for_dns)
         return
 
@@ -288,6 +299,8 @@ def add_certificate(
         )
         output.data_raw(ctx.get_help())
         raise typer.Exit(1)
+
+    _refuse_http01_on_a_moved_proxy(ctx, challenge, dev, custom)
 
     for target in _resolve_domains(ctx, address, domain):
         _add_bench_certificate(
