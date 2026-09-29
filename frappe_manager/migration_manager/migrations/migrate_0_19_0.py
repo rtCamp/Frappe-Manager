@@ -464,7 +464,7 @@ class MigrationV0190(MigrationBase):
                 )
                 return
 
-            # Parse size to bytes (same logic as site.py _parse_size_to_bytes)
+            # Same parsing as site.py _parse_size_to_bytes.
             match = re.match(r"^(\d+)([MG])$", upload_limit, re.IGNORECASE)
             if not match:
                 return
@@ -1142,7 +1142,6 @@ bench build""",
             section_config.write(buf)
             (config_dir / file_name).write_text(buf.getvalue())
 
-        # Generate fm-web-server.sh script (required by new supervisor config)
         self._generate_fm_web_server_script(config_dir, context)
 
         self.logger.debug(f"[_regenerate_supervisor_config] Done for {bench.name}")

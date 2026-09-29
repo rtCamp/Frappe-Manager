@@ -81,7 +81,6 @@ def set_bench_migration_version(bench_path: Path, version: Version) -> None:
         config.schema_state.version = version_str
         config.schema_state.last_migration_date = last_migration_date
     else:
-        # No prior [schema] table to preserve; nothing to carry forward.
         config.schema_state = SchemaState(
             version=version_str,
             last_migration_date=last_migration_date,

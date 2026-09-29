@@ -1554,7 +1554,6 @@ def resolve_primary_site(
             return candidate
 
     if len(selectable) == 1:
-        # No ambiguity to resolve: whatever it is, it is the one.
         return next(iter(selectable))
     return None
 

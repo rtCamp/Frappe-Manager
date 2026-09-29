@@ -295,7 +295,7 @@ def rich_object_to_string(obj) -> str:
     fake_console = Console(force_terminal=False, file=capture_buffer, theme=build_theme())
     fake_console.print(obj, crop=False, overflow="ignore")
 
-    captured_str = capture_buffer.getvalue()  # Retrieve the captured output as a string
+    captured_str = capture_buffer.getvalue()
     capture_buffer.close()
     return captured_str
 

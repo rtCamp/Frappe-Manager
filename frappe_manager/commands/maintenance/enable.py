@@ -171,7 +171,6 @@ def enable(
 
     services, vhostd_dir, html_host_dir, html_container_dir = proxy_paths(ctx)
 
-    # Narrowed to the named site when the address carries one.
     site = ctx.obj.get("site") if ctx.obj else None
     domains, domain_ssl, _all_domains = _bench_domains(benchname, site)
 

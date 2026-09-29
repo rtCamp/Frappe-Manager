@@ -159,7 +159,6 @@ def stream_command_output(
             item = q.get(timeout=DRAIN_POLL_INTERVAL)
         except Empty:
             if process.poll() is None:
-                # Child is still running and simply quiet; keep waiting.
                 continue
             if grace_deadline is None:
                 grace_deadline = monotonic() + DRAIN_GRACE_PERIOD_AFTER_EXIT

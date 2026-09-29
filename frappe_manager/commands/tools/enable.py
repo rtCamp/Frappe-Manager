@@ -67,7 +67,6 @@ def enable(
     site = ctx.obj.get("site") if ctx.obj else None
 
     if site == RESERVED_BENCH_NAME and mailpit_as_default_mail_server:
-        # Per-site files would strand sites created later; the bench-wide form covers those too.
         output.display_error(
             "--mailpit-as-default-mail-server cannot take 'all': use the bare BENCH address -- "
             "the bench-wide setting covers every site, including ones created later."

@@ -169,7 +169,6 @@ class BenchDockerOps:
                             read_only=True,
                         )
                     )
-                    # Node.js apps (socketio) or any process that uses NODE_EXTRA_CA_CERTS
                     envs["NODE_EXTRA_CA_CERTS"] = CONTAINER_CA_PATH
                     # Python requests library honors this env var
                     envs["REQUESTS_CA_BUNDLE"] = CONTAINER_CA_PATH

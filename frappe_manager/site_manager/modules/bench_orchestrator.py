@@ -1182,7 +1182,6 @@ class BenchOrchestrator:
             bench.bench_config.schema_state.version = version
             bench.bench_config.schema_state.last_migration_date = last_migration_date
         else:
-            # No prior [schema] table to preserve; nothing to carry forward.
             bench.bench_config.schema_state = SchemaState(
                 version=version,
                 last_migration_date=last_migration_date,
