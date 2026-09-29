@@ -2,9 +2,6 @@ name: Publish image
 
 permissions:
   contents: read
-  # Pushing to ghcr.io. Granted here rather than relying on a stored PAT, which expires silently
-  # and takes every publish with it until someone notices.
-  packages: write
 
 on:
   schedule:
@@ -99,8 +96,14 @@ jobs:
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GHCR_USER }}
+          # A PAT, not GITHUB_TOKEN: these packages predate this workflow and grant write to the
+          # machine user, not to this repository, so the run token is refused with
+          # `permission_denied: write_package` even with `packages: write`. The trap is that a PAT
+          # EXPIRES SILENTLY and takes every publish with it (it did, on 2026-09-29, a year after
+          # the token was minted). The lasting fix is to grant this repository write on the package
+          # and switch back to GITHUB_TOKEN, which cannot expire.
+          password: ${{ secrets.GHCR_TOKEN }}
 
       - name: Set image names
         run: |
@@ -163,8 +166,8 @@ jobs:
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.GHCR_USER }}
+          password: ${{ secrets.GHCR_TOKEN }}
 
       - name: Combine manifest and push
         run: |
