@@ -82,17 +82,18 @@ class ExternalDomainConfigManager:
     """
 
     def __init__(self, config_path: Path):
-        """
-        Initialize the external domain config manager.
+        """`config_path` is `<services_path>/nginx-proxy/external_domains.toml`.
 
-        Args:
-            config_path: Path to external_domains.toml file
+        The file is NOT created here. Asking what external domains exist must not invent the
+        registry it reads: `_load` already answers "none" for a missing file, and the seventh
+        construction site is `reconcile_standalone_vhosts` on `fm services start`, so creating it
+        here left an external-domains file on every host that has never had an external domain.
+        `add_domain` writes it when there is finally something to record.
         """
         self.config_path = config_path
+        # The parent, though: `_save` renders into this directory and a standalone `ssl add` is
+        # the first thing that ever touches it.
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if not self.config_path.exists():
-            self._save({})
 
     def _load(self) -> tuple[dict[str, ExternalDomainConfig], dict[str, Any]]:
         """

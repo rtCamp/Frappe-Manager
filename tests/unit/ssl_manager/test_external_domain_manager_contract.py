@@ -56,6 +56,27 @@ def _manager(tmp_path: Path) -> ExternalDomainConfigManager:
     return ExternalDomainConfigManager(tmp_path / "nginx-proxy" / "external_domains.toml")
 
 
+def test_reading_does_not_create_the_registry(tmp_path):
+    """Constructing this to ASK what exists must not invent the file it reads. One of the seven
+    construction sites is `fm services start`, so creating it here left an external-domains
+    registry on every host that has never had an external domain."""
+    manager = _manager(tmp_path)
+
+    assert manager.list_domains() == []
+    assert not manager.config_path.exists()
+
+
+def test_the_first_add_is_what_creates_it(tmp_path):
+    """The write has to land somewhere, and this is the moment there is finally something to
+    record -- otherwise dropping the constructor write would just lose the registry."""
+    manager = _manager(tmp_path)
+
+    manager.add_domain(_config())
+
+    assert manager.config_path.exists()
+    assert [d.domain for d in manager.list_domains()] == [_config().domain]
+
+
 def _cert_for(tmp_path: Path, config: ExternalDomainConfig):
     """Run `to_ssl_certificate` against an exact in-memory config, bypassing TOML storage."""
     manager = _manager(tmp_path)
