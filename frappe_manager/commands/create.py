@@ -837,7 +837,7 @@ def create(
         str,
         typer.Argument(
             metavar="BENCH(/SITE)",
-            help="Bench to create, or BENCH/SITE to add a site to a bench that already exists. A bench name is just a name: 'shop' creates a bench 'shop' serving a site 'shop.localhost', and a name that is already a domain serves that domain.",
+            help="Bench to create, or BENCH/SITE to add a site to a bench that already exists. The rule is the dot: 'shop' has none, so it serves 'shop.localhost' and works out of the box, while any name containing one is taken as a domain and served as typed, resolving only where you point it.",
             callback=create_command_sitename_callback,
         ),
     ],
@@ -1282,6 +1282,18 @@ def create(
     if sitename != address and not bench_only:
         output.print(
             f"Bench [fm.info]{address}[/fm.info] will serve the site [fm.info]{sitename}[/fm.info]",
+            emoji_code=":globe_with_meridians:",
+        )
+    elif not bench_only:
+        # The other branch of the same rule, which said NOTHING: a name containing a dot is taken
+        # as already qualified, so no `.localhost` is appended and the site resolves only where the
+        # operator points it. True of `a.example.com` and of `with.dots` alike -- fm cannot tell a
+        # domain from a dotted word without a public-suffix list, and guessing would be worse than
+        # saying what it did.
+        output.print(
+            f"Bench [fm.info]{address}[/fm.info] will serve the site [fm.info]{sitename}[/fm.info]: the name "
+            "contains a dot, so fm took it as a domain and appended no .localhost. It resolves only where you "
+            "point it, with a DNS record or a hosts entry.",
             emoji_code=":globe_with_meridians:",
         )
 

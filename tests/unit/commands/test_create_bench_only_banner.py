@@ -79,6 +79,29 @@ def test_a_plain_create_still_announces_its_site(cli, benches):
     assert "fresh.localhost" in said
 
 
+def test_a_dotted_name_is_told_it_will_not_resolve_on_its_own(cli, benches):
+    """The branch that said NOTHING. `sitename != address` is false for a name containing a dot,
+    so `fm create with.dots` announced neither name nor consequence -- and it produces a site at
+    a hostname nothing resolves, exactly like `fm create a.example.com` does. fm cannot tell a
+    domain from a dotted word without a public-suffix list, so it states what it did instead of
+    guessing which one was meant."""
+    result, bench_service_cls = _invoke(cli, ["with.dots"])
+
+    assert bench_service_cls.return_value.create_bench.called is True, _said(result)
+    said = _said(result)
+    assert "with.dots" in said
+    assert "no .localhost" in said
+    assert "point it" in said
+
+
+def test_a_bench_only_dotted_name_still_announces_no_site(cli, benches):
+    """The `--bench-only` guard covers both branches: no site is created, so neither message may
+    promise one."""
+    result, _cls = _invoke(cli, ["with.dots", "--bench-only"])
+
+    assert "will serve" not in _said(result)
+
+
 def test_add_site_still_announces_the_site_and_bench_by_name(monkeypatch):
     """`fm create BENCH/SITE` goes through `_add_site_to_bench`, not the banner above -- a
     completely separate print. Pinned here as the third leg of the "other paths" check, so a

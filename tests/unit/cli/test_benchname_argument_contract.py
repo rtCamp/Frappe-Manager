@@ -114,9 +114,9 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     # on through `ctx.obj["site"]`.
     "fm create": BenchnameSpec(
         help=(
-            "Bench to create, or BENCH/SITE to add a site to a bench that already exists. A bench name is just "
-            "a name: 'shop' creates a bench 'shop' serving a site 'shop.localhost', and a name that is already "
-            "a domain serves that domain."
+            "Bench to create, or BENCH/SITE to add a site to a bench that already exists. The rule is the dot: "
+            "'shop' has none, so it serves 'shop.localhost' and works out of the box, while any name containing "
+            "one is taken as a domain and served as typed, resolving only where you point it."
         ),
         metavar="BENCH(/SITE)",
         default=None,
