@@ -100,6 +100,23 @@ def _host_paths(keep_backups: bool) -> list[Path]:
     return paths
 
 
+def _bench_paths(benches: list[str], incomplete: list[str]) -> list[PathEntry]:
+    """Each bench directory, then the sites directory itself.
+
+    The root is a target in its own right, not the sum of its benches: `bench_names` skips
+    non-directories, so a stray file beside the benches is planned by nobody, and leaving an
+    empty `sites/` behind also keeps CLI_DIR non-empty, which is what stopped fm's home from
+    being removed at the end of a full teardown. Its size is the residue, so the totals still add up.
+    """
+    if not CLI_BENCHES_DIRECTORY.exists():
+        return []
+
+    entries = [PathEntry(CLI_BENCHES_DIRECTORY / name, dir_size(CLI_BENCHES_DIRECTORY / name)) for name in benches + incomplete]
+    residue = dir_size(CLI_BENCHES_DIRECTORY) - sum(entry.size for entry in entries)
+    entries.append(PathEntry(CLI_BENCHES_DIRECTORY, max(residue, 0)))
+    return entries
+
+
 def plan_teardown(docker, scopes: set[Scope], *, keep_backups: bool, include_images: bool) -> TeardownPlan:
     """What a teardown of `scopes` would remove, read from disk and from docker.
 
@@ -120,7 +137,7 @@ def plan_teardown(docker, scopes: set[Scope], *, keep_backups: bool, include_ima
             # pool and disk with nothing left on disk to name them.
             plan.networks += sorted(n for n in docker.network_ls() if n.startswith(BENCH_OBJECT_PREFIX))
             plan.volumes += sorted(v for v in docker.volume_ls() if v.startswith(BENCH_OBJECT_PREFIX))
-        plan.paths += [PathEntry(CLI_BENCHES_DIRECTORY / name, dir_size(CLI_BENCHES_DIRECTORY / name)) for name in benches + incomplete]
+        plan.paths += _bench_paths(benches, incomplete)
 
     if Scope.services in scopes:
         if docker is not None:
