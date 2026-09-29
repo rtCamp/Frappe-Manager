@@ -8,7 +8,7 @@ import typer
 from frappe_manager import CLI_SERVICES_DIRECTORY
 from frappe_manager.output_manager import OutputHandler, railcard, spinner
 from frappe_manager.site_manager.modules.cdn_detection import CDNProxyStatus, detect_cloudflare_proxy
-from frappe_manager.site_manager.modules.public_scheme import host_proxy_state, public_scheme, public_url
+from frappe_manager.site_manager.modules.public_scheme import host_proxy_state, public_scheme
 from frappe_manager.site_manager.modules.realip import trusted_ranges
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
@@ -184,10 +184,10 @@ def _add_bench_certificate(
         # is the canonical URL Frappe builds links, password resets and emails from. Certifying an
         # ALIAS must therefore not rewrite it -- that silently renamed the site to the alias.
         served = _site_serving(bench, domain)
-        _, _http_port, https_port = host_proxy_state()
-        # The public URL, port included: Frappe builds links from this verbatim, so a host that
-        # publishes HTTPS somewhere other than 443 would otherwise email unreachable addresses.
-        host_name = public_url(domain, "https", https_port=https_port)
+        # No port, even on a host that publishes elsewhere: `host_name` is what Frappe's own
+        # server-side calls resolve, and `extra_hosts` sends those straight to the proxy
+        # CONTAINER, where only 80/443 exist. A published port is a host-side fact.
+        host_name = f"https://{domain}"
         try:
             if served == domain:
                 bench.set_bench_site_config(served, {"host_name": host_name})
@@ -247,8 +247,8 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
         # Still https when a trusted front terminates TLS for it: fm dropping its own certificate
         # does not make the public connection plaintext, and writing http here would make Frappe
         # email links that the front then redirects, or refuses.
-        front, http_port, https_port = host_proxy_state()
-        host_name = public_url(domain, public_scheme(False, front), http_port, https_port)
+        front, _http_port, _https_port = host_proxy_state()
+        host_name = f"{public_scheme(False, front)}://{domain}"
         try:
             if served == domain:
                 bench.set_bench_site_config(served, {"host_name": host_name})

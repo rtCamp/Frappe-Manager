@@ -426,6 +426,22 @@ def test_add_flips_host_name_to_https_and_confirms_when_not_a_test_ca(h):
     _add(h, test_ca=False)
 
     assert h.site_config_writes() == [(DOMAIN, {"host_name": f"https://{DOMAIN}"})]
+
+
+@pytest.mark.timeout(15)
+def test_host_name_carries_no_published_port(h, monkeypatch):
+    """A moved `fm services ports` must not reach `host_name`: Frappe's own server-side calls
+    resolve it through the bench's `extra_hosts`, which point straight at the proxy CONTAINER,
+    where only 80/443 exist. Writing `https://domain:8443` made every self-call refuse to
+    connect while the public address kept working, so nothing looked broken."""
+    monkeypatch.setattr(
+        "frappe_manager.commands.ssl.bench_helpers.host_proxy_state",
+        lambda: (False, 8080, 8443),
+    )
+
+    _add(h, test_ca=False)
+
+    assert h.site_config_writes() == [(DOMAIN, {"host_name": f"https://{DOMAIN}"})]
     assert h.prints() == [
         f"SSL certificate added for {DOMAIN}",
         "Certificate has been issued and configured.",
