@@ -41,6 +41,11 @@ class FrappeManagerException(Exception):
         self.suggestions = suggestions or []
         super().__init__(self.message)
 
+    # Click exits 2 on a usage error and fm's handler exits 1, so the same mistake answered
+    # differently depending on which half caught it (`fm create` 2, `fm info` 1). A subclass
+    # sets 2 to mean "the command line was wrong"; see docs/commands/index.md.
+    exit_code = 1
+
     def to_dict(self) -> dict[str, Any]:
         """
         Convert exception to dictionary for API responses.
@@ -78,3 +83,14 @@ class NonInteractiveError(FrappeManagerException):
                 "  • Use --help for available options"
             )
         super().__init__(full_message)
+
+
+class MissingArgumentError(NonInteractiveError):
+    """A required argument was not given and could not be asked for.
+
+    Exits 2, the code the parser already uses for the same mistake. Deliberately narrower than
+    its parent: `NonInteractiveError` also covers refusals like "pass --yes", where fm understood
+    the command line and declined to act, which is a 1.
+    """
+
+    exit_code = 2

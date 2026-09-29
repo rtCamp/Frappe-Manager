@@ -11,7 +11,7 @@ from frappe_manager import (
     CLI_RECENT_USED_SITES_CACHE_PATH,
     DEFAULT_EXTENSIONS,
 )
-from frappe_manager.exceptions import NonInteractiveError
+from frappe_manager.exceptions import MissingArgumentError
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchNotFoundError
 from frappe_manager.utils.address import SEPARATOR, Address, parse_address
@@ -285,7 +285,7 @@ def _pick_bench_name() -> str | None:
 
     None when there is no bench to offer. Exceptions PROPAGATE, because the two callers disagree
     about what an unanswerable prompt means and both are right: a parameter callback turns it into
-    a `NonInteractiveError` naming the argument to pass, while a command body that has other modes
+    a `MissingArgumentError` naming the argument to pass, while a command body that has other modes
     to fall back on treats it as "no answer" and reports the address itself.
     """
     names = _bench_names()
@@ -324,7 +324,7 @@ def _resolve_bench(sitename: str | None) -> str:
         try:
             sitename = _pick_bench_name()
         except Exception as e:
-            raise NonInteractiveError(
+            raise MissingArgumentError(
                 "Bench name is required in non-interactive mode",
                 suggestions=[
                     "Specify the bench name as a positional argument",

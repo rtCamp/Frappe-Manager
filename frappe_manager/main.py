@@ -108,8 +108,11 @@ def cli_entrypoint():
 
         exception_traceback: str = capture_and_format_exception()
         logger.error(f"FM Exception: {e.__class__.__name__}: {e!s}\n{exception_traceback}")
-        _emit_json_exit(ok=False, code=1)
-        exit(1)
+        # getattr for the same reason as `details` above: the last handler standing must not
+        # itself raise on an exception whose __init__ never reached FrappeManagerException.
+        code = getattr(e, "exit_code", 1)
+        _emit_json_exit(ok=False, code=code)
+        exit(code)
 
     except Exception as e:
         try:
