@@ -419,6 +419,47 @@ def test_a_site_with_the_limit_already_set_is_not_rewritten(tmp_path):
     assert written == []
 
 
+def test_overwriting_a_hand_set_limit_says_so(tmp_path):
+    """`site_config.json` is FRAPPE's file; `max_file_size` is the one key in it fm owns. The
+    guard above means this branch only ever fires over a value someone set by hand, so a silent
+    revert on the most-run command is how an operator loses an edit without learning which
+    command took it."""
+    _healthy_base(tmp_path)
+    (tmp_path / "services" / "nginx-proxy" / "vhostd").mkdir(parents=True)
+    sites = tmp_path / "workspace" / "frappe-bench" / "sites"
+    (sites / DOMAIN).mkdir(parents=True)
+    (sites / DOMAIN / "site_config.json").write_text('{"max_file_size": 1048576}')
+
+    bench = _bench(tmp_path, _real_ops(tmp_path))
+    bench.services.path = tmp_path / "services"
+    bench.bench_config.site_names = [DOMAIN]
+    bench.set_bench_site_config = lambda site, values: None
+
+    bench.apply_upload_limit()
+
+    said = " ".join(str(c.args[0]) for c in bench.output.warning.call_args_list)
+    assert "max_file_size" in said
+    assert "bench_config.toml" in said
+
+
+def test_a_site_gaining_the_key_for_the_first_time_is_silent(tmp_path):
+    """A site being provisioned had no value to lose, so warning there is noise on every create."""
+    _healthy_base(tmp_path)
+    (tmp_path / "services" / "nginx-proxy" / "vhostd").mkdir(parents=True)
+    sites = tmp_path / "workspace" / "frappe-bench" / "sites"
+    (sites / DOMAIN).mkdir(parents=True)
+    (sites / DOMAIN / "site_config.json").write_text("{}")
+
+    bench = _bench(tmp_path, _real_ops(tmp_path))
+    bench.services.path = tmp_path / "services"
+    bench.bench_config.site_names = [DOMAIN]
+    bench.set_bench_site_config = lambda site, values: None
+
+    bench.apply_upload_limit()
+
+    bench.output.warning.assert_not_called()
+
+
 # ------------------------- HSTS: the proxy-side override `apply_hsts` writes
 
 

@@ -75,7 +75,7 @@ fm writes these too, but the write should always be either the command's stated 
 - `fm_config.toml`, including the `[network]` subnets recorded when they are first chosen and the `[proxy]` table written by `fm services ports`
 - `services/docker-compose.yml`, including published ports, the proxy's environment and which database services are switched off
 - `sites/<bench>/bench_config.toml`
-- each site's `site_config.json`
+- each site's `site_config.json`, with one standing exception: `max_file_size` is fm's, reasserted from `upload_limit` on every `fm start`. fm says so when it overwrites a value you set. See [`upload_limit`](configuration.md#upload-limit)
 
 ## Reading the effect of a change
 

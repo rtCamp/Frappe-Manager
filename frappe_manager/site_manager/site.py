@@ -1855,6 +1855,11 @@ class Bench:
         default while both nginx layers and ``fm info`` advertised the bench's limit: an upload under
         the bench limit but over Frappe's was accepted by nginx and then refused by the app.
 
+        `max_file_size` is therefore fm-owned inside a file that is otherwise Frappe's, which is
+        the one thing here an operator cannot guess: a hand-edited value is reverted on the next
+        `fm start`. Announced when it happens (never on a first write, where there was nothing to
+        lose) rather than left to be discovered.
+
         Returns True when something on disk changed, so a caller can reload the global proxy only
         when it needs to. The proxy is shared by every bench, so reloading it on each ``fm start``
         would be a cost paid by benches that changed nothing.
@@ -1874,6 +1879,15 @@ class Bench:
                 current = None
             if current != wanted_bytes:
                 self.set_bench_site_config(site, {"max_file_size": wanted_bytes})
+                # Said out loud because `site_config.json` is FRAPPE's file, not fm's, and the
+                # guard above means this only ever fires over a value someone set by hand. A
+                # silent revert on the most-run command is how an operator loses an edit without
+                # ever learning which command took it.
+                if current is not None:
+                    self.output.warning(
+                        f"max_file_size on {site} was {current}; reset to {upload_limit} "
+                        "from upload_limit in bench_config.toml (change it there, not in site_config.json)"
+                    )
                 changed = True
 
         # The global proxy caps the request before bench nginx ever sees it, so the bench conf alone

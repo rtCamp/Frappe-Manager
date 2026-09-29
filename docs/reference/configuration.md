@@ -364,7 +364,7 @@ Maximum file upload size. The bench has to be running: `fm update` refuses a sto
 | Layer | What is written |
 |---|---|
 | `bench_config.toml` | `upload_limit`, normalised to uppercase |
-| `workspace/frappe-bench/sites/<bench>/site_config.json` | Frappe's `max_file_size`, in bytes |
+| `workspace/frappe-bench/sites/<site>/site_config.json` | Frappe's `max_file_size`, in bytes, for **every** site the bench serves |
 | `configs/nginx/conf/custom/upload-limit.conf` | `client_max_body_size` for the bench's own nginx |
 | `services/nginx-proxy/vhostd/<domain>` | `client_max_body_size` on the global proxy, for each of the bench's domains |
 
@@ -373,6 +373,11 @@ Both nginx layers are reloaded in place, so nothing restarts and no container is
 ```toml
 upload_limit = "500M"
 ```
+
+!!! warning "`max_file_size` is fm's, inside a file that is otherwise yours"
+    `site_config.json` is Frappe's file and holds keys fm never touches, but `max_file_size` is not one of them: every `fm start` puts it back to match `upload_limit`, so an edit made there is reverted the next time the bench starts. fm says so when it happens. Change the limit with `fm update BENCH --upload-limit`, which writes all four layers at once.
+
+    It is written for every site, not only the one named after the bench. Writing just that one left sites added later on Frappe's own default while both nginx layers advertised the bench's limit, so an upload under the bench limit but over Frappe's was accepted by nginx and then refused by the app.
 
 **Valid formats:** digits followed by `M` or `G`, case-insensitive (`50M`, `500M`, `1G`), stored uppercased. The units are binary, so `100M` becomes `104857600` bytes. Bare byte counts and a `K` suffix are rejected even though nginx itself accepts them.
 
