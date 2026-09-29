@@ -1,5 +1,3 @@
-"""Enable an APM provider on a bench."""
-
 from typing import Annotated
 
 import typer

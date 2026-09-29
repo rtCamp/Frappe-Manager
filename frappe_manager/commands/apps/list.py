@@ -1,5 +1,3 @@
-"""List a bench's apps command."""
-
 import typer
 from typer_examples import example
 

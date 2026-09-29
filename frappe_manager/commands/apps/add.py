@@ -1,5 +1,3 @@
-"""Add apps to a bench command."""
-
 import contextlib
 from typing import Annotated, cast
 

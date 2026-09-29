@@ -1,13 +1,3 @@
-"""
-BenchInfo Module
-
-Handles information retrieval and display for the bench including:
-- Displaying comprehensive bench information
-- Reading config files (common_site_config.json, site_config.json)
-- Getting installed apps list
-- Getting log file paths
-"""
-
 import json
 from datetime import datetime
 from pathlib import Path

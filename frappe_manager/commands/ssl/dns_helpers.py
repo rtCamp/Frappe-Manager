@@ -1,5 +1,3 @@
-"""Helper functions for DNS provider credential management."""
-
 import typer
 
 from frappe_manager import CLI_FM_CONFIG_PATH

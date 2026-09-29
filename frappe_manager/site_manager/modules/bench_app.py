@@ -1,10 +1,3 @@
-"""
-BenchAppManager - Frappe App Management Module
-
-This module handles all Frappe app-related operations within a bench including
-app installation, removal, building, and branch management.
-"""
-
 import os
 import shlex
 from collections.abc import Callable, Iterator

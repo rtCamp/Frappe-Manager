@@ -1,5 +1,3 @@
-"""Site Manager Module - Configuration and Constants"""
-
 import json
 from functools import cache
 from importlib.resources import files

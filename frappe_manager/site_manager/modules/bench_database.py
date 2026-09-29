@@ -1,12 +1,3 @@
-"""
-BenchDatabase Module
-
-Handles database operations for the bench including:
-- Database connection information retrieval
-- Database and user removal
-- Common site config synchronization
-"""
-
 from pathlib import Path
 from typing import TYPE_CHECKING
 

@@ -1,9 +1,3 @@
-"""
-BenchDockerOps - Docker and Compose Operations Module
-
-This module handles all Docker and docker-compose operations for a bench.
-"""
-
 import os
 import shlex
 import shutil

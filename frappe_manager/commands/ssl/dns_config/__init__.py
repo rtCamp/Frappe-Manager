@@ -1,5 +1,3 @@
-"""DNS configuration subcommand module."""
-
 import typer
 from typer_examples import install
 

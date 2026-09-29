@@ -1,5 +1,3 @@
-"""Self subcommands for operations related to fm itself."""
-
 import typer
 from typer_examples import install
 

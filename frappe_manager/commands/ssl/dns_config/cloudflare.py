@@ -1,5 +1,3 @@
-"""Cloudflare DNS configuration command."""
-
 from typing import Annotated
 
 import typer

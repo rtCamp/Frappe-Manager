@@ -1,5 +1,3 @@
-"""Add SSL certificate command."""
-
 from pathlib import Path
 from typing import Annotated
 

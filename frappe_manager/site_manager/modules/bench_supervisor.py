@@ -1,9 +1,3 @@
-"""
-BenchSupervisor - Supervisor Process Management Module
-
-This module handles Supervisor process management for bench services.
-"""
-
 import json
 import multiprocessing
 import re

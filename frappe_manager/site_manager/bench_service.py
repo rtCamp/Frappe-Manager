@@ -1,17 +1,3 @@
-"""
-BenchService - Service layer for bench operations
-
-This module provides a clean service layer between the CLI and domain models.
-It encapsulates bench creation, retrieval, and listing logic to reduce coupling
-between the CLI commands and internal implementation details.
-
-Benefits:
-- Single responsibility: manages bench lifecycle
-- Dependency injection: receives services, not globals
-- Testability: easy to mock in tests
-- Reusability: can be used by CLI, API, or other interfaces
-"""
-
 from pathlib import Path
 
 from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME

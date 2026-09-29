@@ -1,7 +1,3 @@
-"""
-Migration validation and filtering logic.
-"""
-
 from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
 from frappe_manager.migration_manager.migration_constants import MINIMUM_SUPPORTED_VERSION

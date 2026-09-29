@@ -1,5 +1,3 @@
-"""Basic auth enable command."""
-
 from typing import Annotated
 
 import typer

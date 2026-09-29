@@ -1,5 +1,3 @@
-"""Helper functions for bench SSL certificate operations."""
-
 from pathlib import Path
 from typing import TYPE_CHECKING
 

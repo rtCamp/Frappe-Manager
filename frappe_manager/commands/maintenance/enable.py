@@ -1,5 +1,3 @@
-"""Maintenance enable command."""
-
 import ipaddress
 import os
 import secrets

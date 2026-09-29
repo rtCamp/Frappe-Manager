@@ -1,11 +1,3 @@
-"""
-Rich terminal output handler.
-
-This implementation provides Rich terminal formatting with spinner displays,
-live output, and interactive prompts. All functionality is self-contained
-within this handler, implementing the OutputHandler interface.
-"""
-
 import contextlib
 import re
 import threading

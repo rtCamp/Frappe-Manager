@@ -1,9 +1,3 @@
-"""
-Migration manager constants.
-
-Centralized constants for timeouts, versions, and configuration values.
-"""
-
 from frappe_manager.migration_manager.version import Version
 
 MINIMUM_SUPPORTED_VERSION = Version("0.18.0")

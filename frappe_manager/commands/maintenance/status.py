@@ -1,5 +1,3 @@
-"""Maintenance status command."""
-
 from typing import Annotated
 
 import typer

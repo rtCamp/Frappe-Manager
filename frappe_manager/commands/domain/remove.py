@@ -1,5 +1,3 @@
-"""Remove alias domain command."""
-
 import typer
 from typer_examples import example
 

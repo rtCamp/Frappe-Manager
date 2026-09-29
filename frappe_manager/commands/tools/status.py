@@ -1,5 +1,3 @@
-"""Admin tools status command."""
-
 import typer
 from typer_examples import example
 

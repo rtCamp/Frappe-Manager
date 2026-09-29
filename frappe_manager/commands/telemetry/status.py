@@ -1,5 +1,3 @@
-"""Report a bench's APM state."""
-
 import typer
 from typer_examples import example
 

@@ -1,5 +1,3 @@
-"""Helper functions for external domain SSL certificate operations."""
-
 import re
 import subprocess
 from datetime import UTC, datetime

@@ -1,5 +1,3 @@
-"""Disable admin tools command."""
-
 import typer
 from typer_examples import example
 

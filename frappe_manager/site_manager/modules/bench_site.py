@@ -1,10 +1,3 @@
-"""
-BenchSiteManager - Frappe Site Lifecycle Management Module
-
-This module handles all Frappe site-related operations within a bench including
-site creation, deletion, migration, reset, and status checking.
-"""
-
 import json
 import shlex
 from collections.abc import Callable, Iterator

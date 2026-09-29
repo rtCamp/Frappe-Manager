@@ -1,5 +1,3 @@
-"""Add alias domain command."""
-
 from typing import Annotated
 
 import typer

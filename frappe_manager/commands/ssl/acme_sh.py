@@ -1,5 +1,3 @@
-"""acme.sh passthrough command."""
-
 import os
 
 import typer

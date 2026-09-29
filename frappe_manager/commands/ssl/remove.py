@@ -1,5 +1,3 @@
-"""Remove SSL certificate command."""
-
 from typing import Annotated
 
 import typer

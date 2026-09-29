@@ -1,13 +1,3 @@
-"""
-Bench Workers Module
-
-Provides worker management for the bench including:
-- Worker compose file generation and management (BenchWorkers)
-- Worker coordination and lifecycle (BenchWorkerCoordinator)
-- Supervisor configuration backup and restore
-- Worker startup checks and service restarts
-"""
-
 from copy import deepcopy
 from typing import TYPE_CHECKING
 

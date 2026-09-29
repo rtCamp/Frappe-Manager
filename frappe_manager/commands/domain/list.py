@@ -1,5 +1,3 @@
-"""List alias domains command."""
-
 import typer
 from typer_examples import example
 

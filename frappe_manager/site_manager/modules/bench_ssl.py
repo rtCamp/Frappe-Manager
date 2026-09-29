@@ -1,13 +1,3 @@
-"""BenchSSL - SSL Certificate Management Module
-
-This module handles all SSL certificate operations for a bench including:
-- Creating certificates
-- Checking certificate existence
-- Removing certificates
-- Updating certificates
-- Renewing certificates
-"""
-
 from frappe_manager.site_manager.bench_config import SSLCertificate
 from frappe_manager.site_manager.exceptions import (
     BenchServiceNotRunning,

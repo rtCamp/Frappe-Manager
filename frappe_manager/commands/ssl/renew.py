@@ -1,5 +1,3 @@
-"""Renew SSL certificates command."""
-
 from typing import Annotated
 
 import typer
