@@ -352,6 +352,7 @@ $ fm services trusted-proxies set [OPTIONS]
 
 * `--cdn TEXT`: Trust a CDN's published ranges. Supported: cloudflare.
 * `--trust TEXT`: CIDR range or single IP of a proxy in front of fm (repeatable).
+* `--local`: Trust a reverse proxy running on this machine.  [default: false]
 * `--client-ip-header TEXT`: Header the client IP is read from. Defaults to CF-Connecting-IP for --cdn cloudflare and X-Forwarded-For otherwise; anything that is not a valid header name is refused.
 
 #### Examples
@@ -374,8 +375,10 @@ fm services trusted-proxies set --trust 203.0.113.0/24
 
 ##### Trust a front running on the same machine
 
+Resolves the address a same-machine connection actually reaches fm from; it is never 127.0.0.1, because fm's proxy is a container and docker rewrites the source.
+
 ```bash
-fm services trusted-proxies set --trust 127.0.0.1
+fm services trusted-proxies set --local
 ```
 
 ### `fm services trusted-proxies clear`

@@ -545,7 +545,13 @@ class ServicesManager:
             return False
 
         fm_config = FMConfigManager.import_from_toml()
-        desired = build_proxy_trust_conf(trusted_ranges(confd), fm_config.proxy.https_suffix)
+        ranges = trusted_ranges(confd)
+        # A trusted front owns the PUBLIC port; fm's published port is the one behind it, and
+        # putting that in a redirect sends the browser somewhere only the front can reach (worse
+        # with `--bind`, where nothing outside this machine can). fm cannot discover the front's
+        # port, so it emits none and the browser keeps the one it was already using.
+        suffix = "" if ranges else fm_config.proxy.https_suffix
+        desired = build_proxy_trust_conf(ranges, suffix)
 
         conf_path = confd / PROXY_TRUST_CONF_FILENAME
         if conf_path.exists() and conf_path.read_text() == desired:

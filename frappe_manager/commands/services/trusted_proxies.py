@@ -1,5 +1,6 @@
 """`fm services trusted-proxies`: which proxies in front of fm may speak for the client."""
 
+import ipaddress
 import re
 from pathlib import Path
 from typing import Annotated
@@ -16,6 +17,7 @@ from frappe_manager.site_manager.modules.realip import (
     is_fm_realip_conf,
     validate_cidrs,
 )
+from frappe_manager.utils.network import get_frontend_gateway
 
 # nginx header names are tokens. Without this an `--client-ip-header 'X-Real-IP; deny all; #'`
 # lands verbatim in `real_ip_header <value>;`, injecting arbitrary directives into the LIVE global
@@ -117,7 +119,8 @@ def show(ctx: typer.Context):
 )
 @example(
     "Trust a front running on the same machine",
-    "--trust 127.0.0.1",
+    "--local",
+    detail="Resolves the address a same-machine connection actually reaches fm from; it is never 127.0.0.1, because fm's proxy is a container and docker rewrites the source.",
 )
 def set_trusted(
     ctx: typer.Context,
@@ -137,6 +140,10 @@ def set_trusted(
             show_default=False,
         ),
     ] = [],
+    local: Annotated[
+        bool,
+        typer.Option("--local", help="Trust a reverse proxy running on this machine."),
+    ] = False,
     client_ip_header: Annotated[
         str | None,
         typer.Option(
@@ -167,9 +174,9 @@ def set_trusted(
             exception=typer.Exit(code=1),
         )
 
-    if not cdn and not trust:
+    if not cdn and not trust and not local:
         output.error(
-            "Nothing to trust: pass --cdn cloudflare and/or --trust CIDR (or use 'trusted-proxies clear')",
+            "Nothing to trust: pass --local, --cdn cloudflare and/or --trust CIDR (or use 'trusted-proxies clear')",
             exception=typer.Exit(code=1),
         )
 
@@ -184,11 +191,31 @@ def set_trusted(
         ranges += _fetch_cloudflare_ranges(output)
         if resolved_header is None:
             resolved_header = "CF-Connecting-IP"
+    if local:
+        gateway = get_frontend_gateway(docker=services.docker_client)
+        if not gateway:
+            output.error(
+                "Could not read the fm frontend network's gateway; is the global stack created?",
+                exception=typer.Exit(code=1),
+            )
+        ranges.append(f"{gateway}/32")
+        if resolved_header is None:
+            resolved_header = "X-Forwarded-For"
     if trust:
         try:
-            ranges += validate_cidrs(trust)
+            validated = validate_cidrs(trust)
         except ValueError as e:
             output.error(f"--trust: {e}", exception=typer.Exit(code=1))
+        # A loopback range can never match: fm's proxy is a container, and docker source-NATs a
+        # connection from this machine to the bridge gateway. Trusting it would look configured
+        # and quietly trust nobody, which is the worst of the three possible outcomes.
+        loopback = [cidr for cidr in validated if ipaddress.ip_network(cidr).is_loopback]
+        if loopback:
+            output.error(
+                f"--trust {loopback[0]} can never match: fm's proxy runs in a container and never sees a connection from this machine as loopback. Use --local instead.",
+                exception=typer.Exit(code=1),
+            )
+        ranges += validated
         if resolved_header is None:
             resolved_header = "X-Forwarded-For"
 

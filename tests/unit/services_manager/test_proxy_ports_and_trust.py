@@ -98,9 +98,30 @@ class TestForwardedTrust:
         """The whole point: a forged X-Forwarded-Proto from a stranger must not decide the
         scheme, so the default arm is the connection nginx actually received."""
         conf = build_proxy_trust_conf(["10.0.0.0/8"], "")
-
         assert "default   $scheme;" in conf
         assert "    10.0.0.0/8 1;" in conf
+
+    def test_a_trusted_front_makes_the_redirect_carry_no_port(self, services, monkeypatch):
+        """fm's published port is what sits BEHIND the front, not what the browser reached. Naming
+        it in a redirect sends the visitor somewhere only the front can reach -- and with
+        `--bind 127.0.0.1`, somewhere nothing outside the machine can."""
+        _with_proxy(monkeypatch, http_port=8080, https_port=8443)
+        (services.confd / "fm-real-ip.conf").write_text(
+            build_proxy_realip_conf(["10.1.0.1/32"], "X-Forwarded-For", recursive=True)
+        )
+
+        services.set_forwarded_trust_conf()
+
+        assert 'default "";' in (services.confd / PROXY_TRUST_CONF_FILENAME).read_text()
+
+    def test_with_nothing_trusted_the_redirect_names_fms_own_port(self, services, monkeypatch):
+        """Nothing in front means fm IS the public endpoint, so the port it publishes on is the
+        one a browser has to be sent to."""
+        _with_proxy(monkeypatch, http_port=8080, https_port=8443)
+
+        services.set_forwarded_trust_conf()
+
+        assert 'default ":8443";' in (services.confd / PROXY_TRUST_CONF_FILENAME).read_text()
 
     def test_ranges_are_matched_with_geo_not_map(self):
         """`map` matches exact strings and regexes, never CIDRs -- a CIDR in a map silently

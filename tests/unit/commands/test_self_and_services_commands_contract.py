@@ -399,8 +399,33 @@ class TrustedProxiesHarness:
     def run(self, **kwargs):
         set_trusted(
             self.ctx,
-            **{"cdn": None, "trust": [], "client_ip_header": None, **kwargs},
+            **{"cdn": None, "trust": [], "local": False, "client_ip_header": None, **kwargs},
         )
+
+
+def test_trusting_a_loopback_range_is_refused_because_it_can_never_match(tmp_path, out):
+    """fm's proxy is a container, and docker source-NATs a connection from this machine to the
+    bridge gateway: a loopback range matches nothing. Writing it would look configured and trust
+    nobody, which is worse than either trusting or not."""
+    h = TrustedProxiesHarness(tmp_path)
+
+    with pytest.raises(typer.Exit):
+        h.run(trust=["127.0.0.1"])
+
+    assert not h.conf.exists()
+    assert "--local" in joined(out.display_error)
+
+
+def test_local_trusts_the_address_a_same_machine_front_actually_arrives_from(tmp_path, out, monkeypatch):
+    monkeypatch.setattr(
+        "frappe_manager.commands.services.trusted_proxies.get_frontend_gateway",
+        lambda **_: "10.1.0.1",
+    )
+    h = TrustedProxiesHarness(tmp_path)
+
+    h.run(local=True)
+
+    assert "set_real_ip_from 10.1.0.1/32;" in h.conf.read_text()
 
 
 def test_a_header_that_is_not_a_token_is_rejected_before_anything_is_written(tmp_path, out):

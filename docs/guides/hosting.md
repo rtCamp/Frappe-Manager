@@ -87,7 +87,7 @@ Three shapes fm supports on one host:
 |---|---|---|---|
 | Terminates TLS | fm | the front | the edge |
 | fm receives | the real connection | plain HTTP + `X-Forwarded-Proto` | plain HTTP + `X-Forwarded-Proto` |
-| Trust | nothing | the front's own address | the edge's published ranges |
+| Trust | nothing | `--local` | the edge's published ranges |
 
 Two commands describe a fronted host, and neither is a per-certificate flag. The common case, a front on the same machine:
 
@@ -97,8 +97,12 @@ Two commands describe a fronted host, and neither is a per-certificate flag. The
 fm services ports --http 8080 --https 8443 --bind 127.0.0.1
 
 # Tell fm which peer is allowed to speak for the client
-fm services trusted-proxies set --trust 127.0.0.1
+fm services trusted-proxies set --local
 ```
+
+`--local` is not a shorthand for `--trust 127.0.0.1`, and that address will not work: fm's proxy runs in a container, and docker rewrites the source of any connection originating on this machine to the bridge's gateway. A front on the same host therefore never reaches fm as loopback, whatever address it dialled. `--local` resolves the address fm actually sees; `--trust` refuses a loopback range rather than writing a set that silently matches nothing.
+
+While a trusted set is configured, fm's redirects carry no port. The front owns the public one and fm cannot discover it, so a browser sent to HTTPS keeps the port it was already using, which is the front's. With nothing trusted fm is the public endpoint and its own published port is what the redirect names.
 
 For an edge that owns its own IP ranges instead of running on this machine, fm keeps listening on 80/443 and the trusted set names the edge:
 
@@ -120,7 +124,9 @@ One command, three consequences, because they answer the same question: did this
 
 Trusting the front makes fm's own redirect unforgeable, but the proxy still relays whatever `X-Forwarded-Proto` a request carries on to gunicorn, for every request, not only the ones that came through the front. fm cannot rewrite that header itself: overriding it in one nginx location replaces the base image's whole header set there instead of adding to it, and re-declaring that set by hand is a fork that drifts on every image update. So a request that reaches fm directly, bypassing the front, still carries whatever scheme it claims, and gunicorn believes it.
 
-Closing that gap is the operator's job: make fm unreachable except through the front. `--bind 127.0.0.1` on `fm services ports` is fm's own lever, and the one to reach for on a single-machine deployment like the example above; a network firewall rule does the same thing for a front on another host. Neither is optional once a trusted set is configured: without one of them, the forged-header exposure this section opened with is still live.
+Closing that gap is the operator's job: make fm unreachable except through the front. `--bind 127.0.0.1` on `fm services ports` is fm's own lever on a single-machine deployment like the example above, and a network firewall rule does the same for a front on another host. Neither is optional once a trusted set is configured: without one of them, the forged-header exposure this section opened with is still live.
+
+Be precise about what `--bind` buys, because it is not everything. It takes fm off every interface but loopback, so nothing off this machine can reach it at all. It cannot tell the front apart from anything else running on the same host, since docker presents both as the bridge gateway (see `--local` above). A local process can therefore still reach fm and claim a scheme. That is the residual, and the answer to it is to not run untrusted code next to your origin, not a setting.
 
 !!! warning "Moving off port 80 breaks Let's Encrypt HTTP-01"
     The CA connects to port 80 at the domain's public name to validate it, and nothing on this host can change that. `fm ssl add --challenge http01` is refused once `fm services ports` has moved off 80, naming the alternatives: `--challenge dns01`, `--dev`, or `--custom`.

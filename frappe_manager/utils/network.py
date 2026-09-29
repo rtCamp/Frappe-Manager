@@ -161,3 +161,25 @@ def get_proxy_ip_on_frontend(
         if net_name == network_name:
             return cfg.get("IPAddress", "")
     return ""
+
+
+def get_frontend_gateway(network_name: str = DEFAULT_NETWORK_NAME, docker: DockerClient | None = None) -> str:
+    """The address a connection from THIS MACHINE arrives from, seen inside the proxy container.
+
+    Docker preserves the source address of a remote client reaching a published port, but a
+    connection originating on the host is source-NATed to the bridge's gateway. So a reverse proxy
+    running on the same machine never appears as 127.0.0.1 to fm, whatever address it dialled --
+    which is why "trust the local front" cannot be expressed as a loopback CIDR and has to be
+    resolved from docker here.
+    """
+    if docker is None:
+        docker = DockerClient()
+    try:
+        config = docker.network_inspect(network_name)
+    except Exception:
+        return ""
+    for entry in config or []:
+        gateway = entry.get("Gateway")
+        if gateway:
+            return str(gateway)
+    return ""
