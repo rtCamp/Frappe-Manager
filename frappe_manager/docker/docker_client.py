@@ -112,6 +112,19 @@ class DockerClient:
             return []
         return [line for line in (n.strip() for n in result.stdout.splitlines()) if line.startswith(name_prefix)]
 
+    def container_images(self) -> dict[str, str]:
+        """``{container name: image reference}`` for every container, running or not."""
+        result = subprocess.run(  # noqa: S603
+            [*self.docker_cmd, "ps", "-a", "--format", "{{.Names}}\t{{.Image}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return {}
+        pairs = (line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line)
+        return {name.strip(): image.strip() for name, image in pairs}
+
     def kill(
         self,
         container: str,
@@ -276,6 +289,27 @@ class DockerClient:
         except DockerException:
             return []
         return []
+
+    def volume_ls(self, format: str = "{{.Name}}", stream: bool = False) -> list[str]:
+        """List Docker volume names."""
+        parameters: dict = locals()
+        cmd: list[str] = ["volume", "ls"]
+        remove_parameters = ["stream"]
+        cmd += parameters_to_options(parameters, exclude=remove_parameters)
+        output: SubprocessOutput = run_command_with_exit_code(self.docker_cmd + cmd, stream=stream)
+        return [line.strip() for line in output.stdout if line.strip()]
+
+    def volume_rm(self, volume_name: str) -> bool:
+        """Remove a volume. False when docker refused, which is normal while a container still
+        references it -- `docker rm -v` deletes only ANONYMOUS volumes, so every named volume fm
+        creates (fm__<bench>__*, fm-mariadb-data) has to be removed here or it outlives fm."""
+        result = subprocess.run(  # noqa: S603
+            [*self.docker_cmd, "volume", "rm", volume_name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return result.returncode == 0
 
     def container_inspect(
         self,

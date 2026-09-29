@@ -2,6 +2,7 @@
 
 import typer
 
+from frappe_manager import CLI_FM_CONFIG_PATH
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.site_manager.site import Bench
@@ -134,7 +135,7 @@ def _remove_dns_credentials(
         output.warning(f"No {provider_name} credentials configured globally")
         return
 
-    target = _resolve_removal_target(output, label, sorted(entries), "~/frappe/fm_config.toml")
+    target = _resolve_removal_target(output, label, sorted(entries), str(CLI_FM_CONFIG_PATH))
     entries.pop(target)
     fm_config.dns_providers = entries or None
     fm_config.export_to_toml()
@@ -242,4 +243,4 @@ def _configure_dns_credentials(
             "[fm.muted]Bind a certificate to it with: fm ssl add <bench> <domain> --challenge dns01 "
             f"--dns-provider {label}[/fm.muted]"
         )
-    output.print(f"[fm.muted]Saved to: \\[ssl.dns_providers.{label}] in ~/frappe/fm_config.toml[/fm.muted]")
+    output.print(f"[fm.muted]Saved to: \\[ssl.dns_providers.{label}] in {CLI_FM_CONFIG_PATH}[/fm.muted]")

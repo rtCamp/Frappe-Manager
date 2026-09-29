@@ -11,10 +11,12 @@ from frappe_manager.utils.uninstall import FM_IMAGE_PREFIX, PathEntry, Scope, Te
 class FakeDocker:
     """Realistic-shaped stand-in for DockerClient: no MagicMock auto-attributes."""
 
-    def __init__(self, containers=(), networks=(), images=()):
+    def __init__(self, containers=(), networks=(), images=(), volumes=(), container_images=None):
         self._containers = list(containers)
         self._networks = list(networks)
         self._images = list(images)
+        self._volumes = list(volumes)
+        self._container_images = dict(container_images or {})
 
     def container_names(self, name_prefix: str) -> list[str]:
         return [name for name in self._containers if name.startswith(name_prefix)]
@@ -22,8 +24,14 @@ class FakeDocker:
     def network_ls(self) -> list[str]:
         return list(self._networks)
 
+    def volume_ls(self) -> list[str]:
+        return list(self._volumes)
+
     def images(self) -> list[dict]:
         return list(self._images)
+
+    def container_images(self) -> dict[str, str]:
+        return dict(self._container_images)
 
 
 def make_bench(base, name, complete=True):
@@ -98,6 +106,63 @@ class TestScopeFiltering:
         assert services_dir in [entry.path for entry in plan.paths]
         assert set(plan.containers) == {"fm_mariadb", "fm_nginx-proxy"}
         assert set(plan.networks) == {"fm-frontend-network", "fm-backend-network"}
+
+    def test_benches_scope_plans_per_bench_networks_and_volumes(self, tmp_path):
+        """A bench's own network and named volumes are teardown targets: `docker rm -v` leaves
+        named volumes behind, and a stranded network holds a subnet out of docker's address pool."""
+        benches_dir = tmp_path / "sites"
+        benches_dir.mkdir()
+        make_bench(benches_dir, "erp", complete=True)
+        docker = FakeDocker(
+            containers=["fm__erp__frappe"],
+            networks=["fm__erp__site-network", "fm-frontend-network", "bridge"],
+            volumes=["fm__erp__fm-sockets", "fm__erp__redis-cache-data", "some-other-project-data"],
+        )
+        with (
+            patch("frappe_manager.utils.uninstall.CLI_BENCHES_DIRECTORY", benches_dir),
+            patch("frappe_manager.utils.uninstall.CLI_SERVICES_DIRECTORY", tmp_path / "services"),
+            patch("frappe_manager.utils.uninstall.CLI_DIR", tmp_path),
+        ):
+            plan = plan_teardown(docker, {Scope.benches}, keep_backups=False, include_images=False)
+        assert plan.networks == ["fm__erp__site-network"]
+        assert plan.volumes == ["fm__erp__fm-sockets", "fm__erp__redis-cache-data"]
+
+    def test_benches_scope_plans_docker_objects_of_a_bench_whose_directory_is_gone(self, tmp_path):
+        """Objects are found by prefix scan, not by names built from on-disk benches: a half-deleted
+        bench leaves docker objects with nothing on disk left to name them."""
+        benches_dir = tmp_path / "sites"
+        benches_dir.mkdir()
+        docker = FakeDocker(
+            networks=["fm__ghost__site-network"],
+            volumes=["fm__ghost__fm-sockets"],
+        )
+        with (
+            patch("frappe_manager.utils.uninstall.CLI_BENCHES_DIRECTORY", benches_dir),
+            patch("frappe_manager.utils.uninstall.CLI_SERVICES_DIRECTORY", tmp_path / "services"),
+            patch("frappe_manager.utils.uninstall.CLI_DIR", tmp_path),
+        ):
+            plan = plan_teardown(docker, {Scope.benches}, keep_backups=False, include_images=False)
+        assert plan.benches == []
+        assert plan.networks == ["fm__ghost__site-network"]
+        assert plan.volumes == ["fm__ghost__fm-sockets"]
+        assert not plan.is_empty()
+
+    def test_services_scope_plans_fms_own_data_volumes_only(self, tmp_path):
+        """The macOS services tier keeps its data in named volumes; a third-party volume that
+        merely starts with 'fm' is not fm's to delete."""
+        services_dir = tmp_path / "services"
+        services_dir.mkdir()
+        docker = FakeDocker(
+            containers=["fm_mariadb"],
+            volumes=["fm-mariadb-data", "fm-postgres-data", "fmsomething-else"],
+        )
+        with (
+            patch("frappe_manager.utils.uninstall.CLI_BENCHES_DIRECTORY", tmp_path / "sites"),
+            patch("frappe_manager.utils.uninstall.CLI_SERVICES_DIRECTORY", services_dir),
+            patch("frappe_manager.utils.uninstall.CLI_DIR", tmp_path),
+        ):
+            plan = plan_teardown(docker, {Scope.services}, keep_backups=False, include_images=False)
+        assert plan.volumes == ["fm-mariadb-data", "fm-postgres-data"]
 
 
 @pytest.mark.unit
@@ -174,13 +239,14 @@ class TestImageFiltering:
             plan_off = plan_teardown(docker, {Scope.host}, keep_backups=False, include_images=False)
         assert plan_off.images == []
 
-    def test_include_images_true_excludes_foreign_base_images(self, tmp_path):
-        """A non-fm image like mariadb:11.8 or redis:8-alpine never appears in the planned images."""
+    def test_stock_images_fm_pulls_are_planned_alongside_fms_own(self, tmp_path):
+        """fm knows its images rather than guessing from the name: the stock set its compose
+        templates name is pulled by fm and goes with it, not just the ghcr.io/rtcamp ones."""
         docker = FakeDocker(
             images=[
                 {"Repository": f"{FM_IMAGE_PREFIX}/frappe", "Tag": "1.0"},
                 {"Repository": "mariadb", "Tag": "11.8"},
-                {"Repository": "redis", "Tag": "8-alpine"},
+                {"Repository": "someone-else/app", "Tag": "latest"},
             ]
         )
         with (
@@ -188,11 +254,37 @@ class TestImageFiltering:
             patch("frappe_manager.utils.uninstall.CLI_BENCHES_DIRECTORY", tmp_path / "sites"),
             patch("frappe_manager.utils.uninstall.CLI_SERVICES_DIRECTORY", tmp_path / "services"),
             patch("frappe_manager.utils.uninstall.CLI_CACHE_PATH", tmp_path / "cache"),
+            patch("frappe_manager.utils.site.get_all_docker_images", return_value={"mariadb": {"name": "mariadb", "tag": "11.8"}}),
         ):
             plan = plan_teardown(docker, {Scope.host}, keep_backups=False, include_images=True)
-        assert plan.images == [f"{FM_IMAGE_PREFIX}/frappe:1.0"]
-        assert "mariadb:11.8" not in plan.images
-        assert "redis:8-alpine" not in plan.images
+        assert plan.images == [f"{FM_IMAGE_PREFIX}/frappe:1.0", "mariadb:11.8"]
+        assert "someone-else/app:latest" not in plan.images
+
+    def test_an_image_another_projects_container_runs_is_kept_and_named(self, tmp_path):
+        """`docker rmi -f` untags an image out from under a stopped container, so a host running
+        its own redis must not lose it; the holder is reported so the decision is checkable."""
+        docker = FakeDocker(
+            containers=["fm__erp__frappe", "someones-cache"],
+            images=[
+                {"Repository": "redis", "Tag": "8-alpine"},
+                {"Repository": "mariadb", "Tag": "11.8"},
+            ],
+            container_images={"fm__erp__frappe": "mariadb:11.8", "someones-cache": "redis:8-alpine"},
+        )
+        stock = {
+            "redis": {"name": "redis", "tag": "8-alpine"},
+            "mariadb": {"name": "mariadb", "tag": "11.8"},
+        }
+        with (
+            patch("frappe_manager.utils.uninstall.CLI_DIR", tmp_path),
+            patch("frappe_manager.utils.uninstall.CLI_BENCHES_DIRECTORY", tmp_path / "sites"),
+            patch("frappe_manager.utils.uninstall.CLI_SERVICES_DIRECTORY", tmp_path / "services"),
+            patch("frappe_manager.utils.uninstall.CLI_CACHE_PATH", tmp_path / "cache"),
+            patch("frappe_manager.utils.site.get_all_docker_images", return_value=stock),
+        ):
+            plan = plan_teardown(docker, {Scope.benches, Scope.host}, keep_backups=False, include_images=True)
+        assert plan.images == ["mariadb:11.8"]
+        assert plan.images_in_use == [("redis:8-alpine", "someones-cache")]
 
 
 @pytest.mark.unit
