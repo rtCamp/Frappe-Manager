@@ -2,17 +2,6 @@
 BENCH_DIR="{{ bench_dir }}"
 GUNICORN_ARGS="{{ gunicorn_args }}"
 {% if trust_forwarded_proto %}
-# --behind-proxy: trust X-Forwarded-Proto from this bench's own nginx so the post-login redirect,
-# the session cookie's Secure flag, and OAuth's advertised endpoints see https. Resolved here, at
-# start time inside this container, rather than baked in at generation time on the host: nginx's
-# address on site-network is dynamic, and this is the earliest point it is guaranteed current.
-# `nginx-site`, NOT the bare `nginx`: the bare service name also resolves on the shared
-# fm-frontend-network, where every bench's nginx answers to it, so it round-robins across
-# benches -- the site-scoped alias (docker-compose.tmpl) exists only on THIS bench's own network,
-# same reasoning as `frappe-site`/`socketio-site` there.
-# Never falls back to trusting every peer (gunicorn's wildcard forwarded-ips setting): if resolution
-# fails, the flag is simply omitted and gunicorn keeps its default (nothing forwarded is trusted),
-# not "trust anyone".
 FM_NGINX_IP="$(getent hosts nginx-site 2>/dev/null | awk '{print $1}' | head -1)"
 if [[ -n "$FM_NGINX_IP" ]]; then
     GUNICORN_ARGS="$GUNICORN_ARGS --forwarded-allow-ips=$FM_NGINX_IP"
@@ -26,12 +15,6 @@ if [[ "${NEWRELIC_ENABLED:-}" == "true" && -n "${NEWRELIC_LICENSE_KEY:-}" ]]; th
     NR_INI="$BENCH_DIR/config/newrelic.ini"
     NR_GUNICORN_CONF="$BENCH_DIR/config/newrelic-gunicorn.conf.py"
 
-    # post_fork is required: gunicorn --preload loads the WSGI app in the master
-    # process before forking. The NR agent harvest thread does not survive fork()
-    # so each worker must re-register the agent after fork.
-    # Seeded ONCE, like newrelic.ini: this is a python file an operator may extend
-    # (extra post_fork work, custom instrumentation), and rewriting it on every
-    # container boot would discard that silently. Delete it to get the default back.
     if [[ ! -f "$NR_GUNICORN_CONF" ]]; then
         cat > "$NR_GUNICORN_CONF" <<'GUNICONF'
 def post_fork(server, worker):
@@ -46,9 +29,6 @@ GUNICONF
     fi
 
     export NEW_RELIC_CONFIG_FILE="$NR_INI"
-    # The ini carries no license_key on purpose (one credential, one home: see
-    # BenchSupervisor._write_newrelic_config). The agent reads NEW_RELIC_LICENSE_KEY,
-    # fm's compose env spells it NEWRELIC_LICENSE_KEY, so bridge the two names here.
     export NEW_RELIC_LICENSE_KEY="$NEWRELIC_LICENSE_KEY"
 
     exec "$BENCH_DIR/env/bin/newrelic-admin" run-program \

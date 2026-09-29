@@ -47,27 +47,23 @@ class StandaloneNginxConfigManager:
         certs_dir: Path to SSL certificates directory (container path)
     """
 
+    # The placeholder's Content-Type must be set via default_type, not add_header: add_header only
+    # applies to 2xx/3xx responses unless marked `always`, and both templates return 503 here.
     HTTP_SERVER_TEMPLATE = """{marker} {domain}
 # Managed by Frappe Manager
-# This configuration allows HTTP-01 ACME challenge for SSL certificate generation
 
 server {{
     server_name {domain};
     listen 80;
     access_log /var/log/nginx/access.log;
     
-    # Serve ACME challenge files for Let's Encrypt validation
     location ^~ /.well-known/acme-challenge/ {{
         default_type "text/plain";
         root {webroot_dir};
     }}
     
-    # Default response for all other requests
     location / {{
         return 503 '<html><head><title>503 Service Unavailable</title></head><body><h1>503 Service Unavailable</h1><p>This site is not available.</p></body></html>';
-        # default_type, NOT add_header: add_header applies to 2xx/3xx only unless marked `always`,
-        # so the placeholder went out as application/octet-stream and browsers downloaded it
-        # instead of rendering it.
         default_type text/html;
     }}
 }}
@@ -75,20 +71,17 @@ server {{
 
     HTTPS_SERVER_TEMPLATE = """{marker} {domain}
 # Managed by Frappe Manager
-# This configuration provides SSL termination without requiring a backend
 
 server {{
     server_name {domain};
     listen 80;
     access_log /var/log/nginx/access.log;
     
-    # Serve ACME challenge files for Let's Encrypt validation
     location ^~ /.well-known/acme-challenge/ {{
         default_type "text/plain";
         root {webroot_dir};
     }}
     
-    # Redirect all other HTTP traffic to HTTPS
     location / {{
         return 301 https://$host$request_uri;
     }}
@@ -107,18 +100,13 @@ server {{
     ssl_certificate {certs_dir}/{domain}.crt;
     ssl_certificate_key {certs_dir}/{domain}.key;
     
-    # Serve ACME challenge files (for renewals)
     location ^~ /.well-known/acme-challenge/ {{
         default_type "text/plain";
         root {webroot_dir};
     }}
     
-    # Default response for all other requests
     location / {{
         return 503 '<html><head><title>503 Service Unavailable</title></head><body><h1>503 Service Unavailable</h1><p>This site is not available.</p></body></html>';
-        # default_type, NOT add_header: add_header applies to 2xx/3xx only unless marked `always`,
-        # so the placeholder went out as application/octet-stream and browsers downloaded it
-        # instead of rendering it.
         default_type text/html;
     }}
 }}

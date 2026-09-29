@@ -1,8 +1,5 @@
-# Use Docker's internal DNS resolver for lazy DNS resolution
-# This prevents nginx from crashing if admin tools containers aren't running yet
 resolver 127.0.0.11 valid=10s ipv6=off;
 
-# Mailpit
 location ^~ /mailpit/ {
 {{ auth_block }}
     set $mailpit_upstream {{ mailpit_host }}:8025;
@@ -17,7 +14,6 @@ location ^~ /mailpit/ {
     proxy_buffering off;
 }
 
-# Adminer
 location ^~ /adminer/ {
 {{ auth_block }}
     set $adminer_upstream {{ adminer_host }}:8080;

@@ -469,6 +469,9 @@ class BenchSupervisor:
             # it every second, and on a busy overlay mount that write can stall long enough for
             # the arbiter to kill a healthy worker with a spurious WORKER TIMEOUT.
             f" --worker-tmp-dir /dev/shm"
+            # --preload loads the WSGI app in gunicorn's master before forking, and the New
+            # Relic harvest thread doesn't survive fork(): the templated post_fork hook
+            # re-registers per worker, and is seeded once since it's a file an operator may extend.
             f" frappe.app:application --preload"
         )
 
@@ -480,6 +483,9 @@ class BenchSupervisor:
         # client control request.scheme. Resolved inside the container at gunicorn-start time
         # (see fm-web-server.sh.tmpl), not here: nginx's `site-network` address is dynamic and
         # Docker only guarantees it current from inside a running container.
+        # The script targets `nginx-site`, not bare `nginx` (which also answers on the shared
+        # fm-frontend-network and would round-robin trust across every bench), and omits
+        # --forwarded-allow-ips rather than falling back to gunicorn's trust-everyone wildcard.
         trust_forwarded_proto = any(cert.behind_proxy for cert in self.config.ssl_certificates)
 
         template_path = get_template_path("fm-web-server.sh.tmpl")

@@ -498,6 +498,10 @@ class ServicesManager:
         if not self.fm_headers_path.parent.exists():
             return
 
+        # Included in nginx's http context, so it covers every generated vhost and nginx's own
+        # error pages -- nginx-proxy only set `server_tokens off` inside its default server,
+        # leaving `Server: nginx/<version>` on every bench response. The replacement header
+        # deliberately carries no version.
         template_path: Path = get_template_path("fm_headers.conf.tmpl")
         desired = Template(template_path.read_text()).render()
 

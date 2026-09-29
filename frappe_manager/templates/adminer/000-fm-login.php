@@ -1,25 +1,14 @@
 <?php
 /**
- * Frappe Manager — Adminer login plugin.
- *
- * Static asset: identical for every bench. All bench-specific data (sites, DB
- * credentials, redis hosts) is read at request time from /fm-sites, which fm
- * bind-mounts read-only from ./workspace/frappe-bench/sites. Password changes
- * (site restore, rotation) are picked up on the next request — no regeneration
- * or container restart required.
- *
- * Renders one-click login cards for each site database and the bench redis
- * instances, followed by the stock Adminer login form for manual connections.
- *
- * Notes:
- * - Server keys must be URL-safe tokens: Adminer rejects `?server=` values
- *   containing spaces or non-ASCII characters ("Invalid server." / HTTP 403).
- * - Card buttons post their own field (fm_server). They must NEVER share the
- *   auth[server] name with the stock text input also present in the form —
- *   browsers submit both and PHP keeps the last (empty) value.
- * - The redis driver (Adminer >= 5.4.4) is pure PHP over sockets and is loaded
- *   via require_once below; ADMINER_PLUGINS cannot load driver plugins.
+ * Frappe Manager — Adminer login plugin. Static asset, identical for every
+ * bench: bench-specific data (sites, DB credentials, redis hosts) is read
+ * from /fm-sites at request time, so password changes take effect on the
+ * next request with no rebuild needed. Renders one-click login cards per
+ * site database and bench redis instance, followed by the stock Adminer
+ * login form for manual connections.
  */
+// ADMINER_PLUGINS cannot load driver plugins, so the redis driver (Adminer >= 5.4.4,
+// pure PHP over sockets) is loaded via require_once below instead.
 require_once('plugins/drivers/redis.php');
 require_once('plugins/login-servers.php');
 
@@ -32,29 +21,20 @@ class FMLoginServers extends AdminerLoginServers {
         $creds = array();
         $meta = array();
         $common = json_decode((string) @file_get_contents('/fm-sites/common_site_config.json'), true) ?: array();
+        // Site names become the `?server=` key in the login URL; Adminer rejects
+        // keys with spaces or non-ASCII characters ("Invalid server." / HTTP 403).
         foreach (glob('/fm-sites/*/site_config.json') as $file) {
             $site = basename(dirname($file));
             $cfg = json_decode((string) file_get_contents($file), true) ?: array();
-            // db_socket silently overrides db_host/db_port for Frappe itself, and Adminer in this
-            // container can never reach a unix socket living in another one. With db_host also set
-            // the operator named a TCP endpoint explicitly — plausibly the same server, and a path
-            // that works — so that card stays. Without it the fallback below would aim the card at
-            // the shared mariadb: a different, real, writable database than the one the site
-            // actually uses, and a button to the wrong database is worse than no button.
+            // db_socket overrides db_host/db_port for Frappe, but this container cannot
+            // reach a unix socket in another one; skip the card rather than guess a host.
             if (!empty($cfg['db_socket']) && empty($cfg['db_host'])) {
                 continue;
             }
-            // Per site, not bench-wide: the DB endpoint moved into each site's own file when a
-            // bench could serve several, so fm no longer writes db_host/db_port to common at all.
             $host = (string) ($cfg['db_host'] ?? $common['db_host'] ?? 'mariadb');
             $port = (int) ($cfg['db_port'] ?? $common['db_port'] ?? 0);
-            // Adminer splits the server string with `^(\[(.+)]|([^:]+)):([^:]+)$` (host_port() in
-            // upstream include/functions.inc.php): a port is only recognised after a plain name or
-            // a bracketed `[ipv6]`, so a bare IPv6 literal must gain brackets before a port can be
-            // appended — a colon check alone dropped the port for every IPv6 host. The port is only
-            // appended when set and non-default, so the shared mariadb cards read exactly as they
-            // always did; a host already carrying a port Adminer can parse is left alone, and no
-            // brackets are added when no port is appended (`[ipv6]` bare fails that regex too).
+            // Adminer's host_port() only recognises a port after a plain host or a
+            // bracketed [ipv6]; a bare IPv6 literal needs brackets before a port is appended.
             $endpoint = $host;
             if ($port && $port !== 3306 && !preg_match('~^(\[.+]|[^:]+):[^:]+$~', $host)) {
                 $bare_ipv6 = strpos($host, ':') !== false && $host[0] !== '[';
@@ -66,13 +46,8 @@ class FMLoginServers extends AdminerLoginServers {
             );
             $creds[$site] = array((string) ($cfg['db_name'] ?? ''), (string) ($cfg['db_password'] ?? ''));
             $sub = ($endpoint === $host) ? 'MariaDB · site database' : 'MariaDB · site database · ' . $endpoint;
-            // fm pins this site's DB TLS via db_ssl_ca, but the CA lives under the bench's
-            // config/tls/ directory, outside the sole sites -> /fm-sites mount, and Adminer only
-            // applies TLS through a connectSsl() override this plugin does not implement. The
-            // click therefore fails against a server that enforces TLS, or silently connects
-            // unencrypted and unverified where TLS is optional. Say so on the card instead of
-            // pretending; honouring the pin needs a compose change to mount the CA plus a
-            // connectSsl() implementation, not a quiet downgrade here.
+            // db_ssl_ca pins TLS for this site's DB, but the CA file sits outside the
+            // /fm-sites mount and this plugin has no connectSsl() override to apply it.
             if (!empty($cfg['db_ssl_ca'])) {
                 $sub .= ' · TLS not applied by Adminer';
             }

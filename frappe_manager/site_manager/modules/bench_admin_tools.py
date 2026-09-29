@@ -119,6 +119,9 @@ class BenchAdminTools:
 
         config = self.bench.bench_config
         auth = config.auth
+        # The template's `resolver 127.0.0.11 ...` directive is Docker's embedded DNS: it gives
+        # nginx lazy, on-demand resolution for $mailpit_upstream/$adminer_upstream, so a bench
+        # boots fine even when the admin-tools containers aren't running yet.
         template = Template(get_template_path("admin-tools-location.tmpl").read_text())
 
         def _render(site: str | None) -> str:
