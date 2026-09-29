@@ -262,7 +262,13 @@ class TestLoggerConfiguration:
                             with patch("frappe_manager.commands.DockerClient"):
                                 with patch("frappe_manager.commands.FMConfigManager"):
                                     with patch("frappe_manager.commands.MigrationExecutor") as mock_migration:
-                                        with patch("frappe_manager.commands.ServicesManager"):
+                                        with patch("frappe_manager.commands.ServicesManager"), patch(
+                                            # A MagicMock FMConfigManager reads as a first install, which
+                                            # sends the callback into the stock-image prefetch: unpatched,
+                                            # this unit test really pulls ten images over the network.
+                                            "frappe_manager.commands.pull_docker_images",
+                                            return_value=True,
+                                        ):
                                             mock_cli_dir.exists.return_value = True
                                             mock_cli_dir.is_dir.return_value = True
                                             mock_logger = MagicMock()

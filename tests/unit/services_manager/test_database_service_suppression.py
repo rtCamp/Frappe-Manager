@@ -248,3 +248,26 @@ class TestThePostgresMajorGuard:
         manager.check_postgres_datadir_major()
 
         manager.output.exit.assert_not_called()
+
+
+class TestTheShippedServicesTemplate:
+    """The rendered compose is the state of a host BEFORE anything reconciles it.
+
+    A first install is performed by `fm create`, an observer, or a `services`/`self` command --
+    every one of which is exempt from the reconcile pass, so whatever the template ships with is
+    what the host runs until some later command happens not to be exempt.
+    """
+
+    @pytest.mark.parametrize("template", ["docker-compose.services.tmpl", "docker-compose.services.osx.tmpl"])
+    def test_a_fresh_install_starts_no_database_server(self, tmp_path, template):
+        """No bench exists yet, so nothing can be on either engine; `compose up` must bring up the
+        proxy alone. mariadb shipped without the profile is what left one running on every new host."""
+        from frappe_manager.docker import ComposeFile
+
+        compose_path = tmp_path / "docker-compose.yml"
+        ComposeFile(compose_path, template_name=template).write_to_file()
+        rendered = ComposeFile(compose_path, template_name=template)
+
+        assert rendered.is_service_profile_disabled("mariadb") is True
+        assert rendered.is_service_profile_disabled("postgres") is True
+        assert sorted(rendered.get_services_list(exclude_disabled=True)) == ["nginx-proxy"]
