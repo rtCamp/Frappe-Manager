@@ -1,3 +1,4 @@
+import ipaddress
 import os
 import platform
 import shutil
@@ -460,6 +461,82 @@ class ServicesManager:
 
         return reconcile_standalone_configs(manager, {entry.domain: certificate_linked(entry.domain) for entry in domains})
 
+    def configure_shared_networks(self) -> None:
+        """Give both shared networks a subnet this host does not already use, and pin the proxy IP.
+
+        BOTH networks are sized. The backend used to keep the template's fixed 10.2.0.0/16, so a
+        host where something already owned that range got a frontend moved clear of the clash and
+        a backend that still collided -- "invalid pool request: Pool overlaps with other one on
+        this address space", failing the whole `compose up` on the very first command.
+
+        A range already recorded in fm_config is reused, never reassigned: the networks exist at
+        those addresses and containers are attached to them.
+        """
+        fm_config = FMConfigManager.import_from_toml()
+
+        if not fm_config.network.configured:
+            running = detect_running_network("fm-frontend-network", docker=self.docker_client)
+            if running:
+                subnet_cidr = running["subnet_cidr"]
+                # The proxy may not be attached yet; pick a free IP in the subnet instead of
+                # persisting an empty address.
+                proxy_ip = running["proxy_ip"] or pick_proxy_ip(subnet_cidr, "fm-frontend-network")
+                fm_config.network.subnet_cidr = subnet_cidr
+                fm_config.network.proxy_ip = proxy_ip
+                fm_config.export_to_toml()
+                self.output.print(f"Detected running network: {subnet_cidr}, proxy at {proxy_ip}")
+            else:
+                self.output.change_head("Configuring global frontend network")
+                cidr = find_available_subnet(get_docker_network_subnets())
+                net_config = compute_network_config(str(cidr), "fm-frontend-network")
+                fm_config.network.subnet_cidr = net_config["subnet_cidr"]
+                fm_config.network.proxy_ip = net_config["proxy_ip"]
+                fm_config.export_to_toml()
+                self.output.print(f"Assigned subnet {net_config['subnet_cidr']}, proxy IP {net_config['proxy_ip']}")
+
+        if not fm_config.network.backend_subnet_cidr:
+            running_backend = detect_running_network("fm-backend-network", docker=self.docker_client)
+            if running_backend:
+                fm_config.network.backend_subnet_cidr = running_backend["subnet_cidr"]
+            else:
+                # The frontend's range is excluded explicitly: it may have just been chosen and
+                # not created yet, so docker cannot report it as used.
+                used_subnets = get_docker_network_subnets()
+                if fm_config.network.subnet_cidr:
+                    used_subnets.append(ipaddress.IPv4Network(fm_config.network.subnet_cidr))
+                fm_config.network.backend_subnet_cidr = str(find_available_subnet(used_subnets))
+                self.output.print(f"Assigned backend subnet {fm_config.network.backend_subnet_cidr}")
+            fm_config.export_to_toml()
+
+        for network, cidr in (
+            ("frontend-network", fm_config.network.subnet_cidr),
+            ("backend-network", fm_config.network.backend_subnet_cidr),
+        ):
+            if not cidr:
+                continue
+            try:
+                self.compose_file_manager.yml["networks"][network]["ipam"]["config"][0]["subnet"] = cidr
+            except (KeyError, IndexError):
+                pass
+
+        # Pin the proxy's static IP without dropping any other networks it's on
+        if fm_config.network.proxy_ip:
+            try:
+                proxy_service = self.compose_file_manager.yml["services"]["nginx-proxy"]
+                nets = proxy_service.get("networks")
+                if isinstance(nets, list):
+                    nets = {name: {} for name in nets}
+                elif not isinstance(nets, dict):
+                    nets = {}
+                entry = nets.get("frontend-network")
+                if not isinstance(entry, dict):
+                    entry = {}
+                entry["ipv4_address"] = fm_config.network.proxy_ip
+                nets["frontend-network"] = entry
+                proxy_service["networks"] = nets
+            except KeyError:
+                pass
+
     def create(self, backup: bool = False, clean_install: bool = True):
         envs = {
             "mariadb": {
@@ -525,56 +602,7 @@ class ServicesManager:
 
         self.generate_compose(inputs)
 
-        # Ensure network configuration (subnet + proxy IP) is set. Only the
-        # frontend network is auto-sized to dodge host subnet clashes; the
-        # backend network keeps its fixed subnet from the template.
-        fm_config = FMConfigManager.import_from_toml()
-        if not fm_config.network.configured:
-            running = detect_running_network("fm-frontend-network", docker=self.docker_client)
-            if running:
-                subnet_cidr = running["subnet_cidr"]
-                # The proxy may not be attached yet; pick a free IP in the subnet
-                # instead of persisting an empty address.
-                proxy_ip = running["proxy_ip"] or pick_proxy_ip(subnet_cidr, "fm-frontend-network")
-                fm_config.network.subnet_cidr = subnet_cidr
-                fm_config.network.proxy_ip = proxy_ip
-                fm_config.export_to_toml()
-                self.output.print(f"Detected running network: {subnet_cidr}, proxy at {proxy_ip}")
-            else:
-                self.output.change_head("Configuring global frontend network")
-                used_subnets = get_docker_network_subnets()
-                cidr = find_available_subnet(used_subnets)
-                net_config = compute_network_config(str(cidr), "fm-frontend-network")
-                fm_config.network.subnet_cidr = net_config["subnet_cidr"]
-                fm_config.network.proxy_ip = net_config["proxy_ip"]
-                fm_config.export_to_toml()
-                self.output.print(f"Assigned subnet {net_config['subnet_cidr']}, proxy IP {net_config['proxy_ip']}")
-
-        if fm_config.network.subnet_cidr:
-            try:
-                self.compose_file_manager.yml["networks"]["frontend-network"]["ipam"]["config"][0]["subnet"] = (
-                    fm_config.network.subnet_cidr
-                )
-            except (KeyError, IndexError):
-                pass
-
-        # Pin the proxy's static IP without dropping any other networks it's on
-        if fm_config.network.proxy_ip:
-            try:
-                proxy_service = self.compose_file_manager.yml["services"]["nginx-proxy"]
-                nets = proxy_service.get("networks")
-                if isinstance(nets, list):
-                    nets = {name: {} for name in nets}
-                elif not isinstance(nets, dict):
-                    nets = {}
-                entry = nets.get("frontend-network")
-                if not isinstance(entry, dict):
-                    entry = {}
-                entry["ipv4_address"] = fm_config.network.proxy_ip
-                nets["frontend-network"] = entry
-                proxy_service["networks"] = nets
-            except KeyError:
-                pass
+        self.configure_shared_networks()
 
         if current_system == "Darwin":
             self.compose_file_manager.remove_container_user("nginx-proxy")

@@ -129,7 +129,7 @@ class FMOutputConfig(BaseModel):
 
 
 class FMNetworkConfig(BaseModel):
-    """Network configuration for the global frontend network."""
+    """Subnets fm's own shared networks occupy on this host."""
 
     # extra="allow": see the design note on FMValidationConfig above; same file, same reasoning.
     model_config = ConfigDict(extra="allow")
@@ -141,6 +141,10 @@ class FMNetworkConfig(BaseModel):
     proxy_ip: str | None = Field(
         default=None,
         description="Static IP of nginx-proxy on frontend-network (e.g. 10.1.0.2)",
+    )
+    backend_subnet_cidr: str | None = Field(
+        default=None,
+        description="CIDR subnet for the backend-network (e.g. 10.2.0.0/16)",
     )
 
     @property

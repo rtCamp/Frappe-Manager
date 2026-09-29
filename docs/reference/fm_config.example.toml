@@ -34,12 +34,14 @@
 
 # ---- [network] -----------------------------------------------------------------------------
 
-# Network configuration for the global frontend network.
+# Subnets fm's own shared networks occupy on this host.
 # [network]
 # CIDR subnet for the frontend-network (e.g. 10.1.0.0/16) [optional, unset by default]
 # subnet_cidr = ...
 # Static IP of nginx-proxy on frontend-network (e.g. 10.1.0.2) [optional, unset by default]
 # proxy_ip = ...
+# CIDR subnet for the backend-network (e.g. 10.2.0.0/16) [optional, unset by default]
+# backend_subnet_cidr = ...
 
 # ---- [output] ------------------------------------------------------------------------------
 
