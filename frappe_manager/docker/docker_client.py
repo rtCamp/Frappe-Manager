@@ -270,6 +270,23 @@ class DockerClient:
         )
         return result.returncode == 0
 
+    def network_create(self, network_name: str, subnet: str | None = None, labels: dict[str, str] | None = None) -> bool:
+        """Create a bridge network. False when docker refused, including the benign race where
+        something else created it between the caller's check and this call.
+
+        `labels` is not cosmetic: a network compose declares (rather than marks `external`) must
+        carry `com.docker.compose.network=<its key in the compose file>`, or `docker compose up`
+        refuses with "was found but has incorrect label" and the whole stack fails to start.
+        """
+        cmd = [*self.docker_cmd, "network", "create"]
+        if subnet:
+            cmd += ["--subnet", subnet]
+        for key, value in (labels or {}).items():
+            cmd += ["--label", f"{key}={value}"]
+        cmd.append(network_name)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)  # noqa: S603
+        return result.returncode == 0
+
     def network_inspect(
         self,
         network_name: str,

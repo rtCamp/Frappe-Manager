@@ -388,6 +388,7 @@ class ServicesManager:
                 self.output.print(
                     f"Created global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
                 )
+                self.ensure_shared_networks()
                 if start:
                     self.docker_client.compose.up(services=[], detach=True, pull="never")
             except Exception as e:
@@ -435,6 +436,8 @@ class ServicesManager:
                 # A previous first install may have died at `compose up`, leaving a directory that
                 # makes creation be skipped forever. Re-validate before replaying its compose.
                 self.heal_unstarted_stack()
+                for name in self.ensure_shared_networks():
+                    self.output.print(f"Recreated missing shared network {name}")
                 services = self.compose_file_manager.get_services_list(exclude_disabled=True)
                 containers = self.compose_file_manager.get_container_names().values()
                 all_statuses = self.docker_client.compose.get_all_services_status()
@@ -715,6 +718,36 @@ class ServicesManager:
                 proxy_service["networks"] = nets
             except KeyError:
                 pass
+
+    def ensure_shared_networks(self) -> list[str]:
+        """Create any shared network docker does not have yet. Returns the ones created.
+
+        Both networks are INFRASTRUCTURE, not a side effect of a service running: every bench
+        compose declares them `external`, so a missing one fails the bench's own `compose up`
+        with "network fm-backend-network declared as external, but could not be found" rather
+        than anything that names the real cause. `compose up` on the services stack only creates
+        a network some starting service attaches to, and both database services ship switched
+        off until a site needs one -- so on a host with no sites the backend network was never
+        created, and the first `fm create` failed.
+
+        The subnets come from `[network]`, which `configure_shared_networks` has already settled,
+        so a network fm creates here occupies exactly the range the compose file declares.
+        """
+        fm_config = FMConfigManager.import_from_toml()
+        existing = set(self.docker_client.network_ls())
+
+        created: list[str] = []
+        for key, name, cidr in (
+            ("frontend-network", "fm-frontend-network", fm_config.network.subnet_cidr),
+            ("backend-network", "fm-backend-network", fm_config.network.backend_subnet_cidr),
+        ):
+            if name in existing or not cidr:
+                continue
+            # The compose key, not the network name: compose matches this label against the key
+            # the network is declared under, and refuses to start the stack when it disagrees.
+            if self.docker_client.network_create(name, cidr, labels={"com.docker.compose.network": key}):
+                created.append(name)
+        return created
 
     def create(self, backup: bool = False, clean_install: bool = True):
         envs = {

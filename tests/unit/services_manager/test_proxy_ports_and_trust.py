@@ -155,3 +155,68 @@ class TestPortConflictRefusal:
 
     def test_an_unrelated_failure_gets_no_port_advice(self):
         assert _port_hint(Exception("Pool overlaps with other one on this address space")) == ""
+
+
+class TestSharedNetworks:
+    """Both shared networks are infrastructure every bench compose declares `external`, so fm has
+    to materialise them itself rather than rely on a service happening to attach to one."""
+
+    @pytest.fixture
+    def manager(self, services, monkeypatch):
+        config = MagicMock()
+        config.network.subnet_cidr = "10.1.0.0/16"
+        config.network.backend_subnet_cidr = "10.2.0.0/16"
+        monkeypatch.setattr(
+            "frappe_manager.services_manager.services.FMConfigManager.import_from_toml",
+            lambda *a, **k: config,
+        )
+        services.docker_client = MagicMock()
+        services.docker_client.network_create.return_value = True
+        return services
+
+    def test_a_missing_backend_network_is_created(self, manager):
+        """The bug: with both database services switched off, nothing attached to the backend
+        network, so `compose up` never created it and the first `fm create` died on
+        "declared as external, but could not be found"."""
+        manager.docker_client.network_ls.return_value = ["fm-frontend-network", "bridge"]
+
+        assert manager.ensure_shared_networks() == ["fm-backend-network"]
+        manager.docker_client.network_create.assert_called_once_with(
+            "fm-backend-network", "10.2.0.0/16", labels={"com.docker.compose.network": "backend-network"}
+        )
+
+    def test_a_created_network_carries_the_label_compose_demands(self, manager):
+        """Without `com.docker.compose.network=<compose key>` docker compose refuses the network
+        it declared itself ("was found but has incorrect label"), so the whole stack fails to
+        start -- a worse failure than the one this fixes."""
+        manager.docker_client.network_ls.return_value = []
+
+        manager.ensure_shared_networks()
+
+        labels = [call.kwargs["labels"] for call in manager.docker_client.network_create.call_args_list]
+        assert labels == [
+            {"com.docker.compose.network": "frontend-network"},
+            {"com.docker.compose.network": "backend-network"},
+        ]
+
+    def test_existing_networks_are_left_alone(self, manager):
+        manager.docker_client.network_ls.return_value = ["fm-frontend-network", "fm-backend-network"]
+
+        assert manager.ensure_shared_networks() == []
+        manager.docker_client.network_create.assert_not_called()
+
+    def test_no_recorded_subnet_creates_nothing(self, services, monkeypatch):
+        """A network created without the subnet the compose file declares would be adopted at the
+        wrong range, which is harder to unpick than the missing network."""
+        config = MagicMock()
+        config.network.subnet_cidr = None
+        config.network.backend_subnet_cidr = None
+        monkeypatch.setattr(
+            "frappe_manager.services_manager.services.FMConfigManager.import_from_toml",
+            lambda *a, **k: config,
+        )
+        services.docker_client = MagicMock()
+        services.docker_client.network_ls.return_value = []
+
+        assert services.ensure_shared_networks() == []
+        services.docker_client.network_create.assert_not_called()

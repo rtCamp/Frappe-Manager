@@ -74,13 +74,19 @@ class TestTheRollbackIsComplete:
         """Deleting the directory alone leaves docker objects no config describes, which the next
         attempt then collides with."""
         manager = make_manager(tmp_path / "services")
+        # Three reads: the pre-install snapshot, `ensure_shared_networks`, and the rollback's own.
         manager.docker_client.network_ls.side_effect = [
+            ["bridge"],
             ["bridge"],
             ["bridge", "fm-frontend-network", "fm-backend-network"],
         ]
         manager.docker_client.compose.up.side_effect = RuntimeError("boom")
 
-        with mock.patch.object(ServicesManager, "create"), pytest.raises(ServicesNotCreated):
+        with (
+            mock.patch.object(ServicesManager, "create"),
+            mock.patch(f"{SERVICES_MODULE}.FMConfigManager"),
+            pytest.raises(ServicesNotCreated),
+        ):
             manager.entrypoint_checks(start=True)
         with mock.patch(f"{SERVICES_MODULE}.FMConfigManager"):
             manager.remove_itself()
@@ -95,10 +101,15 @@ class TestTheRollbackIsComplete:
         manager.docker_client.network_ls.side_effect = [
             ["bridge", "fm-frontend-network"],
             ["bridge", "fm-frontend-network"],
+            ["bridge", "fm-frontend-network"],
         ]
         manager.docker_client.compose.up.side_effect = RuntimeError("boom")
 
-        with mock.patch.object(ServicesManager, "create"), pytest.raises(ServicesNotCreated):
+        with (
+            mock.patch.object(ServicesManager, "create"),
+            mock.patch(f"{SERVICES_MODULE}.FMConfigManager"),
+            pytest.raises(ServicesNotCreated),
+        ):
             manager.entrypoint_checks(start=True)
         with mock.patch(f"{SERVICES_MODULE}.FMConfigManager"):
             manager.remove_itself()
