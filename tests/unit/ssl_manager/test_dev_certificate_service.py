@@ -103,6 +103,27 @@ class TestDevCertificateServiceLeafCert:
         assert key_path.exists()
         assert key_path.read_bytes().startswith(b"-----BEGIN")
 
+    def test_leaf_cert_chains_to_the_ca_under_a_strict_verifier(self, tmp_path):
+        """The leaf must carry an Authority Key Identifier matching the CA's Subject Key Identifier.
+
+        OpenSSL 3.x builds the chain through the AKI, so without it python rejects the certificate
+        with "Missing Authority Key Identifier" even though the CA is trusted -- which broke every
+        server-side https call frappe makes to its own site on a dev bench. Node's verifier is
+        lenient and passed, so socketio kept working and hid it. Asserting the extensions, not a
+        successful request: this is the property the verifier actually checks.
+        """
+        svc = make_service(tmp_path)
+        with patch.object(svc, "_ensure_ca_installed"):
+            _, fullchain = svc.generate_certificate(make_cert())
+
+        leaf = load_leaf_cert(fullchain)
+        ca = x509.load_pem_x509_certificate(svc.ca_cert_path.read_bytes())
+
+        aki = leaf.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier).value
+        ca_ski = ca.extensions.get_extension_for_class(x509.SubjectKeyIdentifier).value
+        assert aki.key_identifier == ca_ski.digest
+        leaf.extensions.get_extension_for_class(x509.SubjectKeyIdentifier)
+
 
 @pytest.mark.unit
 class TestDevCertificateServiceRenewal:

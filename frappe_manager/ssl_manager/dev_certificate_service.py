@@ -219,6 +219,16 @@ class DevCertificateService:
                 x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
                 critical=False,
             )
+            # Both identifiers are REQUIRED, not decoration. OpenSSL 3.x builds the chain through
+            # the leaf's Authority Key Identifier, so without it Python rejects the certificate with
+            # "Missing Authority Key Identifier" even though the CA is trusted -- which broke every
+            # server-side self-call frappe makes over https (`requests`) on a dev bench. Node's
+            # verifier is lenient and passed, which is why socketio kept working and hid this.
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(leaf_key.public_key()), critical=False)
+            .add_extension(
+                x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_cert.public_key()),
+                critical=False,
+            )
             .sign(ca_key, hashes.SHA256())
         )
 
