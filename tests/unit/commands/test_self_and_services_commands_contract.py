@@ -403,6 +403,61 @@ class TrustedProxiesHarness:
         )
 
 
+def test_changing_the_trusted_set_rewrites_each_benchs_gunicorn_wrapper(tmp_path, out, monkeypatch):
+    """The wrapper carries whether gunicorn believes a forwarded scheme, which is a HOST fact.
+    `fm restart` only re-execs what the file already says, so the command that changes the fact
+    has to write it -- otherwise a removed front leaves gunicorn trusting it forever."""
+    h = TrustedProxiesHarness(tmp_path)
+    benches = tmp_path / "benches"
+    for name in ("alpha", "beta"):
+        (benches / name).mkdir(parents=True)
+        (benches / name / "bench_config.toml").write_text("")
+    monkeypatch.setattr("frappe_manager.CLI_BENCHES_DIRECTORY", benches)
+
+    refreshed: list[str] = []
+
+    def _bench(name, _services, **_kwargs):
+        from frappe_manager.site_manager.bench_config import FMBenchEnvType
+
+        bench = MagicMock(name=name)
+        bench.path = benches / name
+        bench.bench_config.environment_type = (
+            FMBenchEnvType.prod if name == "alpha" else FMBenchEnvType.dev
+        )
+        bench.supervisor.refresh_gunicorn_wrapper.side_effect = lambda _p: refreshed.append(name) or True
+        return bench
+
+    monkeypatch.setattr("frappe_manager.site_manager.site.Bench.get_object", _bench)
+
+    h.run(trust=["203.0.113.0/24"])
+
+    # Both wrappers are rewritten; only the prod bench is named, because a dev bench runs
+    # `bench serve` from the image's own config and never reads this file.
+    assert refreshed == ["alpha", "beta"]
+    printed = joined(out.print)
+    assert "fm restart alpha" in printed
+    assert "beta" not in printed.split("fm restart")[-1].split("'")[0]
+
+
+def test_a_bench_that_cannot_be_loaded_does_not_fail_the_command(tmp_path, out, monkeypatch):
+    """The trust is already applied at the proxy by this point; a broken bench is a separate
+    problem and must not make the operator think the trust change failed."""
+    h = TrustedProxiesHarness(tmp_path)
+    benches = tmp_path / "benches"
+    (benches / "broken").mkdir(parents=True)
+    (benches / "broken" / "bench_config.toml").write_text("")
+    monkeypatch.setattr("frappe_manager.CLI_BENCHES_DIRECTORY", benches)
+    monkeypatch.setattr(
+        "frappe_manager.site_manager.site.Bench.get_object",
+        MagicMock(side_effect=RuntimeError("bad config")),
+    )
+
+    h.run(trust=["203.0.113.0/24"])
+
+    assert "Trusted proxies active" in joined(out.print)
+    assert "broken" in joined(out.warning)
+
+
 def test_trusting_a_loopback_range_is_refused_because_it_can_never_match(tmp_path, out):
     """fm's proxy is a container, and docker source-NATs a connection from this machine to the
     bridge gateway: a loopback range matches nothing. Writing it would look configured and trust

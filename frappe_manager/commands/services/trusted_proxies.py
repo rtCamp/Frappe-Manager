@@ -254,7 +254,7 @@ def set_trusted(
             )
 
     _report_self_call_risk(ctx, output)
-    _report_gunicorn_restart(output)
+    _refresh_bench_web_servers(ctx, output)
 
 
 @example(
@@ -286,32 +286,51 @@ def clear(ctx: typer.Context):
     else:
         output.print("No proxies are trusted any more (the global proxy was not reloaded)")
 
-    _report_gunicorn_restart(output)
+    _refresh_bench_web_servers(ctx, output)
 
 
-def _report_gunicorn_restart(output) -> None:
-    """Name the benches whose web server is still on the old trust.
+def _refresh_bench_web_servers(ctx, output) -> None:
+    """Rewrite each bench's gunicorn wrapper from the new trusted set, and name what to restart.
 
-    The trusted set decides whether gunicorn believes a forwarded scheme, but gunicorn reads that
-    from its wrapper script, re-exec'd only by `fm restart`. Nothing here can reach a running
-    supervisor program's in-memory command line, so the change is real on disk and pending in the
-    process until the operator restarts -- which has to be said, or a removed front leaves
-    gunicorn trusting a header nobody is vouching for.
+    The wrapper carries whether gunicorn believes a forwarded scheme, which is a HOST fact, so the
+    command that changes that fact owns the write. `fm restart` only re-execs a supervisor
+    program's `command=` line from disk; nothing there can reach an already-running process, and
+    nothing else rewrites this file. Without this a removed front leaves gunicorn trusting a
+    header nobody is vouching for, indefinitely.
+
+    One bench failing must not take the command down: the trust itself is already applied at the
+    proxy, and a bench whose config will not load is a separate problem with its own message.
     """
     from frappe_manager import CLI_BENCHES_DIRECTORY
+    from frappe_manager.site_manager.bench_config import FMBenchEnvType
+    from frappe_manager.site_manager.site import Bench
 
     if not CLI_BENCHES_DIRECTORY.exists():
         return
 
-    benches = sorted(b.name for b in CLI_BENCHES_DIRECTORY.iterdir() if (b / "bench_config.toml").is_file())
-    if not benches:
-        return
+    services = ctx.obj["services"]
+    changed: list[str] = []
+    for path in sorted(CLI_BENCHES_DIRECTORY.iterdir()):
+        if not (path / "bench_config.toml").is_file():
+            continue
+        try:
+            bench = Bench.get_object(path.name, services)
+            changed_here = bench.supervisor.refresh_gunicorn_wrapper(bench.path)
+            # Only a prod bench is told to restart: the wrapper is `command=` for the
+            # `<bench>-frappe-web` supervisor program, and a dev bench runs `bench serve` from the
+            # image's own frappe-dev.conf instead, so naming one sends the operator to restart
+            # something the change cannot reach.
+            if changed_here and bench.bench_config.environment_type == FMBenchEnvType.prod:
+                changed.append(path.name)
+        except Exception as e:
+            output.warning(f"Could not update {path.name}'s web server configuration ({e})")
 
-    output.print(
-        f"Run 'fm restart <bench>' to apply this to each bench's web server ({', '.join(benches)}); "
-        "the proxy change above does not reach an already-running gunicorn.",
-        emoji_code="",
-    )
+    if changed:
+        output.print(
+            f"Run 'fm restart {' '.join(changed)}' to apply this to the web server; "
+            "the proxy change above does not reach an already-running gunicorn.",
+            emoji_code="",
+        )
 
 
 def _report_self_call_risk(ctx, output) -> None:

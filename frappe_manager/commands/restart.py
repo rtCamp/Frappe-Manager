@@ -223,16 +223,6 @@ def restart(
             exception=typer.Exit(code=1),
         )
 
-    # `fm restart`'s default leg re-execs each supervisor program's `command=` line fresh from
-    # disk, so it is the command that APPLIES a changed gunicorn wrapper -- but only if the file
-    # on disk is current. Nothing else rewrites it from the host's trusted-proxy set (see
-    # `fm services trusted-proxies`), so without this a front added or removed never reaches
-    # gunicorn and it keeps trusting, or ignoring, a forwarded scheme forever.
-    try:
-        bench.supervisor.setup_supervisor(bench.path, force=True)
-    except Exception as e:
-        output.warning(f"Could not refresh the supervisor configuration ({e}); restarting what is on disk")
-
     def _restart_workers(use_container_restart: bool) -> None:
         if not drain:
             kill_timeout = (bench.bench_config.workers or WorkersConfig()).kill_timeout

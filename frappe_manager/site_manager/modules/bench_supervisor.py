@@ -443,7 +443,7 @@ class BenchSupervisor:
         target.write_text(buf.getvalue())
         self.logger.info("Generated newrelic.ini")
 
-    def _write_gunicorn_wrapper(self, config_dir, context: dict) -> None:
+    def _write_gunicorn_wrapper(self, config_dir, context: dict) -> bool:
         from pathlib import Path
 
         gunicorn_args = (
@@ -493,6 +493,28 @@ class BenchSupervisor:
         )
 
         wrapper_path = Path(config_dir) / "fm-web-server.sh"
+        if wrapper_path.exists() and wrapper_path.read_text() == script:
+            return False
+
         wrapper_path.write_text(script)
         wrapper_path.chmod(0o755)
         self.logger.info("Generated gunicorn.sh wrapper")
+        return True
+
+    def refresh_gunicorn_wrapper(self, bench_path) -> bool:
+        """Rewrite `fm-web-server.sh` alone from the host's current trusted-proxy set. True on change.
+
+        The wrapper carries gunicorn's forwarded-proto trust, which is a HOST fact, so the command
+        that changes that fact has to rewrite this file -- nothing else does, and `fm restart` only
+        re-execs whatever the file already says. Deliberately narrower than `setup_supervisor`:
+        that one re-renders every split conf from fm's bundled templates, which would silently
+        push an upgrade's template changes onto a bench nobody asked to reconfigure.
+        """
+        from pathlib import Path
+
+        config_dir = host_bench_dir(Path(bench_path).resolve()) / "config"
+        if not config_dir.is_dir():
+            return False
+
+        _, context = self.generate_supervisor_config(bench_path)
+        return self._write_gunicorn_wrapper(config_dir, context)
