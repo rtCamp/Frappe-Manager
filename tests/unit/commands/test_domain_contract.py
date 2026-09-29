@@ -71,7 +71,6 @@ class DomainWorld:
         p(patch("frappe_manager.commands.domain.add.CLI_BENCHES_DIRECTORY", self.benches_root))
         p(patch("frappe_manager.commands.domain.add.validate_domains_unique", self.validate_domains_unique))
 
-    # -- observation ---------------------------------------------------
 
     @property
     def errors(self) -> list[str]:
@@ -81,7 +80,6 @@ class DomainWorld:
     def prints(self) -> list[str]:
         return [c.args[0] for c in self.output.print.call_args_list if c.args]
 
-    # -- run -------------------------------------------------------------
 
     def _ctx(self, *, site: str | None = None, domain: str | None = None) -> typer.Context:
         ctx = MagicMock(spec=typer.Context)

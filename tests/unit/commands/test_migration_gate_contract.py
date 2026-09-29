@@ -79,7 +79,6 @@ class MigrationGateHarness:
 
         self.ctx: MagicMock | None = None
 
-    # -- knobs -------------------------------------------------------------
 
     def set_infra_version(self, version: str) -> None:
         self.config.get_system_migration_version.return_value = Version(version)
@@ -107,7 +106,6 @@ class MigrationGateHarness:
         self._bench_versions[name] = Version(version) if version else None
         return path
 
-    # -- seam implementations ---------------------------------------------
 
     def _answer_prompt(self, **kwargs) -> str:
         self.events.append("prompt_ask")
@@ -145,7 +143,6 @@ class MigrationGateHarness:
     def probe_bench_version(self, bench_path: Path) -> Version | None:
         return self._bench_versions.get(bench_path.name)
 
-    # -- observation helpers ----------------------------------------------
 
     @property
     def prompts(self) -> list[dict]:
@@ -159,7 +156,6 @@ class MigrationGateHarness:
     def errors(self) -> list[str]:
         return [call.args[0] for call in self.output.display_error.call_args_list if call.args]
 
-    # -- run ---------------------------------------------------------------
 
     def run(
         self,

@@ -198,7 +198,6 @@ class UpdateWorld:
         p(patch("frappe_manager.commands.update_plan.parse_python_version_for_runtime", self.parse_python))
         p(patch("frappe_manager.commands.update_plan.parse_node_version_for_runtime", self.parse_node))
 
-    # -- knobs -------------------------------------------------------------
 
     @property
     def config(self):
@@ -215,7 +214,6 @@ class UpdateWorld:
         path.write_text("\n".join(apps) + "\n")
         return path
 
-    # -- observation -------------------------------------------------------
 
     @property
     def errors(self) -> list[str]:
@@ -241,7 +239,6 @@ class UpdateWorld:
     def saves(self) -> int:
         return self.bench.save_bench_config.call_count
 
-    # -- run ---------------------------------------------------------------
 
     def run(self, *, site: str | None = None, **kwargs):
         ctx = MagicMock(spec=typer.Context)
@@ -617,7 +614,6 @@ class TestUploadLimit:
         assert world.saves == 0
 
 
-
 class TestPythonAndNodeVersions:
     def test_validation_is_skipped_when_frappe_is_not_on_disk(self, world):
         world.run(python_version="3.12")
@@ -804,10 +800,6 @@ class TestNoOptions:
         world.bench.generate_compose.assert_not_called()
         assert world.errors == []
 
-
-# ---------------------------------------------------------------------------
-# fm switch / fm prune
-# ---------------------------------------------------------------------------
 
 NOT_IMAGE_RUNTIME_REFUSAL = (
     f"Bench '{BENCH}' is not image runtime. Runtime is fixed at create time: an image "

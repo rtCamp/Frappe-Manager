@@ -188,11 +188,6 @@ def _bench_layout(tmp_path, apps_txt=None, existing_apps=()):
     return frappe_bench
 
 
-# --------------------------------------------------------------------------------------
-# __init__ / merge_app_overrides
-# --------------------------------------------------------------------------------------
-
-
 class TestConstruction:
     """The paths and the bench CLI prefix every command is built from."""
 
@@ -407,10 +402,6 @@ class TestBuild:
         assert excinfo.value.message.endswith("Failed to build app apps erpnext hrms")
 
 
-# --------------------------------------------------------------------------------------
-# dependency installation argv
-# --------------------------------------------------------------------------------------
-
 UV_INSTALL = f"uv pip install --python {VENV_PYTHON} --no-cache-dir -e apps/"
 
 
@@ -559,11 +550,6 @@ class TestInstallNodeDeps:
             manager._install_node_deps()
 
 
-# --------------------------------------------------------------------------------------
-# install_apps orchestration
-# --------------------------------------------------------------------------------------
-
-
 class TestInstallApps:
     """Clone -> apps.txt -> python deps -> node deps -> build, with three guards."""
 
@@ -705,11 +691,6 @@ class TestInstallApps:
         assert [a.name for a in returned] == ["frappe_hello_world"]
 
 
-# --------------------------------------------------------------------------------------
-# apps.txt / config bookkeeping
-# --------------------------------------------------------------------------------------
-
-
 class TestUpdateAppsTxt:
     """apps.txt is what frappe reads; entries are appended, never duplicated."""
 
@@ -780,11 +761,6 @@ class TestUpdateAppsListWithCorrectedNames:
         names = [a.name for a in manager.bench_config.apps_list]
         assert names == ["frappe", "hrms"]
         assert manager.bench_config.apps_list[0].ref == "v15"
-
-
-# --------------------------------------------------------------------------------------
-# graft_apps
-# --------------------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -990,11 +966,6 @@ class TestGraftApps:
         assert (manager.frappe_bench_dir / "sites" / "apps.txt").read_text() == "frappe\nfrappe_hello_world\n"
 
 
-# --------------------------------------------------------------------------------------
-# _site_env / _filter_docker_warnings
-# --------------------------------------------------------------------------------------
-
-
 class TestSiteEnv:
     """MYSQL_HOME points the mariadb CLI at this bench's own CA -- and only its own."""
 
@@ -1074,11 +1045,6 @@ class TestFilterDockerWarnings:
         manager = _manager(tmp_path)
 
         assert manager._filter_docker_warnings(_output(["x"], exit_code=7)).exit_code == 7
-
-
-# --------------------------------------------------------------------------------------
-# _run_in_provision_image
-# --------------------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -1243,11 +1209,6 @@ class TestRunInProvisionImage:
             manager._run_in_provision_image("bench build")
 
 
-# --------------------------------------------------------------------------------------
-# version requirement predicates
-# --------------------------------------------------------------------------------------
-
-
 class TestPythonVersionSatisfiesRequirement:
     """The guard that decides "keep this venv" vs. "recreate it"."""
 
@@ -1333,10 +1294,6 @@ class TestNodeVersionSatisfiesRequirement:
         assert manager._node_version_satisfies_requirement(18, requirement) is False
 
 
-# --------------------------------------------------------------------------------------
-# get_current_runtime_versions
-# --------------------------------------------------------------------------------------
-
 PY_VERSION_CMD = f"{BENCH_MOUNT}/env/bin/python --version"
 
 
@@ -1418,10 +1375,6 @@ class TestGetCurrentRuntimeVersions:
 
         assert manager.get_current_runtime_versions() == {"python": "3.11.9", "node": "20.11.1"}
 
-
-# --------------------------------------------------------------------------------------
-# setup_python_and_node_environments
-# --------------------------------------------------------------------------------------
 
 SCAN_MARKER = "/workspace/frappe-bench/.uv/python/cpython-*"
 SYMLINK_MARKER = "ln -sf python/"

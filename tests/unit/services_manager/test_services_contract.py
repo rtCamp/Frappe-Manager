@@ -42,9 +42,6 @@ from frappe_manager.utils.helpers import get_template_path
 SERVICES_MODULE = "frappe_manager.services_manager.services"
 
 
-# --- helpers ---
-
-
 def make_manager(
     path: Path,
     *,
@@ -99,9 +96,6 @@ def write_compose(path: Path) -> Path:
     compose = path / "docker-compose.yml"
     compose.write_text("services: {}\n")
     return compose
-
-
-# --- construction ---
 
 
 def test_the_compose_path_is_always_derived_from_the_services_directory(tmp_path):
@@ -201,9 +195,6 @@ def test_init_writes_the_fm_headers_conf_into_the_proxy_confd_mount(tmp_path):
 
     assert manager.fm_headers_path == tmp_path / "confd" / "fm_headers.conf"
     harness.write_headers.assert_called_once_with()
-
-
-# --- set_frappe_headers_conf ---
 
 
 def test_the_headers_conf_is_written_from_the_shipped_template(tmp_path):
@@ -543,9 +534,6 @@ def test_a_declared_service_with_no_container_row_is_reported_not_running(tmp_pa
     assert manager.is_service_running("mariadb") is False
 
 
-# --- standalone vhost reconcile ---
-
-
 def _standalone_world(tmp_path, *, linked: bool):
     """A services manager whose proxy dirs are real, with one registered external domain."""
     manager = make_manager(tmp_path)
@@ -600,9 +588,6 @@ def test_starting_the_stack_reconciles_standalone_vhosts_first(tmp_path):
     manager.docker_client.compose.up.assert_called_once()
 
 
-# --- start / stop / restart ---
-
-
 def test_starting_with_no_names_starts_the_whole_stack_without_pulling(tmp_path):
     manager = make_manager(tmp_path)
 
@@ -643,9 +628,6 @@ def test_restarting_with_no_names_restarts_the_whole_stack(tmp_path):
     manager.docker_client.compose.restart.assert_called_once_with(services=[])
 
 
-# --- generate_compose ---
-
-
 def test_generate_compose_converts_user_dicts_into_uid_gid_pairs_and_commits_once(tmp_path):
     manager = make_manager(tmp_path)
     cf = manager.compose_file_manager
@@ -679,9 +661,6 @@ def test_any_failure_while_building_the_compose_file_becomes_services_not_create
 
     with pytest.raises(ServicesNotCreated):
         manager.generate_compose({"environment": {"mariadb": {"A": "1"}}})
-
-
-# --- shell / remove_itself ---
 
 
 def test_a_shell_without_a_user_does_not_pass_one_to_compose_exec(tmp_path):

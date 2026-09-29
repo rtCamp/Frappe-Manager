@@ -87,7 +87,6 @@ class AppsWorld:
         p(patch("frappe_manager.commands.apps.add.check_bench_migration_required", self.check_migration))
         p(patch("frappe_manager.commands.apps.add.DeployOrchestrator", orchestrator_cls))
 
-    # -- observation ---------------------------------------------------
 
     @property
     def errors(self) -> list[str]:
@@ -101,7 +100,6 @@ class AppsWorld:
     def prints(self) -> list[str]:
         return [c.args[0] for c in self.output.print.call_args_list if c.args]
 
-    # -- run -------------------------------------------------------------
 
     def run(self, *, site: str | None = None, apps=None, **kwargs):
         ctx = MagicMock(spec=typer.Context)

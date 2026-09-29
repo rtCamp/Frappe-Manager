@@ -60,9 +60,6 @@ def _info(runtime, tmp_path, docker_client=None, tag="repo:tag"):
     return info
 
 
-# --- versions ---
-
-
 def test_read_versions_from_symlinks(tmp_path):
     fb = _make_bench(tmp_path)
     assert read_bench_python_version(fb) == "3.12.9"

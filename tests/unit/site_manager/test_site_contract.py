@@ -227,11 +227,6 @@ def record_removal_steps(harness) -> list[tuple]:
     return calls
 
 
-# --------------------------------------------------------------------------------------
-# Construction wiring
-# --------------------------------------------------------------------------------------
-
-
 class TestConstructionHooks:
     """The two opt-in reconciliation hooks that close `__init__`."""
 
@@ -324,11 +319,6 @@ class TestConstructionCollaborators:
         assert harness.bench.exists is True
         shutil.rmtree(harness.path)
         assert harness.bench.exists is False
-
-
-# --------------------------------------------------------------------------------------
-# get_object
-# --------------------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -440,11 +430,6 @@ class TestGetObject:
             Bench.get_object("absent.localhost", MagicMock(), benches_path=tmp_path)
 
 
-# --------------------------------------------------------------------------------------
-# Running state
-# --------------------------------------------------------------------------------------
-
-
 class TestRunningState:
     """`running` drives every "is this bench up?" guard in the CLI."""
 
@@ -521,11 +506,6 @@ class TestRunningState:
             status("redis-cache", "fm-test-redis-cache", "exited"),
         ]
         assert harness.bench._get_services_running_status() == {"frappe": "running", "nginx": "running"}
-
-
-# --------------------------------------------------------------------------------------
-# create / start / stop sequencing
-# --------------------------------------------------------------------------------------
 
 
 class TestLifecycleSequencing:
@@ -664,11 +644,6 @@ class TestComposeGeneration:
         harness.bench.database = MagicMock()
         harness.bench.sync_bench_common_site_config()
         harness.bench.database.sync_common_site_config.assert_called_once_with()
-
-
-# --------------------------------------------------------------------------------------
-# ensure_fm_nginx_confs
-# --------------------------------------------------------------------------------------
 
 
 class TestEnsureFmNginxConfs:
@@ -965,11 +940,6 @@ class TestFrontendSubnetDetection:
             assert h.bench._frontend_network_subnet() is None
 
 
-# --------------------------------------------------------------------------------------
-# Admin tools + config sync
-# --------------------------------------------------------------------------------------
-
-
 class TestEnsureAdminToolsRunningIfAvailable:
     def _admin(self, harness, *, compose_exists=True, services_list=None, statuses=None, bench_running=True):
         bench = harness.bench
@@ -1125,11 +1095,6 @@ class TestSyncAdminToolsCompose:
         assert bench.sync_admin_tools_compose() is True
         assert order == ["generate", "enable"]
         bench.admin_tools.enable.assert_called_once_with(force_recreate_container=True)
-
-
-# --------------------------------------------------------------------------------------
-# Guards and refusals
-# --------------------------------------------------------------------------------------
 
 
 class TestGuards:
@@ -1307,11 +1272,6 @@ class TestUpdateUploadLimit:
             bench.update_upload_limit("50M")
 
         mgr.assert_not_called()
-
-
-# --------------------------------------------------------------------------------------
-# Removal
-# --------------------------------------------------------------------------------------
 
 
 class TestRemoveBench:
@@ -1733,11 +1693,6 @@ class TestRemoveContainersAndDirs:
             pytest.raises(BenchRemoveDirectoryError),
         ):
             bench.remove_containers_and_dirs()
-
-
-# --------------------------------------------------------------------------------------
-# Readiness probe, reset, restarts, misc delegation
-# --------------------------------------------------------------------------------------
 
 
 class TestIsBenchCreated:

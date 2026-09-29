@@ -28,10 +28,6 @@ from frappe_manager.site_manager.bench_config import (
     validate_python_version_compatibility,
 )
 
-# --------------------------------------------------------------------------------------
-# The python runtime parser -- hand uv a major.minor
-# --------------------------------------------------------------------------------------
-
 
 @pytest.mark.parametrize(
     ("requirement", "expected"),
@@ -72,11 +68,6 @@ def test_parse_python_version_for_runtime_swallows_non_string_input():
     assert parse_python_version_for_runtime(["3.10"]) is None
 
 
-# --------------------------------------------------------------------------------------
-# The node runtime parser -- hand fnm a bare major
-# --------------------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     ("requirement", "expected"),
     [
@@ -115,11 +106,6 @@ def test_runtime_parsers_disagree_on_the_same_string():
     assert parse_node_version_for_runtime(">=3.14,<3.15") == "3"
     assert parse_python_version_for_runtime("^18.0.0") == "18.0"
     assert parse_node_version_for_runtime("^18.0.0") == "18"
-
-
-# --------------------------------------------------------------------------------------
-# The python validator -- floor plus ceiling, operator-anchored
-# --------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -167,11 +153,6 @@ def test_validate_python_version_compatibility_raises_on_none():
     """No blanket except here, unlike the runtime parsers."""
     with pytest.raises(TypeError):
         validate_python_version_compatibility(None, ">=3.14")
-
-
-# --------------------------------------------------------------------------------------
-# The node validator -- floor only
-# --------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

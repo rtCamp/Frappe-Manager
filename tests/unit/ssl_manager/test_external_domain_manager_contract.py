@@ -40,11 +40,6 @@ DOMAIN = "app.example.com"
 ADDED_AT = "2026-01-14T12:00:00"
 
 
-# --------------------------------------------------------------------------------------
-# harness
-# --------------------------------------------------------------------------------------
-
-
 def _config(**overrides) -> ExternalDomainConfig:
     """A stored config with the documented defaults, overridable per test."""
     kwargs = {
@@ -68,11 +63,6 @@ def _cert_for(tmp_path: Path, config: ExternalDomainConfig):
         cert = manager.to_ssl_certificate(config.domain)
     get_domain.assert_called_once_with(config.domain)
     return cert
-
-
-# --------------------------------------------------------------------------------------
-# challenge-type selection
-# --------------------------------------------------------------------------------------
 
 
 class TestChallengeTypeSelection:
@@ -123,11 +113,6 @@ class TestChallengeTypeSelection:
         assert cert.challenge_type is LETSENCRYPT_PREFERRED_CHALLENGE.http01
 
 
-# --------------------------------------------------------------------------------------
-# delegation selection
-# --------------------------------------------------------------------------------------
-
-
 class TestDelegationSelection:
     """`delegation_cname` is a plain field, so its VALUE is the whole contract.
 
@@ -158,11 +143,6 @@ class TestDelegationSelection:
         manager = _manager(tmp_path)
 
         assert manager.to_ssl_certificate("nope.example.com") is None
-
-
-# --------------------------------------------------------------------------------------
-# field-by-field shape of the built object
-# --------------------------------------------------------------------------------------
 
 
 class TestCertificateFields:
@@ -245,11 +225,6 @@ class TestCertificateFields:
             "dns_provider": None,
             "delegation_cname": "app-example-com.fm.com",
         }
-
-
-# --------------------------------------------------------------------------------------
-# end to end through a real external_domains.toml
-# --------------------------------------------------------------------------------------
 
 
 class TestRoundTripThroughStorage:

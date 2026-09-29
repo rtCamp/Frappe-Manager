@@ -79,7 +79,6 @@ class ToolsWorld:
         p(patch("frappe_manager.commands.tools.disable.spinner", _null_spinner))
         p(patch("frappe_manager.commands.tools._helpers.spinner", _null_spinner))
 
-    # -- knobs -------------------------------------------------------------
 
     @property
     def config(self):
@@ -92,7 +91,6 @@ class ToolsWorld:
         recorded[names[-1]] = SiteConfig(**overrides)
         self.config.sites = recorded
 
-    # -- observation -------------------------------------------------------
 
     @property
     def errors(self) -> list[str]:
@@ -106,7 +104,6 @@ class ToolsWorld:
     def saves(self) -> int:
         return self.bench.save_bench_config.call_count
 
-    # -- run -----------------------------------------------------------
 
     def _ctx(self, site: str | None) -> typer.Context:
         ctx = MagicMock(spec=typer.Context)

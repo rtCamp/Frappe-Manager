@@ -88,11 +88,6 @@ def _docker_failure() -> DockerException:
     return DockerException(["compose", "up"], SubprocessOutput([], [], [], 1))
 
 
-# ======================================================================================
-# bench_helpers harness
-# ======================================================================================
-
-
 class SSLHarness:
     """Every collaborator of bench_helpers, patched at the module boundary."""
 
@@ -158,7 +153,6 @@ class SSLHarness:
             domain: name for name, config in configs.items() for domain in (name, *config.alias_domains)
         }
 
-    # -- convenience readers -----------------------------------------------------------
 
     def prints(self) -> list[str]:
         return [c.args[0] for c in self.output.print.call_args_list]
@@ -232,11 +226,6 @@ def _remove(h, *, domain=DOMAIN, yes=True):
     return _remove_bench_certificate(h.ctx, BENCH, domain, yes)
 
 
-# ======================================================================================
-# _add_bench_certificate -- refusals
-# ======================================================================================
-
-
 @pytest.mark.timeout(15)
 def test_add_resolves_the_bench_through_get_object_with_the_command_output_handler(h):
     _add(h)
@@ -300,11 +289,6 @@ def test_add_refuses_cname_on_a_dev_certificate_but_only_after_announcing_the_wo
     # The dev/cname guard sits *below* change_head, unlike the other two.
     assert h.heads() == [f"Adding SSL certificate for {DOMAIN}"]
     h.cert_manager.add_certificate.assert_not_called()
-
-
-# ======================================================================================
-# _add_bench_certificate -- which certificate gets built
-# ======================================================================================
 
 
 @pytest.mark.timeout(15)
@@ -392,11 +376,6 @@ def test_add_issues_an_alias_certificate_for_the_alias_not_the_primary_domain(h)
     assert h.heads() == [f"Adding SSL certificate for {ALIAS}"]
 
 
-# ======================================================================================
-# _add_bench_certificate -- writes and ordering
-# ======================================================================================
-
-
 @pytest.mark.timeout(15)
 def test_add_wraps_issuance_in_a_spinner_labelled_for_the_domain(h):
     _add(h)
@@ -449,11 +428,6 @@ def test_host_name_carries_no_published_port(h, monkeypatch):
         "changed; running jobs are undisturbed until then).",
     ]
     assert h.print_emojis() == [":white_check_mark:", ":zap:", ":information:"]
-
-
-# ======================================================================================
-# _add_bench_certificate -- the CDN advisory hint (advisory only, never blocking)
-# ======================================================================================
 
 
 @pytest.mark.timeout(15)
@@ -530,11 +504,6 @@ def test_the_hint_runs_even_on_a_test_ca(h):
     _add(h, test_ca=True)
 
     assert any("fm services trusted-proxies set --cdn cloudflare" in p for p in h.prints())
-
-
-# ======================================================================================
-# _add_bench_certificate / _remove_bench_certificate -- eager compose regeneration
-# ======================================================================================
 
 
 @pytest.mark.timeout(15)
@@ -630,11 +599,6 @@ def test_add_propagates_an_issuance_failure_and_skips_every_write(h):
     assert h.output.stop.call_count == 1
     h.bench.set_bench_site_config.assert_not_called()
     assert h.prints() == []
-
-
-# ======================================================================================
-# _remove_bench_certificate
-# ======================================================================================
 
 
 @pytest.mark.timeout(15)
@@ -773,11 +737,6 @@ def test_remove_hides_the_original_traceback(h):
     # `raise ... from None` -- the docker/acme noise must not reach the user.
     assert exc.value.__cause__ is None
     assert exc.value.__suppress_context__ is True
-
-
-# ======================================================================================
-# _list_bench_certificates
-# ======================================================================================
 
 
 def _cert_row(
@@ -1099,11 +1058,6 @@ def test_no_rendered_line_ever_reads_na(h):
     assert "N/A" not in console.file.getvalue()
 
 
-# ======================================================================================
-# _list_bench_certificates -- structured data (`--json`, `wants_structured_data`)
-# ======================================================================================
-
-
 @pytest.mark.timeout(15)
 def test_structured_data_skips_card_rendering_entirely(h):
     """`wants_structured_data` routes to `_bench_certificate_data`; no card must ever be built,
@@ -1247,11 +1201,6 @@ def test_structured_data_live_reflects_whether_a_backend_serves_the_domain(h):
     assert live == {DOMAIN: True, ALIAS: False}
 
 
-# ======================================================================================
-# BenchAdminTools harness
-# ======================================================================================
-
-
 class ToolsHarness:
     """A BenchAdminTools on a tmp_path bench, with compose/docker patched at the boundary."""
 
@@ -1307,7 +1256,6 @@ class ToolsHarness:
 
         self.tools = BenchAdminTools(self.bench, self.nginx_proxy, output_handler=self.output)
 
-    # -- convenience readers -----------------------------------------------------------
 
     @property
     def location_conf(self) -> Path:
@@ -1349,11 +1297,6 @@ def _auth(**kwargs):
     return AuthConfig(**kwargs)
 
 
-# ======================================================================================
-# BenchAdminTools -- construction
-# ======================================================================================
-
-
 @pytest.mark.timeout(15)
 def test_admin_tools_derives_all_its_paths_from_the_bench_and_the_proxy(t):
     assert t.tools.compose_path == t.bench_path / "docker-compose.admin-tools.yml"
@@ -1378,11 +1321,6 @@ def test_admin_tools_falls_back_to_a_rich_output_handler(t):
     tools = BenchAdminTools(t.bench, t.nginx_proxy)
 
     assert isinstance(tools.output, RichOutputHandler)
-
-
-# ======================================================================================
-# BenchAdminTools -- compose generation and the adminer plugin
-# ======================================================================================
 
 
 @pytest.mark.timeout(15)
@@ -1436,11 +1374,6 @@ def test_create_announces_and_delegates_to_generate_compose(t):
     generate.assert_called_once_with()
     assert t.heads() == ["Generating admin tools configuration"]
     assert t.prints() == ["Generating admin tools configuration: Done"]
-
-
-# ======================================================================================
-# BenchAdminTools -- nginx location conf and the auth interaction
-# ======================================================================================
 
 
 @pytest.mark.timeout(15)
@@ -1567,11 +1500,6 @@ def test_remove_location_conf_is_a_noop_when_it_was_never_written(t):
     assert t.auth_conf.exists()
 
 
-# ======================================================================================
-# BenchAdminTools -- common_site_config / mailpit
-# ======================================================================================
-
-
 MAILPIT_CONF = {
     "mail_port": 1025,
     "mail_server": "fm__test_local__mailpit",
@@ -1634,11 +1562,6 @@ def test_remove_mailpit_tolerates_keys_that_were_never_written(t):
     t.tools.remove_mailpit_as_default_server()
 
     assert t.read_common_site_config() == {"db_host": "mariadb"}
-
-
-# ======================================================================================
-# BenchAdminTools -- readiness probe
-# ======================================================================================
 
 
 @pytest.mark.timeout(15)
@@ -1704,11 +1627,6 @@ def test_the_failing_probe_error_is_kept_as_the_cause(t):
         t.tools.wait_till_services_started(interval=1, timeout=1)
 
     assert excinfo.value.__cause__ is boom
-
-
-# ======================================================================================
-# BenchAdminTools -- enable / stop / disable
-# ======================================================================================
 
 
 @pytest.mark.timeout(15)
@@ -1864,11 +1782,6 @@ def test_disable_leaves_the_adminer_plugin_behind_when_the_site_config_is_missin
     assert not t.location_conf.exists()
     t.nginx_proxy.reload.assert_called_once_with()
     assert t.adminer_dir.exists()
-
-
-# ======================================================================================
-# BenchAdminTools -- is_running
-# ======================================================================================
 
 
 def _status(name, service, state):

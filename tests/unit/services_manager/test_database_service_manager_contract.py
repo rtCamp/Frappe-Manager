@@ -52,8 +52,6 @@ from frappe_manager.services_manager.services_exceptions import (
 )
 from frappe_manager.site_manager.exceptions import BenchException
 
-# --- helpers ---
-
 
 def make_output(stdout=(), stderr=(), exit_code=0) -> SubprocessOutput:
     stdout = list(stdout)
@@ -139,9 +137,6 @@ def test_an_explicit_run_on_compose_service_overrides_both_defaults():
     assert external._run_user is None
 
 
-# --- DatabaseServerServiceInfo.import_from_compose_file ---
-
-
 def _compose_file_with(envs: dict, secret_text: str | None = None, tmp_path: Path | None = None):
     compose_file_manager = mock.MagicMock()
     compose_file_manager.get_envs.return_value = envs
@@ -208,9 +203,6 @@ def test_compose_import_without_raise_exception_still_refuses_to_build_a_passwor
 
     with pytest.raises(ValidationError):
         DatabaseServerServiceInfo.import_from_compose_file("mariadb", compose_file_manager, raise_exception=False)
-
-
-# --- DatabaseServerServiceInfo.import_from_bench ---
 
 
 def _write_bench_configs(bench_path: Path, bench_name: str, site: dict | None, common: dict | None):
@@ -415,9 +407,6 @@ def test_a_stopped_service_gets_a_compose_run_that_smuggles_the_command_in_as_th
         env=None,
     )
     manager.docker_client.compose.exec.assert_not_called()
-
-
-# --- MariaDBManager.db_run_query ---
 
 
 def test_a_captured_query_asks_for_machine_readable_output_and_returns_it_verbatim():

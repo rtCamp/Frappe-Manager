@@ -24,10 +24,6 @@ from fmx.supervisor.api import stop_service, restart_service
 RUNNING = ProcessStates.RUNNING
 STOPPED = ProcessStates.STOPPED
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _make_api(initial_state=RUNNING, stopped_after_signal=True):
     """Return a mock supervisor API where the process transitions to STOPPED
@@ -44,11 +40,6 @@ def _make_api(initial_state=RUNNING, stopped_after_signal=True):
     api.getProcessInfo.side_effect = get_info
     api.getAllProcessInfo.return_value = [{'state': RUNNING, 'name': 'long-worker', 'group': None, 'pid': 1234}]
     return api
-
-
-# ---------------------------------------------------------------------------
-# Level 1 — _wait_for_process_stop: poll_interval forwarded to time.sleep
-# ---------------------------------------------------------------------------
 
 
 class TestWaitForProcessStop(unittest.TestCase):
@@ -97,11 +88,6 @@ class TestWaitForProcessStop(unittest.TestCase):
         mock_sleep.assert_called_once_with(3.0)
 
 
-# ---------------------------------------------------------------------------
-# Level 2 — _kill_process: timeout + poll_interval reach _wait_for_process_stop
-# ---------------------------------------------------------------------------
-
-
 class TestKillProcess(unittest.TestCase):
     def test_custom_timeout_and_poll_forwarded(self):
         with patch('fmx.supervisor.stop_helpers._wait_for_process_stop', return_value=True) as mock_wait:
@@ -133,11 +119,6 @@ class TestKillProcess(unittest.TestCase):
             _kill_process(api, 'svc', 'long-worker', timeout=5, poll_interval=1.0)
 
         api.stopProcess.assert_called_once_with('long-worker', True)
-
-
-# ---------------------------------------------------------------------------
-# Level 3 — _stop_single_process_with_logic: worker vs non-worker routing
-# ---------------------------------------------------------------------------
 
 
 class TestStopSingleProcess(unittest.TestCase):
@@ -194,11 +175,6 @@ class TestStopSingleProcess(unittest.TestCase):
         api.stopProcess.assert_called_once()
 
 
-# ---------------------------------------------------------------------------
-# Level 4 — _handle_stop: params reach _stop_single_process_with_logic
-# ---------------------------------------------------------------------------
-
-
 class TestHandleStop(unittest.TestCase):
     def test_custom_params_forwarded_to_stop_single(self):
         api = _make_api()
@@ -210,11 +186,6 @@ class TestHandleStop(unittest.TestCase):
         _, kwargs = mock_stop.call_args
         self.assertEqual(kwargs['worker_kill_timeout'], 77)
         self.assertEqual(kwargs['worker_kill_poll'], 5.5)
-
-
-# ---------------------------------------------------------------------------
-# Level 5 — _handle_restart: params reach _handle_stop
-# ---------------------------------------------------------------------------
 
 
 class TestHandleRestart(unittest.TestCase):
@@ -236,11 +207,6 @@ class TestHandleRestart(unittest.TestCase):
         _, kwargs = mock_stop.call_args
         self.assertEqual(kwargs['worker_kill_timeout'], 55)
         self.assertEqual(kwargs['worker_kill_poll'], 2.5)
-
-
-# ---------------------------------------------------------------------------
-# Level 6 — execute_supervisor_command: stop + restart actions
-# ---------------------------------------------------------------------------
 
 
 class TestExecuteSupervisorCommand(unittest.TestCase):
@@ -265,11 +231,6 @@ class TestExecuteSupervisorCommand(unittest.TestCase):
         _, kwargs = mock_restart.call_args
         self.assertEqual(kwargs['worker_kill_timeout'], 33)
         self.assertEqual(kwargs['worker_kill_poll'], 1.5)
-
-
-# ---------------------------------------------------------------------------
-# Level 7 — stop_service / restart_service: top of the Python API
-# ---------------------------------------------------------------------------
 
 
 class TestServiceAPI(unittest.TestCase):

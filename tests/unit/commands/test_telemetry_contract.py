@@ -80,7 +80,6 @@ class TelemetryWorld:
         p(patch("frappe_manager.commands.telemetry.disable.spinner", _null_spinner))
         p(patch("frappe_manager.commands.telemetry._helpers.Bench", bench_cls))
 
-    # -- knobs -------------------------------------------------------------
 
     @property
     def config(self):
@@ -95,7 +94,6 @@ class TelemetryWorld:
         path.write_text("[newrelic]\napp_name = hand tuned\n")
         return path
 
-    # -- observation -------------------------------------------------------
 
     @property
     def prints(self) -> list[str]:
@@ -109,7 +107,6 @@ class TelemetryWorld:
     def saves(self) -> int:
         return self.bench.save_bench_config.call_count
 
-    # -- run ---------------------------------------------------------------
 
     def _ctx(self):
         ctx = MagicMock(spec=typer.Context)

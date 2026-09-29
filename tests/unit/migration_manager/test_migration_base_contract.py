@@ -37,11 +37,6 @@ BASE = "frappe_manager.migration_manager.migration_base"
 V100 = "frappe_manager.migration_manager.migrations.migrate_1_0_0"
 
 
-# --------------------------------------------------------------------------------------
-# doubles
-# --------------------------------------------------------------------------------------
-
-
 class _FakeBench:
     """Stands in for MigrationBench: only name/path/docker/compose/site_names are used here."""
 
@@ -172,11 +167,6 @@ def _backup_manager(tmp_path: Path) -> BackupManager:
     )
 
 
-# --------------------------------------------------------------------------------------
-# image tag / dev detection / executor wiring
-# --------------------------------------------------------------------------------------
-
-
 def test_dev_environment_migrates_with_the_running_image_tag(output):
     # A dev checkout must not pull the released tag for the version it is migrating to:
     # that image does not exist yet.
@@ -288,11 +278,6 @@ def test_init_wires_the_file_backup_policy_into_the_backup_manager(output, tmp_p
     assert backup_manager.call_args.kwargs["skip_file_backups"] is True
 
 
-# --------------------------------------------------------------------------------------
-# up(): which steps run, and in which order
-# --------------------------------------------------------------------------------------
-
-
 def test_a_skipped_migration_short_circuits_before_doing_anything(output, calls):
     migration = _LifecycleMigration(output_handler=output, calls=calls)
     migration.skip = True
@@ -327,11 +312,6 @@ def test_up_without_an_executor_still_migrates_benches_but_not_services(output, 
     migration.up()
 
     assert calls == ["init", "migrate_benches"]
-
-
-# --------------------------------------------------------------------------------------
-# down(): how a run is unwound
-# --------------------------------------------------------------------------------------
 
 
 def test_down_undoes_only_the_benches_that_did_not_fail(output, calls):
@@ -371,11 +351,6 @@ def test_down_restores_every_backup_forcefully_then_cleans_up_and_undoes_service
     assert calls == ["undo_services_migrate"]
 
 
-# --------------------------------------------------------------------------------------
-# services_basic_backup(): the guard that refuses to migrate services blind
-# --------------------------------------------------------------------------------------
-
-
 def test_missing_services_compose_refuses_the_service_migration(output, tmp_path):
     migration = _PlainMigration(output_handler=output)
     migration.backup_manager = _backup_manager(tmp_path)
@@ -403,11 +378,6 @@ def test_the_services_compose_is_backed_up_before_it_is_touched(output, tmp_path
 
     assert [b.src for b in migration.backup_manager.backups] == [compose_path]
     assert migration.backup_manager.backups[0].real_dest.read_text() == "services: {}\n"
-
-
-# --------------------------------------------------------------------------------------
-# migrate_benches(): every guard that decides a bench is not migrated
-# --------------------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -539,11 +509,6 @@ def test_the_bench_object_carries_the_migrations_output_handler(bench_loop, outp
     bench_cls.assert_called_once_with(name="alpha", path=tmp_path / "sites" / "alpha", output=output)
 
 
-# --------------------------------------------------------------------------------------
-# migrate_benches(): what happens when a bench blows up
-# --------------------------------------------------------------------------------------
-
-
 def test_a_failing_bench_is_recorded_undone_and_fails_the_whole_run(bench_loop, calls):
     migration = bench_loop(["alpha"], target_benches=["alpha"], fail_for=["alpha"])
 
@@ -611,11 +576,6 @@ def test_one_failing_bench_does_not_stop_the_others(bench_loop, calls):
         migration.migrate_benches()
 
     assert ("migrate_bench", "beta") in calls
-
-
-# --------------------------------------------------------------------------------------
-# bench_basic_backup(): which files are saved, and the skips
-# --------------------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -705,11 +665,6 @@ def test_the_db_backup_gets_the_benchs_own_docker_and_compose_file(backup_migrat
     assert kwargs["db_info"].name == "alpha_db"
 
 
-# --------------------------------------------------------------------------------------
-# every recorded site, not just the one named after the bench
-# --------------------------------------------------------------------------------------
-
-
 @pytest.fixture
 def two_site_bench(tmp_path):
     """A DECOUPLED bench: named `shop`, serving `shop.localhost` and `b.example.com`.
@@ -778,10 +733,6 @@ def test_a_pre_decoupling_bench_still_backs_up_exactly_one_site(backup_migration
 
     assert [c.kwargs["site"] for c in db_backup.call_args_list] == ["alpha"]
 
-# --------------------------------------------------------------------------------------
-# _resolve_database_name / _resolve_mysql_home
-# --------------------------------------------------------------------------------------
-
 
 def _db_info(name=None):
     return DatabaseServerServiceInfo(host="global-db", user="u", port=3306, password="p", name=name)
@@ -836,11 +787,6 @@ def test_an_unparsable_config_warns_and_yields_no_mysql_home(backup_migration, b
 
     assert backup_migration._resolve_mysql_home(backed_up_bench) is None
     assert "Failed to read database table" in output.warning.call_args.args[0]
-
-
-# --------------------------------------------------------------------------------------
-# bench_db_backup(): the dump, and the prompt when there is nothing to dump
-# --------------------------------------------------------------------------------------
 
 
 def test_an_unknown_database_name_asks_before_skipping_the_dump(backup_migration, backed_up_bench, output):
@@ -1001,10 +947,6 @@ def test_the_transit_path_is_one_both_runtimes_mount(backup_migration, backed_up
     mounted = {b.container for b in data_binds(["alpha"])}
     assert str(container_path.parent) in mounted
 
-
-# ======================================================================================
-# MigrationV100
-# ======================================================================================
 
 _ADMIN_TOOLS_COMPOSE = """\
 x-version: '0.19.0'
@@ -1321,11 +1263,6 @@ def test_a_config_without_the_old_keys_is_not_rewritten(v100, v100_bench, output
     output.print.assert_not_called()
 
 
-# --------------------------------------------------------------------------------------
-# MigrationV100: the global database engine upgrade
-# --------------------------------------------------------------------------------------
-
-
 @pytest.fixture
 def services(v100, tmp_path):
     """A services manager whose compose file is a real dict plus mocked docker."""
@@ -1452,11 +1389,6 @@ def test_the_pre_upgrade_dump_is_copied_out_of_the_container_and_compressed(v100
         assert f.read() == b"-- all databases\n"
     # The uncompressed copy is not left behind next to it.
     assert not Path(dest).exists()
-
-
-# --------------------------------------------------------------------------------------
-# Rolling the v1.0.0 migration back
-# --------------------------------------------------------------------------------------
 
 
 def test_undoing_the_services_migration_restores_only_the_services_compose(v100, services, output):

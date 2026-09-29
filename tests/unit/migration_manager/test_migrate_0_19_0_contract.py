@@ -48,10 +48,6 @@ from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.migration_manager.migration_exceptions import MigrationExceptionInBench
 from frappe_manager.migration_manager.migrations.migrate_0_19_0 import MigrationV0190
 
-# ---------------------------------------------------------------------------
-# helpers
-# ---------------------------------------------------------------------------
-
 
 class FakeBench:
     """Stand-in for ``MigrationBench``.
@@ -115,11 +111,6 @@ def bench(tmp_path):
     (path / "workspace" / "frappe-bench" / "sites").mkdir(parents=True)
     (path / "configs" / "nginx" / "conf" / "conf.d").mkdir(parents=True)
     return FakeBench("test-bench", path)
-
-
-# ===========================================================================
-# bench_basic_backup -- the extra backups this migration adds on top of parent
-# ===========================================================================
 
 
 class TestBenchBasicBackupExtras:
@@ -186,11 +177,6 @@ class TestBenchBasicBackupExtras:
             migration.bench_basic_backup(bench)
         names = [c.args[0].name for c in migration.backup_manager.backup.call_args_list]
         assert names == ["web.fm.supervisor.conf"]
-
-
-# ===========================================================================
-# env/ backup + rollback
-# ===========================================================================
 
 
 class TestEnvBackupAndUndo:
@@ -292,11 +278,6 @@ class TestEnvBackupAndUndo:
         migration.undo_bench_migrate(bench)
 
         assert (confd / "default.conf").read_text() == "original"
-
-
-# ===========================================================================
-# migrate_bench -- ordering and guards
-# ===========================================================================
 
 
 class TestMigrateBenchOrchestration:
@@ -402,11 +383,6 @@ class TestMigrateBenchOrchestration:
 
         migration._resolve_upload_limit.assert_called_once_with(bench)
         assert [limit for _, limit in seen] == ["256M", "256M", "256M"]
-
-
-# ===========================================================================
-# bench_config.toml: [ssl] -> [[ssl_certificates]]
-# ===========================================================================
 
 
 class TestTransformSslConfig:
@@ -570,11 +546,6 @@ class TestMigrateBenchConfigToml:
         assert doc["upload_limit"] == "50M"
 
 
-# ===========================================================================
-# image tag rewriting
-# ===========================================================================
-
-
 class TestUpdateServiceImages:
     def test_rewrites_only_fm_images_and_flags_the_change(self, migration):
         services = {
@@ -622,11 +593,6 @@ class TestUpdateServiceImages:
     def test_message_reports_old_and_new_tag(self, migration):
         migration._update_service_images({"frappe": {"image": "ghcr.io/rtcamp/frappe-manager-frappe:v0.18.2"}})
         assert "Updated frappe image: v0.18.2 → v0.19.0" in printed(migration)
-
-
-# ===========================================================================
-# nginx SITENAME -> SITE_MAPPINGS
-# ===========================================================================
 
 
 class TestTransformNginxEnvironment:
@@ -719,11 +685,6 @@ class TestAddRestartPolicyToServices:
             yaml.dump({"services": services}, f)
         assert 'restart: "no"' in path.read_text()
         assert load_yaml(path)["services"]["frappe"]["restart"] == "no"
-
-
-# ===========================================================================
-# The 2 duplicated YAML-loader blocks (lines ~241 and ~507)
-# ===========================================================================
 
 
 class TestDuplicatedComposeYamlBlocks:
@@ -848,11 +809,6 @@ services:
         getattr(migration, method)(bench, path)
 
         assert "'quoted-name'" in path.read_text(), "preserve_quotes=True must be kept by any refactor"
-
-
-# ===========================================================================
-# upload limit resolution + the three writers
-# ===========================================================================
 
 
 class TestResolveUploadLimit:
@@ -1083,11 +1039,6 @@ class TestWriteUploadLimitNginxConf:
         assert "client_max_body_size" not in default_conf.read_text()
 
 
-# ===========================================================================
-# admin tools cleanup / bench image pull
-# ===========================================================================
-
-
 class TestCleanupAdminToolsNginxConfig:
     def test_removes_both_stale_files(self, migration, bench):
         custom = bench.path / "configs" / "nginx" / "conf" / "custom"
@@ -1146,11 +1097,6 @@ class TestPullBenchImages:
         bench.compose.pull.return_value = ok()
         migration._pull_bench_images(bench)
         assert "Pulling updated images (v0.19.0)..." in printed(migration)
-
-
-# ===========================================================================
-# services-level migration
-# ===========================================================================
 
 
 class TestUpdateGlobalNginxProxyImage:
@@ -1238,11 +1184,6 @@ class TestMigrateServices:
         migration.undo_services_migrate()
         assert "No services rollback needed for v0.19.0" in printed(migration)
         migration.services_manager.compose.up.assert_not_called()
-
-
-# ===========================================================================
-# runtime version resolution
-# ===========================================================================
 
 
 class TestResolveRuntimeVersions:
@@ -1487,11 +1428,6 @@ class TestAutoDetectRuntimeVersions:
         migration._choose_best_python_version.assert_called_once_with("3.11", None)
 
 
-# ===========================================================================
-# _check_runtime_current
-# ===========================================================================
-
-
 class TestCheckRuntimeCurrent:
     def test_no_targets_means_rebuild_without_touching_docker(self, migration, bench):
         assert migration._check_runtime_current(bench, None, None) == (False, False)
@@ -1546,11 +1482,6 @@ class TestCheckRuntimeCurrent:
     def test_streaming_output_is_rebuild_needed(self, migration, bench):
         bench.compose.run.return_value = iter([("stdout", b"ENV_OK=true")])
         assert migration._check_runtime_current(bench, "3.11", "18") == (False, False)
-
-
-# ===========================================================================
-# _rebuild_runtime_environment -- the guard-heavy heart of the migration
-# ===========================================================================
 
 
 class TestRebuildRuntimeEnvironment:
@@ -1738,11 +1669,6 @@ class TestRebuildRuntimeEnvironment:
 
         assert migration._node_was_setup is True
         assert "_setup_node_with_fnm" not in order
-
-
-# ===========================================================================
-# The 6 duplicated ``bench.compose.run`` blocks
-# ===========================================================================
 
 
 class TestDuplicatedComposeRunBlocks:
@@ -2054,11 +1980,6 @@ class TestEnsureRuntimeDirs:
         assert (fb / ".fnm").is_dir()
 
 
-# ===========================================================================
-# supervisor config regeneration
-# ===========================================================================
-
-
 class TestRegenerateSupervisorConfig:
     def _run(self, migration, bench, site_config=None):
         if site_config is not None:
@@ -2215,11 +2136,6 @@ class TestGenerateFmWebServerScript:
         assert "--threads 1" in (tmp_path / "fm-web-server.sh").read_text()
 
 
-# ===========================================================================
-# service restart
-# ===========================================================================
-
-
 class TestRestartServices:
     def test_stale_default_conf_is_copied_aside_then_deleted(self, migration, bench):
         confd = bench.path / "configs" / "nginx" / "conf" / "conf.d"
@@ -2269,11 +2185,6 @@ class TestRestartServices:
         migration._restart_services(bench)
         bench.compose.up.assert_called_once()
         assert not (bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf.migration.bak").exists()
-
-
-# ===========================================================================
-# end-to-end on a fake bench tree
-# ===========================================================================
 
 
 class TestMigrateBenchEndToEndOnFakeTree:

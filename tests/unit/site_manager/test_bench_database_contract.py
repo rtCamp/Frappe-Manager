@@ -139,11 +139,6 @@ def conn_info():
         yield helper
 
 
-# --------------------------------------------------------------------------------------
-# 1. constructor wiring (the region that twins BenchInfo.__init__)
-# --------------------------------------------------------------------------------------
-
-
 def test_init_stores_every_collaborator_verbatim(tmp_path):
     h = _Harness(tmp_path)
 
@@ -193,11 +188,6 @@ def test_init_is_inert(tmp_path):
 
     assert _calls(h.recorder) == []
     assert not h.bench_path.exists()
-
-
-# --------------------------------------------------------------------------------------
-# 2. how connection details are resolved
-# --------------------------------------------------------------------------------------
 
 
 def test_get_connection_info_defaults_to_the_benchs_primary_site(tmp_path, conn_info):
@@ -313,11 +303,6 @@ def test_db_user_is_the_db_name(tmp_path):
     assert info["user"] == "the_db" == info["name"]
 
 
-# --------------------------------------------------------------------------------------
-# 3. remove_database_and_user: guards, ordering, command shape
-# --------------------------------------------------------------------------------------
-
-
 def test_removal_drops_the_named_sites_schema(tmp_path, conn_info):
     """The drop is keyed by SITE. The site named here is the site whose wiring is read."""
     h = _Harness(tmp_path)
@@ -370,7 +355,6 @@ def test_dropping_one_site_leaves_the_other_sites_schema_untouched(tmp_path):
         call.check_user_exists("fm_b_bbb"),
         call.remove_user("fm_b_bbb", remove_all_host=True),
     ]
-
 
 
 @pytest.mark.usefixtures("conn_info")
@@ -495,11 +479,6 @@ def test_removal_never_writes_the_common_site_config(tmp_path):
     h.database.remove_database_and_user()
 
     h.set_config.assert_not_called()
-
-
-# --------------------------------------------------------------------------------------
-# 4. sync_common_site_config
-# --------------------------------------------------------------------------------------
 
 
 def test_sync_mints_the_per_bench_redis_containers_when_no_external_redis(tmp_path):

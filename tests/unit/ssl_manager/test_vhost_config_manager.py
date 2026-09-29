@@ -135,11 +135,6 @@ def test_legacy_unmarked_redirect_is_replaced_by_the_marked_block_on_enable(mana
     assert UPLOAD_LIMIT in text
 
 
-# ======================================================================================
-# enable then disable is a true inverse -- byte-for-byte, not merely semantically equal
-# ======================================================================================
-
-
 def test_add_then_remove_restores_a_brand_new_domain_to_no_file_at_all(manager, vhostd):
     path = vhostd / DOMAIN
     assert not path.exists()
@@ -201,11 +196,6 @@ def test_disable_alone_on_the_legacy_unmarked_shape_leaves_no_empty_file_behind(
     assert manager.disable_https_redirect(DOMAIN) is True
 
     assert not path.exists()
-
-
-# ======================================================================================
-# the single redirect body: keyed on $fm_client_scheme, carries $fm_https_suffix
-# ======================================================================================
 
 
 def test_redirect_body_keys_on_fm_client_scheme_and_carries_the_https_suffix(manager, vhostd):

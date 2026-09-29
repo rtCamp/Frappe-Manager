@@ -87,17 +87,6 @@ def test_unparseable_toml_degrades_quietly(tmp_path):
     assert get_bench_migration_version(b) == Version("0.0.0")
 
 
-# ======================================================================================
-# set_bench_migration_version -- must not delete a retained stray while bumping the version.
-#
-# `fm migrate` is the command whose entire job is to fix an out-of-date bench_config.toml. It used
-# to rebuild `[schema]` from a fresh `SchemaState(version=..., last_migration_date=
-# ...)`, which drops any OTHER key already retained there (SchemaState is extra="allow") because
-# a freshly constructed instance never saw that kwarg. That is exactly the outcome the retention
-# ruling forbids: fm never deletes a key it does not understand, and it is worst of all here, since
-# the command runs precisely because the file needed fixing.
-# ======================================================================================
-
 import tomlkit
 
 from frappe_manager.migration_manager.bench_migration_state import set_bench_migration_version

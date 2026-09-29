@@ -38,10 +38,6 @@ from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.migration_manager.migrations.migrate_0_19_0 import MigrationV0190
 from frappe_manager.utils import helpers as helpers_module
 
-# ---------------------------------------------------------------------------
-# helpers
-# ---------------------------------------------------------------------------
-
 
 class FakeBench:
     """Stand-in for ``MigrationBench`` exposing only what the migration reaches for."""
@@ -120,11 +116,6 @@ def printed(migration) -> list[str]:
     return [c.args[0] for c in migration.output.print.call_args_list if c.args]
 
 
-# ===========================================================================
-# Gap 1: bytes -> human limit, on a bench whose max_file_size is not a whole MiB
-# ===========================================================================
-
-
 class TestNonWholeMebibyteUploadLimit:
     """``max_file_size % (1024 * 1024) == 0`` picks floor division vs rounding."""
 
@@ -179,10 +170,6 @@ class TestNonWholeMebibyteUploadLimit:
             migration
         )
 
-
-# ===========================================================================
-# Gap 2: splitting the rendered supervisor config must not reject value-less options
-# ===========================================================================
 
 MINIMAL_SUPERVISOR_TEMPLATE = """[program:{{ bench_name }}-frappe-web]
 command=/bin/bash {{ bench_dir }}/config/fm-web-server.sh

@@ -17,10 +17,6 @@ from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
 
-# ============================================================================
-# Pytest Configuration
-# ============================================================================
-
 
 def pytest_addoption(parser):
     """Add custom pytest command line options."""
@@ -57,11 +53,6 @@ def configure_logging(request):
 
     # Restore original log level
     fm_logger.setLevel(original_level)
-
-
-# ============================================================================
-# Certificate Fixtures
-# ============================================================================
 
 
 @pytest.fixture
@@ -119,11 +110,6 @@ def mock_dns_certificate():
     )
 
 
-# ============================================================================
-# Storage Fixtures
-# ============================================================================
-
-
 @pytest.fixture
 def valid_storage_paths(tmp_path):
     """
@@ -177,11 +163,6 @@ def mock_storage_config(tmp_path):
         webroot_dir=paths["webroot_dir"],
         validate_on_init=False,
     )
-
-
-# ============================================================================
-# Dependency Mocks
-# ============================================================================
 
 
 @pytest.fixture
@@ -276,11 +257,6 @@ def mock_logger(mocker):
     return mock_log
 
 
-# ============================================================================
-# Manager Fixtures
-# ============================================================================
-
-
 @pytest.fixture
 def ssl_certificate_manager(
     mocker,
@@ -306,11 +282,6 @@ def ssl_certificate_manager(
         output_handler=mock_output_handler,
         config_save_callback=None,
     )
-
-
-# ============================================================================
-# Helper Fixtures
-# ============================================================================
 
 
 @pytest.fixture
@@ -346,10 +317,6 @@ def reset_env_vars(monkeypatch):
         else:
             os.environ[var] = value
 
-
-# ============================================================================
-# Parametrize Helpers
-# ============================================================================
 
 # Common test domains for parametrized tests
 TEST_DOMAINS = [

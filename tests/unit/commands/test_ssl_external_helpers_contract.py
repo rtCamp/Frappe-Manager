@@ -45,11 +45,6 @@ MODULE = "frappe_manager.commands.ssl.external_helpers"
 DOMAIN = "app.example.com"
 
 
-# --------------------------------------------------------------------------------------
-# harness
-# --------------------------------------------------------------------------------------
-
-
 def _proxy_dirs(tmp_path: Path) -> SimpleNamespace:
     """Sentinel host/container path pairs, distinct per directory so kwarg swaps are visible."""
 
@@ -133,7 +128,6 @@ class Harness:
         # it has its own tests below. Neutralised here so every other add test stays about add.
         self.refuse_if_already_served = p("_refuse_if_already_served")
 
-    # -- convenience readers -----------------------------------------------------------
 
     @property
     def storage_kwargs(self) -> dict:
@@ -188,11 +182,6 @@ def _add(h: Harness, **kw):
     return external_helpers._add_external_certificate(h.ctx, DOMAIN, **kwargs)
 
 
-# --------------------------------------------------------------------------------------
-# shared -- config file location
-# --------------------------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "call",
     [
@@ -223,11 +212,6 @@ def test_every_entrypoint_reads_the_same_external_domains_toml(h, call):
     ):
         call(h)
     assert h.config_path() == h.services.path / "nginx-proxy" / "external_domains.toml"
-
-
-# --------------------------------------------------------------------------------------
-# _add_external_certificate -- guards
-# --------------------------------------------------------------------------------------
 
 
 def test_add_rejects_domain_that_already_has_a_certificate(h):
@@ -263,11 +247,6 @@ def test_add_allows_cname_with_dns01(h):
     h.cert_manager.add_certificate.assert_called_once()
 
 
-# --------------------------------------------------------------------------------------
-# _add_external_certificate -- certificate object construction
-# --------------------------------------------------------------------------------------
-
-
 def test_add_without_cname_builds_an_undelegated_letsencrypt_certificate(h):
     _add(h, challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01)
 
@@ -296,11 +275,6 @@ def test_add_with_cname_builds_a_certificate_carrying_the_delegation(h):
     assert cert.delegation_cname == "deleg.fm.com"
     assert cert.challenge_type == LETSENCRYPT_PREFERRED_CHALLENGE.dns01
     assert "Using CNAME delegation: deleg.fm.com" in h.prints()
-
-
-# --------------------------------------------------------------------------------------
-# _add_external_certificate -- DNS pre-flight
-# --------------------------------------------------------------------------------------
 
 
 def test_add_cname_single_validation_success_prints_verified_and_continues(h):
@@ -440,11 +414,6 @@ def test_add_skip_dns_check_bypasses_validator_entirely(h):
         validator_cls.assert_not_called()
 
 
-# --------------------------------------------------------------------------------------
-# _add_external_certificate -- the duplicated wiring block (copy #1)
-# --------------------------------------------------------------------------------------
-
-
 def test_add_builds_storage_config_from_proxy_storage_dirs(h):
     _add(h)
     assert h.storage_kwargs == _expected_storage_kwargs(h.dirs)
@@ -482,11 +451,6 @@ def test_add_service_factory_delegates_to_create_certificate_service(h):
     cert, cfg, handler = object(), object(), object()
     assert factory(cert, cfg, handler) is h.create_certificate_service.return_value
     h.create_certificate_service.assert_called_once_with(cert, cfg, handler)
-
-
-# --------------------------------------------------------------------------------------
-# _add_external_certificate -- happy-path ordering
-# --------------------------------------------------------------------------------------
 
 
 def test_add_orders_http_config_reload_issue_https_config_reload(h):
@@ -602,11 +566,6 @@ def test_add_head_before_https_step_interpolates_the_domain(h):
     assert "Enabling HTTPS for {domain}" not in h.heads()
 
 
-# --------------------------------------------------------------------------------------
-# _add_external_certificate -- failure + cleanup paths
-# --------------------------------------------------------------------------------------
-
-
 def test_add_issuance_failure_removes_nginx_config_and_exits(h):
     h.cert_manager.add_certificate.side_effect = RuntimeError("acme boom")
 
@@ -688,11 +647,6 @@ def test_add_value_error_reports_the_same_message_as_any_other_exception(h):
 
     assert exc.value.exit_code == 1
     h.output.display_error.assert_called_once_with("Failed to add certificate: bad value")
-
-
-# --------------------------------------------------------------------------------------
-# _remove_external_certificate
-# --------------------------------------------------------------------------------------
 
 
 def test_remove_rejects_unknown_domain(h):
@@ -841,11 +795,6 @@ def test_remove_failure_leaves_the_toml_entry_in_place(h):
     h.external_manager.remove_domain.assert_not_called()
 
 
-# --------------------------------------------------------------------------------------
-# _renew_external_certificate
-# --------------------------------------------------------------------------------------
-
-
 def test_renew_rejects_unknown_domain_with_a_list_hint(h):
     h.external_manager.domain_exists.return_value = False
 
@@ -989,11 +938,6 @@ def test_renew_all_does_not_report_healthy_domains_as_failures(h):
     assert not [w for w in warnings if w.startswith("Failed to renew")]
 
 
-# --------------------------------------------------------------------------------------
-# _renew_all_external_certificates
-# --------------------------------------------------------------------------------------
-
-
 def test_renew_all_with_no_domains_returns_without_renewing(h):
     h.external_manager.list_domains.return_value = []
 
@@ -1096,11 +1040,6 @@ def test_renew_all_treats_a_domain_that_exited_zero_as_a_success(h):
         assert external_helpers._renew_all_external_certificates(h.ctx, test_ca=False) is None
 
     h.output.display_error.assert_not_called()
-
-
-# --------------------------------------------------------------------------------------
-# _get_non_bench_domains_from_nginx
-# --------------------------------------------------------------------------------------
 
 
 def _nginx_conf(*domains: str) -> str:
@@ -1248,11 +1187,6 @@ def test_nginx_scan_swallows_bench_discovery_failures(h, nginx_probe):
     nginx_probe.bench_service_cls.side_effect = RuntimeError("no benches dir")
 
     assert external_helpers._get_non_bench_domains_from_nginx(h.services) == []
-
-
-# --------------------------------------------------------------------------------------
-# _list_external_certificates
-# --------------------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -1432,11 +1366,6 @@ def test_list_appends_detected_domains_without_ssl_and_a_tip(h, listing):
     ]
 
 
-# --------------------------------------------------------------------------------------
-# _list_external_certificates -- structured data (`--json`, `wants_structured_data`)
-# --------------------------------------------------------------------------------------
-
-
 def test_structured_data_skips_card_rendering_and_the_getting_started_hint(h, listing):
     """`wants_structured_data` must route around both card rendering AND the nothing-configured
     hint, which is display prose, not data."""
@@ -1549,7 +1478,6 @@ def test_structured_data_orphan_and_no_ssl_domains_carry_null_certificate_fields
     }
 
 
-
 def test_list_hides_detected_domains_that_already_have_a_certificate(h, listing):
     h.external_manager.list_domains.return_value = [_ssl_domain(DOMAIN)]
     listing.expiry.return_value = None
@@ -1617,11 +1545,6 @@ def test_no_rendered_external_line_ever_reads_na(h, listing):
 
     assert "N/A" not in console.file.getvalue()
 
-
-
-# --------------------------------------------------------------------------------------
-# the guard: a standalone placeholder must never be written over a live hostname
-# --------------------------------------------------------------------------------------
 
 # Bound before the harness patches the name, so these tests exercise the real guard rather than
 # the no-op stand-in every other add test runs with.
@@ -1693,11 +1616,6 @@ def test_guard_skips_a_bench_it_cannot_load_instead_of_failing_the_add(h):
         bench_cls.get_object.side_effect = RuntimeError("bad config")
 
         assert _REAL_GUARD(h.services, DOMAIN, h.output) is None
-
-
-# --------------------------------------------------------------------------------------
-# orphan cleanup: a vhost written by an `add` that never got as far as registering
-# --------------------------------------------------------------------------------------
 
 
 def test_remove_cleans_up_an_orphaned_config_with_no_registry_entry(h):
