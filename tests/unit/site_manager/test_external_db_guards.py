@@ -172,6 +172,9 @@ def _service(output: MagicMock, bench: Bench) -> BenchService:
     service = BenchService.__new__(BenchService)  # bypass __init__: no docker client, no services
     service.output = output
     service.get_bench = MagicMock(return_value=bench)  # type: ignore[method-assign]
+    # Deleting the last site on an engine stops that engine's server, so the removal path reaches
+    # the services manager even though these tests are about the external-database guard.
+    service.services = MagicMock(name="services_manager")
     return service
 
 

@@ -176,7 +176,17 @@ class BenchService:
         except FileNotFoundError:
             bench = self._create_cleanup_bench(bench_name)
 
-        return bench.remove_bench(delete_fm_managed_db=delete_fm_managed_db, prompt=not yes)
+        removed = bench.remove_bench(delete_fm_managed_db=delete_fm_managed_db, prompt=not yes)
+
+        if removed:
+            # Asked again HERE because this command is what changed the answer. The entrypoint's
+            # reconcile ran before the removal, when the bench was still on disk, so deleting the
+            # last postgres site always left its server running until some unrelated command
+            # happened to run. `fm create` reconciles at the same point and for the same reason:
+            # the scan reads sites on disk, so only the command that moved them knows when to ask.
+            self.services.reconcile_database_services()
+
+        return removed
 
     def discover_benches(self) -> dict[str, Path]:
         """

@@ -271,3 +271,47 @@ class TestTheShippedServicesTemplate:
         assert rendered.is_service_profile_disabled("mariadb") is True
         assert rendered.is_service_profile_disabled("postgres") is True
         assert sorted(rendered.get_services_list(exclude_disabled=True)) == ["nginx-proxy"]
+
+
+class TestARemovalAsksAgain:
+    """The reconcile pass in `entrypoint_checks` runs at the START of a command, so a delete asks
+    "does anything still need postgres?" while the bench it is about to remove is still on disk.
+    The answer is always yes, and nothing asked again: deleting the last postgres site left its
+    server running until some unrelated, non-exempt command happened to run.
+
+    Widening the pass to observers is the wrong cure. Stopping is the dangerous half of reconcile
+    -- getting a start wrong costs idle memory, getting a stop wrong is an outage under a site that
+    is using it -- and `engines_in_use` reads sites off disk, so an observer running beside a
+    create can read "nothing needs postgres" and stop a server that command is about to use. The
+    command that MOVED the sites is the one that knows, which is where `fm create` already asks.
+    """
+
+    def test_deleting_a_bench_reconciles_after_the_removal(self):
+        from frappe_manager.site_manager.bench_service import BenchService
+
+        service = BenchService.__new__(BenchService)
+        service.output = mock.MagicMock()
+        service.services = mock.MagicMock(name="services_manager")
+        bench = mock.MagicMock(name="Bench")
+        bench.remove_bench.return_value = True
+        service.get_bench = mock.MagicMock(return_value=bench)
+
+        service.delete_bench("shop", yes=True, delete_fm_managed_db=True)
+
+        service.services.reconcile_database_services.assert_called_once_with()
+
+    def test_a_failed_removal_leaves_the_servers_alone(self):
+        """Nothing left, so nothing to stop: reconciling on a refusal could stop a server whose
+        site is still on disk."""
+        from frappe_manager.site_manager.bench_service import BenchService
+
+        service = BenchService.__new__(BenchService)
+        service.output = mock.MagicMock()
+        service.services = mock.MagicMock(name="services_manager")
+        bench = mock.MagicMock(name="Bench")
+        bench.remove_bench.return_value = False
+        service.get_bench = mock.MagicMock(return_value=bench)
+
+        service.delete_bench("shop", yes=True, delete_fm_managed_db=True)
+
+        service.services.reconcile_database_services.assert_not_called()

@@ -251,6 +251,8 @@ def delete(
         bench.remove_site(
             site, delete_fm_managed_db=delete_fm_managed_db, delete_backups=delete_backups
         )
+        # The last site on an engine can leave by this path too, not only by deleting the bench.
+        bench_service.services.reconcile_database_services()
         return
 
     schemas = _site_schemas(bench_service, address)
