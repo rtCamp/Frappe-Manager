@@ -22,14 +22,22 @@ jobs:
     name: Build and push image
     strategy:
       matrix:
-        os: [self-hosted-arm64,ubuntu-latest]
-        platform: [linux/amd64, linux/arm64]
-        service_name: [frappe, nginx]
-        exclude:
+        # Each build runs on a runner NATIVE to the platform it produces: an emulated arm64 build
+        # of this image takes hours. `ubuntu-24.04-arm` is GitHub-hosted and free for public
+        # repositories, which is what replaced the self-hosted arm64 box.
+        include:
           - os: ubuntu-latest
-            platform: linux/arm64
-          - os: self-hosted-arm64
             platform: linux/amd64
+            service_name: frappe
+          - os: ubuntu-latest
+            platform: linux/amd64
+            service_name: nginx
+          - os: ubuntu-24.04-arm
+            platform: linux/arm64
+            service_name: frappe
+          - os: ubuntu-24.04-arm
+            platform: linux/arm64
+            service_name: nginx
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -102,11 +110,6 @@ jobs:
           provenance: false
           cache-from: ${{ env.USE_CACHE == 'true' && format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache-{2}', env.owned, matrix.service_name, matrix.platform == 'linux/amd64' && 'amd64' || 'arm64') || '' }}
           cache-to: ${{ format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache-{2},mode=max', env.owned, matrix.service_name, matrix.platform == 'linux/amd64' && 'amd64' || 'arm64') || '' }}
-
-      - name: Prune buildx cache (self-hosted only)
-        if: startsWith(matrix.os, 'self-hosted')
-        run: |
-          docker buildx prune -af
 
   combine:
     name: Combine both platform images
