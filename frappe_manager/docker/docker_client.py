@@ -76,7 +76,6 @@ class DockerClient:
             if docker_info["Server"]:
                 return True
             return False
-        # check if the current user in the docker group and notify the user
         is_current_user_in_group("docker")
         return False
 

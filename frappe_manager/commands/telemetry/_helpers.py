@@ -56,10 +56,8 @@ def apply_newrelic(
     telemetry.newrelic = newrelic_config
     bench.bench_config.telemetry = telemetry
 
-    # Saved BEFORE the container work, unlike the path this replaced: `fm update` deferred the
-    # write to a terminal save, so a failure in the recreate below exited with the agent state
-    # already live in the compose file and the container, and bench_config.toml still claiming
-    # the old one.
+    # Saved BEFORE the container work: a failed recreate below must not leave bench_config.toml
+    # claiming a state that compose and the running container disagree with.
     bench.save_bench_config()
 
     bench.generate_compose(bench.bench_config.export_to_compose_inputs())

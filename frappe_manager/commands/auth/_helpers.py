@@ -120,18 +120,15 @@ def apply_auth(
 
     bench, site, entry = resolve_scope(ctx, address, output)
 
-    # One Adminer/Mailpit per bench answers on every hostname it serves, so per-site protection
-    # cannot exist; refuse rather than silently apply bench-wide.
     if site and tools_named:
         output.error(
             f"--tools cannot take a site part: one Adminer and one Mailpit serve the whole bench, on every hostname '{bench.name}' has, so acting on them for '{site}' alone would leave the same tools open on the others. Run 'fm auth enable {bench.name} --tools' to protect them for the bench.",
             exception=typer.Exit(code=1),
         )
 
-    # Per-site auth is a per-site server block, and the bench's conf is rendered once at the nginx
-    # container's first boot: a bench can be running this code against a conf that includes only
-    # `custom/*.conf`. Recording an override there would be silent -- nginx reads none of it, the
-    # site keeps following the bench, and the status command would report a prompt nobody serves.
+    # Per-site auth needs a per-site server block, but nginx conf renders once at the container's
+    # first boot: an older bench's conf may include only `custom/*.conf`. Recording an override
+    # there would be silent, and the status command would report a prompt nobody serves.
     if site and not bench.nginx_conf_serves_per_site():
         output.error(
             f"Bench '{bench.name}' nginx conf predates one server block per site, so '{site}' cannot carry auth of its own yet: nginx would include none of it and the site would keep following the bench. Run 'fm migrate' to re-render it, or recreate the nginx container with 'fm restart {bench.name} --nginx --recreate'. 'fm auth enable {bench.name}' for the whole bench works today.",
@@ -175,16 +172,13 @@ def apply_auth(
             bench.bench_config.certificate_for(guarded_domain) if site else bench.bench_config.get_primary_certificate()
         )
         if certificate.ssl_type == SUPPORTED_SSL_TYPES.none:
-            # The web surface is the new capability and gates every path including
-            # /api, so plain http is refused outright. The tools surface has served
-            # /adminer/ and /mailpit/ behind basic auth over plain http since long
-            # before this command and AuthConfig defaults it on, so refusing there
-            # would refuse fm's own default state: warn and proceed.
+            # Web is the new capability so plain http is refused outright; tools has served
+            # /adminer/ and /mailpit/ over http since before this check existed and defaults on,
+            # so refusing it too would break fm's own default state -- warn instead.
             if enabling_web:
                 output.error(
-                    # Two roles in one sentence: the certificate is keyed by DOMAIN (that is what a
-                    # browser validates and what `SSLCertificate.domain` holds), while `fm ssl add`
-                    # takes the BENCH as its first positional and the hostname separately.
+                    # Certificate lookup is keyed by DOMAIN (`SSLCertificate.domain`), while the
+                    # `fm ssl add` hint below takes BENCH then the domain separately.
                     f"Domain '{guarded_domain}' has no TLS certificate: basic auth sends the credentials base64-encoded on every request, so on the web surface they would travel in the clear in front of every path including /api. Add HTTPS with 'fm ssl add {bench.name} {guarded_domain}', or pass --insecure to accept that.",
                     exception=typer.Exit(code=1),
                 )
@@ -240,20 +234,11 @@ def apply_auth(
     new_allow_paths = allow_path if allow_path else ([] if clear_exemptions else current.allow_paths)
 
     if site:
-        # The site's own entry, so its credentials are its own: a password handed out for one site
-        # is not a password to another. `tools` is absent from the model on purpose (WebAuthConfig),
-        # which is why the bench's value above was never folded in here.
-        #
-        # `fm auth` is the operator explicitly rewriting these settings, so the named fields below
-        # are always replaced with what was just computed above -- including clearing e.g. `web`
-        # back to False or an exemption list back to `[]` when that is what the flags say, since a
-        # field the operator could never turn back off would not be a real overwrite. What must NOT
-        # happen is rebuilding the entry from those kwargs alone: WebAuthConfig is extra="allow", so
-        # a stray key already retained on the loaded instance (a hand-edited typo inside
-        # [sites."<name>".auth], say) is still the operator's data and belongs to the ruling that fm
-        # never deletes a key it does not understand. Mutating the loaded instance in place carries
-        # any such stray forward for free; constructing WebAuthConfig(**named kwargs) instead has no
-        # way to see it and silently drops it, which is the bug this replaces.
+        # `tools` has no per-site field (WebAuthConfig only tracks it at the bench), so the
+        # bench value is never folded in here. Named fields below always overwrite (clearing
+        # `web` back to False must actually take), but WebAuthConfig is extra="allow": mutate
+        # the loaded entry in place so a stray hand-edited key survives; rebuilding via
+        # WebAuthConfig(**kwargs) would silently drop it.
         if entry.auth is not None:
             entry.auth.user = new_user
             entry.auth.password = new_password

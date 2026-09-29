@@ -162,16 +162,10 @@ class MigrationExecutor:
             min_bench_version = self._get_minimum_bench_version()
             effective_prev_version = min(self.prev_version, min_bench_version)
 
-        # When --rerun is active, ensure migrations are discovered even when
-        # prev_version == current_version. The strict ``<`` in discovery
-        # (``from_version < migration.version``) would otherwise exclude the
-        # current version's migration class.
-        #
-        # The floor is the current release's own dev marker (``1.0.0.dev0`` for ``1.0.0``),
-        # which PEP 440 sorts immediately below the release and above every earlier one: only
-        # THIS release's migrations re-run, older, potentially non-idempotent ones do not.
-        # Never computed by decrementing the minor -- that underflowed to ``1.-1.9999`` on any
-        # x.0.0 release, which `Version` refuses to parse.
+        # --rerun needs a floor below current_version because discovery's strict `<` would
+        # otherwise exclude the current version's migrations. The floor is the release's own
+        # .devN marker (PEP 440 sorts it just below the release), so only this release's
+        # migrations re-run; never computed by decrementing minor, which underflows on x.0.0.
         if self.rerun and effective_prev_version >= self.current_version:
             floor = Version(f"{self.current_version.base_version}.dev0")
             effective_prev_version = min(effective_prev_version, floor)
@@ -293,12 +287,11 @@ class MigrationExecutor:
             self.undo_stack = self.orchestrator.undo_stack
             return self.error_handler.handle_bench_migration_failure(e)
         except KeyboardInterrupt:
-            # BaseException, so the handlers below never see it: Ctrl+C used to walk away
-            # from a half-migrated host with no rollback, no halt and no record -- pressed,
-            # of course, at exactly the moment a cutover looks hung and every bench is down.
-            # Route it through the same --on-failure policy as any other failure (a second
-            # Ctrl+C during the prompt still raises through, so dying on the spot remains
-            # possible), then re-raise so the exit status stays an interrupt.
+            # KeyboardInterrupt is a BaseException, so `except Exception` above never sees it --
+            # this handler exists so Ctrl+C mid-migration still gets a rollback, halt and record
+            # instead of abandoning a half-migrated host. Routed through the same --on-failure
+            # policy as any other failure, then re-raised so the exit status stays an interrupt
+            # (a second Ctrl+C during the prompt still raises straight through).
             self.undo_stack = self.orchestrator.undo_stack
             self.output.warning("Interrupted (Ctrl+C) mid-migration.")
             self.error_handler.handle_system_migration_failure(Exception("interrupted by Ctrl+C"))
@@ -309,9 +302,9 @@ class MigrationExecutor:
 
         self.undo_stack = self.orchestrator.undo_stack
         self.error_handler.finalize_success()
-        # A HINT, never a prune: cleanup in fm is command-triggered only (`fm prune`,
-        # `fm services prune`). A migration deleting backups as a side effect was tried
-        # and rejected -- the operator decides when history goes.
+        # A HINT, never a prune: fm cleanup is command-triggered only (`fm prune`,
+        # `fm services prune`). Migrations never delete backups as a side effect --
+        # the operator decides when history goes.
         self._hint_backup_growth()
         return True
 

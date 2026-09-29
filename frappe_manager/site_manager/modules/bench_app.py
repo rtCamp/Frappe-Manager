@@ -698,18 +698,15 @@ fi
         """
         apps_txt_path = self.frappe_bench_dir / "sites" / "apps.txt"
 
-        # Read existing apps
         existing_apps = []
         if apps_txt_path.exists():
             existing_apps = apps_txt_path.read_text().strip().split("\n")
             existing_apps = [app.strip() for app in existing_apps if app.strip()]
 
-        # Add new apps (avoid duplicates)
         for app_config in apps:
             if app_config.name not in existing_apps:
                 existing_apps.append(app_config.name)
 
-        # Write back to apps.txt
         apps_txt_path.write_text("\n".join(existing_apps) + "\n")
         self.logger.debug(f"Updated apps.txt with {len(apps)} new apps")
 
@@ -766,11 +763,9 @@ fi
         Example:
             >>> app_manager.install_apps_to_site("example.localhost")
         """
-        # The bench's SITE, not its name. It defaulted to the bench name, which is the same string
-        # only while a bench holds one site named after it: on a bench `shop` serving
-        # `shop.localhost` every install ran `bench --site shop install-app` and Frappe answered
-        # "404 Not Found: shop does not exist", so `fm create shop` reported "App Installation
-        # Failed" and offered to roll the whole bench back.
+        # The bench's SITE, not its bench name -- they're the same string only while a bench holds one
+        # site named after it. Defaulting to the bench name instead would 404 every install on a bench
+        # like `shop` serving `shop.localhost`.
         if site_name is None:
             site_name = self.bench_config.primary_site
 
@@ -937,9 +932,9 @@ fi
 
         except DockerException as e:
             if on_failure is not None:
-                # Built here, not by the caller: the old signature took a ready-made exception, so
-                # every call constructed one on a path that usually succeeds, and the helper then
-                # mutated that caller-owned object.
+                # A factory, not a ready-made exception: eager construction would build one on every call
+                # even though this path usually succeeds, and the helper would then mutate a caller-owned
+                # object.
                 error = on_failure()
                 error.set_output(e.output)
                 raise error from e

@@ -15,12 +15,9 @@ from frappe_manager.utils.config_keys import collect_unknown_keys, unwrap_toml_v
 class FMValidationConfig(BaseModel):
     """Validation settings for Frappe Manager operations."""
 
-    # extra="allow": an unknown key here is reported by `collect_unknown_keys` and the caller
-    # decides what to do with it, same as the bench-side nested models since Phase 1. fm_config.toml
-    # is read by every `fm` command before the migration gate runs, so a reader that raises on a
-    # typo here breaks all of fm, not just one bench. `FMConfigManager` itself (below) now carries
-    # the same extra="allow" plus hand-merged top-level retention as `BenchConfig`, so a stray
-    # survives at every level of this file, not just this one.
+    # extra="allow": an unrecognised key here must be reported by `collect_unknown_keys`, never
+    # raised on -- fm_config.toml is read by every `fm` command before the migration gate runs,
+    # so raising on a typo would break all of fm, not just one bench.
     model_config = ConfigDict(extra="allow")
 
     enforce_domain_uniqueness: bool = Field(default=True, description="Enforce domain uniqueness across benches")
@@ -185,13 +182,11 @@ def recognised_global_schema_keys() -> frozenset[str]:
 
 
 class FMConfigManager(BaseModel):
-    # extra="allow": a top-level stray in fm_config.toml (a mistyped table header or bare key)
-    # used to be silently dropped -- `import_from_toml` builds `input_data` by hand and never
-    # named it, so the warning below fired once and `export_to_toml`'s `toml_document.apply` prune
-    # deleted the evidence on the very next ordinary write, including the first `[schema]`
-    # write every host gets from `set_system_migration_version`. Retained the same way `BenchConfig`
-    # retains one (see `retained_top_level` in bench_config.py): fm never deletes a key it does not
-    # understand, at any depth.
+    # extra="allow": without this, a top-level stray in fm_config.toml (a mistyped table header
+    # or bare key) would be silently dropped -- `export_to_toml`'s `toml_document.apply` prune
+    # deletes any key the model does not produce on the very next ordinary write. Retained the
+    # same way `BenchConfig` retains one (see `retained_top_level` in bench_config.py): fm never
+    # deletes a key it does not understand, at any depth.
     model_config = ConfigDict(extra="allow")
 
     root_path: Path
@@ -287,10 +282,10 @@ class FMConfigManager(BaseModel):
 
     def export_to_toml(self, path: Path | None = None) -> None:
         # Default to the file this config was LOADED from (`root_path`), never a module-level
-        # constant: `set_system_migration_version` saves through this default, and with the
-        # constant here a config imported from any other path (tests, tooling) silently wrote
-        # the OPERATOR'S real ~/frappe/fm_config.toml -- observed clobbering a live host's
-        # ledger, network table and ngrok token from the unit suite.
+        # constant: `set_system_migration_version` saves through this default, and a constant
+        # here would make a config imported from any other path (tests, tooling) silently
+        # clobber the OPERATOR'S real ~/frappe/fm_config.toml -- its ledger, network table, and
+        # ngrok token.
         if path is None:
             path = Path(self.root_path)
 
@@ -307,13 +302,11 @@ class FMConfigManager(BaseModel):
 
         desired: dict = dict(fm_config_dict)
 
-        # [ssl.dns_providers.<label>], matching the bench-side table so a label means the same thing
-        # at either scope. Attached only when non-empty: a host with no labelled credentials must
-        # not grow an empty [ssl] section. `model_extra` is checked alongside `exists`: a label
-        # written only because of a typo'd key (e.g. `api_toekn`, no real `api_token`/`api_key`)
-        # would otherwise be silently skipped here even though `DNSProviderConfig` already retained
-        # it -- `import_from_toml` warns about it, and this is the write path that turns that
-        # warning into a lie by dropping the very key it just warned about.
+        # [ssl.dns_providers.<label>], matching the bench-side table. Attached only when
+        # non-empty: a host with no labelled credentials must not grow an empty [ssl] section.
+        # `model_extra` is checked alongside `exists`: a label existing only because of a typo'd
+        # key would otherwise be silently dropped here even though `DNSProviderConfig` retained
+        # it, turning `import_from_toml`'s warning about that key into a lie.
         ssl_table = tomlkit.table()
         if self.dns_providers:
             dns = tomlkit.table()
@@ -330,9 +323,9 @@ class FMConfigManager(BaseModel):
         toml_doc = toml_document.load_or_new(path)
         toml_document.apply(toml_doc, desired)
 
-        # Atomic, and 0600 from creation: see toml_document.save. This is the primary store for the
-        # DNS-01 credentials and the ngrok token now that certificates no longer carry a copy, and a
-        # truncating write left an EMPTY fm_config.toml, which breaks every fm command on the host.
+        # Atomic and 0600 from creation (see toml_document.save): the primary store for DNS-01
+        # credentials and the ngrok token now that certificates carry no copy; a partial write
+        # here would leave an EMPTY fm_config.toml, breaking every fm command on the host.
         try:
             toml_document.save(path, toml_doc)
         except Exception as e:
@@ -363,9 +356,8 @@ class FMConfigManager(BaseModel):
 
         raw_config_data = {}
 
-        # Dotted paths for a stray inside [schema], the one hand-read table with no
-        # model of its own to hold a stray as `model_extra` -- see
-        # `recognised_global_schema_keys`.
+        # Dotted paths for a stray inside [schema], the one hand-read table with no model of its
+        # own to hold a stray as `model_extra` -- see `recognised_global_schema_keys`.
         hand_read_unknown_keys: list[str] = []
 
         # Populated only when the file exists; merged into `input_data` below so a stray this
@@ -376,16 +368,12 @@ class FMConfigManager(BaseModel):
         if path.exists():
             data = tomlkit.parse(path.read_text())
 
-            # A misspelled top-level key or table header (e.g. `[validaton]`) parses cleanly here
-            # and is simply never looked at below, exactly the same silent-drop hazard as the
-            # bench-side reader. This host's global config is read by every `fm` command, so a
-            # typo warns rather than raises -- and, since `FMConfigManager` is `extra="allow"`,
-            # `retained_top_level` below carries it onto the model so the warning is not the last
-            # anyone sees of it. No separate hand-list of these feeds the warning below the way
-            # bench_config's `[ssl]` needs one: once `retained_top_level` lands in `input_data`,
-            # each of these becomes a `model_extra` entry on `fm_config_instance` ITSELF -- the
-            # root of `collect_unknown_keys`'s walk, so its path there is the bare key name, with
-            # no dotted prefix -- and that walk finds it below without help.
+            # A misspelled top-level key or table header (e.g. `[validaton]`) parses cleanly and
+            # is never looked at below -- the same silent-drop hazard as the bench-side reader.
+            # Read by every `fm` command, so a typo warns rather than raises: `retained_top_level`
+            # below carries it onto `fm_config_instance`'s own `model_extra`, the root of
+            # `collect_unknown_keys`'s walk, so it is found below (as a bare key, no dotted
+            # prefix) without a separate hand-list like bench_config's `[ssl]` needs.
             top_level_unknown_keys = set(data.keys()) - recognised_fm_config_keys()
             retained_top_level = {key: unwrap_toml_value(data[key]) for key in top_level_unknown_keys}
 
@@ -412,22 +400,14 @@ class FMConfigManager(BaseModel):
                 if isinstance(provider_data, dict):
                     dns_providers[label] = DNSProviderConfig.import_from_toml_doc(provider_data)
 
-            # A pre-1.0.0 file keeps its default account in a top-level `[cloudflare]` table. It is
-            # folded into the `cloudflare` label here, and NOT left to the migration, because the
-            # model can no longer represent that table while `export_to_toml` rebuilds the whole
-            # file: any command that writes fm_config.toml would drop the credential silently, and
-            # `migrate_services` does not run at all once the infrastructure version is current, so
-            # the loss could never be repaired. Verified on a real host, one ordinary write emptied
-            # it. An existing label wins, since it is the newer spelling, and the next write leaves
-            # only the new shape on disk.
-            #
-            # The whole table is splatted, not just the three named credential fields: a key inside
-            # `[cloudflare]` this reader does not recognise (e.g. a typo'd `api_toekn`) used to be
-            # read by nobody at all -- not counted in `top_level_unknown_keys` above (`cloudflare`
-            # is itself a recognised top-level key), and not passed to `DNSProviderConfig`, whose old
-            # three keyword arguments simply never named it. It is retained the same way a stray inside an
-            # already-migrated `[ssl.dns_providers.<label>]` entry already is: via
-            # `DNSProviderConfig`'s own extra="allow", where `collect_unknown_keys` can see it.
+            # A pre-1.0.0 file keeps its default account in a top-level `[cloudflare]` table,
+            # folded into the `cloudflare` label here rather than left to the migration:
+            # `export_to_toml` rebuilds the whole file, so any write before migration would
+            # silently drop the credential, and `migrate_services` never runs once the
+            # infrastructure version is current -- the loss would be unrecoverable. An existing
+            # label wins, since it is the newer spelling. The whole table is splatted, not just
+            # the three named credential fields, so an unrecognised key (e.g. `api_toekn`) still
+            # survives via `DNSProviderConfig`'s own extra="allow".
             legacy = data.get("cloudflare")
             if isinstance(legacy, dict) and DNS_PROVIDER.cloudflare.value not in dns_providers:
                 legacy_entry = DNSProviderConfig(
@@ -450,37 +430,33 @@ class FMConfigManager(BaseModel):
             if schema_table_name in data:
                 import json
 
-                # `json.loads(json.dumps(...))` is a two-step unwrap: it strips tomlkit's `Item`
-                # wrapper the same way `unwrap_toml_value` does elsewhere, but in one pass over the
-                # whole table rather than key by key, since the table is captured wholesale rather
-                # than splatted into named fields. Captured BEFORE the stray check below, and
-                # completely unfiltered by it: `export_to_toml` writes this dict back verbatim
-                # (see its own `schema` line), so a stray here surviving a save was never
-                # contingent on it being recognised -- only on it staying in this dict.
+                # `json.loads(json.dumps(...))` strips tomlkit's `Item` wrapper in one pass over
+                # the whole table (unlike `unwrap_toml_value`'s key-by-key stripping elsewhere).
+                # Captured unfiltered, before the stray check below: `export_to_toml` writes this
+                # dict back verbatim, so a stray here survives a save regardless of whether it is
+                # "recognised".
                 schema_data = json.loads(json.dumps(data[schema_table_name]))
                 raw_config_data["schema"] = schema_data
 
-                # Same hole `[ssl]` has in bench_config.py: this table is read by hand, not
-                # splatted into a model, so a typo'd key (e.g. `sytem_migrated_to`) parses cleanly
-                # and was previously never looked at again. `collect_unknown_keys` below cannot
-                # find it either -- `_raw_config` is a plain dict, not a `BaseModel`, so it has no
-                # `model_extra` for that walk to reach -- hence the explicit check here, unioned
-                # into the same message below.
+                # Same hole `[ssl]` has in bench_config.py: hand-read, not splatted into a model,
+                # so a typo'd key parses cleanly and `collect_unknown_keys` cannot find it either
+                # -- `_raw_config` is a plain dict, not a `BaseModel`, with no `model_extra` for
+                # that walk to reach. Hence the explicit check here, unioned into the same
+                # message below.
                 if isinstance(schema_data, dict):
                     hand_read_unknown_keys.extend(
                         f"{schema_table_name}.{key}"
                         for key in set(schema_data.keys()) - recognised_global_schema_keys()
                     )
 
-            # THE one place legacy ledger spellings are understood, and memory-only: the ledger
-            # is read (by the gates and the executor's discovery) BEFORE any migration runs, so
-            # a pre-rename file must still read correctly here or a v0.19 host would read 0.0.0
-            # and discovery would re-select the frozen v0.19 migration against it. Disk is cut
-            # over by the write path instead: the first stamp writes `[schema].version` and pops
-            # the old spellings, and the export prune retires the top-level `version` key.
-            # Precedence runs newest to oldest: `migrated_to` (the v1.0.0-cycle ledger key),
-            # `system_migrated_to` (its predecessor), then the top-level `version` (hosts from
-            # before the ledger existed, where it doubled as one).
+            # THE one place legacy ledger spellings are understood, and memory-only: read here
+            # BEFORE any migration runs, so a pre-rename file must still resolve correctly or a
+            # v0.19 host would read 0.0.0 and discovery would re-select the frozen v0.19
+            # migration. Disk is cut over by the write path instead (the first stamp writes
+            # `[schema].version`; the export prune retires the top-level `version` key).
+            # Precedence runs newest to oldest: `migrated_to` (v1.0.0-cycle), `system_migrated_to`
+            # (its predecessor), then top-level `version` (pre-ledger hosts, where it doubled as
+            # one).
             schema = raw_config_data.setdefault("schema", {})
             if isinstance(schema, dict) and not schema.get("version"):
                 legacy_ledger = (

@@ -62,20 +62,16 @@ def reset(
     output = get_global_output_handler()
     bench = Bench.get_object(address, services_manager, output_handler=output)
 
-    # The address is what picks the site: `BENCH/SITE` names one, a bare `BENCH` falls back to the
-    # bench's own site. Everything below reads THIS name, so the site fm warns about, asks about and
-    # refuses over is the same site it reinstalls. The messages used to interpolate the BENCH, which
-    # is a different string the moment a bench serves a site not named after it, and outright
-    # misleading on a bench serving several: it warned about 'shop' while about to drop one schema.
+    # `site` (not the bench name) is what fm warns about, asks about and refuses over below,
+    # matching what it actually reinstalls: on a bench serving several sites, using the bench name
+    # here would misname which schema is about to be dropped.
     named_site = ctx.obj.get("site") if ctx.obj else None
     site = named_site or bench.site_name
 
-    # Ahead of the confirmation and regardless of --yes: asking a question whose only honourable
-    # answer fm cannot carry out wastes the operator's consent. `external_database_config` is the one
-    # place that decision is made, and it is keyed on the SITE being reinstalled rather than on the
-    # bench, so a bench holding one mariadb site and one external site resets the first and refuses
-    # the second. Presence of the entry is the whole switch, exactly as for the schema `fm delete`
-    # declines to drop.
+    # Checked ahead of the confirmation: asking a question fm can't honour wastes the operator's
+    # consent. `external_database_config` is keyed on the SITE being reset, not the bench, so a
+    # bench holding one mariadb site and one external site resets the first and refuses the
+    # second -- the same switch `fm delete` uses to decline dropping a schema it doesn't own.
     external_db = bench.external_database_config(site)
     if external_db is not None:
         output.display_error(

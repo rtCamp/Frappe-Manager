@@ -95,7 +95,6 @@ class UpdatePlan:
 
     bench_name: str
 
-    # -- config targets (None == not changing) --------------------------------
     db_ca: Path | None = None
     db_ca_had_previous: bool = False
     developer_mode: bool | None = None
@@ -115,7 +114,6 @@ class UpdatePlan:
     quiesce_producers: bool = False
     queued_jobs: int = 0
 
-    # -- derived work ---------------------------------------------------------
     regenerate_compose: bool = False
     recreate_services: set[str] = field(default_factory=set)
     recreate_everything: bool = False
@@ -124,7 +122,6 @@ class UpdatePlan:
     restart_workers: bool = False
     kill_timeout: int = 0
 
-    # -- report material -----------------------------------------------------
     changes: list[str] = field(default_factory=list)
     already: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -378,7 +375,6 @@ def plan_update(
     plan = UpdatePlan(bench_name=bench.name)
     config = bench.bench_config
 
-    # -- refusals ------------------------------------------------------------
     if config.runtime == BenchRuntime.image and is_immutable_update_request(
         python_version=python_version, node_version=node_version, developer_mode=developer_mode
     ):
@@ -407,7 +403,7 @@ def plan_update(
     if not bench.running:
         raise BenchNotRunning(bench_name=bench.name)
 
-    # -- version validation, both halves before either is accepted ------------
+    # Both python and node are validated before either is accepted into the plan.
     current_versions: dict = {}
     frappe_python_req: str | None = None
     frappe_node_req: str | None = None
@@ -447,7 +443,6 @@ def plan_update(
                 output.print("Use --skip-version-check to bypass this validation (not recommended)")
                 raise typer.Exit(code=1)
 
-    # -- accepted work -------------------------------------------------------
     if db_ca is not None:
         assert database_config is not None
         plan.db_ca = db_ca
@@ -523,11 +518,9 @@ def plan_update(
     elif node_version:
         plan.already.append(f"node is already '{node_version}'")
 
-    # `--recreate-python-env` on its own, with no version change, is the explicit venv rebuild.
-    # It used to be reachable only as a side effect of re-passing the version the bench already
-    # had, which cost ~2 minutes and an undrained worker restart to discover; now that an
-    # unchanged version is a no-op, the rebuild needs a name of its own -- and this flag already
-    # meant "rebuild the venv", so it gets the standalone meaning rather than a new flag.
+    # With no version change, `--recreate-python-env` alone means "rebuild the venv standalone" --
+    # it already meant "rebuild the venv" for the version-change case, so it gets the standalone
+    # meaning too rather than a new flag.
     version_changed = bool(plan.python_version or plan.node_version)
     rebuild_only = recreate_python_env is True and not version_changed
 

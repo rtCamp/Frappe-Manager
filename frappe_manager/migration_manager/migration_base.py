@@ -226,13 +226,11 @@ class MigrationBase(ABC):
         bench_common_site_config = host_bench_dir(bench.path) / "sites" / COMMON_SITE_CONFIG_FILE
         self.backup_manager.backup(bench_common_site_config, bench_name=bench.name)
 
-        # Every recorded site, not just one named after the bench. A migration that backed up one
-        # site left every other site of a multi-site bench with no way back, and on a bench whose
-        # site is not named after it (`shop` serving `shop.localhost`) it read
-        # `sites/shop/site_config.json`, found nothing, and `DatabaseServerServiceInfo` raised a
-        # ValidationError with no `name` or `user` to build from: the migration aborted before
-        # backing up anything at all. `raise_exception=False` never covered that, because it only
-        # guards the password check further down.
+        # Every recorded site, not just the one named after the bench: a multi-site bench
+        # (e.g. `shop` serving `shop.localhost`) has no `sites/shop/site_config.json`, and
+        # `DatabaseServerServiceInfo` would raise ValidationError there even with
+        # `raise_exception=False` (which only guards the password check further down),
+        # aborting the migration before any site got backed up.
         for site in bench.site_names:
             site_config = host_bench_dir(bench.path) / "sites" / site / "site_config.json"
             if not site_config.is_file():
@@ -392,10 +390,9 @@ class MigrationBase(ABC):
         db_sql_file_name = f"db-{site}-{formatted_date}.sql"
 
         # Handed across the container boundary through the one directory BOTH runtimes mount.
-        # This used to be `/workspace/.cache`, which only exists on the host when the whole
-        # workspace is bind-mounted, i.e. mount runtime. On an image bench the dump was written
-        # into the container's own filesystem, the host then looked for a file that was never
-        # there, and the migration aborted reporting a DB export failure.
+        # Not `/workspace/.cache`: that only exists on the host when the whole workspace is
+        # bind-mounted (mount runtime) -- on an image bench nothing reaches the host and the
+        # migration aborts reporting a DB export failure.
         container_db_sql_file_path, transit_rel = container_transit_path(db_sql_file_name)
         host_db_sql_file_path: Path = bench.path / "workspace" / transit_rel
 

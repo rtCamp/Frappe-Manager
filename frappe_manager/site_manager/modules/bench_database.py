@@ -93,14 +93,12 @@ class BenchDatabase:
             db_name = bench_db_info["name"]
             db_user = bench_db_info["user"]
 
-            # Remove database
             if not manager.check_db_exists(db_name):
                 self.output.warning(f"{engine.value}: Bench db [fm.info]{db_name}[/fm.info] not found. Skipping..")
             else:
                 manager.remove_db(db_name)
                 self.output.print(f"{engine.value}: Removed bench db [fm.info]{db_name}[/fm.info]")
 
-            # Remove user
             if not manager.check_user_exists(db_user):
                 self.output.warning(f"{engine.value}: Bench db user [fm.info]{db_user}[/fm.info] not found. Skipping..")
             else:

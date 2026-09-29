@@ -184,8 +184,9 @@ def restart(
                 exception=typer.Exit(code=1),
             )
 
-    # Nothing selected is a usage error, not a successful no-op: it used to restart nothing, skip the
-    # server health check and exit 0. --service replaces the group flags, so it is exempt.
+    # Nothing selected is a usage error, not a successful no-op: an empty selection would
+    # otherwise silently skip the server health check and exit 0. --service replaces the group
+    # flags, so it is exempt.
     if not service and not (web or workers or redis or nginx):
         output.error(
             "--no-web with --no-workers leaves nothing to restart: add --redis or --nginx, "
@@ -213,11 +214,8 @@ def restart(
 
     # `fm restart` bounces what is RUNNING; starting a bench is `fm start`, which also reconciles
     # the bench nginx conf and the global proxy entry that a bounce deliberately leaves alone.
-    # `--recreate` used to be offered as a restart-and-start route here and could not honour it:
-    # a restart only ever addresses the services in scope, so it brought web and workers up and
-    # left nginx, redis and the admin tools stopped, then reported the bench healthy because the
-    # check asks the app rather than the proxy. `systemctl try-restart` answers this the same way:
-    # something deliberately stopped is not resurrected by a restart.
+    # `systemctl try-restart` answers this the same way: something deliberately stopped is not
+    # resurrected by a restart.
     if not bench.running:
         output.error(
             f"Bench '{benchname}' is not fully running, and restart only bounces what is: "

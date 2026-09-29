@@ -15,7 +15,7 @@ from frappe_manager.ssl_manager import DNS_PROVIDER
 class DNSProviderConfig(BaseModel):
     """A labelled set of DNS provider credentials for the DNS-01 challenge."""
 
-    # extra="allow", not "forbid": same reasoning as SSLCertificate (certificate.py:19-23) -- an
+    # extra="allow", not "forbid": same reasoning as SSLCertificate (certificate.py) -- an
     # unknown key is retained and reported by the collector with its dotted path instead of
     # raising, since a read path that raises here takes down every command that skips the
     # migration gate.

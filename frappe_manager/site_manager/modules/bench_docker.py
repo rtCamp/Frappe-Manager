@@ -125,9 +125,8 @@ class BenchDockerOps:
             # is handled via extra_hosts (pointing to the global proxy).
             # The proxy discovers domains via VIRTUAL_HOST env var, not network aliases.
 
-            # Add extra_hosts for the primary domain and alias domains pointing to the
-            # global nginx proxy. The proxy IP is read live from Docker so it's always
-            # correct even if the proxy was recreated after a restart.
+            # The proxy IP is read live from Docker, not cached, so it's still correct if the proxy was
+            # recreated after a restart.
             proxy_ip = get_proxy_ip_on_frontend()
 
             if proxy_ip:
@@ -188,13 +187,11 @@ class BenchDockerOps:
                     # this block just popped.
                     self.compose_file_manager.set_envs(svc, envs, append=False)
 
-            # The container-name prefix is BENCH-scoped, so it comes from the bench name and not from
-            # `network_aliases[0]`. Those were the same string while the aliases list started at
-            # `self.config.name`; once it became `self.config.domains` the first entry turned into the
-            # primary SITE's domain, and a bench named `shop` serving `shop.localhost` would have
-            # written its compose as `fm__shop_localhost` while the leftover-container cleanup
-            # (site.py), admin tools, the database config and the workers compose all still say
-            # `fm__shop`.
+            # BENCH-scoped, so it comes from the bench name, not `network_aliases[0]` -- that list's first
+            # entry is the primary SITE's domain now that it's built from `self.config.domains`, and using
+            # it here would put this prefix out of step with the leftover-container cleanup (site.py),
+            # admin tools, database config and workers compose, which all still derive it from the bench
+            # name.
             self.compose_file_manager.configure_bench(
                 prefix=get_container_name_prefix(self.config.name),
                 version=get_current_fm_version(),
@@ -205,18 +202,13 @@ class BenchDockerOps:
                 auto_save=False,
             )
 
-            # A disabled NewRelic must not leave its license key behind. `configure_bench` above
-            # merges envs (`append=True`), so a key the exporter stops emitting is retained, not
-            # dropped -- and this one is a credential. Popped explicitly and written back with
-            # `append=False`, the same pop-then-replace the CA trust block uses above and for the
-            # same reason. NEWRELIC_ENABLED itself is not popped: the exporter sets it to an
-            # explicit "false", which is what fm-web-server.sh tests at boot, so the wrapper takes
-            # the plain-gunicorn branch even on a container recreated from an older file.
-            #
-            # Read from the MERGED compose env rather than from bench_config: this must reflect
-            # what the file will actually say, and a caller handing in partial inputs (no frappe
-            # env at all) then keeps the enabled key that is already on disk instead of having it
-            # stripped out from under a bench whose agent is still on.
+            # A disabled NewRelic must not leave its license key behind: `configure_bench` above merges
+            # envs (append=True), so a key the exporter stops emitting is retained, not dropped -- and
+            # this one is a credential. Popped explicitly and written back with append=False, same as the
+            # CA trust block above. NEWRELIC_ENABLED itself stays: fm-web-server.sh tests it at boot for
+            # the plain-gunicorn branch, even on a container recreated from an older file. Read from the
+            # MERGED compose env, not bench_config, so a caller handing in partial inputs sees what the
+            # file will actually say.
             frappe_envs = dict(self.compose_file_manager.get_envs("frappe") or {})
             if (
                 frappe_envs.get("NEWRELIC_ENABLED") != "true"
@@ -224,22 +216,17 @@ class BenchDockerOps:
             ):
                 self.compose_file_manager.set_envs("frappe", frappe_envs, append=False)
 
-            # CLIENT_MAX_BODY_SIZE is retired (see the exporter): nothing ever read it, and a
-            # stale copy of the upload limit sitting in the nginx service read like the enforcing
-            # layer. The exporter no longer emits it, and the merge above would therefore KEEP it
-            # forever on every bench that already has one, so it is popped here -- once, on the
-            # next regen of each bench.
+            # CLIENT_MAX_BODY_SIZE is retired: nothing reads it anymore, but the merge above (append=True)
+            # would otherwise keep a stale copy forever on every bench that already has one, so it's
+            # popped here once, on the next regen.
             nginx_envs = dict(self.compose_file_manager.get_envs("nginx") or {})
             if nginx_envs.pop("CLIENT_MAX_BODY_SIZE", None) is not None:
                 self.compose_file_manager.set_envs("nginx", nginx_envs, append=False)
 
-            # `docker-compose.tmpl` bakes this alias into the nginx service, same as `frappe-site` and
-            # `socketio-site` -- but ONLY a bench built fresh from the template gets it that way. This
-            # compose file is loaded from disk and mutated in place on every later regen (see the CA
-            # mount comment above), never re-rendered from the template, so a bench that already
-            # existed before this alias was introduced would otherwise carry it forever. Set
-            # unconditionally, every regen: `set_network_alias` overwrites the same value on a bench
-            # that already has it, so this is a no-op write there, not a growing list.
+            # Set unconditionally on every regen, not just once: this compose file is mutated in place,
+            # never re-rendered from the template (see the CA mount comment above), so a bench that
+            # existed before this alias was introduced would otherwise never get it. `set_network_alias`
+            # is idempotent, so this is a no-op write on a bench that already has it, not a growing list.
             self.compose_file_manager.set_network_alias("nginx", "site-network", ["nginx-site"])
 
             restart_policy = inputs.get("restart_policy", "no")
@@ -376,14 +363,11 @@ class BenchDockerOps:
         nginx_dir = configs_path / "nginx"
         nginx_dir.mkdir(parents=True, exist_ok=True)
 
-        # The bind mount replaces /etc/nginx wholesale, so the image's base config has to be on
-        # the host or nginx has nothing to read and dies with `nginx.conf` not found. This used to
-        # be guarded on `conf/` not existing, which broke the moment anything else wrote into that
-        # directory first: `ensure_fm_nginx_confs` lays down `conf/custom/real-ip.conf` during
-        # `generate_compose`, which runs BEFORE this, so the directory existed, the copy was
-        # skipped, and every new bench came up with a dead web server. Guard on the marker file
-        # rather than the directory, so the seeding is independent of who got there first, and a
-        # bench already broken this way repairs itself on the next run.
+        # The bind mount replaces /etc/nginx wholesale, so the image's base config must be seeded onto
+        # the host or nginx has nothing to read. Guarded on the marker file (nginx.conf itself), not on
+        # `conf/` existing: `ensure_fm_nginx_confs` (generate_compose) already writes `conf/custom/
+        # real-ip.conf` before this runs, so a directory-existence guard always skips seeding and every
+        # bench ships with a dead web server.
         nginx_image = self.compose_file_manager.yml["services"]["nginx"]["image"]
         nginx_conf_dir = nginx_dir / "conf"
 
@@ -396,7 +380,6 @@ class BenchDockerOps:
             new_dir = nginx_dir / directory
             new_dir.mkdir(parents=True, exist_ok=True)
 
-        # Copy prebaked Python and Node from Docker image to host workspace.
         # Skipped in image mode: .uv/.fnm live in the app image (data-only binds).
         if copy_runtimes:
             frappe_image = self.compose_file_manager.yml["services"]["frappe"]["image"]

@@ -238,7 +238,6 @@ def delete(
 
     schemas = _site_schemas(bench_service, address)
 
-    # Plan first, always -- the ceremony below asks the operator to acknowledge THIS.
     _print_deletion_plan(output, address, schemas)
     if dry_run:
         output.print("Dry run: nothing deleted.", emoji_code="")
@@ -253,10 +252,8 @@ def delete(
 
     confirmed = False
     if not yes:
-        # Every whole-bench deletion gets the typed-name ceremony, single-site included:
-        # a y/N cannot catch the wrong-bench / wrong-terminal accident.
         _confirm_bench_name(output, address)
-        # The name has just been typed. `remove_bench`'s own yes/no would be a second question
+        # The name has just been typed. `delete_bench`'s own yes/no would be a second question
         # about the same decision, so it is skipped exactly as --yes skips it.
         confirmed = True
 

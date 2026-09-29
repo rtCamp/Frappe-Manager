@@ -126,8 +126,6 @@ class MigrationOrchestrator:
             ServicesException,
         )
 
-        # Failures that mean "the services stack itself is unhealthy, unreachable or
-        # unreadable". These are operator-actionable, so they warn and let migration continue.
         tolerated_service_failures = (
             DockerException,  # every compose call (pull/up/ps): daemon down, image missing, port clash
             ServicesException,  # base of ServicesNotCreated, raised by entrypoint_checks/create

@@ -158,11 +158,8 @@ class ConsoleLogFilter(logging.Filter):
         cmd = cmd_line.replace("COMMAND: ", "")
 
         simplifications = [
-            # Docker compose exec commands - show only the actual command
             (r"docker compose -f [^\s]+ exec (?:--user \w+ )?(?:--workdir [^\s]+ )?(\w+) (.+)", r"[\1] \2"),
-            # Docker compose up/down/ps - show operation and service
             (r"docker compose -f [^\s]+ (up|down|ps|start|stop|restart) (.+)", r"compose \1 \2"),
-            # Docker commands - show just the operation
             (r"docker (\w+) (.+)", r"docker \1 ..."),
         ]
 
@@ -337,10 +334,8 @@ def get_logger(
 
         loggers[log_file_name] = logger
 
-    # Add or update console handler only if:
-    # 1. Logger is being created for the first time (not logger_exists), OR
-    # 2. console_level is explicitly provided (not None)
-    # This prevents removing the console handler when business logic calls get_logger() without parameters
+    # Only touches the console handler on first creation or an explicit console_level, so a
+    # bare get_logger() call elsewhere never strips a handler set up earlier.
     if logger and (not logger_exists or console_level is not None):
         _update_console_handler(logger, console_level)
 

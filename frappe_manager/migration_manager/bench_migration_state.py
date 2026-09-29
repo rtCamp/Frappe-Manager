@@ -74,14 +74,10 @@ def set_bench_migration_version(bench_path: Path, version: Version) -> None:
     version_str = str(version.version)
     last_migration_date = datetime.now().isoformat()
     if config.schema_state is not None:
-        # Mutate the loaded instance rather than rebuilding it: SchemaState is extra="allow", so a
-        # stray key already retained inside [schema] only survives this call if it stays on
-        # the SAME instance import_from_toml returned. A fresh SchemaState(version=...,
-        # last_migration_date=...) here would construct without the stray kwarg and silently drop it
-        # on every migration -- the one command whose job is to fix an out-of-date file would destroy
-        # the evidence of an unrecognised key while doing so. SchemaState's only validator is a
-        # `mode="before"` one that runs on construction, not on plain attribute assignment
-        # (`validate_assignment` is not enabled), and the model is not frozen, so this is safe.
+        # Mutate the loaded instance, don't rebuild it: SchemaState is extra="allow", so a stray
+        # key in [schema] only survives if it stays on the SAME instance import_from_toml
+        # returned. A fresh SchemaState(version=..., last_migration_date=...) would construct
+        # without the stray kwarg and silently drop it on every migration.
         config.schema_state.version = version_str
         config.schema_state.last_migration_date = last_migration_date
     else:

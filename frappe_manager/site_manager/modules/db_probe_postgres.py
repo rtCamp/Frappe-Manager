@@ -42,14 +42,12 @@ from frappe_manager.site_manager.modules.db_probe import (
 PSQL_CLIENT = "/usr/bin/psql"
 DEFAULT_CONNECT_TIMEOUT = 10
 
-# Frappe's Postgres support lands in 12 and its schema module uses `GENERATED ... AS IDENTITY`
-# and `ON CONFLICT`, both of which predate it comfortably. The floor is about what Frappe tests
-# against rather than about syntax.
+# Frappe's Postgres support lands in 12; its schema module uses `GENERATED ... AS IDENTITY` and
+# `ON CONFLICT`, both of which predate 12 comfortably -- the floor is about what Frappe tests against, not syntax.
 MIN_SERVER_VERSION = (12, 0)
 
 # Postgres reports one encoding per database and Frappe requires UTF8; there is no per-connection
-# character-set negotiation to check, which is why this has no collation twin like the MariaDB
-# probe's `utf8mb4_unicode_ci`.
+# character-set negotiation to check, which is why this has no collation twin like the MariaDB probe's `utf8mb4_unicode_ci`.
 WANTED_ENCODING = "UTF8"
 
 CHECK_SERVER_IS_POSTGRES = "server_is_postgres"

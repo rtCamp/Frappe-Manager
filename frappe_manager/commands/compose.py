@@ -105,9 +105,8 @@ def compose(
     """
     args = list(ctx.args)
     if _bench_omitted_by_double_dash():
-        # The bound value is the FIRST docker compose argument, not a bench (see the helpers
-        # above); the bench comes from the same resolution every bench command uses when the
-        # name is omitted: CWD fallback, then the interactive picker.
+        # The bound value is the FIRST docker compose argument, not a bench (see the helpers above);
+        # the bench comes from the same resolution used when the name is omitted: CWD, then the picker.
         if benchname is not None:
             args.insert(0, benchname)
         benchname = sitename_callback(None)
@@ -115,10 +114,8 @@ def compose(
     bench_path = CLI_BENCHES_DIRECTORY / str(benchname)
     output = get_global_output_handler()
 
-    # Order matters: docker merges later -f files over earlier ones. Glob-sorted order puts
-    # docker-compose.yml LAST, so the base would override docker-compose.override.yml -- the
-    # inverse of DockerComposeWrapper's contract ("appended after the base so the override
-    # wins"). Base first, the fm-generated extras next, the user's override last.
+    # Docker merges later -f files over earlier ones; naive glob-sort would put docker-compose.yml
+    # LAST, inverting DockerComposeWrapper's "override wins" contract. Base first, extras next, override last.
     compose_files = sorted(
         bench_path.glob("docker-compose*.yml"),
         key=lambda p: (4 if p.name == "docker-compose.override.yml" else _COMPOSE_ORDER.get(p.name, 3), p.name),

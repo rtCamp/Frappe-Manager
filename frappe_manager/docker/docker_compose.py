@@ -88,11 +88,9 @@ def docker_command(
                     return result
                 logger.debug("[docker_command] Returning raw iterator (explicit stream=True)")
                 return iterator
-            # `capture_output` is a transport flag, not a compose option (it sits in every
-            # exclude list), so the decorator must hand it to the runner explicitly:
-            # dropping it piped an interactive `exec` shell's stdio into a buffer that is
-            # discarded when the shell exits, leaving the operator with a blank terminal.
-            # Only methods that declare the parameter forward it.
+            # `capture_output` is a transport flag excluded from CLI options, so the decorator
+            # must forward it explicitly: dropping it piped an interactive `exec` shell's stdio
+            # into a buffer discarded on exit, leaving the operator with a blank terminal.
             if "capture_output" in parameters:
                 return run_command_with_exit_code(full_cmd, stream=False, capture_output=parameters["capture_output"])
             return run_command_with_exit_code(full_cmd, stream=False)
@@ -132,7 +130,6 @@ def _build_cp_cmd(
     return cp_cmd
 
 
-# Docker Compose version 2.18.1
 class DockerComposeWrapper:
     """
     This class provides one to one mapping between docker compose cli each function.
@@ -221,7 +218,6 @@ class DockerComposeWrapper:
         - Converts remaining parameters to CLI options
         - Executes the docker compose up command
         """
-        # Implementation handled by decorator
 
     @overload
     def down(
@@ -566,7 +562,6 @@ class DockerComposeWrapper:
 
         Implementation handled by @docker_command decorator.
         """
-        # Implementation handled by decorator
 
     @docker_command(subcommand="run", use_original_implementation=True)
     def run(
@@ -581,8 +576,8 @@ class DockerComposeWrapper:
         env: None | list[str] = None,
         use_shlex_split: bool = True,
         stream: bool | None = None,
-        # Appended last so no positional caller shifts. `docker compose run` takes
-        # --workdir exactly like `exec` does; parameters_to_options emits it.
+        # Appended last so no positional caller shifts; `docker compose run` takes --workdir
+        # exactly like `exec` does.
         workdir: str | None = None,
     ) -> Iterable[tuple[str, bytes]] | SubprocessOutput:
         parameters: dict = locals()
@@ -592,9 +587,9 @@ class DockerComposeWrapper:
 
         run_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
-        # One --env per KEY=VALUE, before the service name, exactly as exec does.
-        # An --env value is visible in the container's process listing, so nothing
-        # secret travels this way: fm sends MYSQL_HOME, which is a path.
+        # One --env per KEY=VALUE, before the service name, exactly as exec does. Visible in the
+        # container's process listing, so nothing secret travels this way: fm sends MYSQL_HOME,
+        # which is a path.
         if type(env) == list:
             for i in env:
                 run_cmd += ["--env", i]
@@ -624,7 +619,6 @@ class DockerComposeWrapper:
             source, destination, source_container, destination_container, archive, follow_link
         )
 
-    # ==================== NEW: Convenience Methods ====================
 
     def is_service_running(self, service: str) -> bool:
         """

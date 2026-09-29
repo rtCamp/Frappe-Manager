@@ -208,7 +208,6 @@ class AppCloner:
                 if actual_app_name != app.name:
                     final_app_path = self.apps_dir / actual_app_name
                     if final_app_path.exists():
-                        # Target already exists - should not happen, but handle it
                         self.logger.warning(
                             f"App directory {actual_app_name} already exists. Using subdirectory name instead.",
                         )
@@ -284,7 +283,6 @@ class AppCloner:
                 if actual_app_name != app.name:
                     final_path = self.apps_dir / actual_app_name
                     if final_path.exists():
-                        # Target already exists - should not happen, but handle it
                         self.logger.warning(f"App directory {actual_app_name} already exists. Using repo name instead.")
                         actual_app_name = app.name
                         final_path = clone_path

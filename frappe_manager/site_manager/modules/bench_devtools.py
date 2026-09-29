@@ -126,8 +126,7 @@ class BenchDevTools:
         try:
             self.docker_client.compose.exec("frappe", command=install_command, user="frappe", stream=False)
         except DockerException as e:
-            # Install-specific: reporting a failed install as a failed REMOVAL sends the user
-            # looking for the wrong problem.
+            # Install-specific: reporting a failed install as a failed REMOVAL sends the user looking for the wrong problem.
             raise BenchFailedToInstallDevPackages(
                 self.bench_name,
                 _pip_failure_message("Not able pip install dev packages.", e),
@@ -171,8 +170,7 @@ class BenchDevTools:
         vscode_path = shutil.which("code")
         if not vscode_path:
             self.output.display_error("Visual Studio Code binary i.e 'code' is not accessible via cli")
-            # Terminal: without this the attach fell through to `_build_vscode_command`, which
-            # aborted on its assert and reported the same failure a second time.
+            # Terminal: without this the attach fell through to `_build_vscode_command`, which aborted on its assert and reported the same failure twice.
             raise typer.Exit(1)
 
     def _get_frappe_container_name(self) -> str:

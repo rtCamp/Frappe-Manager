@@ -399,15 +399,10 @@ class MigrationV100(MigrationBase):
                 break
 
         # Only the FILE this migration placed, never the directory: docker resolves that
-        # directory as a bind-mount SOURCE to an inode when the adminer container starts
-        # (docker-compose.admin-tools.tmpl) and keeps that inode for its whole life. rmtree-ing
-        # it here, while a real container may still be running against it, strands that inode --
-        # the container keeps serving a directory that no longer exists on disk, the login
-        # plugin vanishes from its view, and Adminer falls back to its stock form with nothing to
-        # warn the operator. That is exactly what a rolled-back `--rerun` did to a live bench.
-        # The directory itself belongs to `BenchAdminTools`, not to this migration step, so there
-        # is nothing here that needs a docker call, and nothing that can fail because docker is
-        # unreachable.
+        # directory to an inode when the adminer container starts (docker-compose.admin-tools.tmpl)
+        # and keeps that inode for the container's whole life, so rmtree-ing it while a container
+        # is still running strands the inode and silently drops the login plugin. The directory
+        # itself belongs to `BenchAdminTools`, not this migration step.
         adminer_plugin = bench.path / "configs" / "adminer" / "000-fm-login.php"
         adminer_plugin.unlink(missing_ok=True)
 
@@ -474,7 +469,6 @@ class MigrationV100(MigrationBase):
 
         adminer["volumes"] = ADMINER_VOLUMES
 
-        # Update x-version to current version (plain semver — no ``v`` prefix)
         compose_data["x-version"] = str(self.version)
 
         with compose_path.open("w") as f:
@@ -791,15 +785,11 @@ class MigrationV100(MigrationBase):
                     moved.append(site_name)
             del doc["database"]
 
-        # The bench's own site. NOT unconditionally `bench.name`: since 1.0.0 a bench `shop` serves
-        # `shop.localhost`, so seeding the bench's name onto a bench that ALREADY records its sites
-        # added a second entry with no directory behind it, and every caller that iterates `[sites]`
-        # then looked for a `site_config.json` that was never there -- `fm switch` died on one
-        # mid-deploy, after maintenance mode was already up.
-        #
-        # So seeding is for the shape this step was written for: no `[sites]` table at all, where
-        # the bench name IS the site name because that is what the bench was created under. A table
-        # that exists is the record, and nothing is added to it.
+        # NOT unconditionally `bench.name`: since 1.0.0 a bench `shop` serves `shop.localhost`, so
+        # seeding the bench's name when `[sites]` already has entries would add a phantom with no
+        # directory behind it. Seeding only applies where there is no `[sites]` table at all, where
+        # the bench name IS the site name; a table that already exists is the record already, and
+        # nothing more is added to it.
         on_disk = read_sites_on_disk(bench.path)
         if sites:
             primary_name = resolve_primary_site(bench.name, {name: {} for name in sites}, on_disk=on_disk)
@@ -816,12 +806,10 @@ class MigrationV100(MigrationBase):
         created = bool(primary_name) and primary_name not in sites
         primary = site_entry(primary_name) if primary_name else None
 
-        # `alias_domains` was bench-level, so it had no site to belong to and the routing table had
-        # to send every alias to the primary site. The bench's own site IS that primary, so moving
-        # the list there preserves exactly the routing the bench had, with the attribution now
-        # recorded instead of inferred. With no resolvable primary the key STAYS: dropping it would
-        # lose the routing with nowhere to put it, and the loader builds its input explicitly, so a
-        # leftover top-level key is inert rather than fatal.
+        # `alias_domains` was bench-level; moving it under the primary site preserves the same
+        # routing with real attribution instead of inference. With no resolvable primary the key
+        # STAYS on purpose: dropping it would lose the routing with nowhere to put it, and the
+        # loader builds its input explicitly, so a leftover top-level key is inert rather than fatal.
         aliases = doc.get("alias_domains")
         moved_aliases = False
         if isinstance(aliases, MutableSequence) and primary is not None:
@@ -967,8 +955,7 @@ class MigrationV100(MigrationBase):
             return
 
         # `site_names` falls back to the bench's own name, so this is never empty and
-        # `resolve_primary_site` therefore answers with a recorded site or with None. There is no
-        # third case to guard against: an earlier `resolved not in sites` arm here was unreachable.
+        # `resolve_primary_site` always answers with either a recorded site or `None`.
         sites = {name: {} for name in bench.site_names}
         resolved = resolve_primary_site(bench.name, sites)
         if not resolved:
@@ -1551,17 +1538,13 @@ class MigrationV100(MigrationBase):
             output_handler=self.output,
         )
 
-        # Additive v0.21+ amendment, default behavior unchanged: --skip-backup /
-        # --skip-db-backup on `fm services migrate` skips this dump. It exists because a
-        # host whose data is too large to dump was otherwise unable to upgrade at all --
-        # but the dump is the ONLY route back from the one-way datadir upgrade, so the
-        # skip is loud about what it costs. This dump is also the one engine-scale backup
-        # that bypasses the shared chokepoints (BackupManager.backup, bench_db_backup),
-        # hence the local guard. CONVENTION for future engine-scale migrations: fm owns
-        # the datadir and stops the engine anyway, so take a PHYSICAL datadir snapshot
-        # through a shared MigrationBase helper (build it with its first caller) instead
-        # of a logical dump - bit-perfect rollback, an order of magnitude faster, and the
-        # kind policy reaches it centrally.
+        # --skip-backup / --skip-db-backup on `fm services migrate` skips this dump: it exists so a
+        # host whose data is too large to dump can still upgrade, but the dump is the ONLY route back
+        # from the one-way datadir upgrade, so skipping it is loud about the cost. It also bypasses the
+        # shared backup chokepoints (BackupManager.backup, bench_db_backup), hence the local guard.
+        # For future engine-scale migrations: prefer a PHYSICAL datadir snapshot via a shared
+        # MigrationBase helper over a logical dump like this one -- bit-perfect, an order of magnitude
+        # faster, and reachable by the skip policy centrally.
         skip_dump = bool(self.migration_executor) and (
             self.migration_executor.skip_backup or self.migration_executor.skip_db_backup
         )
@@ -1615,9 +1598,9 @@ class MigrationV100(MigrationBase):
 
         container_dump_path = CONTAINER_TMP / dump_name
         host_dump_path = self.backup_manager.backup_dir / dump_name
-        # Additive guard, not a behavior change: the session dir used to be created eagerly
-        # by BackupManager's constructor; it is lazy now, and this dump writes into the dir
-        # directly rather than through backup() (which mkdirs its own dest parent).
+        # `backup_dir` is created lazily, not eagerly by BackupManager's constructor, and this dump
+        # writes directly into it rather than through backup() (which mkdirs its own dest parent) --
+        # so the mkdir here is required, not redundant.
         host_dump_path.parent.mkdir(parents=True, exist_ok=True)
 
         with spinner(self.output, "Backing up every database before the engine upgrade"):  # type: ignore[arg-type]
@@ -1684,10 +1667,9 @@ class MigrationV100(MigrationBase):
 
         self.output.print("Renaming the global services to their engine names (mariadb, nginx-proxy)")
 
-        # Daemon truth for the subnets, captured while the old networks still exist. The
-        # compose file cannot be trusted for this on a legacy install: it marks the
-        # networks `external`, and compose IGNORES ipam on an external network, so that
-        # block was free to rot while the daemon's allocation moved on.
+        # Daemon truth for the subnets, captured while the old networks still exist: the compose
+        # file cannot be trusted here on a legacy install, since it marks the networks `external`
+        # and compose IGNORES ipam on an external network, so that block was free to rot.
         self._old_subnets = {
             new_key: self._daemon_subnet(old_name) for new_key, old_name in NEW_KEY_TO_OLD_NETWORK.items()
         }
@@ -1943,8 +1925,7 @@ class MigrationV100(MigrationBase):
 
         toml_document.save(config_path, doc)
         # `\[` is required: `output.print` interprets rich markup, and `[telemetry.newrelic]` is
-        # shaped exactly like a style tag, so an unescaped one renders as NOTHING -- this line
-        # printed "Moved audit's NewRelic settings to " on a real bench before the escape.
+        # shaped exactly like a style tag, so an unescaped one renders as nothing.
         self.output.print(f"Moved {bench.name}'s NewRelic settings to \\[telemetry.newrelic]")
         return True
 

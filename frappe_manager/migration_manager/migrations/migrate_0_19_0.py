@@ -100,7 +100,6 @@ class MigrationV0190(MigrationBase):
                 self.backup_manager.backup(conf_file, bench_name=bench.name)
                 self.output.print(f"Backed up {conf_file.name}")
 
-        # Backup nginx default.conf — gets modified during migration
         nginx_default_conf = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
         if nginx_default_conf.exists():
             self.backup_manager.backup(nginx_default_conf, bench_name=bench.name)
@@ -176,17 +175,12 @@ class MigrationV0190(MigrationBase):
             if workers_compose_path.exists():
                 self._migrate_workers_compose_yml(bench, workers_compose_path)
 
-            # Pull images only when at least one image tag was actually changed
-            # (tracked by _update_service_images via _images_updated flag).
-            # This avoids failures on transient registry/network issues when
-            # images are already correct.
+            # Pull only when an image tag changed (_images_updated) — avoids failing on transient registry/network errors when images already match.
             if self._images_updated:
                 self._pull_bench_images(bench)
 
             self._cleanup_admin_tools_nginx_config(bench)
 
-            # Apply upload limit configuration across all locations
-            # Resolve upload limit: prefer existing site_config.json max_file_size, then bench_config, then default
             upload_limit = self._resolve_upload_limit(bench)
             self._write_upload_limit_vhostd(bench, upload_limit)
             self._write_upload_limit_site_config(bench, upload_limit)
@@ -297,11 +291,7 @@ class MigrationV0190(MigrationBase):
 
             restart_policy = self._read_restart_policy(bench)
 
-            # Resolve upload limit using the same source-of-truth logic that
-            # _resolve_upload_limit uses (prefers site_config.json max_file_size
-            # over bench_config.toml, then defaults to "50M").  This keeps
-            # CLIENT_MAX_BODY_SIZE in the compose env consistent with what
-            # upload-limit.conf and vhost.d will eventually contain.
+            # Same source-of-truth logic as _resolve_upload_limit, so CLIENT_MAX_BODY_SIZE here stays consistent with upload-limit.conf and vhost.d.
             upload_limit = self._resolve_upload_limit(bench)
 
             self._transform_nginx_environment(services, upload_limit)
@@ -373,7 +363,6 @@ class MigrationV0190(MigrationBase):
             else:
                 new_env.append(env_var)
 
-        # Add HTTPS_METHOD and CLIENT_MAX_BODY_SIZE if not already present
         existing_keys = {env.split("=", 1)[0] for env in new_env if isinstance(env, str) and "=" in env}
         if "HTTPS_METHOD" not in existing_keys:
             new_env.append("HTTPS_METHOD=noredirect")
@@ -407,13 +396,11 @@ class MigrationV0190(MigrationBase):
                 site_config = json.loads(site_config_path.read_text())
                 max_file_size = site_config.get("max_file_size")
                 if max_file_size:
-                    # Convert bytes back to human-readable string
                     if max_file_size >= 1024 * 1024 * 1024 and max_file_size % (1024 * 1024 * 1024) == 0:
                         resolved = f"{max_file_size // (1024 * 1024 * 1024)}G"
                     elif max_file_size >= 1024 * 1024 and max_file_size % (1024 * 1024) == 0:
                         resolved = f"{max_file_size // (1024 * 1024)}M"
                     else:
-                        # Round to nearest MB
                         resolved = f"{round(max_file_size / (1024 * 1024))}M"
                     self.output.print(
                         f"Using existing site_config.json max_file_size: {resolved} ({max_file_size} bytes)"
@@ -437,7 +424,6 @@ class MigrationV0190(MigrationBase):
         """Write nginx-proxy vhost.d files for upload limit."""
         from frappe_manager.site_manager.modules.upload_limit_manager import UploadLimitManager
 
-        # Global nginx-proxy vhostd directory
         vhostd_dir = bench.path.parent.parent / "services" / "nginx-proxy" / "vhostd"
 
         if not vhostd_dir.exists():
@@ -446,7 +432,6 @@ class MigrationV0190(MigrationBase):
 
         domains = [bench.name]
 
-        # Also include alias_domains if available
         bench_config_path = bench.path / "bench_config.toml"
         if bench_config_path.exists():
             config = tomlkit.parse(bench_config_path.read_text())
@@ -454,7 +439,6 @@ class MigrationV0190(MigrationBase):
             if alias_domains:
                 domains.extend(alias_domains)
 
-        # Backup existing vhost.d files before modifying (for rollback support)
         for domain in domains:
             vhost_file = vhostd_dir / domain
             if vhost_file.exists():
@@ -474,7 +458,6 @@ class MigrationV0190(MigrationBase):
 
         try:
             site_config = json.loads(site_config_path.read_text())
-            # Respect previously configured max_file_size — only set if missing
             if "max_file_size" in site_config:
                 self.output.print(
                     f"site_config.json max_file_size already set ({site_config['max_file_size']}), skipping"
@@ -505,7 +488,6 @@ class MigrationV0190(MigrationBase):
 
         upload_limit_conf = custom_conf_dir / "upload-limit.conf"
 
-        # Track whether this is a new file vs pre-existing before we write
         was_pre_existing = upload_limit_conf.exists()
 
         if was_pre_existing:
@@ -514,15 +496,11 @@ class MigrationV0190(MigrationBase):
         upload_limit_conf.write_text(f"client_max_body_size {upload_limit.lower()};\n")
 
         if not was_pre_existing:
-            # Track for rollback cleanup (file didn't exist before migration)
             self.backup_manager.track_new_file(upload_limit_conf)
 
         self.output.print("Created custom nginx upload-limit.conf")
 
-        # Strip any old client_max_body_size from the generated default.conf
-        # to avoid duplicate-directive errors. Older FM versions baked the
-        # value directly into the nginx template; the migration now uses
-        # upload-limit.conf instead, so the old line must be removed.
+        # Strip any client_max_body_size baked into default.conf by older FM versions — duplicate directives make nginx error.
         default_conf = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
         if default_conf.exists():
             old = default_conf.read_text()
@@ -710,7 +688,6 @@ class MigrationV0190(MigrationBase):
         if target_python:
             fragments.append(
                 f"""
-# Check 1 — UV Python install cache
 UV_OK=false
 UV_PY_DIR=/workspace/frappe-bench/.uv/python
 if [ -d "$UV_PY_DIR" ]; then
@@ -720,7 +697,6 @@ if [ -d "$UV_PY_DIR" ]; then
     fi
 fi
 
-# Check 2 — Virtual environment built from that python
 VENV_OK=false
 if [ -d /workspace/frappe-bench/env ] && [ -f /workspace/frappe-bench/env/bin/python ]; then
     PY_VER=$(/workspace/frappe-bench/env/bin/python --version 2>&1)
@@ -729,8 +705,7 @@ if [ -d /workspace/frappe-bench/env ] && [ -f /workspace/frappe-bench/env/bin/py
     fi
 fi
 
-# Both must be true — only the FINAL line uses "ENV_OK=" so the
-# Python side can reliably parse the combined result.
+# _check_runtime_current substring-matches "ENV_OK=true" in the output, so no other emitted line may contain that literal text.
 if [ "$UV_OK" = "true" ] && [ "$VENV_OK" = "true" ]; then
     echo "ENV_OK=true"
 else
@@ -783,10 +758,8 @@ fi
         """
         self.logger.info(f"[_rebuild_runtime_environment] Starting for {bench.name}")
 
-        # IMPORTANT: read prev versions BEFORE _resolve_runtime_versions.
-        # That method auto-detects and *writes* versions to config when they
-        # are missing.  If we read after it we would always see a value and
-        # the ``prev_python is None`` guard below would never fire.
+        # Read prev versions before _resolve_runtime_versions — that method writes auto-detected versions to
+        # config, so reading after it would leave prev_python always non-None and the guard below would never fire.
         bench_config_path = bench.path / "bench_config.toml"
         prev_python = None
         prev_node = None
@@ -797,44 +770,33 @@ fi
 
         target_python, target_node, _config_doc = self._resolve_runtime_versions(bench)
 
-        # Compute "version changed" flags.  When both prev and target come from
-        # the same config field this will always be False on re-run (they match).
-        # The authoritative check is _check_runtime_current below.
+        # On rerun, prev and target read the same config field and always match; _check_runtime_current below is the authoritative check.
         self._python_version_changed = prev_python is not None and str(prev_python) != str(target_python)
         self._node_version_changed = prev_node is not None and str(prev_node) != str(target_node)
 
-        # Authoritative check: verify actual runtime state matches config.
-        # Catches cases like user manually editing config, env corruption, etc.
+        # Authoritative check — catches manual config edits, env corruption, etc. that the version-changed flags alone would miss.
         env_current, node_current = self._check_runtime_current(bench, target_python, target_node)
 
-        # ── Early return when everything is already current ─────────────────
         if env_current and node_current:
             self.output.print("Runtime environment already up to date")
 
-            # Still restart if images were updated (e.g. dev → stable tag)
             if self._images_updated and (bench.running or bench.workers_running):
                 self._restart_services(bench)
             return
 
-        # ── Full rebuild path ───────────────────────────────────────────────
         with spinner(self.output, "Rebuilding runtime environment (pyenv/nvm → uv/fnm)"):  # type: ignore[arg-type]
             self._ensure_runtime_dirs(bench)
 
             self.output.print("Cleaning up old runtime directories...")
             self._cleanup_old_runtime_dirs(bench)
 
-            # Decide what needs rebuilding based on BOTH the config comparison
-            # and the actual runtime check.  First run (prev is None) always
-            # triggers a rebuild.  --rerun does NOT force a rebuild — the
-            # runtime is only rebuilt when versions actually changed or the
-            # existing environment is corrupted.
+            # Rebuild decision uses both the config comparison and the runtime check; first run (prev is None) always rebuilds.
+            # --rerun does not force a rebuild by itself — only when versions changed or the environment is unhealthy.
             self._env_was_rebuilt = (prev_python is None) or self._python_version_changed or not env_current
             self._node_was_setup = (prev_node is None) or self._node_version_changed or not node_current
 
             if self._env_was_rebuilt and target_python:
-                # Backup existing env/ before recreating (for rollback support).
-                # Uses the same decision path as the rebuild guard, so the backup
-                # always matches whether the env will actually be rebuilt.
+                # Backup follows the same decision path as env_was_rebuilt, so it only runs when a rebuild will actually happen.
                 self._backup_env_for_rollback(bench)
                 self.output.print(f"Setting up Python {target_python} with uv...")
                 self._setup_python_with_uv(bench, target_python)
@@ -985,8 +947,6 @@ echo "Node environment setup complete"
         """Remove old pyenv and nvm directories to prevent path conflicts."""
         self.logger.debug(f"[_cleanup_old_runtime_dirs] Cleaning up old runtime directories for {bench.name}")
 
-        # Backup .pyenv, .nvm, and .bashrc on the host before removing
-        # (rollback support via BackupManager).
         frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
         for dirname in [".pyenv", ".nvm"]:
             dirpath = frappe_bench_dir / dirname
@@ -1036,7 +996,6 @@ echo "Old runtime directories cleaned up"
             self.output.print("No env or Node changes — skipping app reinstall and build")
             return
 
-        # Only check apps.txt when we actually need to reinstall apps
         if self._env_was_rebuilt:
             apps_txt_path = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
 
@@ -1054,7 +1013,6 @@ echo "Old runtime directories cleaned up"
             f"[_reinstall_apps_and_rebuild] env_rebuilt={self._env_was_rebuilt}, node_setup={self._node_was_setup}",
         )
 
-        # Build the script conditionally based on which inputs changed
         script_parts = [
             "set -x",
             "cd /workspace/frappe-bench",
@@ -1118,9 +1076,7 @@ bench build""",
 
         from frappe_manager.utils.helpers import get_template_path
 
-        # Render the supervisor config in memory using FM's own template.
-        # This avoids `bench setup supervisor` entirely — the FM template already
-        # has correct paths (0.0.0.0, .fnm node binary) so no post-processing needed.
+        # Renders the config from FM's own template instead of calling `bench setup supervisor` — the template already has correct paths (0.0.0.0, .fnm node binary).
         frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
         common_site_config_path = frappe_bench_dir / "sites" / "common_site_config.json"
 
@@ -1217,7 +1173,6 @@ bench build""",
 
         wrapper_path = config_dir / "fm-web-server.sh"
 
-        # Track whether this is a new file vs pre-existing before we write
         bench_name = context.get("bench_name")
         was_pre_existing = wrapper_path.exists()
 
@@ -1228,7 +1183,6 @@ bench build""",
         wrapper_path.chmod(0o755)
 
         if not was_pre_existing:
-            # Track for rollback cleanup (file didn't exist before migration)
             self.backup_manager.track_new_file(wrapper_path)
 
         self.output.print("Generated fm-web-server.sh")
@@ -1238,7 +1192,6 @@ bench build""",
             # Delete stale nginx default.conf so entrypoint regenerates with new SITE_MAPPINGS
             nginx_default_conf = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
             if nginx_default_conf.exists():
-                # Backup before deletion
                 backup_path = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf.migration.bak"
                 import shutil
 

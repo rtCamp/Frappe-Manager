@@ -53,10 +53,9 @@ def record_command_chain(group: click.Group, ctx: click.Context) -> None:
     Stops at the first token that is not a subcommand of the current group -- a flag, a bench
     name, a typo. A typo is left for click's own error, which names the valid commands.
     """
-    # `_protected_args` is click's own split of the group's leftovers; `Group.invoke` reads it the
-    # same way one frame later, and it is cleared before the callback. The public `protected_args`
-    # warns as deprecated on click 8 and goes away in click 9, where `args` carries every remaining
-    # token on its own -- so read the private name defensively rather than hard-failing on upgrade.
+    # `_protected_args` is click's own split of the group's leftovers, read the same way one frame
+    # later by `Group.invoke`. The public `protected_args` is deprecated on click 8 and gone on click 9
+    # (where `args` alone carries it), so read the private name defensively rather than hard-failing.
     args = [*getattr(ctx, "_protected_args", []), *ctx.args]
     chain: builtins.list[click.Command] = []
     current: click.Command = group

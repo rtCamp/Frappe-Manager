@@ -76,11 +76,9 @@ class BackupManager:
         backup_dir: Path | None = None,
         skip_file_backups: bool = False,
     ):
-        # The kind-scoped backup policy is enforced HERE, at the one chokepoint every
-        # file backup of every migration flows through, so no migration - past or
-        # future - has to know the policy exists. Database dumps do not pass through
-        # this class (they are taken by the DB managers); their chokepoint is
-        # MigrationBase.bench_db_backup.
+        # The kind-scoped backup policy is enforced HERE, the one chokepoint every file backup
+        # flows through, so no migration needs to know it exists. Database dumps don't pass
+        # through this class; their chokepoint is MigrationBase.bench_db_backup.
         self.skip_file_backups = skip_file_backups
         self.name = name
         self.backup_group_name = backup_group_name
@@ -90,14 +88,11 @@ class BackupManager:
         self.backup_dir: Path = self.root_backup_dir / self.name
         self.bench_backup_dir: Path = Path("backups") / backup_group_name / self.migration_timestamp
         self.backups = []
-        self.new_files = []  # Track newly created files for cleanup on rollback
+        self.new_files = []
         self.logger = get_logger(component="migration")
-        # The session directory is created LAZILY, by the first actual backup (backup()
-        # mkdirs its dest parent; the 1.0.0 engine dump guards its own): constructing a
-        # manager is not a promise anything will be backed up, and the eager mkdir here
-        # littered real installs with thousands of empty timestamp dirs -- every
-        # MigrationBase.init() and worker regeneration builds one of these, including the
-        # ones the unit suite builds by the thousand against the REAL ~/frappe/backups.
+        # Session directory is created LAZILY, by the first actual backup (backup() mkdirs its
+        # dest parent): constructing a manager is not a promise anything gets backed up, and an
+        # eager mkdir here would litter real installs with thousands of empty timestamp dirs.
 
     def _generate_unique_session_timestamp(self) -> str:
         timestamp = datetime.now().strftime("%d-%b-%y--%H-%M-%S")

@@ -117,7 +117,6 @@ def prune_services(
 
     backups_root = CLI_DIR / "backups"
 
-    # ---- plan everything first; the report below is exactly what execution will do.
     total = 0
     plan = None
     legacy: list = []
@@ -163,7 +162,6 @@ def prune_services(
     if nothing_to_do or dry_run:
         return
 
-    # ---- one confirmation covers everything shown above; a bare Enter aborts.
     if not yes:
         choice = output.prompt_ask(
             prompt="Proceed with the deletions and rotations listed above? (default: no)",
@@ -175,7 +173,6 @@ def prune_services(
             output.print("Aborted; nothing touched.", emoji_code="")
             raise typer.Exit(1)
 
-    # ---- execute exactly the plans that were shown.
     reclaimed = 0
     if plan is not None:
         reclaimed += plan.size

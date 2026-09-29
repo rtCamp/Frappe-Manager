@@ -60,10 +60,9 @@ def list(
         )
 
     if json_output or ctx.obj.get("json"):
-        # One path, not two. Under global --json the JSONL stream owns stdout, so the inventory
-        # rides it as an event; with the --json FLAG on a human terminal it is a pretty dump. Both
-        # go through the data channel, which decides the rendering per handler -- the command used
-        # to branch and emit two different shapes for the same data.
+        # Under global --json the JSONL stream owns stdout and the inventory rides it as an event;
+        # with the --json flag alone on a human terminal it's a pretty dump. Both go through the
+        # data channel, which decides the rendering per handler.
         data = bench_service.list_benches_data()
         if ctx.obj.get("json"):
             output.print_data(data)

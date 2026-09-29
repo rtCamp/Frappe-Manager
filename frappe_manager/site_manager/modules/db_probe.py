@@ -41,8 +41,8 @@ from enum import StrEnum
 from frappe_manager import BENCH_PYTHON, CONTAINER_SITES_DIR
 
 # A runner executes one shell command inside the bench container and returns its combined
-# stdout/stderr. Raising on a non-zero exit is fine: the probe treats the exception text as
-# output, which is where the `mariadb` client's `ERROR <code> (…)` line lives.
+# stdout/stderr. Raising on a non-zero exit is fine: the exception text carries the
+# `mariadb` client's `ERROR <code> (…)` line.
 Runner = Callable[[str], str]
 
 MYSQL_CLIENT = "/usr/bin/mariadb"
@@ -59,16 +59,14 @@ FRAPPE_CORE_TABLES = (DOCTYPE_TABLE, SINGLES_TABLE)
 
 STAGE_TWO_MARKER = "FM_PROBE2"
 
-# Server error codes the probe reasons about.
 ER_ACCESS_DENIED = 1045
 ER_NO_SUCH_GRANT = 1141
 ER_SECURE_TRANSPORT_REQUIRED = 3159
 ER_TLS_CLIENT = 2026  # client side "TLS/SSL error: …" from the mariadb client
 
-# Server variables read in one round trip. Fetched with `SHOW VARIABLES WHERE Variable_name IN
-# (…)` rather than `SELECT @@x`, because a variable that does not exist on this server yields
-# zero rows instead of erroring the whole batch. That is what makes
-# "innodb_read_only_compressed where the variable exists" expressible.
+# Server variables read in one round trip, via `SHOW VARIABLES WHERE Variable_name IN (…)` rather
+# than `SELECT @@x`: a variable that doesn't exist on this server yields zero rows instead of
+# erroring the whole batch, which is what makes probing a variable that may not exist expressible.
 PROBED_VARIABLES = (
     "version",
     "version_comment",

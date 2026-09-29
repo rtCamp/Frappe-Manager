@@ -38,9 +38,8 @@ def create_tunnel(site_name: str, auth_token: str, port: int = 80) -> None:
 
             tunnel_url = listener.url()
         except Exception as e:
-            # Report AND re-raise: swallowing this made `fm ngrok` exit 0 on a tunnel that
-            # never came up (bad token, no network, port in use), so supervisors and scripts
-            # wrapping the command read a failed tunnel as success.
+            # Report AND re-raise: swallowing this would let `fm ngrok` exit 0 on a tunnel that
+            # never came up, reading as success to supervisors/scripts wrapping the command.
             output.display_error(f"Error creating tunnel: {e}")
             raise
 

@@ -80,9 +80,8 @@ class AcmeShCertificateService:
 
         self.output.change_head("Installing acme.sh")
         try:
-            # Install acme.sh with default noreply email
-            # Email notifications discontinued by Let's Encrypt (June 2025)
-            #
+            # noreply@acme.sh: Let's Encrypt discontinued renewal-notification emails (June 2025),
+            # so there is no real address to lose.
             # --nocron: acme.sh's default install adds a daily crontab entry that renews
             # certificates OUTSIDE fm -- the renewed files sit in acme's home while the
             # copies fm linked into nginx-proxy stay stale, and nginx never reloads.
@@ -175,7 +174,7 @@ class AcmeShCertificateService:
             content = account_conf.read_text()
             lines = content.split("\n")
 
-            # Credential prefixes to remove (acme.sh uses SAVED_ prefix for mutable account config)
+            # acme.sh stores mutable account config with a SAVED_ prefix; that's what gets stripped here.
             stale_cred_prefixes = (
                 "SAVED_CF_Token=",
                 "SAVED_CF_Account_ID=",
@@ -231,7 +230,6 @@ class AcmeShCertificateService:
             command_env.update(env)
 
         if show_live_output:
-            # Use closure to track exit code while streaming
             exit_code_holder = [0]
 
             def stream_with_exit_tracking():
@@ -479,8 +477,7 @@ class AcmeShCertificateService:
             except Exception as e:
                 self.output.display_error(f"Failed to remove directory {cert_dir}: {e}")
 
-        # Also remove acme.sh internal directory (.acme.sh/<domain>_ecc)
-        # acme.sh --remove only renames the config to .conf.removed, it doesn't delete the directory
+        # acme.sh --remove only renames the config to .conf.removed; it doesn't delete the directory.
         acmesh_internal_dir = self.acmesh_home / f"{certificate.domain}_ecc"
         if acmesh_internal_dir.exists():
             try:

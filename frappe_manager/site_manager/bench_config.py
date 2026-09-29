@@ -96,16 +96,13 @@ def extract_python_version_requirement(frappe_app_path: Path) -> str | None:
     try:
         data = tomlkit.parse(pyproject.read_text())
 
-        # Check [project] requires-python (PEP 621 standard)
         if "project" in data and "requires-python" in data["project"]:
             return str(data["project"]["requires-python"])
 
-        # Check [tool.poetry.dependencies] python (Poetry format)
         if "tool" in data and "poetry" in data["tool"]:
             if "dependencies" in data["tool"]["poetry"]:
                 if "python" in data["tool"]["poetry"]["dependencies"]:
                     python_dep = data["tool"]["poetry"]["dependencies"]["python"]
-                    # Poetry format can be string or dict
                     if isinstance(python_dep, str):
                         return python_dep
                     if isinstance(python_dep, dict) and "version" in python_dep:
@@ -137,7 +134,6 @@ def extract_node_version_requirement(frappe_app_path: Path) -> str | None:
 
         data = json.loads(package_json.read_text())
 
-        # Check engines.node
         if "engines" in data and "node" in data["engines"]:
             return str(data["engines"]["node"])
 
@@ -847,16 +843,12 @@ class SchemaState(BaseModel):
     )
     last_migration_date: str | None = Field(None, description="ISO timestamp of last migration")
 
-    # Both fields are `str | None`, but a hand-edited file can carry either as a bare TOML-native
-    # date/datetime/int/bool (tomlkit hands those back as `Date`/`DateTime`/`Integer`/`bool`, none
-    # of which pydantic coerces to `str`) or even a stray `[schema.version]`
-    # sub-table. `SchemaState(**schema_data)` in `import_from_toml`/`collect_from_data`
-    # runs on every command that skips the migration gate, and it used to raise a
-    # `pydantic.ValidationError` on any of those -- one bad TYPE for a recognised key took the
-    # whole host down exactly like the `InvalidVersion` crash `_bench_is_at_current_version` guards
-    # against below, just one step earlier in the same load. Coerced to its string form here
-    # rather than rejected: fm never deletes a key it does not understand, and an odd TYPE on a
-    # recognised key earns the same tolerance an odd NAME already gets.
+    # A hand-edited file can carry either field as a bare TOML-native date/datetime/int/bool
+    # (tomlkit hands those back typed, not as `str`) or a stray `[schema.version]` sub-table.
+    # Without this coercion, `SchemaState(**schema_data)` raises `pydantic.ValidationError` on any
+    # of those -- one bad TYPE on a recognised key crashes the whole host the same way the
+    # `InvalidVersion` guard in `_bench_is_at_current_version` protects against below, just earlier
+    # in the same load.
     @field_validator("version", "last_migration_date", mode="before")
     @classmethod
     def _coerce_non_string_scalar(cls, value: Any) -> Any:
@@ -1114,27 +1106,20 @@ class SwitchConfig(BaseModel):
         return self
 
 
-# Keys that used to be valid in a config table and no longer exist on its model. Removing a field
-# from any model below means adding ONE line here: `_drop_removed_config_keys` (migrate_1_0_0.py)
-# strips it off disk during the 1.0.0 migration, so the file stops carrying a name a future
-# version might reuse for something else.
+# Keys removed from a model: add one line here so `_drop_removed_config_keys` (migrate_1_0_0.py)
+# strips it off disk during the 1.0.0 migration, freeing the name for reuse.
 #
-# NOT used to filter the read path any more (it once was, via `_filter_removed`/`_table` below):
-# these models are `extra="allow"` (Phase 1), so a leftover key is retained as an unknown extra
-# like any other stray, and the version-gated warning in `import_from_toml` (silent while the
-# bench is behind `version`, warns once it is current) is what a per-key read-path exemption
-# here used to be needed for. A key still present at 0.19.x is one the migration has not gotten
-# to yet, not a typo; one still present once the bench is current is worth the same warning a
-# genuine typo gets.
+# Not a read-path filter: these models are `extra="allow"`, so a leftover key is retained as an
+# unknown extra and warned about by `import_from_toml` once the bench is current (not while it is
+# still behind `version`, since the migration has not gotten to it yet).
 REMOVED_CONFIG_KEYS: dict[str, frozenset[str]] = {
     "switch": frozenset({"search_replace"}),
 }
 
-# Whole tables that no longer exist. `import_from_toml` builds its input explicitly, so a leftover
-# table was already never read into any model; `_drop_removed_config_keys` is what takes it off
-# disk. Also purely a migration-strip list now, for the same reason as `REMOVED_CONFIG_KEYS`
-# above: a bench still carrying `[registry]` is retained and version-gated like any other stray,
-# not exempted from the warning by name.
+# Whole tables that no longer exist on any model. `import_from_toml` builds its input explicitly, so
+# a leftover table was never read; `_drop_removed_config_keys` is what strips it off disk. Purely a
+# migration-strip list, same as `REMOVED_CONFIG_KEYS`: a bench still carrying `[registry]` is
+# retained and version-gated like any other stray, not exempted from the warning by name.
 REMOVED_CONFIG_TABLES: frozenset[str] = frozenset({"registry"})
 
 # BenchConfig fields that never reach bench_config.toml: create-time inputs, derived values, secrets
@@ -1165,7 +1150,7 @@ NOT_WRITTEN_TO_DISK: frozenset[str] = frozenset(
 # write a secret it did not mint, nor an app list it learns from the container), but the file-level
 # prune in toml_document.apply would then DELETE them: `fm bake --config` persists `[[apps]]` and
 # promises it is the source of truth, and `admin_pass` is what `fm info` shows for an attached site
-# whose site_config.json has no admin_password. Both survived one command before this set existed.
+# whose site_config.json has no admin_password.
 READ_ONLY_INPUT_KEYS: frozenset[str] = frozenset({"apps", "apps_list", "admin_pass"})
 
 
@@ -1223,16 +1208,12 @@ def recognised_deployments_keys() -> frozenset[str]:
     return frozenset(Deployments.model_fields)
 
 
-# Per-process de-duplication for the unrecognised-key warning below: an ordinary invocation reads
-# a bench's config at least twice (a parameter callback like `bench_site_callback` resolves the
-# address before the command body loads the same file again via `Bench.get_object`), and warning
-# about the same typo twice in one run reads like two different problems. Keyed by the exact
-# unknown-key list found this time, not by path alone: a long-lived process that reads a file, has
-# the operator fix it mid-run, and reads it again must warn exactly as many times as the CONTENT
-# actually changed -- never stuck silent by a stale entry, and never silent about a NEW typo that
-# happens to land at the same path. That claim only holds if a CLEAN load also touches this cache:
-# `_forget_stale_warning` below is what a clean load calls, so an entry never outlives the content
-# that earned it.
+# Per-process de-duplication for the unrecognised-key warning below: an ordinary invocation reads a
+# bench's config at least twice (a parameter callback resolves the address before the command body
+# reloads the same file via `Bench.get_object`), so warning about the same typo twice reads like two
+# problems. Keyed by the exact unknown-key list, not by path: a long-lived process must warn again
+# when the CONTENT changes, and `_forget_stale_warning` clears the entry on a clean load so it never
+# outlives the content that earned it.
 _warned_unknown_keys: dict[str, tuple[str, ...]] = {}
 
 
@@ -1738,12 +1719,10 @@ def requests_immutable_runtime_inputs(
 
 
 class BenchConfig(BaseModel):
-    # extra="allow": a nested stray (e.g. inside [switch]) already retains and round-trips per
-    # Phase 1; a TOP-LEVEL stray (a mistyped table header or bare key) used to be the one
-    # asymmetry left over -- warned about below, then dropped, because `import_from_toml` builds
-    # `input_data` by hand and simply never named it. Two typos a user would call identical
-    # behaved differently. Fixed by retaining it here too (see the `unknown_keys` handling in
-    # `import_from_toml`): fm never deletes a key it does not understand, at any depth.
+    # extra="allow": a nested stray (e.g. inside [switch]) already retains and round-trips; this
+    # retains a top-level stray (mistyped table header or bare key) the same way, since
+    # `import_from_toml` builds `input_data` by hand and never names it otherwise (see the
+    # `unknown_keys` handling there) -- fm never deletes a key it does not understand, at any depth.
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
     name: str = Field(..., description="The name of the bench")
@@ -1751,35 +1730,20 @@ class BenchConfig(BaseModel):
     admin_tools: bool = Field(..., description="Whether admin tools are enabled")
     environment_type: FMBenchEnvType = Field(..., description="The type of environment")
 
-    # Populated by `collect_from_data` for [ssl]: the one hand-read table left with no model of its own to
-    # hold a stray key as `model_extra` (`ssl_certificates`/`dns_providers` are separate typed
-    # fields, not one table-shaped field -- unlike `[deployments]`, which retains its own
-    # remainder directly on `Deployments`, extra="allow", and needs no side channel any more). A
-    # PrivateAttr, not a Field: it is per-load reader metadata (just the dotted NAMES, for the
-    # warning), not part of the bench's schema, so it must never appear in `model_fields`,
-    # `model_dump()`, or become a recognised top-level TOML key the way a real field would.
+    # Populated by `collect_from_data` for [ssl]: the one hand-read table with no model of its own to
+    # hold a stray key as `model_extra` (unlike `[deployments]`, which retains its remainder
+    # directly via `extra="allow"`). A PrivateAttr, not a Field: per-load reader metadata only (the
+    # dotted NAMES, for the warning) -- must never appear in `model_fields`, `model_dump()`, or
+    # become a recognised TOML key.
     _hand_read_unknown_keys: list[str] = PrivateAttr(default_factory=list)
 
-    # The [ssl] remainder itself (name -> raw value), not just its names: `hand_read_unknown_keys`
-    # above only has to report a stray for the warning, but `export_to_toml` has to WRITE it back
-    # or the next save silently deletes the very evidence the warning just pointed at (`ssl_table`
-    # is rebuilt from `ssl_certificates`/`dns_providers` alone, so a key with no field to live on
-    # would otherwise never reach it). Also a PrivateAttr, for the same reason as above, and its
-    # survival across a save is a property of THIS model instance, not a promise pydantic makes on
-    # its own: `model_dump()` never sees a private attribute at all (verified, not assumed), so it
-    # cannot travel through a rebuild the way a `model_extra` field can (extras survive
-    # `model_dump()`, `exclude_none=True`, and even `exclude_unset=True`, since pydantic counts an
-    # extra as set; only an explicit `exclude=` or a full RECONSTRUCTION loses one).
-    #
-    # The narrow guarantee this actually holds: every writer today (`set_bench_migration_version`,
-    # `Bench`'s own save, the ssl dns_helpers paths, `deploy_orchestrator`) mutates the field on,
-    # or `model_copy()`s, the very instance `import_from_toml` returned, and both were VERIFIED
-    # (not assumed) to preserve private attributes. What a future writer must NOT do: build a
-    # fresh `BenchConfig(...)` from a named-kwarg list or from `model_dump()` between a load and
-    # a save -- that is reconstruction, not mutation, and it drops this silently. Global config's
-    # `[schema]` has the identical shape (a private `_raw_config` set only during import,
-    # so it is a live gap for any `FMConfigManager` instance built some other way), which is the
-    # evidence this limitation is worth stating precisely rather than claiming as a general one.
+    # The [ssl] remainder itself (name -> raw value): `export_to_toml` writes this back into
+    # `ssl_table` so a stray key survives a save (`ssl_table` is otherwise rebuilt from
+    # `ssl_certificates`/`dns_providers` alone). A PrivateAttr, so it survives only on the instance
+    # `import_from_toml` returned: a future writer must mutate that instance or `model_copy()` it --
+    # reconstructing from `model_dump()` or a fresh `BenchConfig(...)` silently drops it, since
+    # `model_dump()` never sees a private attribute at all. Global config's `[schema]` has the
+    # identical shape (a private `_raw_config` set only during import).
     _ssl_unknown: dict[str, Any] = PrivateAttr(default_factory=dict)
 
     def hand_read_unknown_keys(self) -> list[str]:
@@ -2183,7 +2147,6 @@ class BenchConfig(BaseModel):
         # does not understand, at any depth).
         retained_top_level = {key: unwrap_toml_value(data[key]) for key in unknown_keys}
 
-        # [ssl] → ssl_certificates + dns_providers (internal fields)
         ssl_data = data.get("ssl") or {}
 
         # Same hole one level down as the top-level check above: `certificates`/`dns_providers`
@@ -2643,15 +2606,10 @@ class BenchConfig(BaseModel):
                 "VIRTUAL_PORT": 80,
                 "HTTPS_METHOD": "noredirect",
                 "HSTS": self.get_primary_certificate().hsts,
-                # No CLIENT_MAX_BODY_SIZE. It was carried here for years and consumed by NOTHING:
-                # `/app/nginx.tmpl` in the pinned jwilder/nginx-proxy:1.11 has no
-                # `client_max_body_size`, and no fm template reads the variable either. The upload
-                # limit is enforced by the three files `Bench.update_upload_limit` writes -- the
-                # proxy's `vhost.d/<domain>` directive, the bench's own `custom/upload-limit.conf`,
-                # and `max_file_size` in site_config. Keeping a fourth, unread copy meant a value
-                # that drifted the moment the limit changed (that method does not re-render
-                # compose), and it read like the enforcing layer, which is how the docs came to
-                # claim the proxy reads it.
+                # No CLIENT_MAX_BODY_SIZE: neither the pinned jwilder/nginx-proxy:1.11 template nor
+                # any fm template reads it. The upload limit is enforced by the three files
+                # `Bench.update_upload_limit` writes (the proxy's `vhost.d/<domain>` directive, the
+                # bench's own `custom/upload-limit.conf`, and `max_file_size` in site_config).
             },
             "worker": {
                 "USERID": self.userid,

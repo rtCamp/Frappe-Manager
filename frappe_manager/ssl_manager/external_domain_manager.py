@@ -120,11 +120,10 @@ class ExternalDomainConfigManager:
 
         for key, value in data.get("domains", {}).items():
             try:
-                # Backward compatibility: rename preferred_challenge to challenge_type
                 if "preferred_challenge" in value and "challenge_type" not in value:
                     value["challenge_type"] = value.pop("preferred_challenge")
 
-                # Backward compatibility: remove email field if present (discontinued June 2025)
+                # Let's Encrypt discontinued notification emails (June 2025); drop any legacy value.
                 value.pop("email", None)
 
                 config = ExternalDomainConfig(**value)

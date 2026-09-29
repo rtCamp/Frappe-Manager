@@ -576,17 +576,14 @@ def update_sites_cache(sitename: str) -> None:
         else:
             cache = {"sites": []}
 
-        # Remove if exists and add to front
         cache["sites"] = [s for s in cache["sites"] if s["name"] != sitename]
         cache["sites"].insert(0, {"name": sitename, "last_used": datetime.now().isoformat()})
 
-        # Keep only last 10 entries
         cache["sites"] = cache["sites"][:10]
 
         with open(cache_file, "w") as f:
             json.dump(cache, f)
     except Exception:
-        # Fail silently if cache operations fail
         pass
 
 
@@ -598,13 +595,10 @@ def get_sorted_sites_list(sites_list: list[str]) -> list[str]:
             with open(cache_file) as f:
                 cache = json.load(f)
 
-            # Get cached site names, but only if they exist in the actual sites_list
             cached_sites = [s["name"] for s in cache["sites"] if s["name"] in sites_list]
 
-            # Get remaining sites that aren't in cache
             remaining_sites = [s for s in sites_list if s not in cached_sites]
 
-            # Return cached sites first, then remaining sites
             return cached_sites + remaining_sites
     except Exception:
         pass
@@ -682,7 +676,6 @@ def create_command_sitename_callback(ctx: typer.Context, sitename: str):
     _ = validate_sitename(address.bench)
     benchname = address.bench
 
-    # check if already exists
     bench_path = CLI_BENCHES_DIRECTORY / benchname
 
     if bench_path.exists():
@@ -716,7 +709,6 @@ def alias_domains_validation_callback(value: str | None) -> list[str]:
     if not value:
         return []
 
-    # Split by comma and strip whitespace
     domains = [domain.strip() for domain in value.split(",") if domain.strip()]
 
     if not domains:
@@ -725,7 +717,6 @@ def alias_domains_validation_callback(value: str | None) -> list[str]:
     validated_domains = []
 
     for domain in domains:
-        # Check if it's a wildcard domain
         if domain.startswith("*."):
             if not is_wildcard_fqdn(domain):
                 output = get_global_output_handler()
@@ -735,21 +726,18 @@ def alias_domains_validation_callback(value: str | None) -> list[str]:
                 )
             validated_domains.append(domain)
         else:
-            # Regular domain validation
             if not is_fqdn(domain):
                 output = get_global_output_handler()
                 output.stop()
                 raise typer.BadParameter(
                     f"Invalid domain '{domain}'. Domain must be a valid FQDN (e.g., 'www.example.com').",
                 )
-            # Additional check: domain must have at least one dot (TLD)
             if "." not in domain:
                 output = get_global_output_handler()
                 output.stop()
                 raise typer.BadParameter(f"Invalid domain '{domain}'. Domain must include a TLD (e.g., 'example.com').")
             validated_domains.append(domain)
 
-    # Check for duplicates
     if len(validated_domains) != len(set(validated_domains)):
         output = get_global_output_handler()
         output.stop()

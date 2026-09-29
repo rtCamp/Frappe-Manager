@@ -353,10 +353,9 @@ class BenchSiteManager:
             new_site_command += ["--admin-password", shlex.quote(admin_pass)]
             new_site_command += ["--verbose"]
         else:
-            # fm's OWN server, for the engine this site records. Reading the root credentials off
-            # `services.database_manager` unconditionally was the bug: that manager is always the
-            # mariadb one, so a site asking for fm's postgres was handed mariadb's endpoint and
-            # built there -- a create that reported success against the wrong server entirely.
+            # fm's OWN server, for the engine THIS SITE records: `services.database_manager` is
+            # always the mariadb instance, so using it unconditionally would silently build a
+            # postgres site against mariadb's endpoint instead.
             engine = self.bench_config.get_database(site).type
             server = self.services.database_server_info_for(engine)
             new_site_command += ["--db-root-password", shlex.quote(server.password)]
@@ -399,9 +398,9 @@ class BenchSiteManager:
             env=site_env,
         )
 
-        # Set as default site. `bench use` writes `default_site` into common_site_config, which is
-        # bench-WIDE, so a site added to an existing bench must not run it: doing so would silently
-        # move every bare `bench` command in that bench onto the new site.
+        # `bench use` writes `default_site` into common_site_config, which is bench-WIDE, so a site
+        # added to an existing bench must not run it: doing so would silently move every bare `bench`
+        # command in that bench onto the new site.
         if set_default:
             self._container_run(
                 " ".join(self.bench_cli_cmd + [f"use {site}"]),
@@ -412,8 +411,7 @@ class BenchSiteManager:
                 env=site_env,
             )
 
-        # Enable scheduler for this site. `--site` is explicit so it never depends on which site
-        # happens to be the bench default.
+        # `--site` is explicit here so it never depends on which site happens to be the bench default.
         self._container_run(
             " ".join(self.bench_cli_cmd + [f"--site {site} scheduler enable"]),
             on_failure=lambda: BenchOperationException(
@@ -747,9 +745,9 @@ class BenchSiteManager:
 
         except DockerException as e:
             if on_failure is not None:
-                # Built here, not by the caller: the old signature took a ready-made exception, so
-                # every call constructed one on a path that usually succeeds, and the helper then
-                # mutated that caller-owned object.
+                # A factory, not a ready-made exception: eager construction would build one on every call
+                # even though this path usually succeeds, and the helper would then mutate a caller-owned
+                # object.
                 error = on_failure()
                 error.set_output(e.output)
                 raise error from e
@@ -818,9 +816,9 @@ class BenchSiteManager:
             )
         except DockerException as e:
             if on_failure is not None:
-                # Built here, not by the caller: the old signature took a ready-made exception, so
-                # every call constructed one on a path that usually succeeds, and the helper then
-                # mutated that caller-owned object.
+                # A factory, not a ready-made exception: eager construction would build one on every call
+                # even though this path usually succeeds, and the helper would then mutate a caller-owned
+                # object.
                 error = on_failure()
                 error.set_output(e.output)
                 raise error from e

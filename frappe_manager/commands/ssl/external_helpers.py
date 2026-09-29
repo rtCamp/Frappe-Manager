@@ -293,12 +293,11 @@ def _add_external_certificate(
             output.print("Removed temporary nginx configuration (test-CA rehearsal)", emoji_code=":white_check_mark:")
 
         if not test_ca:
-            # Save to external domains config
             external_manager.add_domain(
                 ExternalDomainConfig(
                     domain=domain,
                     ssl_type="letsencrypt",
-                    # Email removed - Let's Encrypt discontinued notifications (June 2025)
+                    # No email: Let's Encrypt discontinued account notifications (June 2025).
                     added_at=datetime.now().isoformat(),
                     challenge_type=challenge.lower(),
                     delegation_cname=cname,
@@ -406,20 +405,17 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
 
         cert_manager = _build_certificate_manager([cert], storage_config, link_manager, nginx_controller, output)
 
-        # Remove certificate (removes symlinks, vhost.d, and cert files)
+        # Removes symlinks, vhost.d entry, and cert files.
         with spinner(output, f"Removing SSL certificate for {domain}"):
             cert_manager.remove_certificate_by_domain(domain)
 
-        # Remove standalone nginx configuration
         output.change_head(f"Removing nginx configuration for {domain}")
         standalone_nginx.remove_config(domain)
         output.print("Removed nginx configuration", emoji_code=":white_check_mark:")
 
-        # Reload nginx
         nginx_controller.reload()
         output.print("Nginx reloaded", emoji_code=":white_check_mark:")
 
-        # Remove from external domains config
         external_manager.remove_domain(domain)
 
         output.print(f"SSL certificate removed for {domain}", emoji_code=":white_check_mark:")
@@ -442,7 +438,6 @@ def proxy_backend_domains(services_manager) -> set[str]:
         if not nginx_container_name:
             return set()
 
-        # Read default.conf which docker-gen generates
         result = subprocess.run(
             ["docker", "exec", nginx_container_name, "cat", "/etc/nginx/conf.d/default.conf"],
             capture_output=True,
@@ -483,8 +478,6 @@ def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
         detected_domains = proxy_backend_domains(services_manager)
         if not detected_domains:
             return []
-
-        # Filter out bench domains
         bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager)
         benches = bench_service.get_bench_names()
 
@@ -497,13 +490,10 @@ def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
             except Exception as e:
                 logger.debug(f"cert scan skipped {bench_name}: {e}")
                 continue
-
-        # Return only non-bench domains
         non_bench_domains = detected_domains - bench_domains
         return sorted(list(non_bench_domains))
 
     except Exception as e:
-        # Silently fail if we can't detect domains
         return []
 
 
@@ -735,10 +725,8 @@ def _renew_all_external_certificates(ctx: typer.Context, test_ca: bool, force: b
         try:
             _renew_external_certificate(ctx, domain, test_ca, force)
         except typer.Exit as e:
-            # _renew_external_certificate has already printed the real reason and signalled
-            # failure with `raise typer.Exit(1)`. click.exceptions.Exit carries no message, so
-            # `str(e)` is empty -- catching it here as Exception printed a bare "Failed to
-            # renew <domain>: " and, worse, swallowed the nonzero exit.
+            # click.exceptions.Exit carries no message (`str(e)` is empty); catching it as a bare
+            # Exception would print an empty error and swallow the nonzero exit already signalled.
             if e.exit_code == 0:
                 continue
             output.warning(f"Failed to renew {domain}: renewal exited with code {e.exit_code} (reason reported above)")

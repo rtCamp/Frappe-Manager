@@ -330,8 +330,8 @@ def app_callback(
     """
     ctx.obj = {}
 
-    # Ambient logging context: every record this invocation emits -- from any
-    # module, thread (via ctx_submit), or the output mirror -- carries these.
+    # Every log record this invocation emits -- from any module, thread (via ctx_submit), or the
+    # output mirror -- carries these ids.
     set_context(correlation_id=str(uuid.uuid4()), operation=ctx.invoked_subcommand)
 
     from frappe_manager.output_manager import get_global_output_handler, set_global_output_handler
@@ -362,8 +362,7 @@ def app_callback(
     if json_output:
         from frappe_manager.output_manager import JSONOutputHandler
 
-        # Something has to hand the JSON handler its stream, and this is the one place that
-        # chooses it; from there the handler owns every write to it.
+        # JSONOutputHandler owns every write to stdout from here on.
         basic_handler = JSONOutputHandler(verbose=ctx.obj["verbose"], stream=sys.stdout)  # noqa: TID251
     else:
         basic_handler = get_global_output_handler()
@@ -501,8 +500,8 @@ def app_callback(
 
             commands_skip_bench_migration = ["stop", "delete"] + MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS
 
-            # Get bench argument if present. The group context never carries the subcommand's
-            # benchname, so the command's own arguments are what resolve it here.
+            # The group context never carries the subcommand's benchname, so the command's own
+            # arguments are what resolve it here.
             bench_arg = get_bench_arg_from_context(ctx) or get_bench_arg_from_args(command_args(ctx))
             bench_path = CLI_BENCHES_DIRECTORY / bench_arg if bench_arg else None
 
@@ -533,8 +532,8 @@ def app_callback(
                 output = get_global_output_handler()
 
                 # Scenario 1: Infra needs migration. The gate either updates cleanly and falls
-                # through, or raises typer.Exit(1) -- so the bench gate below still runs only
-                # after a successful infra update, exactly as when it was nested inside it.
+                # through, or raises typer.Exit(1), so the bench gate below runs only after a
+                # successful infra update.
                 if infra_needs_migration:
 
                     _prompt_and_run_migration(
@@ -683,9 +682,8 @@ from frappe_manager.commands.start import start
 from frappe_manager.commands.stop import stop
 from frappe_manager.commands.update import update
 
-# Register all commands with the app, grouped and ordered by rich_help_panel (see the constants
-# above): every command carries an explicit panel, and their relative order here is what decides
-# the panel order in `fm --help`.
+# Grouped and ordered by rich_help_panel (see the constants above): every command carries an
+# explicit panel, and their relative order here decides the panel order in `fm --help`.
 app.command(name="start", rich_help_panel=_PANEL_BENCH)(start)
 app.command(name="stop", rich_help_panel=_PANEL_BENCH)(stop)
 app.command(name="code", rich_help_panel=_PANEL_BENCH)(code)

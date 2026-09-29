@@ -197,7 +197,6 @@ class BenchSupervisor:
                     message=f"Failed to restart supervisor for {service} service: {e!s}",
                 )
 
-        # Verify supervisor socket was created after restart
         socket_path = f"/fm-sockets/{service}.sock"
         for _ in range(timeout):
             try:
@@ -254,9 +253,8 @@ class BenchSupervisor:
         web_worker_count = config.get("gunicorn_workers", self._get_gunicorn_workers())
         max_requests = config.get("gunicorn_max_requests", self._get_default_max_requests(web_worker_count))
         # gthread worker class: each worker handles multiple concurrent requests via threads.
-        # Frappe is IO-bound (DB/Redis heavy) and its concurrency_limiter explicitly reads
-        # --threads from the gunicorn master cmdline, so gthread is the intended worker type.
-        # Default 2 threads per worker; overridable via common_site_config.json.
+        # Frappe is IO-bound (DB/Redis heavy) and its concurrency_limiter reads --threads from
+        # the gunicorn master cmdline, so gthread is the intended worker type.
         gunicorn_threads = config.get("gunicorn_threads", self._get_gunicorn_threads())
 
         context = {
@@ -463,30 +461,25 @@ class BenchSupervisor:
             f" -t {context['http_timeout']}"
             f" --graceful-timeout 30"
             # Two jobs. Lifts gunicorn's 2s default, which forced nginx to rebuild the upstream
-            # conn after every >2s idle gap on a quiet bench. And stays LONGER than bench nginx's
-            # upstream keepalive_timeout (60s in template.conf): nginx must always be the side
-            # that closes an idle kept-alive connection, or it can reuse one gunicorn just closed
-            # and serve a 502. gthread parks idle keepalive sockets on its event loop, not on a
-            # worker thread, so held-open conns cost no request concurrency.
+            # conn after every >2s idle gap on a quiet bench, and stays LONGER than bench nginx's
+            # upstream keepalive_timeout (60s): nginx must always be the side that closes an idle
+            # kept-alive connection, or it can reuse one gunicorn just closed and serve a 502.
             f" --keep-alive 65"
             # Heartbeat file on tmpfs, not the container's overlay fs: gthread/sync workers touch
-            # it every second, and on a busy overlay mount that write can stall long enough for the
-            # arbiter to kill a healthy worker with a spurious WORKER TIMEOUT. /dev/shm is a small
-            # tmpfs present in every Linux container; the heartbeat file is a few bytes.
+            # it every second, and on a busy overlay mount that write can stall long enough for
+            # the arbiter to kill a healthy worker with a spurious WORKER TIMEOUT.
             f" --worker-tmp-dir /dev/shm"
             f" frappe.app:application --preload"
         )
 
-        # `--behind-proxy` (fm ssl add) needs gunicorn to trust X-Forwarded-Proto from the bench's
-        # own nginx, otherwise the post-login redirect, the session cookie's Secure flag and OAuth's
-        # advertised endpoints all stay on http even though the certificate and host_name are https
-        # (see certificate.py's `behind_proxy` docstring). Gunicorn's default trusts only 127.0.0.1,
-        # which nginx is not: it is a peer container. Scoped to benches that opt in, and never `*`:
-        # the global proxy passes a client-supplied X-Forwarded-Proto straight through, so trusting
-        # every peer would let any anonymous client control request.scheme. The template resolves
-        # the trusted IP itself, at gunicorn-start time inside the container (see
-        # fm-web-server.sh.tmpl): nginx's address on `site-network` is dynamic, and Docker only
-        # guarantees it is current from inside a running container, not from here on the host.
+        # `--behind-proxy` needs gunicorn to trust X-Forwarded-Proto from the bench's own nginx (a
+        # peer container, not 127.0.0.1, gunicorn's default trust) -- otherwise the post-login
+        # redirect, session cookie Secure flag, and OAuth's advertised endpoints stay on http.
+        # Scoped to opt-in benches, never `*`: the global proxy passes a client-supplied
+        # X-Forwarded-Proto straight through, so trusting every peer would let any anonymous
+        # client control request.scheme. Resolved inside the container at gunicorn-start time
+        # (see fm-web-server.sh.tmpl), not here: nginx's `site-network` address is dynamic and
+        # Docker only guarantees it current from inside a running container.
         trust_forwarded_proto = any(cert.behind_proxy for cert in self.config.ssl_certificates)
 
         template_path = get_template_path("fm-web-server.sh.tmpl")

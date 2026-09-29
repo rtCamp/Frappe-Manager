@@ -379,7 +379,6 @@ class BakeManager:
         if not apps_txt.exists():
             apps_txt.write_text("frappe\n")
         (sites / COMMON_SITE_CONFIG_FILE).write_text("{}")
-        # Clear volatile dirs.
         for rel in ("logs", "config/pids"):
             volatile = dest / rel
             if volatile.is_dir():
@@ -678,10 +677,9 @@ class BakeManager:
                 self._materialize_assets(assets_dir, frappe_bench_dir, staging / "sites" / "assets")
             else:
                 # No built assets at all: stage an empty dir anyway so the Dockerfile's
-                # `COPY sites/assets ...` has something to resolve. `nginx`'s `try_files`
-                # under `/assets` falls through to the webserver per-request either way,
-                # so an empty root at boot is harmless (verified: nginx starts and does
-                # not emerg-exit with no `sites/assets` content).
+                # `COPY sites/assets ...` has something to resolve. nginx's `try_files` under
+                # `/assets` falls through to the webserver per-request either way, so an empty
+                # root at boot is harmless.
                 (staging / "sites" / "assets").mkdir(parents=True, exist_ok=True)
             for fname in ("template.conf", "502.html", "entrypoint.sh"):
                 src = nginx_dockerfile.parent / fname

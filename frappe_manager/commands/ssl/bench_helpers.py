@@ -325,9 +325,9 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
         with spinner(output, f"Removing SSL certificate for {domain}"):
             bench.certificate_manager.remove_certificate_by_domain(domain)
 
-        # Same rule as the add path: only the site's own canonical name moves `host_name`.
-        # Removing an ALIAS certificate used to do double damage -- it both renamed the site to
-        # the alias and downgraded its canonical URL to http.
+        # Same rule as the add path: only the site's own canonical name moves `host_name` -- an
+        # alias's own certificate must not rename the site to the alias and downgrade its
+        # canonical URL to http.
         served = _site_serving(bench, domain)
         try:
             if served == domain:

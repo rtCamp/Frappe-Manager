@@ -32,7 +32,6 @@ class VhostConfigManager:
     BLOCK_END = "# fm:https-redirect END"
     _BLOCK_RE = re.compile(r"^# fm:https-redirect BEGIN.*?^# fm:https-redirect END\n?", re.DOTALL | re.MULTILINE)
 
-    # Default HTTPS redirect configuration
     # Allows internal services (socketio) to make HTTP API calls without redirect,
     # since Node.js fetch() drops Cookie headers on cross-protocol redirects.
     HTTPS_REDIRECT_CONFIG = """# Enable HTTPS redirect for this domain only
@@ -143,9 +142,9 @@ if ($redirect_to_https = 1) {
         vhost_file = self.vhostd_dir / domain
 
         # Replace only our own block; everything else in this shared file survives verbatim,
-        # byte-for-byte -- no .strip("\n") here, which used to normalise away a foreign file's own
-        # leading/trailing newlines and made remove restore something merely equivalent, not
-        # identical, to what add found.
+        # byte-for-byte. Do not add `.strip("\n")` here: it discards a foreign file's own
+        # leading/trailing newlines, so a later remove restores something merely equivalent,
+        # not identical, to what add found.
         remainder = self._strip_redirect_block(vhost_file.read_text()) if vhost_file.exists() else ""
         vhost_file.write_text(self._redirect_block(behind_proxy) + remainder)
 

@@ -101,7 +101,6 @@ class TrustStoreManager:
             self.output.warning(f"Could not install the dev CA into this host's trust store: {e}")
             self._print_manual_instructions(ca_cert_path)
 
-        # Best-effort NSS (Firefox/Chrome on Linux, Firefox on macOS)
         self._install_nss(ca_cert_path)
         return installed
 
@@ -171,7 +170,6 @@ class TrustStoreManager:
     def _install_linux(self, ca_cert_path: Path) -> None:
         """Install into Linux system CA store."""
         if shutil.which("update-ca-certificates"):
-            # Debian / Ubuntu
             dest = Path("/usr/local/share/ca-certificates/fm-dev-ca.crt")
             self.output.debug(f"Installing CA to {dest} (Debian/Ubuntu)")
             result = subprocess.run(  # noqa: S603
@@ -192,7 +190,6 @@ class TrustStoreManager:
                 raise RuntimeError(f"update-ca-certificates failed: {result.stderr}")
 
         elif shutil.which("update-ca-trust"):
-            # RHEL / Fedora / CentOS
             dest = Path("/etc/pki/ca-trust/source/anchors/fm-dev-ca.crt")
             self.output.debug(f"Installing CA to {dest} (RHEL/Fedora)")
             result = subprocess.run(  # noqa: S603
@@ -213,7 +210,6 @@ class TrustStoreManager:
                 raise RuntimeError(f"update-ca-trust failed: {result.stderr}")
 
         elif shutil.which("trust"):
-            # Arch Linux
             self.output.debug("Installing CA via trust anchor (Arch)")
             result = subprocess.run(  # noqa: S603
                 ["sudo", "trust", "anchor", "--store", str(ca_cert_path)],  # noqa: S607
@@ -285,8 +281,6 @@ class TrustStoreManager:
             else:
                 self.output.debug(f"NSS install skipped for {nss_db}: {result.stderr.strip()}")
 
-    # ---- removal -----------------------------------------------------------------------
-    #
     # None of this can key off the `.installed` sentinel next to the CA: that file records only
     # that ONE install once succeeded, never where, and it is gone the moment the services dir
     # is deleted -- which is exactly the state a user is in when they want the CA gone. Every

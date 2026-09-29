@@ -142,10 +142,6 @@ class BenchInfo:
         Raises:
             BenchException: If site_config.json not found
         """
-        # The SITE directory. It read `sites/<bench name>/`, which is the site directory only while
-        # a bench holds one site named after it: on a bench `shop` serving `shop.localhost` this
-        # raised "site_config.json not found" at the end of a successful create, and `fm create`
-        # then offered to roll the finished bench back.
         target = site or self.bench_config.primary_site
         site_config_path = host_bench_dir(self.bench_path) / "sites" / target / "site_config.json"
         if not site_config_path.exists():
@@ -570,7 +566,6 @@ class BenchInfo:
             link=f"{protocol}://{domain}",
         )
 
-        # ---- site
         card.section("site")
         if not sites:
             # There is no URL to print, and `http://<bench>` would send the operator to an address
@@ -605,29 +600,19 @@ class BenchInfo:
                 marker = "  [fm.ok]● primary[/fm.ok]" if site == primary else ""
                 card.fact("sites" if i == 0 else "", f"{protocol}://{site}  [fm.muted]{where}[/fm.muted]{marker}")
 
-        # Site directories on disk that `[sites]` does not record: someone ran `bench new-site` by
-        # hand inside `fm shell`. Reported, never acted on, because fm only ever destroys a schema it
-        # wrote down.
-        #
-        # TWO rows however many there are: the card is a summary and every fact on it is written to
-        # fit 80 columns, which one sentence per directory does not. `fm delete` says the same thing
-        # at length, per directory, because that is where the schema is about to be destroyed and
-        # where the operator needs to be told which file carries its name. The wording differs
-        # between the two surfaces deliberately.
+        # Site directories on disk that `[sites]` does not record (someone ran `bench new-site` by hand
+        # inside `fm shell`). Reported, never acted on: fm only destroys a schema it wrote down. Two rows,
+        # not one long sentence, to fit the card's 80-column fact width; `fm delete` explains this at
+        # length per directory instead, since that's where the schema is about to be destroyed.
         unmanaged = self.unmanaged_site_dirs()
         if unmanaged:
             card.fact("unmanaged", " [fm.muted]·[/fm.muted] ".join(f"sites/{name}/" for name in unmanaged))
             card.fact("", "[fm.muted]not in bench_config.toml; fm will not touch their schemas[/fm.muted]")
 
-        # The MIRROR of the row above: `[sites]` records a site that has no directory. Someone
-        # removed it by hand, or a create failed part-way. It matters more than it looks: a
-        # recorded site with no `site_config.json` is one `bench --site` answers "does not exist"
-        # for, so it can be enumerated, published to nginx and named as a target while no command
-        # can actually act on it. It is also no longer eligible to be the primary, which is why
-        # this card can end up showing a recorded site that is neither primary nor usable.
-        #
-        # Same two-row shape and the same reason: this is a summary, and one sentence per site
-        # does not fit 80 columns.
+        # The MIRROR of the row above: `[sites]` records a site with no directory (removed by hand, or a
+        # create failed part-way). A recorded site with no `site_config.json` still gets enumerated,
+        # published to nginx and named as a target, though no command can act on it, and it is no longer
+        # eligible to be primary. Same two-row shape as above, for the same reason.
         if config.sites:
             missing = [site for site in config.sites if site not in read_sites_on_disk(_root(config))]
             if missing:
@@ -665,7 +650,6 @@ class BenchInfo:
         abs_path = self.bench_path.absolute()
         card.fact("dir", f"[fm.muted][link=file://{abs_path}]{abs_path}[/link][/fm.muted]")
 
-        # ---- runtime
         card.section("runtime")
         card.fact("python", str(self.get_python_version()))
         card.fact("node", str(self.get_node_version()))
@@ -687,7 +671,6 @@ class BenchInfo:
             if config.apps_from:
                 card.fact("apps from", config.apps_from)
 
-        # ---- deploys (image deploy history, newest first)
         deployments = config.deployments if config.runtime == BenchRuntime.image else None
         if deployments and deployments.history:
             card.section("deploys")
@@ -710,17 +693,11 @@ class BenchInfo:
                 when = self._short_ts(entry.deployed_at)
                 card.fact(label, f"{entry.app_image}  [fm.muted]{when} · {status_markup}{dump}[/fm.muted]{marker}")
 
-        # ---- access
         card.section("access")
-        # `frappe` and `db` describe ONE site's credentials. They used to be read from the primary and
-        # printed under bare labels, so on a bench serving several sites they looked bench-wide while
-        # naming one site's schema and password, and the other sites' were not reachable from any fm
-        # command. One row per site now, with the site in the VALUE rather than the label: same
-        # treatment as the `aliases` rows above, and for the same reason, that the label column is 14
-        # characters and a site name overruns it.
-        #
-        # A single-site bench keeps exactly the rows it always printed. Same call the `sites` rows
-        # above make: there is nothing to disambiguate, and `url` has already named the site.
+        # `frappe`/`db` are ONE site's credentials; one row per site, with the site in the VALUE rather
+        # than the label -- same treatment as the `aliases` rows above, for the same reason: the label
+        # column is 14 characters and a site name overruns it. A single-site bench keeps exactly the row
+        # it always printed: nothing to disambiguate, and `url` has already named the site.
         credentialled = sites or [None]
         multi = len(credentialled) > 1
         for i, site in enumerate(credentialled):
@@ -738,7 +715,6 @@ class BenchInfo:
                 "db" if i == 0 else "",
                 f"{named}{db_name} [fm.muted]/[/fm.muted] [fm.secret]{db_pass}[/fm.secret]",
             )
-        # ---- tools: reachable only on the hostnames that route them
         unrouted = [site for site in sites if not config.serves_admin_tools(site)]
         routed = [site for site in sites if config.serves_admin_tools(site)]
 
@@ -759,7 +735,7 @@ class BenchInfo:
                 card.fact("tools" if i == 0 else "", f"[fm.muted]{site}[/fm.muted]  {_tools_url(site)}")
             card.fact("", f"[fm.muted]not served on {', '.join(unrouted)}[/fm.muted]")
 
-        # ---- auth: the web surface is per site, the tools surface is the bench's
+        # The web surface's auth can be per site; the tools surface's auth is always the bench's.
         own_auth = [site for site in sites if (config.sites or {}).get(site) and config.sites[site].auth is not None]
         if not own_auth:
             card.fact("auth", self._auth_fact(config.auth))
@@ -769,7 +745,6 @@ class BenchInfo:
             for site in own_auth:
                 card.fact("", f"[fm.muted]{site}[/fm.muted]  {self._auth_fact(config.sites[site].auth)}")
 
-        # ---- services (live container state)
         def dots(statuses: dict) -> str:
             return "   ".join(f"{railcard.status_dot(state)} {svc}" for svc, state in sorted(statuses.items()))
 
@@ -804,7 +779,6 @@ class BenchInfo:
             if running_bench_admin_tools:
                 card.fact("tools", dots(running_bench_admin_tools))
 
-        # ---- disk (does the operator need fm prune?)
         from frappe_manager.utils.prune import host_prune_settings, parse_size, summarize_disk_status
 
         host_prune = host_prune_settings()

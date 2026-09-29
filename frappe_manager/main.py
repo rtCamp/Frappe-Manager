@@ -9,11 +9,10 @@ from frappe_manager.output_manager.globals import get_global_output_handler, set
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 
 # frappe_manager.commands, utils.docker and utils.helpers are imported at their use sites BELOW
-# the root check, not here. Each one calls get_logger() at module scope, which creates CLI_DIR and
-# opens logs/fm.log as an import side effect. Hoisting them back to the top would run that before
-# cli_entrypoint() gets to refuse root, so `sudo -E fm` would leave a root-owned fm.log in the
-# real user's ~/frappe that their next fm run cannot write. The other five imports above are
-# side-effect free (verified by importing each in isolation).
+# the root check, not here: each calls get_logger() at module scope, opening logs/fm.log as an
+# import side effect, so hoisting them to the top would run that before cli_entrypoint() gets to
+# refuse root -- `sudo -E fm` would then leave a root-owned fm.log the next non-root fm run cannot
+# write.
 
 
 def cli_entrypoint():
@@ -46,16 +45,11 @@ def cli_entrypoint():
         apply_output_theme()
         set_output_style()
 
-    # Refuse root before app() runs, i.e. before app_callback creates CLI_DIR and before any
-    # command touches disk or docker. Root is not a supported way to run fm, and it fails in
-    # ways that are worse than a refusal:
-    #   * Frappe's own bench exits 1 as root unless `frappe_user` is set in the bench config
-    #     (bench/cli.py change_uid), which fm does not set, so web and workers land in FATAL
-    #     and the site serves 502 while the bench looks created.
-    #   * the shared service containers are named fixedly (fm_mariadb, fm_nginx-proxy),
-    #     so a root fm fights the same containers as the non-root fm on that host.
-    #   * anything written before the refusal is root-owned inside the user's own ~/frappe,
-    #     which the user then cannot remove without sudo. Hence: check first, write nothing.
+    # Refuse root before app() runs, before app_callback creates CLI_DIR or any command touches
+    # disk/docker: as root, Frappe's own bench exits 1 unless `frappe_user` is set (fm does not
+    # set it, so web/workers land in FATAL behind a 502), the fixedly-named service containers
+    # (fm_mariadb, fm_nginx-proxy) collide with a non-root fm on the same host, and anything
+    # written before the refusal is root-owned inside ~/frappe, requiring sudo to remove.
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         # display_error + SystemExit rather than handler.exit(os_exit=True): the latter routes
         # through builtins `exit`, which only exists while `site` is loaded, and this refusal has
@@ -93,10 +87,10 @@ def cli_entrypoint():
 
         output.display_error(f"[fm.error]Error Occurred[/fm.error] {str(e).strip()}")
 
-        # getattr, not e.details: this is the last handler standing, so it must not raise on an
-        # exception whose __init__ never reached FrappeManagerException. When it did raise, the
-        # AttributeError escaped cli_entrypoint and the user got a traceback INSTEAD of the log
-        # line below, so nothing was recorded anywhere.
+        # getattr, not e.details: this is the last handler standing, and must not itself raise on
+        # an exception whose __init__ never reached FrappeManagerException -- that would let an
+        # AttributeError escape cli_entrypoint, giving the user a bare traceback instead of the
+        # log line below.
         details = getattr(e, "details", None)
         if details:
             output.display_error(f"Details: {details}")

@@ -313,10 +313,8 @@ class BenchOrchestrator:
             current.nginx_image = nginx_image
             bench.generate_compose(bench.bench_config.export_to_compose_inputs())
 
-        # Ensure the app image (+ its nginx-assets image) is present.
         fetch_image(bench.docker_client, image, nginx_image, output=self.output)
 
-        # Seed apps.txt from the baked image and drive apps_list off it.
         apps_txt = host_bench_dir(bench.path) / "sites" / "apps.txt"
         host_run_cp(image, f"{CONTAINER_SITES_DIR}/apps.txt", str(apps_txt), bench.docker_client)
         baked = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
@@ -443,7 +441,6 @@ class BenchOrchestrator:
         frappe_bench_dir = host_bench_dir(bench.path)
         materialize_workspace_from_image(bench.docker_client, image, frappe_bench_dir, output=self.output)
 
-        # The baked app set drives apps.txt and the per-site installs.
         apps_txt = frappe_bench_dir / "sites" / "apps.txt"
         host_run_cp(image, f"{CONTAINER_SITES_DIR}/apps.txt", str(apps_txt), bench.docker_client)
         baked = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
@@ -1006,19 +1003,10 @@ class BenchOrchestrator:
             f"Created the site directories for {bench.site_name}. Nothing was written to {database.name} on {database.host}."
         )
 
-        # Record which site this bench serves. Every other path gets `default_site` for free
-        # from `create_bench_site`'s own `bench use <site>` call, run right after `new-site`
-        # (bench_site.py, the `set_default` block) -- attach never calls `create_bench_site` at
-        # all, since running it is the one thing attach must never do (it wraps `new-site` /
-        # `bootstrap_database`, which DROPs core tables before repopulating them, against a
-        # schema this path promises not to touch). `_phase1_prepare_structure` deliberately does
-        # NOT seed this early (see its own comment: doing so 500s a provision create, since the
-        # schema has no tables yet when phase 3 probes it), so nothing sets `default_site` before
-        # this point on the attach path. Left unset, phase 5's `is_bench_created` has no site to
-        # route an unqualified request to and fails a bench that is otherwise completely healthy.
-        # Safe here specifically because attach's schema already holds real tables and phase 4
-        # (this method) has already run -- the same probe that 500s a provisioning create simply
-        # serves the real site instead.
+        # Attach never calls `create_bench_site` -- it wraps `new-site`/`bootstrap_database`, which DROPs
+        # core tables, exactly what attach must not do -- so it never gets `default_site` set for free like
+        # every other path. Safe to set it here: attach's schema already holds real tables and phase 4 has
+        # already run, unlike phase 1, where setting it early 500s a provisioning create.
         bench.set_common_bench_config({"default_site": bench.site_name})
         self.output.print(f"Recorded {bench.site_name} as the bench's default site")
 
@@ -1316,15 +1304,10 @@ class BenchOrchestrator:
 
         bench = self.bench
 
-        # The exception text itself is deliberately NOT printed here. Every path out of this
-        # method now raises `exception` (see below), and `cli_entrypoint` (main.py) is the one
-        # place that catches a command's fatal error and prints it -- for every OTHER command
-        # already, and for a create failure too once the three branches below stopped
-        # swallowing it. Printing it here as well used to put the same text in front of the
-        # operator twice: once from this method, once from `cli_entrypoint` after the raise
-        # reached it. The log-path guidance just below stays: it is create-specific advice
-        # ("check the logs"), not a restatement of the exception, so `cli_entrypoint`'s generic
-        # "More info about error is logged in ..." line does not make it redundant.
+        # Not printed here: every path below now raises `exception`, and `cli_entrypoint` (main.py) is
+        # the one place that prints a command's fatal error -- printing it here too would show the
+        # operator the same text twice. The log-path guidance below is create-specific advice, not a
+        # restatement of the exception, so it stays.
         exception_traceback_str = capture_and_format_exception()
         self.logger.error(f"{bench.name}: NOT WORKING\n Exception: {exception_traceback_str}")
 
@@ -1348,16 +1331,10 @@ class BenchOrchestrator:
             raise exception
 
         if remove_on_failure:
-            # Short-circuits BOTH branches below: the interactive prompt and the non-interactive
-            # decline. It answers only the question this method itself asks -- remove the bench
-            # directory and its containers -- never the one `_offer_to_drop_provisioned_schema`
-            # already asked above: a schema on a server fm does not own stays declined, flag or
-            # no flag. The schema THIS bench owns on the fm-managed mariadb container is
-            # different: it is the bench's own data, the same thing an ordinary `fm delete`
-            # already drops by default, so `delete_fm_managed_db=True` is passed explicitly
-            # rather than left for `_resolve_site_schema` to ask about -- unanswered, that prompt
-            # would raise `NonInteractiveError` from inside `remove_bench` with nobody there to
-            # answer it, defeating the one promise this flag makes.
+            # `delete_fm_managed_db=True` is explicit, not left for `_resolve_site_schema` to prompt --
+            # unanswered, that prompt raises `NonInteractiveError` from inside `remove_bench` with nobody
+            # there to answer it. Affects only the fm-managed mariadb schema; an external schema was
+            # already declined above by `_offer_to_drop_provisioned_schema`, flag or no flag.
             bench.remove_bench(prompt=False, delete_fm_managed_db=True)
             self.output.warning(
                 f"--remove-on-failure: removed the failed bench {bench.name!r} and its containers "
@@ -1366,26 +1343,11 @@ class BenchOrchestrator:
             raise exception
 
         if not self.output.is_interactive():
-            # No TTY, or the global --non-interactive flag. `remove_bench`'s own confirmation
-            # (`_confirm_removal`) sets `required_flag`, which `prompt_ask` checks ahead of any
-            # default, so it ALWAYS raised `NonInteractiveError` here whenever there was no TTY --
-            # and that exception was propagating straight out of failure handling itself, a
-            # second unhandled crash on top of the one that triggered this method, with the
-            # half-created bench left on disk and no message about it at all.
-            #
-            # Matching `_offer_to_drop_provisioned_schema` just above: declining is the
-            # deliberate non-interactive answer for a destructive action taken with nobody
-            # watching, not a silent auto-yes -- an unattended `fm create` must not choose to
-            # delete a directory an operator cannot see being deleted. The difference from the
-            # old crash is that the choice is announced and actionable, so "orphaned with no
-            # message" cannot happen: the bench stays, and exactly where it is and how to remove
-            # it are printed.
-            #
-            # Still re-raises `exception` below, deliberately: printing a warning and returning
-            # cleanly let `_run_creation`'s `except` swallow it, `create_bench` return normally,
-            # and `fm create` exit 0 on a create that built nothing -- a script or CI job reads
-            # the exit code, not this message. Re-raising is what makes this path fail the
-            # command the way phase 6's failures already do, instead of only reporting one.
+            # No TTY, or --non-interactive: declining is the deliberate answer for a destructive action
+            # taken with nobody watching, not a silent auto-yes -- the bench stays, and exactly where it
+            # is and how to remove it are printed. Still re-raises `exception` below: returning cleanly
+            # here would let `_run_creation`'s `except` swallow it and `fm create` exit 0 on a create
+            # that built nothing.
             self.output.warning(
                 f"Non-interactive: leaving the failed bench {bench.name!r} at {bench.path} for "
                 f"inspection. Remove it with: fm delete {bench.name} --yes"
@@ -1396,14 +1358,9 @@ class BenchOrchestrator:
         if not remove_status:
             bench.info()
 
-        # Matching the two branches above, deliberately: an operator watching this run already
-        # saw the error, the prompt and (if declined) `bench.info()` -- but a human reading text
-        # and a script reading `$?` are two different consumers, and this method was satisfying
-        # only the first. Returning cleanly here let `_run_creation`'s `except` swallow the
-        # failure, `create_bench` return as if nothing had happened, and an INTERACTIVE `fm
-        # create` exit 0 on a bench that was never finished -- the one arm of this function that
-        # still could, after the non-interactive branch above was fixed the same way. A `&&`
-        # chain, a CI job or a wrapper script run from a terminal is still a script.
+        # Matching the two branches above: a script (CI, `&&` chain, wrapper) reads the exit code, not
+        # this text, so returning cleanly here would report success (exit 0) on a bench that was never
+        # finished.
         raise exception
 
     def start_bench(

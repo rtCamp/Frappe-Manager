@@ -59,7 +59,6 @@ class OutputHandler(ABC):
         self._spinner_active = False
         self._current_text: str | None = None
 
-        # Interactive mode state (3-level priority system)
         self._interactive: bool | None = None  # None = not initialized
         self._tty_available: bool = sys.stdin.isatty() and sys.stdout.isatty() and not running_in_ci()
 

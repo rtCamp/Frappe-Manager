@@ -463,9 +463,7 @@ def _apply_container_work(bench: Bench, plan: UpdatePlan, output) -> None:
     if plan.redis_change and plan.redis is not None:
         # `set_service_disabled` puts a suppressed redis service in the `disabled` profile, which
         # stops compose STARTING it -- it does not stop one already running, and a `compose up`
-        # silently ignores a service whose profile is inactive. Verified on a live bench: after a
-        # switch to an external redis both fm containers were still up, serving a queue nothing
-        # read any more.
+        # silently ignores a service whose profile is inactive.
         #
         # Only the sides that actually moved out, because `[redis]` is per side: a bench with an
         # external queue and a local cache must keep its `redis-cache` container running.

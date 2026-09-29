@@ -38,7 +38,6 @@ class DockerVolumeMount:
 
         if type == DockerVolumeType.bind:
             self.host = Path(self.host)
-            # only join ./ paths
             if str(host).startswith("./"):
                 self.host = compose_path.parent.joinpath(host)
 
@@ -50,9 +49,8 @@ class DockerVolumeMount:
 
         dest = str(self.container)
         mount = f"{source}:{dest}"
-        # A CA bundle (or any bind meant to be read-only) must never be writable by the container
-        # that reads it; `:ro` is the only thing that makes that survive a regeneration, since
-        # this string is what gets written back to the compose file on disk.
+        # A read-only bind must carry `:ro` all the way through: this string is what gets
+        # rewritten to the compose file on disk on every regeneration.
         return f"{mount}:ro" if self.read_only else mount
 
 

@@ -51,18 +51,11 @@ def stop(
 
     orchestrator = DeployOrchestrator(bench, output_handler=output)
     if drain:
-        # A timeout aborts, same as every other drain call site: the workers are resumed first, so
-        # the bench is left exactly as it was found -- up, processing -- and the stop can be
-        # retried or forced with --no-drain. Stopping anyway would have been the one place where a
-        # refused command still did the thing.
-        #
-        # The window is deliberately EMPTY. Every other caller does its work inside the suspend;
-        # here the drain buys the in-flight jobs their finish and the flag must be cleared BEFORE
-        # the containers go down, because `rq:suspended` is a redis key and the bench's
-        # redis-queue persists it (RDB `save` on a `/data` volume): a flag left set survives the
-        # stop and comes back with the bench, so `fm start` would bring up workers that quietly
-        # process nothing. Wrapping it still earns the signal safety, and the drain wait is the
-        # long part where a Ctrl-C or a dropped SSH actually lands.
+        # On timeout the workers are resumed and the stop aborts, leaving the bench exactly as
+        # found so it can be retried or forced with --no-drain.
+        # The `with` body is deliberately empty: `rq:suspended` is a redis key the bench's
+        # RDB-persisted queue keeps, so it must clear BEFORE containers stop, or the flag survives
+        # into `fm start` and workers come up silently processing nothing.
         with rq_suspended(orchestrator, output, action="stop"):
             pass
     else:

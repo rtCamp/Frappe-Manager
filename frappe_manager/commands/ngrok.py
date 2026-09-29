@@ -89,8 +89,8 @@ def ngrok(
             )
             raise typer.Exit(1)
 
-        # Guarded on "different from what is stored", not "nothing is stored": an explicit
-        # --save-token with a replacement token used to be discarded in silence.
+        # Guarded on "different from what is stored", not "nothing is stored": narrowing this to
+        # only "nothing stored" would silently discard an explicit --save-token replacement token.
         if auth_token != fm_config_manager.ngrok_auth_token:
             if fm_config_manager.ngrok_auth_token:
                 output.print("Replacing saved auth token", emoji_code=":new:")

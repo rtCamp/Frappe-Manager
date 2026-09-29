@@ -61,7 +61,7 @@ class UploadLimitManager:
         for domain in non_wildcards:
             matches_wildcard = False
             for wildcard in wildcards:
-                wildcard_base = wildcard[2:]  # Remove "*."
+                wildcard_base = wildcard[2:]
                 if domain.endswith(wildcard_base) and domain != wildcard_base:
                     matches_wildcard = True
                     break

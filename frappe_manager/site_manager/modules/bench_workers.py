@@ -125,7 +125,6 @@ class BenchWorkers:
             prev_workers.sort()
             expected_workers = self.get_expected_workers(include_default_workers=include_default_workers)
 
-            # get custom workers from common_site_config.json
             common_site_config_data = self.bench.get_common_bench_config()
 
             custom_workers = common_site_config_data.get("workers") or {}
@@ -255,7 +254,7 @@ class BenchWorkers:
         if self.compose_file_manager.exists():
             self.output.print("No workers found, cleaning up existing configuration")
             # Plain down (NO remove_orphans: shared compose project, see above). stream=False on
-            # purpose: a discarded stream=True iterator is lazy and executes nothing, which used to
+            # purpose: a discarded stream=True iterator is lazy and executes nothing, which would
             # skip this down entirely and unlink the compose file over still-running containers.
             self.docker_client.compose.down(volumes=False, timeout=5, stream=False)
             self.compose_file_manager.compose_path.unlink()

@@ -429,9 +429,8 @@ class RichOutputHandler(OutputHandler):
 
         prompt_clean = re.sub(r"\[/?[a-z]+\]", "", prompt)
 
-        # No non-interactive branch: the guard above already returned for that case.
-        # `is_interactive()` and `_is_interactive` are the same predicate written twice, so an
-        # `input()` fallback sat here unreachable, kept alive only by the duplication.
+        # No non-interactive branch: the guard above already returned for that case, and
+        # `is_interactive()`/`_is_interactive` are the same predicate -- do not add one here.
         from InquirerPy import inquirer
         from InquirerPy.utils import InquirerPyStyle
 
@@ -560,11 +559,8 @@ class RichOutputHandler(OutputHandler):
         from rich.console import ConsoleRenderable
 
         # Data on stdout, diagnostics on stderr, so `fm info mybench > file` and `... | jq` work.
-        # This used to sit behind FM_STREAM_SEPARATION, defaulting to everything-on-stderr: the
-        # piping this method exists for only worked for whoever knew to set the variable.
-        #
-        # ConsoleRenderable covers Table, Group, Panel, Text, ... -- anything rich
-        # can render goes through the console instead of str()'s repr.
+        # ConsoleRenderable covers Table, Group, Panel, Text, ... -- anything rich can render
+        # goes through the console instead of str()'s repr.
         if isinstance(data, ConsoleRenderable):
             self._emit(self.stdout, data)
         elif isinstance(data, (dict, list)):

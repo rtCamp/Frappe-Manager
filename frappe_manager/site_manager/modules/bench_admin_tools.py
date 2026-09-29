@@ -305,7 +305,6 @@ class BenchAdminTools:
         # source must be present (docker would create it root-owned otherwise)
         # and this refreshes the plugin after fm upgrades.
         self.sync_adminer_plugin()
-        # Use docker_client directly instead of compose_project wrapper
         try:
             self.docker_client.compose.up(
                 services=[],

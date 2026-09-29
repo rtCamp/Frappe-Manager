@@ -32,13 +32,10 @@ FM_IMAGE_PREFIX = "ghcr.io/rtcamp/frappe-manager"
 
 
 DEFAULT_EXTENSIONS = [
-    # Debugger
     "ms-python.debugpy",
     "rioj7.command-variable",
-    # Python
     "ms-python.python",
     "charliermarsh.ruff",
-    # JavaScript/Web
     "dbaeumer.vscode-eslint",
     "esbenp.prettier-vscode",
 ]

@@ -61,8 +61,7 @@ if TYPE_CHECKING:
 
 BENCH_BIN = "/opt/user/.bin/bench"
 FRAPPE_SERVICE = "frappe"
-# coreutils `timeout` exits 124 when it had to kill the command it wrapped; that
-# is how a migrate over [switch].migrate_timeout reports back (see _migrate).
+# coreutils `timeout` exits 124 when it kills the wrapped command; that's how a migrate_timeout is detected in _migrate.
 TIMEOUT_EXIT_CODE = 124
 # fmx is installed as a uv tool; a bare `python` is not on the exec PATH.
 FMX_PYTHON = "/opt/uv-tools/fmx/bin/python"
@@ -254,19 +253,14 @@ class DeployOrchestrator:
         self.config = bench.bench_config
         self.switch_config = self.config.switch
         self.workers_config = self.config.workers or WorkersConfig()
-        # The PRIMARY site. Kept for the bench-wide calls that still have to name SOME site:
-        # `set-config -g` (which writes common_site_config and so covers every site regardless
-        # of the one named), the worker pin, and the hook env's SITE_NAME. It read `bench.name`
-        # until the identities were separated, which was invisible only because the two are the
-        # same string. The annotation on `bench` above is load-bearing too: while the parameter
-        # was untyped, a symbol-aware search for reads of `Bench.name` could not see this line.
+        # The primary site: kept because bench-wide calls that must name SOME site
+        # (`set-config -g`, the worker pin, the hook env's SITE_NAME) use this regardless
+        # of how many sites the bench serves.
         self.site = bench.site_name
-        # Every site the bench serves, primary first, and the list the schema-grade steps walk:
-        # backup, restore, migrate, install-apps, config merges and cache clears are all PER
-        # SCHEMA. Recorded sites only. A site directory fm never provisioned is reported by
-        # `unmanaged_site_dirs` and left alone, the same rule `fm delete` follows: fm does not
-        # migrate a schema it disclaimed ownership of, because a migration it broke would be
-        # damage to the exact thing it promised not to touch.
+        # Every site the bench serves, primary first; schema-grade steps (backup, restore,
+        # migrate, install-apps, config merges, cache clears) walk this list only. Directories
+        # `unmanaged_site_dirs` reports are never touched -- fm doesn't migrate a schema it
+        # disclaimed ownership of.
         self.sites = list(self.config.site_names)
         self.bench_path = Path(bench.path)
         self.docker = bench.docker_client
@@ -449,8 +443,7 @@ class DeployOrchestrator:
                     stream=False,
                 )
                 code = "".join(result.stdout).strip()
-                # 503 = maintenance page (server up, migrate window). Finalize
-                # clears maintenance after the gate passes.
+                # 503 = maintenance page (server up, migrate window); finalize clears it after the gate passes.
                 if code in ("200", "404", "503"):
                     return True
             except Exception as e:
@@ -528,13 +521,11 @@ class DeployOrchestrator:
             time.sleep(interval)
         return False
 
-    # app-nginx runs under supervisord as a NON-root user, so `/run/nginx.pid` is
-    # never written and `nginx -s reload` fails ("open /run/nginx.pid failed").
-    # Find the master via /proc (no `ps` in the image) and SIGHUP it directly so
-    # nginx re-parses config and re-resolves the static `upstream frappe:80`.
-    # Match on /proc/PID/comm (== "nginx"), NOT cmdline: this very script's
-    # `sh -c` argv would otherwise contain the search string and HUP itself. The
-    # master is the nginx process whose parent is not nginx (workers' parent is).
+    # app-nginx runs under supervisord as non-root, so `/run/nginx.pid` is never written and
+    # `nginx -s reload` fails. Find the master via /proc (no `ps` in the image) and SIGHUP it
+    # to re-parse config and re-resolve the static `upstream frappe:80`. Match on
+    # /proc/PID/comm == "nginx", NOT cmdline: this script's own `sh -c` argv would otherwise
+    # match and HUP itself. The master is the nginx process whose parent is not nginx.
     _NGINX_HUP = (
         'for p in /proc/[0-9]*; do '
         '[ "$(cat "$p/comm" 2>/dev/null)" = "nginx" ] || continue; '
@@ -551,9 +542,9 @@ class DeployOrchestrator:
             self._raw_docker("exec", container_id, "sh", "-c", self._NGINX_HUP)
 
     def _stop(self, container_id: str) -> None:
-        # Graceful stop (SIGTERM): gunicorn/nginx finish in-flight and CLOSE their
-        # listener, so new connections are refused-fast (not black-holed). `stop`
-        # also drops the container from Docker's embedded DNS immediately.
+        # Graceful stop (SIGTERM): gunicorn/nginx finish in-flight and close their listener,
+        # so new connections are refused-fast (not black-holed); also drops the container from
+        # Docker's embedded DNS immediately.
         with contextlib.suppress(Exception):
             self._raw_docker("stop", container_id)
 
@@ -620,31 +611,27 @@ class DeployOrchestrator:
         canonical = self.compose.get_container_names()
         old_ids = {svc: self._compose_ps_ids(svc) for svc in web}
 
-        # Steps 1-3 all run while the OLD replicas are untouched and still
-        # serving, so EVERY failure in them -- an unhealthy new replica, or a
-        # `compose --scale` that failed (DeployError out of `_scale`) -- unwinds
-        # through `_abort_rolling`: new replicas torn down, canonical (old-image)
-        # the compose left in the rolling render (no `container_name`), and a
-        # later `compose up` would create containers under generated names that
-        # `get_container_names()` no longer matches -- fm would read the bench as
-        # down. The drain (step 4 onward) is deliberately NOT covered: once the
-        # old replicas are stopped, tearing the new ones down would cause the
-        # very outage `_abort_rolling` exists to prevent.
+        # Steps 1-3 run while the OLD replicas are still serving: any failure (unhealthy new
+        # replica, or a `compose --scale` failure) unwinds via `_abort_rolling`, since leaving a
+        # rolling-render compose (no `container_name`) in place would make `get_container_names()`
+        # stop matching and fm would read the bench as down. The drain (step 4 onward) is
+        # deliberately NOT covered: once old replicas are stopped, tearing the new ones down would
+        # cause the very outage `_abort_rolling` exists to prevent.
         try:
-            # 1. Re-render the compose without container_name on the web tiers so
-            #    docker compose accepts --scale, and pin workers to the new image.
+            # Re-render the compose without container_name on the web tiers so `compose --scale`
+            # is accepted, and pin workers to the new image.
             self.output.change_head("Rolling: rendering scalable image compose")
             self.docker_ops.render_image_compose(new_image, new_nginx_image, rolling=True)
             self._pin_workers(new_image, new_nginx_image)
 
-            # 2. Add the new frappe replica alongside the old (old keeps serving).
+            # Add the new frappe replica alongside the old (old keeps serving).
             self.output.change_head("Rolling: starting new frappe replica")
             self._scale({"frappe": 2})
             new_frappe = self._new_container_id("frappe", old_ids["frappe"])
             if not new_frappe or not self._container_health(new_frappe):
                 raise DeployError("new frappe replica failed health check; kept old, no swap")
 
-            # 3. Add the new nginx replica (now resolves both frappe replicas).
+            # Add the new nginx replica (now resolves both frappe replicas).
             self.output.change_head("Rolling: starting new nginx replica")
             self._scale({"frappe": 2, "nginx": 2})
             new_nginx = self._new_container_id("nginx", old_ids["nginx"])
@@ -654,17 +641,14 @@ class DeployOrchestrator:
             self._abort_rolling(web, old_ids, old_image, old_nginx_image, snaps)
             raise
 
-        # 4. Drain OLD replicas. jwilder/nginx-proxy 1.11 does NOT honor container
-        #    health, so proxy routing changes only on container add/remove;
-        #    nginx's default `proxy_next_upstream error timeout` retries the
-        #    surviving upstream during the brief proxy->nginx churn.
-        #
-        #    app-nginx's `upstream frappe:80` is resolved ONCE at config load, so
-        #    a killed old-frappe would leave a dead IP that black-holes SYNs
-        #    (connect-timeout hang, no fast failover). We therefore `stop` old
-        #    frappe first (drops it from Docker DNS + closes its listener) and
-        #    `nginx -s reload` the survivor to re-resolve to only the new replica
-        #    BEFORE removing it, so no request is ever routed to a dead IP.
+        # Drain OLD replicas. jwilder/nginx-proxy 1.11 does not honor container health, so proxy
+        # routing only changes on container add/remove; nginx's default
+        # `proxy_next_upstream error timeout` retries the surviving upstream during the brief
+        # proxy->nginx churn. app-nginx's `upstream frappe:80` is resolved ONCE at config load, so
+        # killing old-frappe first would leave a dead IP that black-holes SYNs. We therefore
+        # `stop` old frappe first (drops Docker DNS + closes its listener) and `nginx -s reload`
+        # the survivor to re-resolve to only the new replica BEFORE removing it, so no request is
+        # ever routed to a dead IP.
         self.output.change_head("Rolling: draining old web replicas")
         time.sleep(5)
         for cid in old_ids["nginx"]:
@@ -679,18 +663,16 @@ class DeployOrchestrator:
             self._rm(cid)
         self._reload_nginx(new_nginx)
 
-        # 5. Survivors are compose replica #2; rename to the canonical names and
-        #    re-render the canonical (container_name-bearing) compose WITHOUT a
-        #    `compose up`, so get_container_names() keeps matching and no recreate
-        #    (no blip) happens.
+        # Survivors are compose replica #2; rename to the canonical names and re-render the
+        # canonical (container_name-bearing) compose WITHOUT a `compose up`, so
+        # get_container_names() keeps matching and no recreate (no blip) happens.
         self.output.change_head("Rolling: restoring canonical container names")
         self._rename(new_frappe, canonical["frappe"])
         self._rename(new_nginx, canonical["nginx"])
         self.docker_ops.render_image_compose(new_image, new_nginx_image, rolling=False)
 
-        # 6. Bring the non-web code tiers (socketio, schedule) + workers to the
-        #    new image. These are out of the /api HTTP path; a brief socketio
-        #    reconnect is acceptable and not in the request histogram.
+        # Bring the non-web code tiers (socketio, schedule) + workers to the new image. These are
+        # out of the /api HTTP path, so a brief socketio reconnect is acceptable.
         with contextlib.suppress(Exception):
             self._raw_compose("up", "-d", "--pull", "never", "socketio", "schedule")
         self._up_workers()
@@ -732,7 +714,6 @@ class DeployOrchestrator:
     def _restore_compose(self, snaps: dict[Path, bytes]) -> None:
         for p, data in snaps.items():
             p.write_bytes(data)
-        # Reload the in-memory compose manager from the restored file.
         self.compose.reload()
 
     def _external_db(self, site: str) -> DatabaseConfig | None:
@@ -810,10 +791,9 @@ class DeployOrchestrator:
 
         # Handed across the container boundary through the one directory BOTH runtimes mount,
         # which is why this is not `/workspace/.cache`: an image bench does not mount the
-        # workspace, so a dump written there never reaches the host.
-        # Keyed by SITE, not a fixed name: two sites dumping in the same run would otherwise
-        # race through one path, and a failure mid-move would leave one site's rows filed
-        # under another site's dump.
+        # workspace, so a dump written there never reaches the host. Keyed by SITE, not a fixed
+        # name: two sites dumping in the same run would otherwise race through one path, and a
+        # failure mid-move would leave one site's rows filed under another site's dump.
         container_path, rel = container_transit_path(f"deploy-db-backup-{site}.sql")
         host_path = self.bench_path / "workspace" / rel
         try:
@@ -905,11 +885,10 @@ class DeployOrchestrator:
             )
 
         if not self.output.is_interactive():
-            # No TTY, or the global --non-interactive flag. An explicit
-            # --restore-db has no safe unattended reading: it replaces live data
-            # with an older dump, so refuse and name the way through. fm's own
-            # insurance restore keeps working, because refusing it would leave a
-            # failed migrate with no recovery at all.
+            # No TTY, or --non-interactive: an explicit --restore-db has no safe unattended
+            # reading since it replaces live data with an older dump, so refuse. fm's own
+            # insurance restore keeps working -- refusing it would leave a failed migrate with no
+            # recovery at all.
             if requested:
                 raise refuse(
                     "there is no terminal to ask on. Re-run without --non-interactive, or pass --yes to accept "
@@ -996,20 +975,19 @@ class DeployOrchestrator:
             self._exec_frappe(f'{FMX_PYTHON} -c "{py}"')
         except Exception as e:
             detail = _exec_error_text(e)
-            # Checked BEFORE the exit status, because fmx reports an unreachable queue on stderr
-            # and still exits 3 -- the same status a real timeout uses. Taken in the other order
-            # this reads as "workers still busy" and sends the operator to raise a
-            # `drain_timeout` that cannot reach an endpoint which is down, in a message that
-            # never mentions redis. fm's own container and an external `\[redis].queue` both land
-            # here, because fmx drains whichever one `common_site_config.json` names.
+            # Checked BEFORE the exit status: fmx reports an unreachable queue on stderr but still
+            # exits 3, the same status a real timeout uses. Checking exit status first would read
+            # this as "workers still busy" and send the operator to raise a drain_timeout that
+            # cannot reach an endpoint which is down. fm's own container and an external
+            # `[redis].queue` both land here, since fmx drains whichever one
+            # `common_site_config.json` names.
             if "Failed to connect to Redis" in detail or "'redis_queue' URL not found" in detail:
-                # The clause that names the cause, not the traceback fmx exits through: that ends
-                # in "Redis connection unavailable (see above for details)", and the details it
-                # points at are exactly what an operator reading one message needs. stderr
-                # arrives joined into one line, so this is a match rather than a line scan.
-                # Stops at the traceback, not at the first full stop: the host in the message
-                # carries dots of its own (`r.invalid.example`), which a sentence-shaped match
-                # truncates into nonsense.
+                # Extracts the clause naming the cause, not fmx's own traceback message ("Redis
+                # connection unavailable (see above for details)"). stderr arrives joined into one
+                # line, so this is a match rather than a line scan. Stops at the traceback, not at
+                # the first full stop -- the host in the message can carry dots of its own
+                # (`r.invalid.example`), which a sentence-shaped match would truncate into
+                # nonsense.
                 found = re.search(r"Failed to connect to Redis:.*?(?=\s*Traceback|$)", detail)
                 cause = found.group(0).strip() if found else "the queue did not answer"
                 raise DrainQueueUnreachable(
@@ -1516,21 +1494,21 @@ class DeployOrchestrator:
         # nothing below has mutated anything yet. See `_refuse_redis_identity_collision`.
         self._refuse_redis_identity_collision()
 
-        # Resolve both companions ONCE, then carry them: `new_nginx_image` is threaded through
-        # fetch, compose render, worker pin and `_record`; `old_nginx_image` is threaded to the
-        # rolling-swap abort path and the health-gate rollback, both of which re-pin OLD_IMAGE
-        # and need ITS companion, never `new_nginx_image`. `old_image` is already present (it is
-        # the running image), so resolving its label costs no pull.
+        # Resolve both companions ONCE, then carry them: `new_nginx_image` threads through fetch,
+        # compose render, worker pin and `_record`; `old_nginx_image` threads to the rolling-swap
+        # abort path and the health-gate rollback, both of which re-pin OLD_IMAGE and need ITS
+        # companion, never `new_nginx_image`. `old_image` is already present, so resolving its
+        # label costs no pull.
         new_nginx_image = self._resolve_nginx_image(new_image, nginx_image)
         old_nginx_image = (
             self._resolve_nginx_image(old_image, self._current_deployed_nginx_image()) if old_image else None
         )
 
-        # 1. Fetch (registry login+pull, or verify save_load-loaded image present)
+        # Fetch: registry login+pull, or verify a save_load-loaded image is present.
         self.output.change_head(f"Fetching image {new_image}")
         self._fetch_image(new_image, new_nginx_image)
 
-        # 2. Pre-flight boot check (nonzero => abort before any change)
+        # Pre-flight boot check; a failing boot aborts before anything below mutates state.
         self.output.change_head("Pre-flight boot check")
         try:
             self.docker.run(
@@ -1553,22 +1531,20 @@ class DeployOrchestrator:
 
         snaps = self._snapshot_compose()
 
-        # 3. Render the image-mode compose pinned to the new image. From here until
-        # the swap, every abort path restores the snapshots (old stack serving).
+        # Render image-mode compose pinned to the new image. From here until the swap, every
+        # abort path restores the snapshots (old stack keeps serving).
         self.output.change_head("Rendering image-mode compose")
         self.docker_ops.render_image_compose(new_image, new_nginx_image)
         self._pin_workers(new_image, new_nginx_image)
 
-        # 4. Resolve migrate: runtime override first, else the bench config.
         requested = self.switch_config.migrate if migrate_override is None else migrate_override
         migrate = bool(requested)
         # A DB restore changes schema/data under running code the same way a
         # migrate does: same maintenance window, same rolling-eligibility rules.
         schema_step = migrate or bool(restore_db_dumps)
-        # An EMPTY ``maintenance_mode_phases`` is the operator asserting the
-        # migration is backward-compatible, i.e. "no page" -- the same assertion
-        # that makes this deploy rolling-eligible below. Honour it here or the
-        # 503 goes up anyway and the assertion only bought the rolling swap.
+        # An EMPTY ``maintenance_mode_phases`` is the operator asserting the migration is
+        # backward-compatible, i.e. "no page" -- the same assertion that makes this deploy
+        # rolling-eligible below. Honour it here or the 503 goes up anyway.
         maintenance = (
             schema_step and self.switch_config.maintenance_mode and bool(self.switch_config.maintenance_mode_phases)
         )
@@ -1589,18 +1565,15 @@ class DeployOrchestrator:
 
         migrate_status = "skipped"
         try:
-            # 5. Maintenance ON (only for schema-grade steps: migrate/restore)
             if maintenance and self._frappe_running():
                 self.output.change_head("Enabling maintenance mode")
                 self.set_maintenance_mode(1)
 
-            # 6. Drain workers (old container). A gate, like `fm restart`:
-            # proceeding past a timed-out drain would take the backup while a
-            # still-busy worker keeps writing, so the dump would no longer be
-            # the exact quiesced state step 7 documents. Nothing irreversible
-            # has happened yet (maintenance is unwound below): abort.
-            # The resume is NOT done here: the pre-swap abort handler resumes on every abort path,
-            # so doing it here too would just cost a second container exec.
+            # Drain workers (old container); a gate like `fm restart`: proceeding past a
+            # timed-out drain would take the backup while a still-busy worker keeps writing, so
+            # the dump would not match step 7's quiesced state. Nothing irreversible has happened
+            # yet, so abort. The resume is NOT done here -- the pre-swap abort handler resumes on
+            # every abort path, so doing it here too would cost a second container exec.
             if not self.drain_workers():
                 raise DeployError(
                     f"Drain timed out after {self.workers_config.drain_timeout}s: workers still busy. "
@@ -1609,10 +1582,9 @@ class DeployOrchestrator:
                     "waiting (in-flight jobs die when the worker containers are replaced)."
                 )
 
-            # 7. Backup at the quiesced point: requests are already 503'd (when
-            # migrating) and drained workers have finished writing, so the dump
-            # is the exact pre-migrate state -- a rollback_db restore loses
-            # nothing written between dump and migrate.
+            # Backup at the quiesced point: requests are already 503'd (when migrating) and
+            # drained workers have finished writing, so the dump is the exact pre-migrate state --
+            # a rollback_db restore loses nothing written between dump and migrate.
             requested_backup = self.switch_config.backup_db
             do_backup = schema_step if requested_backup == "auto" else bool(requested_backup)
             if do_backup:
@@ -1620,15 +1592,12 @@ class DeployOrchestrator:
                 db_dumps = self._backup_all(backup_dir)
                 incomplete = [s for s in self.sites if s not in db_dumps]
                 if incomplete and requested_backup != "auto" and self.switch_config.rollback_db:
-                    # The operator asked for a dump AND asked fm to restore it if
-                    # the deploy goes wrong. Every way a site's backup gives up
-                    # (frappe stopped, DB name unresolvable, mariadb-dump refused,
-                    # dump file never appeared) leaves it out of the mapping, and they all
-                    # have one consequence: that site could not be rolled back.
-                    # ANY site missing is enough to abort: a partial rollback would put the
-                    # bench at two points in time, which is worse than the failed deploy.
-                    # Abort while the abort is still free: nothing has been migrated or
-                    # swapped, and the handler below drops the page and resumes the workers.
+                    # The operator asked for a dump AND asked fm to restore it if the deploy goes
+                    # wrong. Every way a site's backup can fail leaves it out of the mapping, and
+                    # any site missing is enough to abort: a partial rollback would put the bench
+                    # at two points in time, worse than the failed deploy. Abort while still free:
+                    # nothing has been migrated or swapped, and the handler below drops the page
+                    # and resumes the workers.
                     raise DeployError(
                         f"DB backup failed for {', '.join(incomplete)} and \\[switch].rollback_db is on, so a "
                         "failed migrate would have nothing to restore for those sites. Deploy aborted before "
@@ -1638,10 +1607,9 @@ class DeployOrchestrator:
             elif requested_backup == "auto":
                 self.output.print("Backup skipped (backup_db=auto: no schema change)")
 
-            # 7b. Restore recorded dumps (rollback path): after the insurance
-            # backup of the CURRENT state, before migrate/swap. ``requested``:
-            # these are the operator's --restore-db, not fm's own insurance, so each
-            # must be confirmed and refuses when it cannot ask.
+            # Restore recorded dumps (rollback path), after the insurance backup of the CURRENT
+            # state but before migrate/swap. ``requested``: these are the operator's --restore-db,
+            # not fm's own insurance, so each must be confirmed and refuses when it cannot ask.
             for site, dump in restore_db_dumps.items():
                 self._restore_db(site, dump, requested=True, confirmed=restore_confirmed)
 
@@ -1652,20 +1620,18 @@ class DeployOrchestrator:
                     self._migrate(new_image)
                     migrate_status = self._migrate_status = "migrated"
                 except (DockerException, DeployError) as e:
-                    # Migrate failure: NO swap. Keep old image + report. migrate is
-                    # transactional/resumable so default is keep-old (re-runnable).
-                    # DeployError is in the tuple because ``_migrate`` translates a
-                    # migrate_timeout kill into one: it must land HERE (notify +
-                    # rollback_db), not on the generic pre-swap abort above.
+                    # Migrate failure: no swap, keep old image + report -- migrate is
+                    # transactional/resumable so default is keep-old (re-runnable). DeployError is
+                    # in the except tuple because ``_migrate`` translates a migrate_timeout kill
+                    # into one, and that must land HERE (notify + rollback_db), not the generic
+                    # pre-swap abort above.
                     migrate_status = self._migrate_status = "failed"
                     self._notify_after_migrate(new_image)
                     if self.switch_config.rollback_db and db_dumps:
-                        # Every site, in reverse: the migrate walked them primary-first and
-                        # stopped at the first failure, so unwinding backwards undoes the most
-                        # recently changed schema first. Sites the migrate never reached are
-                        # restored too, and harmlessly: their dump is byte-identical to the
-                        # schema still on disk, and re-importing costs less than deciding
-                        # which sites the failed run had already touched.
+                        # Every site, in reverse: migrate walked them primary-first and stopped at
+                        # the first failure, so unwinding backwards undoes the most recently
+                        # changed schema first. Sites migrate never reached are restored too,
+                        # harmlessly -- their dump is byte-identical to the schema still on disk.
                         for site in reversed(list(db_dumps)):
                             # A declined external-restore confirmation must not swallow the
                             # migrate failure below: that message is the one worth reading.
@@ -1690,30 +1656,27 @@ class DeployOrchestrator:
             self._run_host_hook(self._switch_hook("before_restart", host=True), "host_before_restart", new_image)
             self._run_container_hook(self._switch_hook("before_restart"), "before_restart", new_image)
         except Exception:
-            # Abort BEFORE the swap (hook/migrate/maintenance/drain failure): the OLD
-            # stack is still the live one. Revert the compose re-pin, then drop the
-            # page and un-suspend RQ so an aborted deploy never leaves the site dark
-            # or the compose half-switched (a later plain `compose up` must not jump
-            # images).
+            # Abort BEFORE the swap (hook/migrate/maintenance/drain failure): the OLD stack is
+            # still live. Revert the compose re-pin, then drop the page and un-suspend RQ so an
+            # aborted deploy never leaves the site dark or the compose half-switched.
             self._restore_compose(snaps)
             self._unwind_maintenance()
             raise
 
-        # 7b. Swap. Rolling when eligible -> zero dropped requests;
-        # otherwise recreate-swap (the maintenance window covers the brief blip).
-        # A failure IN the swap is its own abort window: the swap paths restore the
-        # compose themselves (`_abort_rolling` for rolling; the recreate is already
-        # pinned to the image it brought up), but the page and the suspended workers
-        # are this pipeline's to unwind -- otherwise the surviving stack serves 503
-        # to everyone while the CLI reports the old image was kept.
+        # Swap: rolling when eligible for zero dropped requests, otherwise recreate-swap (the
+        # maintenance window covers the brief blip). A failure IN the swap is its own abort
+        # window -- the swap paths restore the compose themselves (`_abort_rolling` for rolling;
+        # the recreate is already pinned to the image it brought up), but the page and suspended
+        # workers are this pipeline's to unwind, or the surviving stack serves 503 while the CLI
+        # reports the old image was kept.
         try:
             if do_rolling:
                 self.output.change_head("Rolling web swap")
                 self._rolling_swap(new_image, new_nginx_image, old_image, old_nginx_image, snaps)
             else:
-                # Recreate-swap. No ``--wait``: nginx emerg-exits on the frappe:80
-                # upstream DNS if it wins the startup race, so we gate on the frappe
-                # curl health check and then (re)start nginx once frappe resolves.
+                # Recreate-swap. No ``--wait``: nginx emerg-exits on the frappe:80 upstream DNS if
+                # it wins the startup race, so gate on the frappe curl health check and (re)start
+                # nginx once frappe resolves.
                 self.output.change_head("Swapping to new image (recreate)")
                 self.docker.compose.up(services=[], detach=True, pull="never", stream=False)
                 self._up_workers()
@@ -1727,8 +1690,7 @@ class DeployOrchestrator:
             if self.switch_config.rollback_image and old_image:
                 self.output.warning("New image unhealthy; rolling back to previous image.")
                 # A rollback that fails its OWN health gate raises and leaves the bench halted, so
-                # mark halted provisionally: only a rollback that returns is `rolled_back` (else the
-                # wrapper's except would misreport a broken bench as `aborted`).
+                # mark halted provisionally: only a rollback that returns is `rolled_back`.
                 self._deploy_outcome = "halted"
                 self.rollback(
                     old_image, old_nginx_image, restore_db_dumps=db_dumps if self.switch_config.rollback_db else None
@@ -1760,9 +1722,9 @@ class DeployOrchestrator:
                 self._exec_frappe(f"{BENCH_BIN} --site {site} clear-cache")
             except Exception as e:
                 self.output.warning(f"{site}: clear-cache failed (continuing): {e}")
-        # Switch hooks (post-restart): new container first, then host. The swap has
-        # already happened -- a failing post hook must not leave the site in
-        # maintenance or the deploy unrecorded (rollback bookkeeping stays truthful).
+        # Switch hooks (post-restart): new container first, then host. The swap already
+        # happened -- a failing post hook must not leave the site in maintenance or the deploy
+        # unrecorded.
         try:
             self._run_container_hook(self._switch_hook("after_restart"), "after_restart", new_image)
             self._run_host_hook(self._switch_hook("after_restart", host=True), "host_after_restart", new_image)
@@ -1829,8 +1791,8 @@ class DeployOrchestrator:
             return summary
 
         # Resolved here, not read off `self.switch_config`: that attribute is set by
-        # `_require_image_mode`, which only the deploy paths call, so reaching this from
-        # `fm prune` found it unset and died with an AttributeError on a NoneType.
+        # `_require_image_mode`, which only the deploy paths call, so `fm prune` reaching this
+        # found it unset and died with an AttributeError on a NoneType.
         switch_config = self.config.switch or SwitchConfig()
         limit = switch_config.keep_releases if keep is None else keep
         protected = {
@@ -1905,10 +1867,9 @@ class DeployOrchestrator:
         self._pin_workers(previous_image, nginx_image)
 
         for site, dump in (restore_db_dumps or {}).items():
-            # Declining the DB import is a decision about someone else's database,
-            # not a reason to leave the bench on the image that just failed its
-            # health gate. The image rollback continues either way, and one site's
-            # decline does not stop the remaining restores.
+            # Declining the DB import is a decision about someone else's database, not a reason
+            # to leave the bench on the image that just failed its health gate. The image
+            # rollback continues either way, and one site's decline does not stop the rest.
             try:
                 self._restore_db(site, dump)
             except RestoreNotConfirmed as declined:

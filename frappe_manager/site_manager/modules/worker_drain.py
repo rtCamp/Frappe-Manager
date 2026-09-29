@@ -54,8 +54,7 @@ def drain_gate(orchestrator, output, *, action: str) -> bool:
         drained = orchestrator.drain_workers()
     except DrainQueueUnreachable as e:
         # Refused, not warned past: unlike an image with no fmx, there is something the operator
-        # can do about a redis that does not answer, and proceeding silently would interrupt
-        # jobs nobody has been able to count.
+        # can do about a redis that doesn't answer, and proceeding silently would interrupt jobs nobody counted.
         output.display_error(f"{e} Nothing was changed, so the {action} can be retried.")
         raise typer.Exit(1) from e
     except DrainUnavailable as e:
@@ -102,15 +101,13 @@ def _signal_scoped(output, undo: Callable[[], None], what: str) -> Iterator[None
     def handler(signum, _frame):
         nonlocal fired
         if fired:
-            # A second signal is an escape hatch, not a second cleanup: someone is pressing
-            # Ctrl-C again because the undo itself is stuck. Restore the default disposition and
-            # deliver the signal to ourselves, so it kills us the way it would have originally.
+            # A second signal is an escape hatch, not a second cleanup: someone is pressing Ctrl-C
+            # again because the undo itself is stuck. Restore default disposition and re-deliver the signal.
             signal.signal(signum, signal.SIG_DFL)
             os.kill(os.getpid(), signum)
         fired = True
-        # KeyboardInterrupt, not a bespoke class: it is what Ctrl-C already raises, so SIGTERM and
-        # SIGHUP take the identical path through every caller, and it is a BaseException -- fm's
-        # `except Exception` arms must not swallow an operator's interrupt as an unexpected error.
+        # KeyboardInterrupt, not a bespoke class: it's what Ctrl-C already raises, so SIGTERM and
+        # SIGHUP take the identical path, and it's a BaseException fm's `except Exception` arms won't swallow.
         raise KeyboardInterrupt(f"signal {signum}")
 
     previous: dict = {}
@@ -145,11 +142,9 @@ def frappe_maintenance_mode(orchestrator, output) -> Iterator[None]:
     `pause_scheduler` is set with it, and cleared with it. See `pause` below for why both.
     """
     def pause(value: int) -> None:
-        # BOTH keys, always together. `maintenance_mode` alone already makes
-        # `is_scheduler_inactive` true, but `pause_scheduler` is the one that names what fm
-        # actually wants (the scheduler stops enqueuing); the 503 is a side effect it tolerates.
-        # Setting both also survives an operator clearing one by hand mid-operation, which would
-        # otherwise silently let the scheduler refill a queue fm is trying to empty.
+        # BOTH keys, always together. `maintenance_mode` alone already makes `is_scheduler_inactive`
+        # true, but `pause_scheduler` is the one that names what fm actually wants (the scheduler stops
+        # enqueuing). Setting both also survives an operator clearing one by hand mid-operation.
         orchestrator.set_maintenance_mode(value)
         orchestrator.set_scheduler_paused(value)
 

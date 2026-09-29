@@ -324,8 +324,7 @@ def bake(
             output.display_error(f"Bench '{resolved_name}' not found ({bench_config_path} missing).")
             raise typer.Exit(1)
         # Image benches carry their apps inside the image and mount no editable workspace, so there
-        # is nothing on disk to bake FROM. Refuse before any --config overlay is persisted, and point
-        # at the standalone bake + fm switch flow that is how an image bench moves to a new image.
+        # is nothing on disk to bake FROM. Refuse before any --config overlay is persisted.
         pre = BenchConfig.import_from_toml(bench_config_path)
         if pre.runtime == BenchRuntime.image:
             output.display_error(_image_bench_bake_refusal(resolved_name, pre))

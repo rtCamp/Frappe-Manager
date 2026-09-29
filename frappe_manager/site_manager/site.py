@@ -750,7 +750,6 @@ class Bench:
                 self.workers.docker_client.compose.stop(services=[], timeout=10)
                 self.output.print("Stopped bench workers services")
 
-            # stop admin_tools if exists
             if self.admin_tools.compose_file_manager.exists():
                 self.output.change_head("Stopping bench admin tools services")
                 self.admin_tools.stop()
@@ -885,7 +884,6 @@ class Bench:
 
         for _ in range(retry):
             try:
-                # Execute curl command on frappe service
                 result = self.docker_client.compose.exec(
                     service="frappe",
                     command=check_command,
@@ -963,7 +961,6 @@ class Bench:
         self.logger.debug(f"Removing SSL certificate: {self.name}", extra_fields=extra)
         try:
             self.ssl.remove_all_certificates()
-            # Clear all certificates from config
             self.bench_config.ssl_certificates = []
             self.save_bench_config()
             self.logger.info(f"SSL certificate removed successfully: {self.name}", extra_fields=extra)
@@ -1783,13 +1780,12 @@ class Bench:
 
         if use_container_restart:
             self.docker_ops.restart_services(web_services, force=force)
-            # nginx resolves `frappe` and `socketio` ONCE, at config parse, and caches the
-            # addresses for the life of the process (the same property the compose template
-            # notes at its `depends_on`). A container restart gives both new addresses, so
-            # nginx keeps proxying to ones nothing answers on and every request 504s until
-            # something restarts it. Seen on a live bench: the app answered 200 from inside its
-            # own container while the site was dead from outside, for as long as it was left.
-            # The supervisor path below never moves a container, so it does not need this.
+            # nginx resolves `frappe` and `socketio` ONCE, at config parse, and caches the addresses
+            # for the life of the process (the same property the compose template notes at its
+            # `depends_on`). A container restart gives both new addresses, so nginx keeps proxying to
+            # ones nothing answers on and every request 504s until something restarts it -- the app
+            # answers 200 from inside its own container while the site is dead from outside. The
+            # supervisor path below never moves a container, so it does not need this.
             self.restart_nginx_service(force=force)
         else:
             for service in web_services:
@@ -2225,14 +2221,12 @@ class Bench:
             try:
                 reloaded = self.bench_nginx_controller.reload()
             except Exception as e:
-                # A reload that errored means nginx was reachable but would not take the config.
-                # That is only dangerous when nginx HAS a config, because then it is still serving
-                # the old one. A bench being created has an empty `configs/nginx/conf`: the
-                # container may already be up from the compose file fm just wrote, but with no
-                # nginx.conf it is serving nothing at all, so there is nothing to be stale. That is
-                # the same situation as the not-running case below, and it used to abort the whole
-                # create with "nginx rejected the updated configuration", then offer to roll the
-                # bench back.
+                # A reload that errored means nginx was reachable but would not take the config,
+                # which is only dangerous when nginx HAS a config (still serving the old one). A
+                # bench being created has an empty `configs/nginx/conf`: the container may already be
+                # up from the compose file fm just wrote, but with no nginx.conf it serves nothing at
+                # all, so there is nothing stale -- same situation as the not-running case below.
+                # Without this check, create would abort here on a bench that was never broken.
                 if (conf_dir / "nginx.conf").exists():
                     raise BenchException(
                         self.name,

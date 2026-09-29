@@ -51,7 +51,6 @@ class DatabaseServerServiceInfo(BaseModel):
 
         info: dict[str, Any] = {}
         info["user"] = "root"
-        # this also being considered as servicename
         info["host"] = compose_service_name
         info["port"] = 3306
 

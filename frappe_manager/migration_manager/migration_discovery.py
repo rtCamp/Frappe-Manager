@@ -119,7 +119,5 @@ class MigrationDiscovery:
         In PEP 440, dev versions come BEFORE their release: 0.19.0.dev0 < 0.19.0
         Without normalization, migration 0.19.0 would be excluded when running 0.19.0.dev0.
         """
-        # Normalize to_version to base version (strips .devN, .a, .b, .rc suffixes)
-        # This allows migrations for release X.Y.Z to run during X.Y.Z.devN development
         normalized_to = Version(to_version.base_version)
         return from_version < migration.version <= normalized_to

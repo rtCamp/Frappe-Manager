@@ -88,7 +88,6 @@ def get_docker_image_tag():
     """
     import os
 
-    # Allow environment variable override for testing
     if override_tag := os.getenv("FM_DOCKER_IMAGE_TAG"):
         return override_tag
 

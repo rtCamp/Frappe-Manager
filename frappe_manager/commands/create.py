@@ -1142,9 +1142,9 @@ def create(
     # mkdirs and re-renders compose, which on a running bench would disturb the sites already
     # serving before the new one is known to work.
     if added_site:
-        # The bench-creation path checks domain uniqueness (below, over bench_config.domains), but
-        # this branch returns long before it -- so an added site colliding with ANOTHER bench's
-        # domain used to succeed silently, and --allow-domain-conflicts was inert here.
+        # This branch returns before the domain-uniqueness check below (over bench_config.domains)
+        # ever runs, so it needs its own check here, or a site colliding with ANOTHER bench's
+        # domain would succeed silently and --allow-domain-conflicts would be inert.
         output_early = get_global_output_handler()
         skip_check = allow_domain_conflicts or not fm_config.validation.enforce_domain_uniqueness
         try:
@@ -1160,9 +1160,8 @@ def create(
             raise typer.Exit(1) from e
         _add_site_to_bench(
             # `benchname`, not `address`: this helper takes a bench DIRECTORY name, and the site it
-            # adds arrives separately. The keyword broke when the command's own parameter was renamed
-            # to `address` and the rename swept this call with it, so `fm create BENCH/SITE` raised
-            # TypeError before doing anything. No test reached here, which is why it went unseen.
+            # adds arrives separately. A future rename of this command's `address` parameter must
+            # not be swept into this kwarg name, or `fm create BENCH/SITE` raises TypeError.
             benchname=address,
             site=added_site,
             services_manager=services_manager,
@@ -1187,8 +1186,8 @@ def create(
 
     # One construction path: create defaults, then each --config overlay, then the flags the user
     # actually passed. Precedence is the merge order, so no field needs a per-field application step
-    # that can fall out of step with the model. Two paths used to disagree here: `--runtime image`
-    # refused --apps/--python/--node while a --config declaring `runtime = "image"` accepted them.
+    # that can fall out of step with the model -- a per-field check here previously let
+    # `--runtime image` and an equivalent `--config` disagree on which flags were accepted.
     requested = {
         name for name in (*_FLAG_TO_CONFIG, "app_image", "nginx_image") if ctx.get_parameter_source(name) in _EXPLICIT_SOURCES
     }
@@ -1333,7 +1332,6 @@ def create(
             output.display_error("Please check the repository names, branches, and authentication")
             raise typer.Exit(1)
 
-    # Warn if prod bench is being created with restart: no
     if bench_config.restart_policy == RestartPolicyEnum.no and bench_config.environment_type == FMBenchEnvType.prod:
         output.warning("⚠️  Creating production bench with restart policy 'no'")
         output.warning("    Containers will not auto-recover from failures or system reboots")

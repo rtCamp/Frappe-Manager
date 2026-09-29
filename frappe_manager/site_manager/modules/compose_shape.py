@@ -47,10 +47,10 @@ from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.utils.helpers import ImageRef
 
-# Registry of fm bench code services and their mode-varying roles.
-# rolling: web services scaled 2->1 during the rolling swap (shed container_name).
-# db_cli: shells out to the mariadb client on its own (dump-based backups), so it
-# needs MYSQL_HOME when the bench has an external database.
+# fm bench code services and their mode-varying roles: `rolling` marks web services scaled
+# 2->1 during the rolling swap (shedding container_name); `db_cli` marks services that shell
+# out to the mariadb client on their own (dump-based backups) and so need MYSQL_HOME when the
+# bench has an external database.
 BENCH_CODE_SERVICES: dict[str, dict] = {
     "frappe": {"rolling": True, "db_cli": True},
     "nginx": {"rolling": True, "db_cli": False},
@@ -136,12 +136,12 @@ def managed_targets(sites: Sequence[str]) -> set[str]:
     return {"/workspace", *(b.container for b in data_binds(sites))}
 
 
-# The one directory a container can hand a file to the host through, in EITHER runtime.
-# Mount runtime binds the whole `./workspace`, so anything works there. Image runtime binds
-# only the data paths in `data_binds` above, and of those `frappe-bench/logs` is the only
-# writable DIRECTORY. A file written anywhere else, `/workspace/.cache` being the one that
-# bit, lands in the image's own filesystem: the write succeeds, the host never sees it, and
-# the caller reports a failure whose message points at the database rather than the mount.
+# The one directory a container can hand a file to the host through, in EITHER runtime. Mount
+# runtime binds the whole `./workspace`, so anything works there; image runtime binds only the
+# data paths in `data_binds` above, and of those `frappe-bench/logs` is the only writable
+# DIRECTORY -- a file written anywhere else (e.g. `/workspace/.cache`) lands in the image's own
+# filesystem: the write succeeds, the host never sees it, and the caller's failure points at the
+# database rather than the mount.
 TRANSIT_DIR_REL = Path("frappe-bench") / "logs"
 
 
@@ -228,11 +228,9 @@ def runtime_shape(config, ctx: RenderContext = DEFAULT_CONTEXT) -> RuntimeShape 
         image_ref = ctx.deploy_image or (current.app_image if current else None)
         nginx_ref = ctx.deploy_nginx_image or (current.nginx_image if current else None)
         # Every recorded site, NOT config.name: the bench name is not a site, and on a bench
-        # where they differ the container would mount a directory that does not exist while
-        # the real sites stayed invisible.
-        #
-        # BOTH references or no shape: half a pair would leave one service pinned to an image
-        # nothing chose.
+        # where they differ the container would mount a directory that doesn't exist while the
+        # real sites stayed invisible. BOTH references or no shape: half a pair would leave one
+        # service pinned to an image nothing chose.
         return (
             ImageShape(image_ref=image_ref, nginx_image_ref=nginx_ref, sites=tuple(config.site_names))
             if image_ref and nginx_ref
@@ -254,8 +252,8 @@ def db_cli_env(config) -> tuple[tuple[str, str], ...]:
     the bench-level bundle rather than any one site's file.
     """
     # "Any site on an EXTERNAL database": every site now carries a `[database]` record, so the
-    # question is `host`, not the table's presence. The check is about whether the mariadb client
-    # in these bench-wide services will ever need TLS material.
+    # question is `host`, not the table's presence -- whether the mariadb client in these
+    # bench-wide services will ever need TLS material.
     if not any(site.database.external for site in (config.sites or {}).values()):
         return ()
     return (("MYSQL_HOME", db_tls.bench_mysql_home()),)
@@ -352,11 +350,10 @@ def apply_specs(compose_file_manager, specs: tuple[ServiceSpec, ...], sites: Seq
             compose_file_manager.set_envs(spec.name, dict(spec.env), append=True)
         if spec.image:
             # spec.image is the FULL reference (MountShape.base_image can legitimately be a
-            # digest pin, e.g. `fm create --app-image app@sha256:...`; ImageShape.image_ref
-            # can carry a registry host:port). A naive `rpartition(":")` happens to reconstruct
-            # the same compose "image:" string for any of those, but it labels the split wrong
-            # (a digest's hex lands in "tag"), so route it through ImageRef -- the one canonical
-            # parser -- and hand `set_all_images` the real name/tag/digest instead of a guess.
+            # digest pin, e.g. `fm create --app-image app@sha256:...`; ImageShape.image_ref can
+            # carry a registry host:port). A naive `rpartition(":")` reconstructs the same
+            # compose "image:" string for any of those but labels the split wrong (a digest's
+            # hex lands in "tag"), so route it through ImageRef -- the one canonical parser.
             ref = ImageRef.parse(spec.image)
             images[spec.name] = {"name": ref.name, "tag": ref.tag, "digest": ref.digest}
         if not spec.managed_binds:
@@ -563,11 +560,10 @@ class RedisIdentityResult:
 
 
 # Same contract as ``db_probe.Runner``: one shell command executed inside the bench container,
-# combined stdout/stderr handed back as text. A non-zero exit is answered with the output
-# rather than an exception -- the identity payload's marker line is either in that text or it
-# is not, and either way ``redis_server_identity`` turns "it is not" into UNKNOWN rather than
-# propagating a raise. Declared locally rather than imported from ``db_probe``: same shape,
-# unrelated concern (redis identity, not the mysql probe).
+# combined stdout/stderr handed back as text. A non-zero exit is answered with the output rather
+# than an exception -- the identity payload's marker line is either in that text or it is not,
+# and either way ``redis_server_identity`` turns "it is not" into UNKNOWN rather than propagating
+# a raise. Declared locally rather than imported from ``db_probe``: unrelated concern.
 Runner = Callable[[str], str]
 
 # Prefixes the one line of JSON the container script prints, so it survives being mixed with a
@@ -607,10 +603,9 @@ def _redis_identity_script(cache: str, queue: str) -> str:
     )
 
 
-# The only interpreter in the bench container with redis-py: Frappe itself depends on it, so it
-# lives in the venv alongside pymysql (the same ``BENCH_PYTHON`` used by the database probe,
-# for the identical reasoning). The bare ``python`` on PATH is the uv default and carries
-# neither driver.
+# The only interpreter in the bench container with redis-py: Frappe depends on it, so it lives
+# in the venv alongside pymysql (the same ``BENCH_PYTHON`` used by the database probe). The bare
+# ``python`` on PATH is the uv default and carries neither driver.
 def redis_identity_command(cache: str, queue: str) -> str:
     """``<bench venv python> -c '<script>'`` for the container. Carries no secret beyond what
     the URLs themselves already hold (same as every other exec fm builds this way)."""
