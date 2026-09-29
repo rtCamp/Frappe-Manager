@@ -168,7 +168,10 @@ def info(ctx: typer.Context, json_result: JsonResultOption = False):
     ]
     if disabled:
         card.fact("off", ", ".join(sorted(disabled)))
-        card.fact("", "[fm.muted]every site here uses an external database; starts when one needs it[/fm.muted]")
+        # "every site here uses an external database" was a claim about the SITES, and it is false
+        # in the two commonest cases: a host with no sites at all, and a host whose sites are on
+        # the other engine. A service is off because nothing on this host needs THAT server.
+        card.fact("", "[fm.muted]no site on this host uses it; starts when one does[/fm.muted]")
 
     # CLI_MIGARATIONS_DIR read as a module attribute: the test suite repoints it away from
     # the developer's real ~/frappe/backups (see tests/conftest.py).
