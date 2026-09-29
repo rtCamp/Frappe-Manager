@@ -24,6 +24,10 @@ jobs:
   build-and-push:
     name: Build and push image
     strategy:
+      # One leg failing must not cancel the others: the four are independent images, and
+      # fail-fast hides whether the rest would have succeeded, which is exactly what you need to
+      # know when diagnosing a registry or credential problem.
+      fail-fast: false
       matrix:
         # Each build runs on a runner NATIVE to the platform it produces: an emulated arm64 build
         # of this image takes hours. `ubuntu-24.04-arm` is GitHub-hosted and free for public
