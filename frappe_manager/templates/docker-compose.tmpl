@@ -15,9 +15,6 @@ services:
         devcontainer.metadata: '[{ "remoteUser": "frappe"}]'
     networks:
       site-network:
-        # Bench-nginx upstreams resolve this alias: it exists ONLY on the site
-        # network, so DNS can never return another bench's frappe (the bare
-        # service name `frappe` also lives on the shared frontend network).
         aliases:
           - frappe-site
       backend-network:
@@ -26,11 +23,6 @@ services:
   nginx:
     image: ghcr.io/rtcamp/frappe-manager-nginx:{{ nginx_image_tag }}
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
-    # nginx resolves BOTH upstreams at config parse and aborts with
-    # `[emerg] host not found in upstream` if either name is missing, so a container that wins
-    # the startup race dies and -- with dev's `restart: no` -- stays dead. `service_started` is
-    # the right condition, not `service_healthy`: the alias is registered when the container
-    # starts, and nginx needs the NAME to resolve, not the app to be ready.
     depends_on:
       - frappe
       - socketio
@@ -51,11 +43,6 @@ services:
       - 80
     networks:
       site-network:
-        # Same hazard as `frappe-site`/`socketio-site` above: the bare service name `nginx` also
-        # resolves on the shared frontend-network, where every bench's nginx carries it, so
-        # DNS round-robins across benches. `fm-web-server.sh.tmpl` resolves THIS alias, not the
-        # bare name, to trust the one nginx container that actually proxies to this bench's own
-        # gunicorn (see ssl_manager/certificate.py's `behind_proxy` docstring).
         aliases:
           - nginx-site
       frontend-network:

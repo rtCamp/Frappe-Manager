@@ -4,17 +4,11 @@ services:
     image: mariadb:11.8
     user: REPLACE_WITH_CURRENT_USER:REPLACE_WITH_CURRENT_USER_GROUP
     restart: always
-    # frappe declares utf8mb4/utf8mb4_unicode_ci per connection and per table; the
-    # server defaults still matter when restoring dumps that omit charset clauses.
-    # skip-character-set-client-handshake makes the server ignore a client that asks
-    # for something else.
     command:
     - --character-set-server=utf8mb4
     - --collation-server=utf8mb4_unicode_ci
     - --skip-character-set-client-handshake
     environment:
-      # Runs mariadb-upgrade automatically when the engine version changes, so a tag
-      # bump does not leave the system tables behind.
       MARIADB_AUTO_UPGRADE: 1
       MYSQL_ROOT_PASSWORD_FILE: REPLACE_WITH_DB_ROOT_PASSWORD_SECRET_FILE
       MYSQL_DATABASE: REPLACE_WITH_DB_NAME
@@ -32,32 +26,14 @@ services:
 
   postgres:
     container_name: fm_postgres
-    # Pinned to a MAJOR, and it must stay pinned. Postgres has no equivalent of MariaDB's
-    # MARIADB_AUTO_UPGRADE: a datadir written by one major refuses to start under the next, so a
-    # tag bump here would not upgrade an install, it would stop it. Moving majors is a dump and a
-    # restore, and it is an operation fm has to run deliberately.
-    #
-    # The major tracks the one frappe's OWN server-test matrix runs postgres against
-    # (frappe/frappe .github/workflows/server-tests.yml), which is where to look before changing
-    # it. Not frappe_docker's overrides/compose.postgres.yaml, which carries an older pin nobody
-    # has reason to bump. For a backend whose app-level support is newer than fm's confidence in
-    # it, the version upstream actually exercises is worth more than the newest one.
     image: postgres:18
     user: REPLACE_WITH_CURRENT_USER:REPLACE_WITH_CURRENT_USER_GROUP
     restart: always
-    # Carried in the profile fm switches off when no site uses this engine, the same way a bench's
-    # own redis is suppressed when it points at one fm does not own. A host that never creates a
-    # postgres site therefore never runs a postgres server.
     profiles:
     - disabled
     environment:
       POSTGRES_PASSWORD_FILE: /run/secrets/postgres_root_password
-      # The default database every server has. Frappe creates the site's own; this one exists so
-      # a client has somewhere to connect while asking about the others.
       POSTGRES_DB: postgres
-      # Initialise the datadir with UTF8 and the C collation. Frappe requires UTF8, and a locale
-      # taken from the image's environment makes index ordering depend on where the container was
-      # built, which a dump and restore then silently changes.
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
@@ -74,8 +50,6 @@ services:
     environment:
       ACME_HTTP_CHALLENGE_LOCATION: false
       LOG_FORMAT_ESCAPE: json
-      # Kept in sync with FM_JSON_LOG_FORMAT (nginx_logging.py); $$ escapes $
-      # from docker compose interpolation.
       LOG_FORMAT: '{"time":"$$time_iso8601","request_id":"$$request_id","client":"$$remote_addr","xff":"$$http_x_forwarded_for","host":"$$host","scheme":"$$scheme","method":"$$request_method","path":"$$request_uri","status":$$status,"bytes":$$body_bytes_sent,"request_time":$$request_time,"upstream":"$$upstream_addr","upstream_status":"$$upstream_status","upstream_time":"$$upstream_response_time","referer":"$$http_referer","ua":"$$http_user_agent"}'
     ports:
       - "80:80"

@@ -49,6 +49,24 @@ from frappe_manager.utils.network import (
 # fm's own database servers, by compose service name. Each is switched off while no site uses it.
 DATABASE_SERVICES = ("mariadb", "postgres")
 
+# Invariants of the rendered services compose file (templates/docker-compose.services*.tmpl),
+# kept here because the rendered file is an artifact an operator reads, not a place to argue in:
+#   * mariadb runs with --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+#     --skip-character-set-client-handshake. Frappe declares the charset per connection and per
+#     table, but the server defaults still decide what a dump that omits charset clauses restores
+#     as, and the handshake flag stops a client asking for something else.
+#   * MARIADB_AUTO_UPGRADE=1 runs mariadb-upgrade when the engine version changes, so a tag bump
+#     does not leave the system tables behind.
+#   * postgres is pinned to a MAJOR and must stay pinned: there is no equivalent of
+#     MARIADB_AUTO_UPGRADE, and a datadir written by one major refuses to start under the next,
+#     so a tag bump would stop an install rather than upgrade it (check_postgres_datadir_major
+#     below is what catches that). The major tracks the one frappe's own server-test matrix runs
+#     postgres against (frappe/frappe .github/workflows/server-tests.yml), not frappe_docker's
+#     older pin.
+#   * POSTGRES_INITDB_ARGS="--encoding=UTF8 --locale=C": frappe requires UTF8, and a locale taken
+#     from the image environment makes index ordering depend on where the container was built,
+#     which a dump and restore then silently changes.
+
 
 class ServicesManager:
     def __init__(
