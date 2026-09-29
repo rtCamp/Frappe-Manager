@@ -54,4 +54,12 @@ def logs(
             output.print(f"Available services: {', '.join(sorted(available_services))}")
             raise typer.Exit(1)
 
+    # The host log files outlive the containers, which is the point (see the docstring), but with
+    # nothing said a stopped bench's last-run output reads as live: the audit found `fm logs` on a
+    # stopped bench printing 105 lines and exiting 0 with no hint the bench was down. `--follow`
+    # is worse, since it waits on a file nothing will append to.
+    if not service and not bench.running:
+        tail = "; --follow will wait on a file nothing is writing to" if follow else ""
+        output.warning(f"{bench.name} is not running, so this is the last run's log{tail}. Start it with 'fm start {bench.name}'.")
+
     bench.logs(follow, service)

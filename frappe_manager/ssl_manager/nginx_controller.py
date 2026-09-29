@@ -62,7 +62,10 @@ class NginxController:
         running or every reload attempt failed, so callers that report success to the
         operator can tell the difference instead of claiming a reload that never happened.
         """
-        self.output.change_head("Reloading nginx")
+        # Named, because a bench command reloads BOTH nginxes -- the bench's own and the shared
+        # proxy -- and two identical "Reloading nginx" lines read as one reload done twice.
+        which = "the global proxy" if self.service_name == "nginx-proxy" else "bench nginx"
+        self.output.change_head(f"Reloading {which}")
 
         if self.docker_client.compose.is_service_running(self.service_name):
             reloaded = True
@@ -95,7 +98,7 @@ class NginxController:
             else:
                 self.docker_client.compose.exec(service=self.service_name, command="nginx -s reload", stream=False)
             if reloaded:
-                self.output.print("Reloaded nginx")
+                self.output.print(f"Reloaded {which}")
             return reloaded
         return False
 

@@ -321,7 +321,10 @@ class RichOutputHandler(OutputHandler):
                         break
 
                 except KeyboardInterrupt:
-                    break
+                    # Same rule as the interactive branch below: NEVER swallow Ctrl-C mid-stream.
+                    # `break` absorbed one SIGINT per streamed step, so a piped or CI-run
+                    # `fm create` ignored the interrupt and ran to completion, exit 0.
+                    raise
                 except StopIteration:
                     break
             return

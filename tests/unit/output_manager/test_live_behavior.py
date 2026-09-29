@@ -61,6 +61,21 @@ def test_live_lines_propagates_keyboard_interrupt():
         handler.live_lines(stream())
 
 
+def test_live_lines_propagates_keyboard_interrupt_when_not_interactive():
+    """The branch that was missing: `live_lines` splits on `_is_interactive`, and only the
+    interactive half was tested. The other did `break`, so every streamed step of a piped or
+    CI-run command absorbed one SIGINT -- `fm create` ignored Ctrl-C and exited 0 with a fully
+    built bench."""
+    handler = _handler(interactive=False)
+
+    def stream():
+        yield ("stdout", b"line1")
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        handler.live_lines(stream())
+
+
 def _mock_inquirer(monkeypatch, answer: str = "x"):
     from types import SimpleNamespace
 

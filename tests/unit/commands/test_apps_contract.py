@@ -284,7 +284,9 @@ class TestListApps:
             list_apps(self._ctx(world), benchname=BENCH)
 
         out = "\n".join(call.args[0] for call in world.output.data_raw.call_args_list)
-        assert "(none)" in out
+        # Not "(none)": fm never writes `[[apps]]`, so an empty record is the designed steady
+        # state and the line has to say that rather than read as drift on every normal bench.
+        assert "no [[apps]] recorded in bench_config.toml" in out
         assert "no workspace on disk (image runtime)" in out
 
 

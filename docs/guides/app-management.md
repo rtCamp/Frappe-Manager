@@ -63,7 +63,7 @@ fm shell mybench -c "bench --site mybench.localhost remove-app erpnext"
 `fm shell mybench` without `-c` drops you into an interactive shell with the same access, which is where anything the `fm` commands do not cover belongs: `bench migrate`, `bench build`, `bench console`, and the rest.
 
 !!! tip
-    `fm apps list mybench` prints the apps recorded in `bench_config.toml` next to what's actually installed on disk (`sites/apps.txt`). `fm info mybench` lists the installed apps with the ref each one sits on and its commit.
+    `fm apps list mybench` prints what is actually installed on disk (`sites/apps.txt`). It also prints any `[[apps]]` recorded in `bench_config.toml`, which is normally nothing: fm never writes that table, and it exists only in a config you wrote yourself for `fm bake --config`. `fm info mybench` lists the installed apps with the ref each one sits on and its commit.
 
 ## Updating or switching an app's version
 

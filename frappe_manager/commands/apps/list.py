@@ -30,10 +30,13 @@ def list_apps(
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     apps = bench.bench_config.apps_list
-    output.data_raw(f"{bench.name} recorded apps:")
     if not apps:
-        output.data_raw("  (none)")
+        # `apps_list` is in NOT_WRITTEN_TO_DISK, so `[[apps]]` exists only in a file a user wrote
+        # for `fm bake --config`. Empty is the designed steady state, not drift, and "(none)" read
+        # as a missing record on every normally created bench.
+        output.data_raw(f"{bench.name} has no [[apps]] recorded in bench_config.toml (only a bake config writes one)")
     else:
+        output.data_raw(f"{bench.name} recorded apps:")
         width = max(len(app.name) for app in apps)
         for app in apps:
             output.data_raw(f"  {app.name:<{width}}  {app.repo}:{app.ref or 'default'}")
