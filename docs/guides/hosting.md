@@ -74,10 +74,58 @@ fm ssl add clienttwo.example.com/clienttwo.example.com
 
 - **Backups**: fm does not back up site data; `bench backup` does, and the artefacts live inside the bench you are backing up. See [Backup and restore](backup-restore.md), then get the files off the server.
 - **Upgrading fm**: keep the CLI and your benches in sync; see [Upgrading fm](../getting-started/installation.md#upgrading-fm) (`fm self upgrade` then `fm migrate all`).
-- **Behind a CDN or load balancer**: run `fm services real-ip` so the proxy logs and any `fm auth enable --allow-ip` list see the visitor's address instead of the CDN's, and issue that bench's certificates with `--behind-proxy` so the origin's redirect and Frappe's request handling stop assuming a direct TLS connection ([HTTPS certificates](ssl.md#behind-proxy)).
+- **Behind a CDN or load balancer**: trusting the front is one host-level setting, not a per-certificate flag. See [Running fm behind something else](#running-fm-behind-something-else) below.
 - **Monitoring**: report the web process to New Relic APM; see [Monitoring](../concepts/environments.md#monitoring-new-relic).
 - **Web concurrency**: Gunicorn worker and thread counts have sensible RAM/CPU-based defaults; see [Web serving and concurrency](../concepts/web-serving.md).
 - **Background jobs**: queue and worker tuning; see [Background jobs and workers](../concepts/background-jobs.md).
+
+## Running fm behind something else
+
+Three shapes fm supports on one host:
+
+| | Nothing in front | A local front (nginx, Caddy, another reverse proxy on this machine) | An edge or CDN (Cloudflare, a cloud load balancer) |
+|---|---|---|---|
+| Terminates TLS | fm | the front | the edge |
+| fm receives | the real connection | plain HTTP + `X-Forwarded-Proto` | plain HTTP + `X-Forwarded-Proto` |
+| Trust | nothing | the front's own address | the edge's published ranges |
+
+Two commands describe a fronted host, and neither is a per-certificate flag. The common case, a front on the same machine:
+
+```bash
+# Move the proxy off 80/443 so the local front can have them, and keep fm
+# reachable from nowhere but that front
+fm services ports --http 8080 --https 8443 --bind 127.0.0.1
+
+# Tell fm which peer is allowed to speak for the client
+fm services trusted-proxies set --trust 127.0.0.1
+```
+
+For an edge that owns its own IP ranges instead of running on this machine, fm keeps listening on 80/443 and the trusted set names the edge:
+
+```bash
+fm services trusted-proxies set --cdn cloudflare
+```
+
+### What the trusted set drives
+
+One command, three consequences, because they answer the same question: did this request arrive through the front?
+
+- The client IP fm, frappe's rate limiting and `fm auth enable --allow-ip` see.
+- The scheme fm's own HTTP to HTTPS redirect believes. A peer outside the trusted set is judged on its actual connection, so a forged `X-Forwarded-Proto` from an untrusted address changes nothing, and the redirect loop a Flexible-style edge (always plain HTTP to the origin) would otherwise cause never happens.
+- Whether gunicorn trusts the forwarded scheme at all, which is what the post-login redirect, the session cookie's Secure flag, and the endpoints OAuth advertises depend on.
+
+`fm services trusted-proxies clear` turns off all three at once. Run it whenever the front is removed: leaving a stale trusted set behind means anyone who can now reach fm directly can claim to be any client, over any scheme, and fm believes them.
+
+### What fm cannot do for you
+
+Trusting the front makes fm's own redirect unforgeable, but the proxy still relays whatever `X-Forwarded-Proto` a request carries on to gunicorn, for every request, not only the ones that came through the front. fm cannot rewrite that header itself: overriding it in one nginx location replaces the base image's whole header set there instead of adding to it, and re-declaring that set by hand is a fork that drifts on every image update. So a request that reaches fm directly, bypassing the front, still carries whatever scheme it claims, and gunicorn believes it.
+
+Closing that gap is the operator's job: make fm unreachable except through the front. `--bind 127.0.0.1` on `fm services ports` is fm's own lever, and the one to reach for on a single-machine deployment like the example above; a network firewall rule does the same thing for a front on another host. Neither is optional once a trusted set is configured: without one of them, the forged-header exposure this section opened with is still live.
+
+!!! warning "Moving off port 80 breaks Let's Encrypt HTTP-01"
+    The CA connects to port 80 at the domain's public name to validate it, and nothing on this host can change that. `fm ssl add --challenge http01` is refused once `fm services ports` has moved off 80, naming the alternatives: `--challenge dns01`, `--dev`, or `--custom`.
+
+A fronted bench still needs its own certificate for its self-calls: see [Behind an external TLS terminator](ssl.md#behind-proxy) in the HTTPS guide.
 
 ## Prefer immutable releases?
 

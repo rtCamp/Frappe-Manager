@@ -11,6 +11,7 @@ from frappe_manager.logger import get_logger, set_context
 from frappe_manager.output_manager import railcard, spinner
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
 from frappe_manager.site_manager.bench_service import BenchService
+from frappe_manager.site_manager.modules.public_scheme import host_proxy_state, public_url
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
 from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotDueForRenewalError
@@ -327,7 +328,8 @@ def _add_external_certificate(
             output.print("2. Start your project:", emoji_code="")
             output.print("   docker compose up -d", emoji_code="")
             output.print("", emoji_code="")
-            output.print(f"3. Access your app at: https://{domain}", emoji_code="")
+            _, _http_port, https_port = host_proxy_state()
+            output.print(f"3. Access your app at: {public_url(domain, 'https', https_port=https_port)}", emoji_code="")
 
     except ValueError as e:
         output.display_error(f"Failed to add certificate: {e}")

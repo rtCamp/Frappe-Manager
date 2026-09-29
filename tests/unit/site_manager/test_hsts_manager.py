@@ -36,21 +36,23 @@ class TestSetHsts:
 
         text = (vhostd / DOMAIN).read_text()
         assert changed is True
-        # Not keyed on `$https`: the bench sends its hardcoded header on every response
+        # Not keyed on the scheme: the bench sends its hardcoded header on every response
         # regardless of scheme, so hiding it must not become scheme-dependent either.
         assert "proxy_hide_header Strict-Transport-Security;" in text
-        assert "if ($https)" not in text.split("proxy_hide_header", 1)[0]
+        assert "if ($fm_client_scheme = https)" not in text.split("proxy_hide_header", 1)[0]
 
     def test_an_on_value_emits_the_header_only_over_https(self, manager, vhostd):
-        """RFC 6797: a host must not send this header over a non-secure connection. This vhost's
-        server block answers both `listen 80` and `listen ... ssl`, so the value must be gated on
-        the connection actually being TLS, not emitted unconditionally the way `proxy_hide_header`
-        correctly is."""
+        """RFC 6797: a host must not send this header over a non-secure connection. Keyed on
+        `$fm_client_scheme`, not the proxy's own `$https`, which is plain http for every fronted
+        bench and would leave HSTS silently unsent behind a front."""
         manager.set_hsts(DOMAIN, "max-age=63072000; includeSubDomains; preload")
 
         text = (vhostd / DOMAIN).read_text()
         assert 'set $fm_hsts_value "";' in text
-        assert 'if ($https) {\n    set $fm_hsts_value "max-age=63072000; includeSubDomains; preload";\n}' in text
+        assert (
+            'if ($fm_client_scheme = https) {\n'
+            '    set $fm_hsts_value "max-age=63072000; includeSubDomains; preload";\n}'
+        ) in text
         assert "add_header Strict-Transport-Security $fm_hsts_value always;" in text
         # The literal value must never appear directly in an unconditional add_header: that is
         # exactly the bug (STS emitted over plain HTTP) this construction exists to avoid.

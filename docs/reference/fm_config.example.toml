@@ -43,6 +43,17 @@
 # CIDR subnet for the backend-network (e.g. 10.2.0.0/16) [optional, unset by default]
 # backend_subnet_cidr = ...
 
+# ---- [proxy] -------------------------------------------------------------------------------
+
+# Where the global proxy publishes, on the HOST side only.
+# [proxy]
+# Host port published to the proxy's :80 [default: 80]
+# http_port = ...
+# Host port published to the proxy's :443 [default: 443]
+# https_port = ...
+# Host address the proxy publishes on; absent means every interface [optional, unset by default]
+# bind = ...
+
 # ---- [output] ------------------------------------------------------------------------------
 
 # Terminal output appearance: color THEME + layout STYLE + token overrides.

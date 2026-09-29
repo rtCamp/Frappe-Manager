@@ -41,6 +41,10 @@ RETIRED_CERTIFICATE_KEYS = frozenset(
         "last_renewal_attempt",
         # A serialization detail stored as data; the dumper always hardcoded its own exclude set.
         "toml_exclude",
+        # Deleted outright, no migration: never shipped (landed d710ec22 2026-09-03, absent from
+        # v0.19.0). Configs are extra="allow" but the drop keeps it out of every read anyway, same
+        # as cert_path/key_path above; dev benches made since then still carry behind_proxy=false.
+        "behind_proxy",
     }
 )
 
@@ -67,18 +71,6 @@ class SSLCertificate(BaseModel):
     )
     enabled: bool = Field(default=True, description="Whether this certificate participates in issuance.")
     hsts: str = Field("off", description="Strict-Transport-Security value the proxy sends, or 'off'.")
-    behind_proxy: bool = Field(
-        default=False,
-        description=(
-            "The origin sits behind an external TLS terminator (`fm ssl add --behind-proxy`). Keys the "
-            "HTTP->HTTPS redirect off the forwarded proto instead of the origin's own always-http "
-            "connection scheme (per-domain, like the redirect itself), and makes the bench's gunicorn "
-            "trust that header for inbound requests -- bench-WIDE, since one gunicorn serves every "
-            "domain the bench has, so every certificate on a bench must agree on this flag "
-            "(`_add_bench_certificate` refuses a mismatch). A modifier on the certificate method, not "
-            "a certificate type: dev, letsencrypt and custom certificates can all carry it."
-        ),
-    )
 
     @model_validator(mode="before")
     @classmethod

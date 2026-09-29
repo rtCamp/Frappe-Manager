@@ -38,7 +38,7 @@ $ fm maintenance enable BENCH(/SITE) [OPTIONS]
 
 * `--response-code INTEGER`: HTTP status code served while maintenance is on (400-599).  [default: 503]
 * `--retry-after INTEGER`: Retry-After header in seconds; 0 omits it.  [default: 300]
-* `--allow-ip TEXT`: Client IP that reaches the real site (repeatable; single addresses, no CIDR). Behind a CDN see fm services real-ip.
+* `--allow-ip TEXT`: Client IP that reaches the real site (repeatable; single addresses, no CIDR). Behind a CDN see fm services trusted-proxies.
 * `--allow-path TEXT`: Request path served the real site, e.g. /api/method/ping (repeatable). Exact match; append * for a prefix.
 * `--message TEXT`: Text shown on fm's built-in maintenance page.
 * `--page PATH`: HTML file served as the page, instead of --message. A bench's configs/maintenance.html is used automatically.

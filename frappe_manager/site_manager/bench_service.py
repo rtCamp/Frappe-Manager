@@ -21,7 +21,14 @@ from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
+from frappe_manager.site_manager.modules.public_scheme import (
+    host_has_trusted_front,
+    host_proxy_state,
+    public_scheme,
+    public_url,
+)
 from frappe_manager.site_manager.site import Bench
+from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.utils.site import host_bench_dir
 
 # `fm list` is the overview, `fm info` the detail view and `--json` the complete record, so the card
@@ -40,6 +47,17 @@ def _sites_fact(sites: list[str]) -> str:
     shown = ", ".join(sites[:_SITES_SHOWN_IN_LIST])
     extra = len(sites) - _SITES_SHOWN_IN_LIST
     return f"{shown} [fm.muted]+{extra}[/fm.muted]" if extra > 0 else shown
+
+
+def _domain_has_certificate(config, domain: str) -> bool:
+    """A live (non-``none``) certificate entry names ``domain`` exactly -- an alias with no
+    entry of its own is not covered by a sibling site's certificate. ``getattr`` (not
+    ``config.certificate_for``): the direct list is enough here and keeps a mocked ``config``
+    lacking ``ssl_certificates`` reading as uncertified rather than raising."""
+    return any(
+        cert.domain == domain and cert.ssl_type != SUPPORTED_SSL_TYPES.none
+        for cert in getattr(config, "ssl_certificates", None) or []
+    )
 
 
 class BenchService:
@@ -277,6 +295,10 @@ class BenchService:
                             ),
                             "base_image": config.base_image,
                             "apps_from": config.apps_from,
+                            # The certificate check backing the printed URL's scheme (see
+                            # `list_benches_view`); `public_scheme` also needs whether a trusted
+                            # front is configured, which is host-wide and read once there.
+                            "has_certificate": _domain_has_certificate(config, bench.name),
                             # Every alias across the bench's sites. `fm list` is the overview, so it
                             # names the extra hostnames without saying which site each serves; the
                             # attribution is `fm info`'s job, the same split the `sites` row uses.
@@ -328,6 +350,12 @@ class BenchService:
 
         from frappe_manager.output_manager import railcard
 
+        # Host-wide, so read once for the whole list rather than per row (see `public_scheme`):
+        # a trusted front and the published ports are facts about this host's proxy, not about
+        # any one bench.
+        has_trusted_front = host_has_trusted_front(Path(self.services.proxy_storage.dirs.confd.host))
+        _, http_port, https_port = host_proxy_state()
+
         items: list[railcard.Card] = []
         for row in rows:
             if row.get("error"):
@@ -335,11 +363,12 @@ class BenchService:
                 continue
 
             active = row["status"] == "active"
+            scheme = public_scheme(row.get("has_certificate", False), has_trusted_front)
             card = railcard.Card(
                 row["name"],
                 railcard.bench_meta(active, row["runtime"], row["environment"], row["restart_policy"]),
                 active,
-                link=f"http://{row['name']}",
+                link=public_url(row["name"], scheme, http_port, https_port),
             )
             card.fact("sites", _sites_fact(row["sites"]))
             card.fact("apps", ", ".join(row["apps"]) or "-")

@@ -26,6 +26,9 @@ MIGRATION_CHECK_WHITELIST_COMMANDS: list[str] = [
     # the migrations manage.
     "prune",
     "services prune",
+    # Configures what creating the services will do, on a host that may have none yet: gating it
+    # on a migration it cannot reach is a dead end (see PRE_INSTALL_COMMANDS).
+    "services ports",
     # Teardown commands are NOT listed here: they declare `tolerates_broken_host` on the command
     # itself (commands/gating.py), which the same gate honours.
 ]

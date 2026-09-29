@@ -12,13 +12,14 @@ import time
 from jinja2 import Template
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from frappe_manager import COMMON_SITE_CONFIG_FILE, CONTAINER_BENCH_DIR
+from frappe_manager import CLI_SERVICES_DIRECTORY, COMMON_SITE_CONFIG_FILE, CONTAINER_BENCH_DIR
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.site_manager.exceptions import BenchOperationException
+from frappe_manager.site_manager.modules.realip import trusted_ranges
 from frappe_manager.utils.helpers import get_template_path
 from frappe_manager.utils.site import host_bench_dir
 
@@ -475,18 +476,19 @@ class BenchSupervisor:
             f" frappe.app:application --preload"
         )
 
-        # `--behind-proxy` needs gunicorn to trust X-Forwarded-Proto from the bench's own nginx (a
-        # peer container, not 127.0.0.1, gunicorn's default trust) -- otherwise the post-login
-        # redirect, session cookie Secure flag, and OAuth's advertised endpoints stay on http.
-        # Scoped to opt-in benches, never `*`: the global proxy passes a client-supplied
-        # X-Forwarded-Proto straight through, so trusting every peer would let any anonymous
-        # client control request.scheme. Resolved inside the container at gunicorn-start time
-        # (see fm-web-server.sh.tmpl), not here: nginx's `site-network` address is dynamic and
-        # Docker only guarantees it current from inside a running container.
+        # gunicorn trusts X-Forwarded-Proto from the bench's own nginx (a peer container, not
+        # 127.0.0.1, gunicorn's default trust) whenever the HOST has a trusted front configured --
+        # otherwise the post-login redirect, session cookie Secure flag, and OAuth's advertised
+        # endpoints stay on http. Bench-wide, not per-certificate: one gunicorn serves every domain
+        # the bench has, and the global proxy only forwards a real (non-forged) scheme once a
+        # trusted peer is configured (fm-forwarded-trust.conf, see realip.py), so the host fact is
+        # the right scope -- not a per-certificate flag. Resolved inside the container at
+        # gunicorn-start time (see fm-web-server.sh.tmpl), not here: nginx's `site-network` address
+        # is dynamic and Docker only guarantees it current from inside a running container.
         # The script targets `nginx-site`, not bare `nginx` (which also answers on the shared
         # fm-frontend-network and would round-robin trust across every bench), and omits
         # --forwarded-allow-ips rather than falling back to gunicorn's trust-everyone wildcard.
-        trust_forwarded_proto = any(cert.behind_proxy for cert in self.config.ssl_certificates)
+        trust_forwarded_proto = bool(trusted_ranges(CLI_SERVICES_DIRECTORY / "nginx-proxy" / "confd"))
 
         template_path = get_template_path("fm-web-server.sh.tmpl")
         script = Template(template_path.read_text()).render(

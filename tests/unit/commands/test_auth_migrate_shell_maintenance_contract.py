@@ -64,6 +64,7 @@ from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime, SiteConfig
 from frappe_manager.site_manager.exceptions import BenchNotFoundError
+from frappe_manager.site_manager.modules.realip import PROXY_CONF_FILENAME, build_proxy_realip_conf
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 
 # `frappe_manager.commands` re-exports the `migrate`/`shell` command FUNCTIONS under the module
@@ -1917,6 +1918,23 @@ def test_the_bypass_cookie_gets_secure_only_on_the_domains_that_have_tls(out, tm
     assert "; Secure" in (vhostd / "mybench").read_text()
     assert "; Secure" not in (vhostd / "plain.example.com").read_text()
     assert "Bypass (sets a cookie so you see the real site): https://mybench/fm-bypass/" in joined(out.print)
+
+
+def test_the_bypass_cookie_is_secure_behind_a_trusted_front_with_no_fm_certificate(out, tmp_path):
+    """notes/proxy-front-design.md #4.5: the public connection can be TLS via a trusted front
+    holding the certificate instead of fm; the Secure flag must follow `public_scheme` (cert OR
+    trusted front), not certificate presence alone."""
+    services, vhostd, _ = _maint_services(tmp_path)
+    confd = tmp_path / "confd"
+    confd.mkdir()
+    (confd / PROXY_CONF_FILENAME).write_text(
+        build_proxy_realip_conf(["203.0.113.0/24"], "X-Forwarded-For", recursive=False)
+    )
+    services.proxy_storage.dirs.confd.host = str(confd)
+    benches = tmp_path / "benches"
+    _write_bench_config(benches, "mybench")  # no [[ssl.certificates]] entry at all
+    _run_maintenance_enable(services, benches)
+    assert "; Secure" in (vhostd / "mybench").read_text()
 
 
 def test_enable_omits_the_allow_list_lines_when_no_exemption_was_given(out, tmp_path):

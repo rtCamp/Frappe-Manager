@@ -32,9 +32,12 @@ class VhostConfigManager:
     BLOCK_END = "# fm:https-redirect END"
     _BLOCK_RE = re.compile(r"^# fm:https-redirect BEGIN.*?^# fm:https-redirect END\n?", re.DOTALL | re.MULTILINE)
 
-    # Allows internal services (socketio) to make HTTP API calls without redirect,
-    # since Node.js fetch() drops Cookie headers on cross-protocol redirects.
-    HTTPS_REDIRECT_CONFIG = """# Enable HTTPS redirect for this domain only
+    # Real benches deployed before the BLOCK markers existed hold this exact unmarked text as the
+    # whole vhost.d file body (`_LEGACY_RE` below is `re.escape()` of it) -- the three comment
+    # lines are a content-addressed identifier and must survive verbatim even though the body fm
+    # now writes moved to `$fm_client_scheme`/`$fm_https_suffix` (notes/proxy-front-design.md
+    # #4.2). One character of drift here breaks legacy-block removal on every one of them.
+    _LEGACY_HTTPS_REDIRECT_CONFIG = """# Enable HTTPS redirect for this domain only
 # This domain has a valid SSL certificate
 # Internal service API calls allowed over HTTP (Cookie header lost on redirect)
 set $redirect_to_https 0;
@@ -49,44 +52,22 @@ if ($redirect_to_https = 1) {
 }
 """
 
-    # Variant for `fm ssl add --behind-proxy`: the origin sits behind an external TLS terminator
-    # (e.g. Cloudflare Flexible), so the connection reaching THIS nginx is always plain HTTP and
-    # `$scheme` above is always "http" -- the predicate above would 301 every request forever.
-    # `$proxy_x_forwarded_proto` is nginx-proxy's own computed value (see its rendered
-    # /etc/nginx/conf.d/default.conf: `map $http_x_forwarded_proto $proxy_x_forwarded_proto { default
-    # $http_x_forwarded_proto; '' $scheme; }`), so it carries the terminator's forwarded proto when
-    # one is present and falls back to this connection's own scheme otherwise. Never mutate
-    # HTTPS_REDIRECT_CONFIG above to add this: real deployed benches carry that exact text
-    # unmarked (see _LEGACY_RE), and this variant is only ever written inside the BLOCK markers,
-    # so it never needs a legacy fallback of its own.
-    HTTPS_REDIRECT_CONFIG_BEHIND_PROXY = """# Enable HTTPS redirect for this domain only (behind an external TLS terminator)
-# This domain has a valid SSL certificate; the terminator forwards the original scheme
-# Internal service API calls allowed over HTTP (Cookie header lost on redirect)
-set $redirect_to_https 0;
-if ($proxy_x_forwarded_proto = http) {
-    set $redirect_to_https 1;
-}
-if ($uri ~ ^/api/method/frappe\\.realtime\\.) {
-    set $redirect_to_https 0;
-}
-if ($redirect_to_https = 1) {
-    return 301 https://$host$request_uri;
-}
+    _LEGACY_RE = re.compile(re.escape(_LEGACY_HTTPS_REDIRECT_CONFIG.strip("\n")) + r"\n?")
+
+    # Allows internal services (socketio) to make HTTP API calls without redirect, since Node.js
+    # fetch() drops Cookie headers on cross-protocol redirects. Keyed on `$fm_client_scheme`, not
+    # `$scheme`, so ONE body works whether fm terminates TLS itself or a trusted front forwards
+    # the original scheme (fm-forwarded-trust.conf, always defined -- see realip.py) -- no more
+    # per-certificate variant. `$fm_https_suffix` carries the public HTTPS port when not 443.
+    HTTPS_REDIRECT_CONFIG = """set $redirect_to_https 0;
+if ($fm_client_scheme = http) { set $redirect_to_https 1; }
+if ($uri ~ ^/api/method/frappe\\.realtime\\.) { set $redirect_to_https 0; }
+if ($redirect_to_https = 1) { return 301 https://$host$fm_https_suffix$request_uri; }
 """
 
-    # Bare exact-text fallback for a legacy install with no markers, whose whole file body is just
-    # this text (re.escape, since the body contains regex metacharacters like `\\.` and `$`). The
-    # optional trailing `\n` is swallowed too, mirroring `_BLOCK_RE`'s own `\n?` after BLOCK_END:
-    # without it, removing this text from a legacy file left exactly one "\n" behind, which is
-    # truthy, so `disable_https_redirect` kept the file around (empty but present) instead of
-    # deleting it -- a plain `.replace()` had no way to know that leftover newline was the
-    # constant's own trailing formatting rather than real foreign content.
-    _LEGACY_RE = re.compile(re.escape(HTTPS_REDIRECT_CONFIG.strip("\n")) + r"\n?")
-
     @classmethod
-    def _redirect_block(cls, behind_proxy: bool = False) -> str:
-        body = cls.HTTPS_REDIRECT_CONFIG_BEHIND_PROXY if behind_proxy else cls.HTTPS_REDIRECT_CONFIG
-        return f"{cls.BLOCK_BEGIN}\n{body}{cls.BLOCK_END}\n"
+    def _redirect_block(cls) -> str:
+        return f"{cls.BLOCK_BEGIN}\n{cls.HTTPS_REDIRECT_CONFIG}{cls.BLOCK_END}\n"
 
     @classmethod
     def _strip_redirect_block(cls, text: str) -> str:
@@ -113,7 +94,7 @@ if ($redirect_to_https = 1) {
                 "Ensure nginx-proxy is running and volumes are mounted correctly.",
             )
 
-    def enable_https_redirect(self, domain: str, behind_proxy: bool = False) -> Path:
+    def enable_https_redirect(self, domain: str) -> Path:
         """
         Enable HTTPS redirect for a specific domain.
 
@@ -127,10 +108,6 @@ if ($redirect_to_https = 1) {
 
         Args:
             domain: Domain name to enable HTTPS redirect for
-            behind_proxy: Write the forwarded-proto variant (HTTPS_REDIRECT_CONFIG_BEHIND_PROXY)
-                instead of the default connection-scheme one. `disable_https_redirect` needs no
-                matching parameter: both variants live inside the same BLOCK markers, so the
-                marker-based removal strips either one without needing to know which was written.
 
         Returns:
             Path to the created vhost.d config file
@@ -146,7 +123,7 @@ if ($redirect_to_https = 1) {
         # leading/trailing newlines, so a later remove restores something merely equivalent,
         # not identical, to what add found.
         remainder = self._strip_redirect_block(vhost_file.read_text()) if vhost_file.exists() else ""
-        vhost_file.write_text(self._redirect_block(behind_proxy) + remainder)
+        vhost_file.write_text(self._redirect_block() + remainder)
 
         return vhost_file
 
@@ -178,7 +155,7 @@ if ($redirect_to_https = 1) {
             return False
 
         text = vhost_file.read_text()
-        if self.BLOCK_BEGIN not in text and self.HTTPS_REDIRECT_CONFIG.strip("\n") not in text:
+        if self.BLOCK_BEGIN not in text and self._LEGACY_HTTPS_REDIRECT_CONFIG.strip("\n") not in text:
             return False
 
         remainder = self._strip_redirect_block(text)
@@ -205,4 +182,4 @@ if ($redirect_to_https = 1) {
         if not vhost_file.exists():
             return False
         text = vhost_file.read_text()
-        return self.BLOCK_BEGIN in text or self.HTTPS_REDIRECT_CONFIG.strip("\n") in text
+        return self.BLOCK_BEGIN in text or self._LEGACY_HTTPS_REDIRECT_CONFIG.strip("\n") in text

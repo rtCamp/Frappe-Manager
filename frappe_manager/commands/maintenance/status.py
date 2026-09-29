@@ -17,6 +17,7 @@ from frappe_manager.commands.maintenance._helpers import (
     proxy_paths,
 )
 from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.site_manager.modules.public_scheme import host_proxy_state, public_scheme, public_url
 from frappe_manager.utils.callbacks import bench_site_autocompletion_callback
 
 
@@ -79,14 +80,15 @@ def status(
     site = ctx.obj.get("site") if ctx.obj else None
     domains, domain_ssl, _all_domains = _bench_domains(benchname, site)
 
+    front, http_port, https_port = host_proxy_state()
     for domain in domains:
         path = vhostd_dir / domain
-        scheme = "https" if domain_ssl.get(domain) else "http"
+        base = public_url(domain, public_scheme(bool(domain_ssl.get(domain)), front), http_port, https_port)
         if conf_state(path):
             text = path.read_text()
             output.print(
                 f"{domain}: maintenance ON "
-                f"(code {_extract_code(text)}, bypass: {scheme}://{domain}/fm-bypass/{_extract_token(text)})"
+                f"(code {_extract_code(text)}, bypass: {base}/fm-bypass/{_extract_token(text)})"
             )
         elif path.exists():
             output.print(f"{domain}: custom vhost config present (no fm maintenance block)")

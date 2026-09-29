@@ -83,7 +83,11 @@ server {{
     }}
     
     location / {{
-        return 301 https://$host$request_uri;
+        if ($fm_client_scheme = http) {{
+            return 301 https://$host$fm_https_suffix$request_uri;
+        }}
+        return 503 '<html><head><title>503 Service Unavailable</title></head><body><h1>503 Service Unavailable</h1><p>This site is not available.</p></body></html>';
+        default_type text/html;
     }}
 }}
 

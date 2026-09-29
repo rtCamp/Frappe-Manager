@@ -438,7 +438,7 @@ class TestGenerateCompose:
         place on every later regen (see the CA mount comment in generate_compose), never
         re-rendered from the template -- so a bench that already existed before this alias was
         introduced needs it applied explicitly, every time, or `fm-web-server.sh`'s
-        `getent hosts nginx-site` (see behind_proxy) never resolves on that bench."""
+        `getent hosts nginx-site` (see TestForwardedProtoTrust) never resolves on that bench."""
         ops = _ops(tmp_path)
         self._patch_shape(monkeypatch)
         monkeypatch.setattr(f"{DOCKER_MODULE}.get_proxy_ip_on_frontend", lambda: None)
@@ -1887,11 +1887,20 @@ _GUNICORN_CTX = {
 
 
 class TestForwardedProtoTrust:
-    """`--behind-proxy` needs gunicorn to trust X-Forwarded-Proto from the bench's own nginx; every
-    other bench must get exactly today's script, unchanged."""
+    """Gunicorn trusts X-Forwarded-Proto from the bench's own nginx only when this HOST trusts
+    something in front of fm. Per-certificate opt-in is gone: the question is whether anything
+    upstream is authoritative about the visitor's scheme, which is a property of the machine."""
+
+    @staticmethod
+    def _trust(monkeypatch, ranges):
+        monkeypatch.setattr(
+            "frappe_manager.site_manager.modules.bench_supervisor.trusted_ranges",
+            lambda _confd: ranges,
+        )
 
     @pytest.mark.timeout(15)
-    def test_a_bench_with_no_certificates_gets_no_trust_resolution_block(self, tmp_path):
+    def test_a_host_trusting_nothing_gets_no_trust_resolution_block(self, tmp_path, monkeypatch):
+        self._trust(monkeypatch, [])
         sup = _supervisor()
 
         sup._write_gunicorn_wrapper(tmp_path, _GUNICORN_CTX)
@@ -1901,20 +1910,9 @@ class TestForwardedProtoTrust:
         assert "--forwarded-allow-ips" not in script
 
     @pytest.mark.timeout(15)
-    def test_a_certificate_with_behind_proxy_false_gets_no_trust_resolution_block(self, tmp_path):
-        cert = SSLCertificate(domain="bench.localhost", ssl_type=SUPPORTED_SSL_TYPES.dev, behind_proxy=False)
-        sup = _supervisor(ssl_certificates=[cert])
-
-        sup._write_gunicorn_wrapper(tmp_path, _GUNICORN_CTX)
-
-        script = (tmp_path / "fm-web-server.sh").read_text()
-        assert "getent hosts nginx" not in script
-        assert "--forwarded-allow-ips" not in script
-
-    @pytest.mark.timeout(15)
-    def test_a_behind_proxy_certificate_adds_the_trust_resolution_block(self, tmp_path):
-        cert = SSLCertificate(domain="bench.localhost", ssl_type=SUPPORTED_SSL_TYPES.dev, behind_proxy=True)
-        sup = _supervisor(ssl_certificates=[cert])
+    def test_a_trusted_front_adds_the_trust_resolution_block(self, tmp_path, monkeypatch):
+        self._trust(monkeypatch, ["127.0.0.1/32"])
+        sup = _supervisor()
 
         sup._write_gunicorn_wrapper(tmp_path, _GUNICORN_CTX)
 
@@ -1925,32 +1923,32 @@ class TestForwardedProtoTrust:
         # docker-compose.tmpl's nginx-site alias, scoped to this bench's own site-network).
         assert "getent hosts nginx 2>/dev/null" not in script
         assert "--forwarded-allow-ips=$FM_NGINX_IP" in script
-        # Never the wildcard: that would let the global proxy's passthrough of a client-supplied
-        # X-Forwarded-Proto control request.scheme for anyone, not just the bench's own nginx.
+        # Never the wildcard: that would trust a client-supplied X-Forwarded-Proto from anyone
+        # that can reach gunicorn, not just the bench's own nginx.
         assert "--forwarded-allow-ips=*" not in script
 
     @pytest.mark.timeout(15)
-    def test_one_behind_proxy_certificate_among_several_is_enough(self, tmp_path):
-        """The flag is bench-scoped, not per-domain: gunicorn serves every site the bench has, so
-        one domain opting in means the whole bench's gunicorn needs the trust wired."""
+    def test_the_trust_is_bench_wide_not_per_domain(self, tmp_path, monkeypatch):
+        """One gunicorn serves every site the bench has, so the setting cannot be per-domain --
+        which is exactly why it moved off the certificate."""
+        self._trust(monkeypatch, ["203.0.113.0/24"])
         certs = [
-            SSLCertificate(domain="a.localhost", ssl_type=SUPPORTED_SSL_TYPES.dev, behind_proxy=False),
-            SSLCertificate(domain="b.localhost", ssl_type=SUPPORTED_SSL_TYPES.dev, behind_proxy=True),
+            SSLCertificate(domain="a.localhost", ssl_type=SUPPORTED_SSL_TYPES.dev),
+            SSLCertificate(domain="b.localhost", ssl_type=SUPPORTED_SSL_TYPES.dev),
         ]
         sup = _supervisor(ssl_certificates=certs)
 
         sup._write_gunicorn_wrapper(tmp_path, _GUNICORN_CTX)
 
-        script = (tmp_path / "fm-web-server.sh").read_text()
-        assert "getent hosts nginx-site 2>/dev/null" in script
+        assert "getent hosts nginx-site 2>/dev/null" in (tmp_path / "fm-web-server.sh").read_text()
 
     @pytest.mark.timeout(15)
-    def test_resolution_failure_falls_back_to_no_trust_not_to_everyone(self, tmp_path):
+    def test_resolution_failure_falls_back_to_no_trust_not_to_everyone(self, tmp_path, monkeypatch):
         """If `getent` cannot resolve nginx (unready DNS, transient), the script must degrade to
         gunicorn's own default (nothing forwarded is trusted), not silently add an empty or
         wildcard --forwarded-allow-ips."""
-        cert = SSLCertificate(domain="bench.localhost", ssl_type=SUPPORTED_SSL_TYPES.dev, behind_proxy=True)
-        sup = _supervisor(ssl_certificates=[cert])
+        self._trust(monkeypatch, ["127.0.0.1/32"])
+        sup = _supervisor()
 
         sup._write_gunicorn_wrapper(tmp_path, _GUNICORN_CTX)
 

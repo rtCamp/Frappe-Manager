@@ -87,6 +87,12 @@ OBSERVE_ONLY_COMMANDS: frozenset[str] = frozenset(
     {"list", "info", "logs", "services info", "ssl list", "apps list", "domain list", "tools status"}
 )
 
+# Commands that must run BEFORE a host has any services, because they configure what creating
+# them will do. Exempt from the stock-image prefetch and from `entrypoint_checks`: `fm services
+# ports` exists for the host whose first install cannot get past a busy port, and creating the
+# stack to change the port it is created with would fail for the port being busy.
+PRE_INSTALL_COMMANDS: frozenset[str] = frozenset({"services ports"})
+
 # The two commands that RUN migrations. Everything gating on "is this a migration?"
 # reads this one set: the host lock (they take it EXCLUSIVE in the executor instead of
 # SHARED in the callback) and the pre-rename escape hatch in the services manager.

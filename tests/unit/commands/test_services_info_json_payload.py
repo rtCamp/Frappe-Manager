@@ -115,7 +115,7 @@ def test_json_payload_service_states_are_the_raw_strings(tmp_path, monkeypatch):
     assert handler.printed["status"] == "inactive"
 
 
-def test_json_payload_real_ip_carries_raw_ranges_and_header_not_a_sentence(tmp_path, monkeypatch):
+def test_json_payload_trusted_proxies_carries_raw_ranges_and_header_not_a_sentence(tmp_path, monkeypatch):
     h = ServicesInfoHarness(tmp_path)
     (h.confd / PROXY_CONF_FILENAME).write_text(
         build_proxy_realip_conf(["203.0.113.0/24", "2400:cb00::/32"], "CF-Connecting-IP", recursive=True)
@@ -123,8 +123,7 @@ def test_json_payload_real_ip_carries_raw_ranges_and_header_not_a_sentence(tmp_p
 
     handler = h.run(monkeypatch, wants_structured_data=True)
 
-    real_ip = handler.printed["proxy"]["real_ip"]
-    assert real_ip == {
+    assert handler.printed["proxy"]["trusted_proxies"] == {
         "configured": True,
         "ranges": ["203.0.113.0/24", "2400:cb00::/32"],
         "header": "CF-Connecting-IP",
@@ -132,19 +131,27 @@ def test_json_payload_real_ip_carries_raw_ranges_and_header_not_a_sentence(tmp_p
     }
 
 
-def test_json_payload_real_ip_reports_not_configured_for_a_foreign_conf(tmp_path, monkeypatch):
+def test_json_payload_trusted_proxies_reports_not_configured_for_a_foreign_conf(tmp_path, monkeypatch):
     """A hand-written file with no fm marker must read as unconfigured, never described as fm's."""
     h = ServicesInfoHarness(tmp_path)
     (h.confd / PROXY_CONF_FILENAME).write_text("set_real_ip_from 10.0.0.0/8;\n")
 
     handler = h.run(monkeypatch, wants_structured_data=True)
 
-    assert handler.printed["proxy"]["real_ip"] == {
+    assert handler.printed["proxy"]["trusted_proxies"] == {
         "configured": False,
         "ranges": [],
         "header": None,
         "recursive": False,
     }
+
+
+def test_json_payload_carries_the_published_ports(tmp_path, monkeypatch):
+    """A consumer automating a fleet needs to know where fm answers; the card's rendered row is
+    not parseable for that."""
+    handler = ServicesInfoHarness(tmp_path).run(monkeypatch, wants_structured_data=True)
+
+    assert handler.printed["proxy"]["ports"] == {"http": 80, "https": 443, "bind": None}
 
 
 def test_json_payload_disk_sizes_are_ints(tmp_path, monkeypatch):

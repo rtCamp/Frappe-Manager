@@ -149,6 +149,36 @@ class FMNetworkConfig(BaseModel):
         return bool(self.subnet_cidr and self.proxy_ip)
 
 
+class FMProxyConfig(BaseModel):
+    """Where the global proxy publishes, on the HOST side only.
+
+    These are PUBLISH mappings (`8080:80`), never the ports nginx listens on inside the container:
+    fm pins every served domain to the proxy's container address in the bench containers, so a
+    site's server-side calls to itself reach it on 443 and moving the listener breaks all of them
+    (see notes/proxy-front-design.md V5). `HTTP_PORT`/`HTTPS_PORT` are deliberately never set.
+    """
+
+    # extra="allow": see the design note on FMValidationConfig above; same file, same reasoning.
+    model_config = ConfigDict(extra="allow")
+
+    http_port: int = Field(default=80, description="Host port published to the proxy's :80")
+    https_port: int = Field(default=443, description="Host port published to the proxy's :443")
+    bind: str | None = Field(
+        default=None,
+        description="Host address the proxy publishes on; absent means every interface",
+    )
+
+    @property
+    def moved(self) -> bool:
+        return self.http_port != 80 or self.https_port != 443
+
+    @property
+    def https_suffix(self) -> str:
+        """What a redirect must append. Empty on the default port, so the rendered config of a
+        host that never touched this feature is byte-identical to before it existed."""
+        return "" if self.https_port == 443 else f":{self.https_port}"
+
+
 def recognised_fm_config_keys() -> frozenset[str]:
     """Every top-level fm_config.toml key `FMConfigManager.import_from_toml` treats as meaningful.
 
@@ -203,6 +233,7 @@ class FMConfigManager(BaseModel):
     logs: FMLogsConfig = Field(default=FMLogsConfig())
     prune: FMPruneConfig = Field(default=FMPruneConfig())
     network: FMNetworkConfig = Field(default=FMNetworkConfig())
+    proxy: FMProxyConfig = Field(default=FMProxyConfig())
     output: FMOutputConfig = Field(default=FMOutputConfig())
 
     def __init__(self, **data):
@@ -391,6 +422,9 @@ class FMConfigManager(BaseModel):
 
             if "network" in data:
                 input_data["network"] = FMNetworkConfig(**data["network"])
+
+            if "proxy" in data:
+                input_data["proxy"] = FMProxyConfig(**data["proxy"])
 
             if "output" in data:
                 input_data["output"] = FMOutputConfig(**data["output"])

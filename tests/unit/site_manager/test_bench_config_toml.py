@@ -334,39 +334,22 @@ class TestCertificateVariantSelection:
         assert BenchConfig.import_from_toml(out).ssl_certificates == []
 
 
-class TestBehindProxyRoundTrip:
-    """`behind_proxy` is optional-with-a-default on the base model (see certificate.py), like
-    `hsts`/`enabled` before it: an old on-disk config that has never heard of it must still load,
-    with the field defaulting to False, and no migration is needed to introduce it."""
+class TestRetiredCertificateKeys:
+    """`behind_proxy` was deleted with `fm ssl add --behind-proxy`. Certificate models are
+    `extra="forbid"`, so every dev bench created during the 1.0.0 cycle -- all of which carry
+    `behind_proxy = false` on disk -- would fail to load at all without the retirement path."""
 
-    @pytest.mark.parametrize("ssl_type", ["dev", "letsencrypt"])
-    def test_behind_proxy_true_round_trips(self, tmp_path, ssl_type):
-        text = f'\n[[ssl.certificates]]\ndomain = "c.gg.com"\nssl_type = "{ssl_type}"\nbehind_proxy = true\n'
+    @pytest.mark.parametrize("value", ["true", "false"])
+    def test_a_config_carrying_the_retired_key_still_loads_and_stops_carrying_it(self, tmp_path, value):
+        text = f'\n[[ssl.certificates]]\ndomain = "c.gg.com"\nssl_type = "dev"\nbehind_proxy = {value}\n'
         bc = _import(tmp_path, _BASE + text)
 
-        assert bc.ssl_certificates[0].behind_proxy is True
+        assert not hasattr(bc.ssl_certificates[0], "behind_proxy")
 
         out = tmp_path / "out.toml"
         bc.export_to_toml(out)
-        reimported = BenchConfig.import_from_toml(out).ssl_certificates[0]
-        assert reimported.behind_proxy is True
-        assert reimported.ssl_type.value == ssl_type
-
-    @pytest.mark.parametrize("ssl_type", ["dev", "letsencrypt", "custom"])
-    def test_an_old_config_with_no_behind_proxy_key_defaults_to_false(self, tmp_path, ssl_type):
-        """Proves the claim this field's addition rested on: no migration needed, since a config
-        written before this field existed simply lacks the key, and the model default fills it in."""
-        text = f'\n[[ssl.certificates]]\ndomain = "c.gg.com"\nssl_type = "{ssl_type}"\n'
-
-        assert _import(tmp_path, _BASE + text).ssl_certificates[0].behind_proxy is False
-
-    def test_behind_proxy_false_also_round_trips_explicitly(self, tmp_path):
-        text = '\n[[ssl.certificates]]\ndomain = "c.gg.com"\nssl_type = "dev"\nbehind_proxy = false\n'
-        bc = _import(tmp_path, _BASE + text)
-
-        out = tmp_path / "out.toml"
-        bc.export_to_toml(out)
-        assert BenchConfig.import_from_toml(out).ssl_certificates[0].behind_proxy is False
+        assert "behind_proxy" not in out.read_text()
+        assert BenchConfig.import_from_toml(out).ssl_certificates[0].domain == "c.gg.com"
 
 
 class TestCustomCertificateSourceFieldsNeverSurviveTheTomlBoundary:
@@ -468,7 +451,6 @@ class TestPreMigrationCertificateEntry:
             "challenge_type": LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             "enabled": True,
             "hsts": "max-age=31536000",
-            "behind_proxy": False,
             "acme_client": "acme.sh",
             "dns_provider": None,
             "delegation_cname": "a-gg-com.fm.gw",

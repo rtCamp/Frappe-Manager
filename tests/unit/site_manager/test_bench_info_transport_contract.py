@@ -44,6 +44,7 @@ from frappe_manager.site_manager.bench_config import (
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.site_manager.modules.bench_info import BenchInfo
+from frappe_manager.site_manager.modules.realip import PROXY_CONF_FILENAME, build_proxy_realip_conf
 from frappe_manager.site_manager.modules.transport import (
     TransportError,
     fetch_image,
@@ -1201,6 +1202,34 @@ def test_list_benches_data_prefers_apps_txt_over_the_configured_app_list(tmp_pat
     assert row["path"] == str(path)
 
 
+def test_list_benches_data_reports_has_certificate_for_the_benchs_own_domain_only(tmp_path):
+    path = _bench_dir(tmp_path, "a.localhost")
+    service = _service(tmp_path)
+    bench = _listable_bench(
+        path,
+        "a.localhost",
+        ssl_certificates=[
+            SimpleNamespace(domain="a.localhost", ssl_type=SUPPORTED_SSL_TYPES.le),
+            SimpleNamespace(domain="alias.localhost", ssl_type=SUPPORTED_SSL_TYPES.none),
+        ],
+    )
+
+    with patch.object(BenchService, "get_bench", return_value=bench):
+        (row,) = service.list_benches_data()
+
+    assert row["has_certificate"] is True
+
+
+def test_list_benches_data_has_certificate_is_false_with_no_certificates(tmp_path):
+    path = _bench_dir(tmp_path, "a.localhost")
+    service = _service(tmp_path)
+
+    with patch.object(BenchService, "get_bench", return_value=_listable_bench(path, "a.localhost")):
+        (row,) = service.list_benches_data()
+
+    assert row["has_certificate"] is False
+
+
 def test_list_benches_data_falls_back_to_the_config_app_names(tmp_path):
     path = _bench_dir(tmp_path, "a.localhost")
     service = _service(tmp_path)
@@ -1335,6 +1364,64 @@ def test_list_benches_view_warns_about_a_broken_bench_and_draws_no_card(tmp_path
     assert "image" not in card.facts
     assert "base" not in card.facts
     assert "domains" not in card.facts
+
+
+def test_list_benches_view_links_https_when_the_bench_has_a_certificate(tmp_path, monkeypatch, card_spy):
+    monkeypatch.setattr(railcard, "cards", lambda items: items)
+    service = _service(tmp_path)
+    row = {
+        "name": "a.localhost",
+        "error": None,
+        "sites": ["a.localhost"],
+        "status": "active",
+        "runtime": "mount",
+        "environment": "prod",
+        "restart_policy": "always",
+        "apps": [],
+        "deployed_image": None,
+        "base_image": None,
+        "apps_from": None,
+        "alias_domains": [],
+        "path": "/benches/a.localhost",
+        "has_certificate": True,
+    }
+    with patch.object(BenchService, "list_benches_data", return_value=[row]):
+        (card,) = service.list_benches_view()
+
+    assert card.link == "https://a.localhost"
+
+
+def test_list_benches_view_links_https_behind_a_trusted_front_with_no_certificate(tmp_path, monkeypatch, card_spy):
+    """notes/proxy-front-design.md #4.5: a fronted domain with no fm-side certificate is still
+    public HTTPS -- the printed URL must not understate it."""
+    monkeypatch.setattr(railcard, "cards", lambda items: items)
+    confd = tmp_path / "confd"
+    confd.mkdir()
+    (confd / PROXY_CONF_FILENAME).write_text(build_proxy_realip_conf(["203.0.113.0/24"], "X-Forwarded-For", False))
+    services = MagicMock()
+    services.proxy_storage.dirs.confd.host = str(confd)
+    service = _service(tmp_path, services=services)
+    row = {
+        "name": "a.localhost",
+        "error": None,
+        "sites": ["a.localhost"],
+        "status": "active",
+        "runtime": "mount",
+        "environment": "prod",
+        "restart_policy": "always",
+        "apps": [],
+        "deployed_image": None,
+        "base_image": None,
+        "apps_from": None,
+        "alias_domains": [],
+        "path": "/benches/a.localhost",
+        "has_certificate": False,
+    }
+    with patch.object(BenchService, "list_benches_data", return_value=[row]):
+        (card,) = service.list_benches_view()
+
+    assert card.link == "https://a.localhost"
+
 
 
 def test_list_benches_view_adds_image_and_alias_facts_only_when_set(tmp_path, monkeypatch, card_spy):

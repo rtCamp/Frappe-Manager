@@ -3,6 +3,7 @@ from pathlib import Path
 import typer
 
 from frappe_manager.docker import DockerException
+from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.modules.realip import (
@@ -12,7 +13,7 @@ from frappe_manager.site_manager.modules.realip import (
 )
 
 
-def _real_ip_data(conf_path: Path) -> dict:
+def _trusted_proxies_data(conf_path: Path) -> dict:
     """Structured counterpart of ``summarize_proxy_realip_conf``: raw ranges/header, not a
     rendered sentence. ``None``/empty fields mean "not configured", same rule the sentence form
     uses to never describe a hand-written file as fm's."""
@@ -50,6 +51,7 @@ def build_services_info_data(services_manager: ServicesManager, statuses: dict, 
 
     db = services_manager.database_manager.database_server_info
     conf_path = Path(services_manager.proxy_storage.dirs.confd.host) / PROXY_CONF_FILENAME
+    fm_config = FMConfigManager.import_from_toml()
 
     stale_backup_sessions = 0
     stale_backup_bytes = 0
@@ -73,7 +75,14 @@ def build_services_info_data(services_manager: ServicesManager, statuses: dict, 
         "database_servers": {
             "mariadb": {"user": db.user, "password": db.password, "host": db.host, "port": db.port},
         },
-        "proxy": {"real_ip": _real_ip_data(conf_path)},
+        "proxy": {
+            "trusted_proxies": _trusted_proxies_data(conf_path),
+            "ports": {
+                "http": fm_config.proxy.http_port,
+                "https": fm_config.proxy.https_port,
+                "bind": fm_config.proxy.bind,
+            },
+        },
         "services": statuses,
         "disabled_services": disabled,
         "disk": {
@@ -89,7 +98,7 @@ def build_services_info_data(services_manager: ServicesManager, statuses: dict, 
 
 def info(ctx: typer.Context):
     """
-    Show the global services' card: live container state, the root database credentials and the proxy's real-ip trust.
+    Show the global services' card: live container state, the root database credentials, the ports the proxy publishes on and which proxies in front of it are trusted.
 
     The root database password is printed in cleartext. It belongs to the mariadb container every bench shares, which is why it is on this card and not on any bench's fm info.
     """
@@ -134,7 +143,13 @@ def info(ctx: typer.Context):
     card.section("proxy")
     conf_path = Path(services_manager.proxy_storage.dirs.confd.host) / PROXY_CONF_FILENAME
     summary = summarize_proxy_realip_conf(conf_path.read_text()) if conf_path.exists() else None
-    card.fact("real-ip", summary or "[fm.muted]not configured; see fm services real-ip[/fm.muted]")
+    proxy_cfg = FMConfigManager.import_from_toml().proxy
+    where = f"{proxy_cfg.bind} " if proxy_cfg.bind else ""
+    card.fact("ports", f"{where}{proxy_cfg.http_port} [fm.muted]http[/fm.muted]   {proxy_cfg.https_port} [fm.muted]https[/fm.muted]")
+    card.fact(
+        "trusted proxies",
+        summary or "[fm.muted]none; every request is judged on the connection fm received[/fm.muted]",
+    )
 
     card.section("services")
     dots = "   ".join(f"{railcard.status_dot(state)} {svc}" for svc, state in sorted(statuses.items()))

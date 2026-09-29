@@ -41,7 +41,7 @@ from frappe_manager.commands.compose import compose
 from frappe_manager.commands.self.stop import stop
 from frappe_manager.commands.self.upgrade import upgrade
 from frappe_manager.commands.services.info import info as services_info
-from frappe_manager.commands.services.real_ip import real_ip
+from frappe_manager.commands.services.trusted_proxies import clear, set_trusted
 from frappe_manager.commands.services.shell import shell_services
 from frappe_manager.commands.services.start import start_services
 from frappe_manager.commands.services.stop import stop_services
@@ -370,13 +370,13 @@ def test_compose_named_bench_not_found_teaches_the_double_dash_form(tmp_path, ou
 
 
 # =========================================================================== #
-# fm services real-ip
+# fm services trusted-proxies
 # =========================================================================== #
 
 EXISTING_CONF = "# fm-real-ip\nset_real_ip_from 10.0.0.0/8;\nreal_ip_header X-Forwarded-For;\n"
 
 
-class RealIpHarness:
+class TrustedProxiesHarness:
     def __init__(self, tmp_path: Path, *, proxy_running=True, nginx_t_fails=False, reload_ok=True):
         self.confd = tmp_path / "confd"
         self.confd.mkdir(parents=True)
@@ -391,24 +391,25 @@ class RealIpHarness:
                 'invalid number of arguments in "deny" directive',
             )
         self.services.nginx_controller.reload.return_value = reload_ok
+        self.services.apply_forwarded_trust_env.return_value = False
 
         self.ctx = MagicMock(spec=typer.Context)
         self.ctx.obj = {"services": self.services}
 
     def run(self, **kwargs):
-        real_ip(
+        set_trusted(
             self.ctx,
-            **{"cdn": None, "trust": [], "header": None, "off": False, "status": False, **kwargs},
+            **{"cdn": None, "trust": [], "client_ip_header": None, **kwargs},
         )
 
 
 def test_a_header_that_is_not_a_token_is_rejected_before_anything_is_written(tmp_path, out):
-    """D62: --header went verbatim into `real_ip_header <value>;`, so a ';' injected arbitrary
-    directives into the live proxy's conf.d."""
-    h = RealIpHarness(tmp_path)
+    """D62: --client-ip-header went verbatim into `real_ip_header <value>;`, so a ';' injected
+    arbitrary directives into the live proxy's conf.d."""
+    h = TrustedProxiesHarness(tmp_path)
 
     with pytest.raises(typer.Exit):
-        h.run(trust=["1.2.3.0/24"], header="X-Real-IP; deny all; #")
+        h.run(trust=["1.2.3.0/24"], client_ip_header="X-Real-IP; deny all; #")
 
     assert not h.conf.exists()
     h.services.nginx_controller.reload.assert_not_called()
@@ -419,7 +420,7 @@ def test_a_config_nginx_rejects_is_rolled_back_and_the_command_fails(tmp_path, o
     """D62: nothing ran `nginx -t`, and the file stayed behind in a directory bind-mounted into
     the global proxy -- so the proxy refused to start on its next restart, taking every bench on
     the host down long after this command reported success."""
-    h = RealIpHarness(tmp_path, nginx_t_fails=True)
+    h = TrustedProxiesHarness(tmp_path, nginx_t_fails=True)
     h.conf.write_text(EXISTING_CONF)
 
     with pytest.raises(typer.Exit):
@@ -428,11 +429,11 @@ def test_a_config_nginx_rejects_is_rolled_back_and_the_command_fails(tmp_path, o
     assert h.conf.read_text() == EXISTING_CONF
     h.services.nginx_controller.reload.assert_not_called()
     assert "rolled back" in joined(out.display_error)
-    assert "Real-ip active" not in joined(out.print)
+    assert "Trusted proxies active" not in joined(out.print)
 
 
 def test_a_rejected_first_write_leaves_no_file_behind(tmp_path, out):
-    h = RealIpHarness(tmp_path, nginx_t_fails=True)
+    h = TrustedProxiesHarness(tmp_path, nginx_t_fails=True)
 
     with pytest.raises(typer.Exit):
         h.run(trust=["203.0.113.0/24"])
@@ -441,40 +442,88 @@ def test_a_rejected_first_write_leaves_no_file_behind(tmp_path, out):
 
 
 def test_a_validated_config_is_written_and_the_proxy_reloaded(tmp_path, out):
-    h = RealIpHarness(tmp_path)
+    h = TrustedProxiesHarness(tmp_path)
 
-    h.run(trust=["203.0.113.0/24"], header="X-Forwarded-For")
+    h.run(trust=["203.0.113.0/24"], client_ip_header="X-Forwarded-For")
 
     assert h.conf.read_text() == build_proxy_realip_conf(["203.0.113.0/24"], "X-Forwarded-For", recursive=True)
     h.services.docker_client.compose.exec.assert_called_once_with(
         service="nginx-proxy", command="nginx -t", stream=False
     )
     h.services.nginx_controller.reload.assert_called_once_with()
-    assert "Real-ip active" in joined(out.print)
+    assert "Trusted proxies active" in joined(out.print)
 
 
 def test_a_failed_reload_is_not_reported_as_active(tmp_path, out):
-    """D62: NginxController.reload() only warned on a persistent failure while real_ip printed
-    'Real-ip active' regardless."""
-    h = RealIpHarness(tmp_path, reload_ok=False)
+    """D62: NginxController.reload() only warned on a persistent failure while the command printed
+    'active' regardless."""
+    h = TrustedProxiesHarness(tmp_path, reload_ok=False)
 
     h.run(trust=["203.0.113.0/24"])
 
-    assert "Real-ip active" not in joined(out.print)
+    assert "Trusted proxies active" not in joined(out.print)
     assert "did not reload" in joined(out.warning)
 
 
 def test_a_stopped_proxy_is_reported_as_pending_not_active(tmp_path, out):
     """D62 (smaller hole): with the proxy down there is nothing to validate against and reload()
     is a no-op, so claiming the configuration is active is false."""
-    h = RealIpHarness(tmp_path, proxy_running=False)
+    h = TrustedProxiesHarness(tmp_path, proxy_running=False)
 
     h.run(trust=["203.0.113.0/24"])
 
     assert h.conf.exists()
     h.services.docker_client.compose.exec.assert_not_called()
-    assert "Real-ip active" not in joined(out.print)
+    assert "Trusted proxies active" not in joined(out.print)
     assert "applies on next start" in joined(out.print)
+
+
+def test_clearing_the_trusted_set_recreates_the_proxy_when_the_env_moves(tmp_path, out):
+    """TRUST_DOWNSTREAM_PROXY is an env var, fixed at container creation: a reload cannot apply it,
+    so a trusted set that empties has to recreate the proxy or gunicorn keeps trusting a header
+    nothing is vouching for any more."""
+    h = TrustedProxiesHarness(tmp_path)
+    h.conf.write_text(build_proxy_realip_conf(["203.0.113.0/24"], "X-Forwarded-For", recursive=True))
+    h.services.apply_forwarded_trust_env.return_value = True
+
+    clear(h.ctx)
+
+    assert not h.conf.exists()
+    h.services.docker_client.compose.up.assert_called_once_with(
+        services=["nginx-proxy"], detach=True, force_recreate=True, stream=False
+    )
+
+
+def test_clearing_when_nothing_was_trusted_touches_no_container(tmp_path, out):
+    h = TrustedProxiesHarness(tmp_path)
+
+    clear(h.ctx)
+
+    h.services.docker_client.compose.up.assert_not_called()
+    assert "No proxies were trusted" in joined(out.print)
+
+
+def test_the_self_call_warning_is_keyed_on_domains_not_bench_names(tmp_path, out, monkeypatch):
+    """The bug: it looked for `<bench>.crt`, but certificates are filed under the DOMAIN, so a
+    bench named `redir` serving a certified `redir.localhost` was reported as uncertified."""
+    h = TrustedProxiesHarness(tmp_path)
+    certs = tmp_path / "certs"
+    certs.mkdir()
+    h.services.proxy_storage.dirs.certs.host = str(certs)
+
+    benches = tmp_path / "benches"
+    (benches / "redir").mkdir(parents=True)
+    (benches / "redir" / "bench_config.toml").write_text('[sites."redir.localhost"]\n')
+    (benches / "bare").mkdir(parents=True)
+    (benches / "bare" / "bench_config.toml").write_text('[sites."bare.localhost"]\n')
+    monkeypatch.setattr("frappe_manager.CLI_BENCHES_DIRECTORY", benches)
+    (certs / "redir.localhost.crt").symlink_to("/usr/share/nginx/ssl/redir.localhost.crt")
+
+    h.run(trust=["203.0.113.0/24"])
+
+    warning = joined(out.print).split("TLS for")[-1]
+    assert "bare.localhost" in warning
+    assert "redir.localhost" not in warning.split(";")[0]
 
 
 # =========================================================================== #
@@ -565,7 +614,7 @@ def test_services_info_carries_the_root_db_credentials(tmp_path, out, monkeypatc
     assert card.active
 
 
-def test_services_info_summarizes_an_active_realip_conf(tmp_path, out, monkeypatch):
+def test_services_info_summarizes_the_trusted_proxies(tmp_path, out, monkeypatch):
     h = ServicesInfoHarness(tmp_path)
     (h.confd / "fm-real-ip.conf").write_text(
         build_proxy_realip_conf(["203.0.113.0/24", "2400:cb00::/32"], "CF-Connecting-IP", recursive=True)
@@ -573,18 +622,28 @@ def test_services_info_summarizes_an_active_realip_conf(tmp_path, out, monkeypat
 
     card = h.run(monkeypatch)
 
-    assert card.facts["real-ip"] == "trusting 2 range(s), restoring client IP from CF-Connecting-IP"
+    assert card.facts["trusted proxies"] == "trusting 2 range(s), restoring client IP from CF-Connecting-IP"
 
 
 def test_services_info_never_describes_a_foreign_conf_as_fms(tmp_path, out, monkeypatch):
-    """A hand-written fm-real-ip.conf (no fm marker) must read as not configured, the same
-    ownership rule every fm-managed nginx file follows."""
+    """A hand-written fm-real-ip.conf (no fm marker) must read as untrusted, the same ownership
+    rule every fm-managed nginx file follows."""
     h = ServicesInfoHarness(tmp_path)
     (h.confd / "fm-real-ip.conf").write_text("set_real_ip_from 10.0.0.0/8;\n")
 
     card = h.run(monkeypatch)
 
-    assert "not configured" in card.facts["real-ip"]
+    assert "none" in card.facts["trusted proxies"]
+
+
+def test_services_info_reports_the_published_ports(tmp_path, out, monkeypatch):
+    """`fm services ports` has no reader of its own, so this card is where an operator finds out
+    fm is not on 80/443."""
+    h = ServicesInfoHarness(tmp_path)
+
+    card = h.run(monkeypatch)
+
+    assert "80 " in card.facts["ports"] and "443 " in card.facts["ports"]
 
 
 def test_services_info_reports_a_missing_container_as_stopped(tmp_path, out, monkeypatch):

@@ -41,7 +41,7 @@ $ fm auth enable BENCH(/SITE) [OPTIONS]
 * `--user TEXT`: Basic auth username for the scope you named: both surfaces of the bench, or that one site. Defaults to 'admin'.
 * `--password TEXT`: Basic auth password. Pass - to read it from stdin, keeping it out of the shell history. A random one is minted on the first enable.
 * `--rotate`: Replace the password with a fresh random one, invalidating browser sessions that cached the old one.  [default: false]
-* `--allow-ip TEXT`: Address or CIDR that skips the prompt (repeatable; replaces the stored list). Behind a CDN this needs real-IP forwarding, see fm services real-ip.
+* `--allow-ip TEXT`: Address or CIDR that skips the prompt (repeatable; replaces the stored list). Behind a CDN this needs the edge trusted, see fm services trusted-proxies.
 * `--allow-path TEXT`: Absolute path prefix served without a prompt, e.g. /api/method/payment_webhook (repeatable; replaces the stored list). Web surface only.
 * `--clear-exemptions`: Empty both allow lists. Applied before any --allow-ip/--allow-path in the same call.  [default: false]
 * `--insecure`: Protect the web surface on a bench without TLS anyway, and silence the same warning on the tools surface.  [default: false]

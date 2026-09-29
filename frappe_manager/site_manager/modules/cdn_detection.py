@@ -1,15 +1,16 @@
 """Advisory-only detection of whether a domain currently resolves into a known CDN's edge range.
 
-The one caller this exists for is an add-time nudge: an operator who did not pass `--behind-proxy`
-but whose domain resolves into Cloudflare's published ranges is probably behind Cloudflare anyway,
-and a hint at that moment is cheap to give. Nothing here may ever decide behaviour -- the result is
-printed or it is not, and either way `fm ssl add` proceeds exactly as the flags it was given say to.
+The one caller this exists for is an add-time nudge: an operator whose domain resolves into
+Cloudflare's published ranges while this host trusts nothing in front of it is probably behind
+Cloudflare anyway, and a hint at that moment is cheap to give. Nothing here may ever decide
+behaviour -- the result is printed or it is not, and either way `fm ssl add` proceeds exactly as
+the flags it was given say to.
 
 Composed entirely from primitives that already exist:
 - `DNSValidator.validate_a_record` (frappe_manager.ssl_manager.dns_validator) does the DNS query and
   already collapses "no record", "timeout" and "dig missing" into a single `valid=False`.
 - `CLOUDFLARE_FALLBACK_RANGES` (frappe_manager.site_manager.modules.realip) is the vendored CIDR list
-  `fm services real-ip` already trusts and tests as valid; this module makes no network call of its own,
+  `fm services trusted-proxies` already trusts and tests as valid; this module makes no network call of its own,
   because it runs on a latency-sensitive interactive path (see `detect_cloudflare_proxy`'s `timeout`).
 - stdlib `ipaddress` for range membership.
 

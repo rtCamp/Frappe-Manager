@@ -8,6 +8,7 @@ from click.core import ParameterSource
 from typer_examples import example
 
 from frappe_manager.commands.arguments import BenchDomainArgument
+from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, prompt_for_bench_selection
 
@@ -59,12 +60,6 @@ from .helpers import get_output_handler
     "Authenticate DNS-01 against a second Cloudflare account",
     "{benchname}/example.com --challenge dns01 --dns-provider acct-b",
     detail="acct-b is a label stored by fm ssl dns-config cloudflare --name acct-b, at either global or bench scope.",
-    benchname="mybench",
-)
-@example(
-    "Issue behind Cloudflare's proxy",
-    "{benchname}/example.com --challenge dns01 --behind-proxy",
-    detail="The redirect keys on the forwarded proto so it stops looping; pair with Cloudflare SSL mode Full (strict).",
     benchname="mybench",
 )
 def add_certificate(
@@ -146,23 +141,6 @@ def add_certificate(
             readable=False,
         ),
     ] = None,
-    behind_proxy: Annotated[
-        bool,
-        typer.Option(
-            "--behind-proxy",
-            "--edge-tls",
-            help=(
-                "For an origin behind an external TLS terminator (e.g. Cloudflare Flexible: browser to "
-                "edge over HTTPS, edge to origin over plain HTTP). Keys the origin's HTTP->HTTPS redirect "
-                "off the forwarded proto instead of its own always-http connection, so it stops looping. "
-                "Also makes the bench's gunicorn trust that header for inbound requests -- bench-wide, "
-                "for every domain the bench serves, not just this one, so every certificate on a bench "
-                "must agree on this flag. Still issues a certificate: needs an explicit method (--dev, "
-                "--custom, or --challenge), since the mode's own point is a locally trusted certificate "
-                "for the origin's own :443. Bench mode only."
-            ),
-        ),
-    ] = False,
 ):
     """
     Issue or import an SSL certificate for a domain and point nginx at it.
@@ -251,24 +229,20 @@ def add_certificate(
             output.display_error(f"{flag_name} file not found: {path}")
             raise typer.Exit(1)
 
-    if behind_proxy and standalone:
-        output = get_output_handler(ctx)
-        output.display_error("--behind-proxy is bench mode only; --standalone is not supported yet")
-        raise typer.Exit(1)
-
-    # The mode's whole point is a locally trusted certificate on the origin's own :443 (so internal
-    # self-calls, PDF/print, OAuth, get_url fetches keep working); which method issues it also
-    # determines the external edge's TLS mode, so fm cannot guess a default. --challenge's http01
-    # default makes `is None` useless: parameter source only -- same idiom as --custom above.
+    # The CA dials port 80 directly for HTTP-01; a moved proxy port makes every issuance and
+    # renewal fail there, with no workaround (the failure otherwise only surfaces ~60 days later,
+    # at expiry). Applies to both modes whenever this call would actually perform the challenge --
+    # not --dev/--custom, which issue nothing.
     if (
-        behind_proxy
+        challenge == LETSENCRYPT_PREFERRED_CHALLENGE.http01
         and not dev
         and not custom
-        and ctx.get_parameter_source("challenge") != ParameterSource.COMMANDLINE
+        and FMConfigManager.import_from_toml().proxy.http_port != 80
     ):
         output = get_output_handler(ctx)
         output.display_error(
-            "--behind-proxy needs an explicit certificate method: pass --dev, --custom, or --challenge."
+            "--challenge http01 needs the proxy on port 80 (the CA dials it directly). "
+            "Use --challenge dns01, --dev, or --custom instead."
         )
         raise typer.Exit(1)
 
@@ -331,5 +305,4 @@ def add_certificate(
             cert_path=cert,
             key_path=key,
             ca_path=ca,
-            behind_proxy=behind_proxy,
         )

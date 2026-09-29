@@ -202,6 +202,30 @@ Static addressing for the global frontend Docker network: `subnet_cidr` is the C
 
 ---
 
+### `[proxy]` {#proxy}
+
+**Defaults:** `http_port = 80`, `https_port = 443`, `bind` unset (every interface)  
+**File key:** `[proxy]`
+
+Where the global proxy publishes, on the HOST side only. These are PUBLISH mappings (`<port>:80`, `<port>:443`), never the ports nginx listens on inside the container: the container always listens on 80/443, because every bench resolves its own domains to the proxy's container address, and moving the internal listener would break every site's server-side call to itself.
+
+- `http_port`: host port published to the proxy's container `:80`
+- `https_port`: host port published to the proxy's container `:443`
+- `bind`: host address the proxy publishes on. Absent means every interface
+
+```toml
+[proxy]
+http_port  = 8080
+https_port = 8443
+bind       = "127.0.0.1"
+```
+
+**Written by:** `fm services ports --http <port> --https <port> [--bind <addr>] [--yes]`. On a host with no services stack yet it only writes the setting and creates nothing; on a live host it patches the running compose file's publish mapping and recreates the proxy container instead, a brief outage for every bench on the host, so it asks before doing so (`--yes` skips the prompt). Not meant to be hand-edited on a live host: changing a published port here has no effect until the proxy container is recreated, which only `fm services ports` does.
+
+**See also:** [fm services command reference](../commands/services.md)
+
+---
+
 ### `[prune]` (global) {#fm-prune}
 
 **Defaults:** `keep_backup_sessions = 3`, `keep_log_archives = 3`, `rotate_logs_over = "10M"`
@@ -655,7 +679,6 @@ ssl_type = "custom"
 - `delegation_cname`: delegated zone for `_acme-challenge`, written by `fm ssl add --cname`
 - `hsts`: the `Strict-Transport-Security` header value the global proxy sends for every domain the bench serves, or `"off"` (the default), which sends no such header at all. Any other value is sent verbatim on every HTTPS response for the domain, error responses included. FM applies it where TLS actually terminates: a marked `# fm:hsts` block in the proxy's `vhost.d/<domain>` file, which also strips the header the bench's own nginx image hardcodes, so `"off"` genuinely means absent. The block is written on `fm start`, at bench creation and on site add, so an existing bench picks up a change on its next start, with no image rebuild. There is no flag for it; set it here. Only the primary domain's certificate is consulted
 - `enabled`: `true` by default. `false` leaves the entry in the file but makes issuance and renewal a no-op for that domain. No flag writes it
-- `behind_proxy`: `true` when the origin sits behind an external TLS terminator, written by `fm ssl add --behind-proxy`. Keys the domain's HTTP to HTTPS redirect off the forwarded proto instead of the connection scheme, and makes the bench's web server trust that header. A modifier on the method, not a type: `letsencrypt`, `dev` and `custom` entries can all carry it, and every certificate on a bench must agree on it. Default `false`
 
 !!! note "Browsers may still hold a pin from before `hsts` worked"
     Until v1.0.0 every bench sent `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` on HTTPS responses regardless of this setting, because the bench nginx image hardcoded it and nothing stripped it at the proxy. A browser that visited an fm-served site over HTTPS in that era cached a two-year HTTPS-only pin for the domain and its subdomains. The fix stops new pins; it cannot retract one already issued: those visitors keep being forced to HTTPS until the pin expires or is cleared per browser (`chrome://net-internals/#hsts` in Chrome and Edge, "Forget About This Site" in Firefox).

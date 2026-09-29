@@ -223,6 +223,5 @@ class TestCustomHappyPath:
             cert_path=cert,
             key_path=key,
             ca_path=ca,
-            behind_proxy=False,
         )
         assert _errors(output) == []

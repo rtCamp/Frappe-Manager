@@ -19,6 +19,7 @@ from frappe_manager import (
     DEFAULT_EXTENSIONS,
     MIGRATION_COMMANDS,
     OBSERVE_ONLY_COMMANDS,
+    PRE_INSTALL_COMMANDS,
     STABLE_APP_BRANCH_MAPPING_LIST,
     STOCK_IMAGE_PREFETCH_SKIP_COMMANDS,
     EnableDisableOptionsEnum,
@@ -460,6 +461,7 @@ def app_callback(
                 config_is_new
                 and not tolerates_broken_host(ctx)
                 and command_path(ctx) not in OBSERVE_ONLY_COMMANDS
+                and command_path(ctx) not in PRE_INSTALL_COMMANDS
             )
             if first_install and invoked_command not in STOCK_IMAGE_PREFETCH_SKIP_COMMANDS:
                 output.print("First installation detected. Pulling docker images...️", "🔍")
@@ -646,7 +648,7 @@ def app_callback(
             # alone starting) the shared stack on the way to tearing it down would resurrect the
             # very services being removed, and on a never-created host it would build them from
             # scratch just to delete them.
-            if invoked_command != "bake" and not tolerates_broken_host(ctx):
+            if invoked_command != "bake" and full_command not in PRE_INSTALL_COMMANDS and not tolerates_broken_host(ctx):
                 try:
                     services_manager.entrypoint_checks(start=invoked_command != "migrate")
                 except ServicesNotCreated as e:

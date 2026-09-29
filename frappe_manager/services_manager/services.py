@@ -32,6 +32,11 @@ from frappe_manager.services_manager.services_exceptions import (
     ServicesException,
     ServicesNotCreated,
 )
+from frappe_manager.site_manager.modules.realip import (
+    PROXY_TRUST_CONF_FILENAME,
+    build_proxy_trust_conf,
+    trusted_ranges,
+)
 from frappe_manager.ssl_manager.nginx_controller import NginxController
 from frappe_manager.ssl_manager.proxy_storage import ProxyStoragePaths
 from frappe_manager.utils.docker import host_run_cp
@@ -83,6 +88,19 @@ def _cause_line(error: Exception) -> str:
         if "Error" in line or "error" in line:
             return line.rstrip("'\"")
     return lines[-1].rstrip("'\"") if lines else error.__class__.__name__
+
+
+def _port_hint(error: Exception) -> str:
+    """Name the way out of a port clash, the one create failure with a setting behind it.
+
+    Worth special-casing because the daemon's own sentence ("Bind for 0.0.0.0:80 failed: port is
+    already allocated") names no fix, and that fix is a command which must run BEFORE the install
+    it unblocks -- not something an operator finds by retrying.
+    """
+    text = str(error).lower()
+    if "port is already allocated" in text or "address already in use" in text:
+        return "\nRun 'fm services ports --http <port> --https <port>' to publish fm elsewhere, then retry."
+    return ""
 
 
 class ServicesManager:
@@ -377,7 +395,7 @@ class ServicesManager:
                 # propagates and the caller's `except ServicesNotCreated: remove_itself()` cleanup
                 # gets to remove the half-built install.
                 self.output.display_error("Error while setting up the global services")
-                raise ServicesNotCreated(f"Not able to create global services. {_cause_line(e)}") from e
+                raise ServicesNotCreated(f"Not able to create global services. {_cause_line(e)}{_port_hint(e)}") from e
 
         if not self.compose_path.exists():
             raise ServicesComposeNotExist(
@@ -485,6 +503,7 @@ class ServicesManager:
 
         self.fm_headers_path: Path = self.proxy_storage.dirs.confd.host / "fm_headers.conf"
         self.set_frappe_headers_conf()
+        self.set_forwarded_trust_conf()
 
     def set_frappe_headers_conf(self):
         """Refresh nginx-proxy's fm_headers.conf, but only when its content actually changes.
@@ -509,6 +528,78 @@ class ServicesManager:
             return
 
         self.fm_headers_path.write_text(desired)
+
+    def set_forwarded_trust_conf(self) -> bool:
+        """Refresh the proxy's `$fm_client_scheme` / `$fm_https_suffix` table. True when it changed.
+
+        Written on every `init()`, like `fm_headers.conf` and for the same reason: the per-domain
+        redirect blocks reference these variables, so a host whose conf.d lost the file would make
+        the proxy refuse to start. Unconditional presence is the invariant -- with nothing trusted
+        the table still renders, and `$fm_client_scheme` falls through to `$scheme`.
+        """
+        confd = Path(self.proxy_storage.dirs.confd.host)
+        if not confd.exists():
+            return False
+
+        fm_config = FMConfigManager.import_from_toml()
+        desired = build_proxy_trust_conf(trusted_ranges(confd), fm_config.proxy.https_suffix)
+
+        conf_path = confd / PROXY_TRUST_CONF_FILENAME
+        if conf_path.exists() and conf_path.read_text() == desired:
+            return False
+
+        conf_path.write_text(desired)
+        return True
+
+    def apply_proxy_ports(self) -> bool:
+        """Push `[proxy]` onto the proxy service's published ports. True when the compose changed.
+
+        Only the HOST side moves (`8080:80`): the container keeps listening on 80/443 because every
+        bench container resolves its own domains to the proxy at those ports, and moving the
+        listener breaks every server-side self-call a site makes (notes/proxy-front-design.md V5).
+        """
+        fm_config = FMConfigManager.import_from_toml()
+        proxy = fm_config.proxy
+        host = f"{proxy.bind}:" if proxy.bind else ""
+        desired = [f"{host}{proxy.http_port}:80", f"{host}{proxy.https_port}:443"]
+
+        try:
+            service = self.compose_file_manager.yml["services"]["nginx-proxy"]
+        except KeyError:
+            return False
+
+        if [str(entry) for entry in service.get("ports", [])] == desired:
+            return False
+
+        service["ports"] = desired
+        return True
+
+    def apply_forwarded_trust_env(self) -> bool:
+        """Set `TRUST_DOWNSTREAM_PROXY` on the proxy from whether anything is trusted. True on change.
+
+        `true` passes a CLIENT-supplied `X-Forwarded-Proto` straight through, which is required
+        when a front in front of fm is the only thing that knows the visitor's scheme. With nothing
+        in front, fm knows the scheme for certain from the connection itself, so passing a
+        stranger's claim inward buys nothing and lets anyone assert https over plaintext: the
+        default there is `false`. fm's own redirect is immune either way (it reads
+        `$fm_client_scheme`), but gunicorn reads the raw header and cannot be protected from here.
+        """
+        trusted = bool(trusted_ranges(Path(self.proxy_storage.dirs.confd.host)))
+        desired = "true" if trusted else "false"
+
+        try:
+            service = self.compose_file_manager.yml["services"]["nginx-proxy"]
+        except KeyError:
+            return False
+
+        environment = service.setdefault("environment", {})
+        if not isinstance(environment, dict):
+            return False
+        if str(environment.get("TRUST_DOWNSTREAM_PROXY", "")) == desired:
+            return False
+
+        environment["TRUST_DOWNSTREAM_PROXY"] = desired
+        return True
 
     def reconcile_standalone_vhosts(self) -> list[str]:
         """Rebuild the standalone (non-bench) vhosts from external_domains.toml. Returns what changed.
@@ -732,6 +823,9 @@ class ServicesManager:
         )
 
         self.set_frappe_headers_conf()
+        self.set_forwarded_trust_conf()
+        self.apply_proxy_ports()
+        self.apply_forwarded_trust_env()
 
         self.compose_file_manager.set_secret_file_path("db_password", str(db_password_path.absolute()))
         self.compose_file_manager.set_secret_file_path("db_root_password", str(db_root_password_path.absolute()))

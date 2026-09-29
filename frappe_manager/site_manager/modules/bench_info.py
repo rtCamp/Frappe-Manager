@@ -25,6 +25,7 @@ from frappe_manager.site_manager.bench_config import (
     resolve_primary_site,
 )
 from frappe_manager.site_manager.exceptions import BenchException
+from frappe_manager.site_manager.modules.public_scheme import host_proxy_state, public_scheme, public_url
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.utils.helpers import format_ssl_certificate_time_remaining
@@ -309,7 +310,8 @@ class BenchInfo:
         config = self.bench_config
         bench_db_info = self.get_db_connection_info()
         has_cert = self.has_certificate()
-        protocol = "https" if has_cert else "http"
+        front, http_port, https_port = host_proxy_state()
+        protocol = public_scheme(has_cert, front)
         active = self.is_running()
 
         sites = config.site_names if config.sites else []
@@ -403,8 +405,8 @@ class BenchInfo:
             "sites": [
                 {
                     "site": site,
-                    "mailpit_url": f"{protocol}://{site}/mailpit",
-                    "adminer_url": f"{protocol}://{site}/adminer",
+                    "mailpit_url": f"{public_url(site, protocol, http_port, https_port)}/mailpit",
+                    "adminer_url": f"{public_url(site, protocol, http_port, https_port)}/adminer",
                 }
                 for site in routed
             ],
@@ -486,7 +488,7 @@ class BenchInfo:
             "runtime": config.runtime.value,
             "environment": config.environment_type.value,
             "restart_policy": config.restart_policy.value,
-            "url": f"{protocol}://{domain}" if sites else None,
+            "url": public_url(domain, protocol, http_port, https_port) if sites else None,
             "https": https,
             "dir": str(self.bench_path.absolute()),
             "sites": site_rows,
@@ -529,7 +531,9 @@ class BenchInfo:
         bench_db_info = self.get_db_connection_info()
         # The mariadb ROOT credentials are deliberately absent: they belong to the shared
         # mariadb container, not to any one bench, and live on `fm services info` now.
-        protocol = "https" if self.has_certificate() else "http"
+        has_cert = self.has_certificate()
+        front, http_port, https_port = host_proxy_state()
+        protocol = public_scheme(has_cert, front)
         active = self.is_running()
 
         # `[sites]` is the record of what this bench serves, so an EMPTY table means zero sites (a
@@ -563,7 +567,7 @@ class BenchInfo:
                 active, config.runtime.value, config.environment_type.value, config.restart_policy.value
             ),
             active,
-            link=f"{protocol}://{domain}",
+            link=public_url(domain, protocol, http_port, https_port),
         )
 
         card.section("site")
@@ -576,14 +580,22 @@ class BenchInfo:
             # rather than picking one; the rows below carry the addresses that do work.
             card.fact("url", f"[fm.muted]{len(sites)} sites recorded, none named after the bench[/fm.muted]")
         else:
-            card.fact("url", f"{protocol}://{primary}")
-        if self.has_certificate():
+            card.fact("url", public_url(primary, protocol, http_port, https_port))
+        if has_cert:
             ssl_cert = config.get_primary_certificate()
             ssl_service_type = f"{ssl_cert.ssl_type.value}"
             if ssl_cert.ssl_type == SUPPORTED_SSL_TYPES.le and isinstance(ssl_cert, LetsencryptSSLCertificate):
                 ssl_service_type = f"[{ssl_cert.challenge_type.value}] {ssl_cert.ssl_type.value}"
             remaining = format_ssl_certificate_time_remaining(self.certificate_manager.get_certificate_expiry())
             card.fact("https", f"{ssl_service_type.upper()} [fm.muted]·[/fm.muted] {remaining}")
+        elif front:
+            # Public TLS without an fm certificate is a real, ongoing half-state, not "off": the
+            # front serves visitors fine while the bench's own calls to itself have no certificate
+            # to reach. `fm ssl add --dev` is the fix.
+            card.fact(
+                "https",
+                "[fm.muted]your front's · fm holds none, so this bench's own self-calls fail; fm ssl add --dev[/fm.muted]",
+            )
         else:
             card.fact("https", "[fm.muted]not enabled[/fm.muted]")
         # One row per site, skipped for the single ordinary case (one site on fm's own mariadb)
@@ -598,7 +610,7 @@ class BenchInfo:
                 # mariadb container fm owns. Anything else is someone else's server, named.
                 where = f"external · {database.host}:{database.resolved_port}" if database else "mariadb"
                 marker = "  [fm.ok]● primary[/fm.ok]" if site == primary else ""
-                card.fact("sites" if i == 0 else "", f"{protocol}://{site}  [fm.muted]{where}[/fm.muted]{marker}")
+                card.fact("sites" if i == 0 else "", f"{public_url(site, protocol, http_port, https_port)}  [fm.muted]{where}[/fm.muted]{marker}")
 
         # Site directories on disk that `[sites]` does not record (someone ran `bench new-site` by hand
         # inside `fm shell`). Reported, never acted on: fm only destroys a schema it wrote down. Two rows,
@@ -719,7 +731,8 @@ class BenchInfo:
         routed = [site for site in sites if config.serves_admin_tools(site)]
 
         def _tools_url(host: str) -> str:
-            return f"{protocol}://{host}/mailpit [fm.muted]·[/fm.muted] {protocol}://{host}/adminer"
+            base = public_url(host, protocol, http_port, https_port)
+            return f"{base}/mailpit [fm.muted]·[/fm.muted] {base}/adminer"
 
         if not config.admin_tools:
             card.fact("tools", "[fm.muted]not enabled[/fm.muted]")

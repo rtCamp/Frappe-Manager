@@ -19,9 +19,11 @@ from frappe_manager.commands.maintenance._helpers import (
     _strip_fm_block,
     _vhost_conf,
     conf_state,
+    domain_secure_cookie,
     proxy_paths,
 )
 from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.site_manager.modules.public_scheme import host_proxy_state, public_scheme, public_url
 from frappe_manager.utils.callbacks import bench_site_autocompletion_callback, bench_site_callback
 
 
@@ -74,7 +76,7 @@ def enable(
         list[str],
         typer.Option(
             "--allow-ip",
-            help="Client IP that reaches the real site (repeatable; single addresses, no CIDR). Behind a CDN see fm services real-ip.",
+            help="Client IP that reaches the real site (repeatable; single addresses, no CIDR). Behind a CDN see fm services trusted-proxies.",
             show_default=False,
         ),
     ] = [],
@@ -206,9 +208,10 @@ def enable(
     vhostd_dir.mkdir(parents=True, exist_ok=True)
     for domain in domains:
         path = vhostd_dir / domain
-        # The Secure flag on the bypass cookie is decided per domain: an alias
-        # served over plain http must not be handed a cookie the browser will
-        # only ever send back over TLS.
+        # The Secure flag on the bypass cookie is decided per domain (own certificate) OR
+        # host-wide (a trusted front terminates TLS): an alias served over plain http, with no
+        # front either, must not be handed a cookie the browser will only ever send back over
+        # TLS.
         block = _vhost_conf(
             benchname,
             token,
@@ -217,7 +220,7 @@ def enable(
             retry_after,
             allow_ip,
             allow_path,
-            domain_ssl[domain],
+            domain_secure_cookie(services, domain_ssl[domain]),
         )
         # Prepend our block, preserving whatever else shares the file
         # (upload limits, hand-written directives).
@@ -226,11 +229,12 @@ def enable(
 
     services.nginx_controller.reload()
 
-    scheme = "https" if domain_ssl.get(domains[0]) else "http"
+    front, http_port, https_port = host_proxy_state()
+    base = public_url(domains[0], public_scheme(bool(domain_ssl.get(domains[0])), front), http_port, https_port)
     output.print(f"Maintenance enabled for: {', '.join(domains)} (serving {response_code})")
     if allow_ip:
         output.print(f"Allowed IPs: {', '.join(allow_ip)}")
     if allow_path:
         output.print(f"Allowed paths: {', '.join(allow_path)}")
-    output.print(f"Bypass (sets a cookie so you see the real site): {scheme}://{domains[0]}/fm-bypass/{token}")
-    output.print(f"Drop the bypass again: {scheme}://{domains[0]}/fm-bypass/off")
+    output.print(f"Bypass (sets a cookie so you see the real site): {base}/fm-bypass/{token}")
+    output.print(f"Drop the bypass again: {base}/fm-bypass/off")

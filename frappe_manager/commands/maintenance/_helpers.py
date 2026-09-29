@@ -8,6 +8,7 @@ import tomlkit
 import typer
 
 from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
+from frappe_manager.site_manager.modules.public_scheme import host_has_trusted_front, public_scheme
 from frappe_manager.utils.callbacks import bench_site_callback
 
 # Maintenance owns a marked BLOCK inside vhost.d/<domain>, not the whole file:
@@ -167,6 +168,16 @@ def _bench_domains(benchname: str, site: str | None = None) -> tuple[list[str], 
     certificates = (data.get("ssl") or {}).get("certificates") or []
     secured = {str(cert.get("domain")) for cert in certificates if str(cert.get("ssl_type", "none")) != "none"}
     return domains, {domain: domain in secured for domain in all_domains}, all_domains
+
+
+def domain_secure_cookie(services, domain_has_certificate: bool) -> bool:
+    """Whether the maintenance bypass cookie gets `Secure` for a domain: true when fm holds a
+    certificate for it OR a trusted front terminates TLS in front of it (see
+    `site_manager/modules/public_scheme.py`) -- not certificate presence alone, or a fronted
+    domain with no fm-side certificate would be handed a cookie the browser only sends over TLS,
+    minus the flag that makes it actually arrive."""
+    confd_dir = Path(services.proxy_storage.dirs.confd.host)
+    return public_scheme(domain_has_certificate, host_has_trusted_front(confd_dir)) == "https"
 
 
 def _extract_token(conf_text: str) -> str | None:

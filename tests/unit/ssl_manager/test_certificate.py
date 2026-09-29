@@ -116,7 +116,6 @@ class TestSSLCertificateSerialization:
             "challenge_type": None,
             "enabled": True,
             "hsts": "on",
-            "behind_proxy": False,
         }
 
     def test_model_dump_json_works(self):
@@ -293,6 +292,7 @@ class TestRetiredKeysAreTolerated:
                 "issued_date": "2026-01-01T00:00:00",
                 "last_renewal_attempt": None,
                 "toml_exclude": ["domain", "toml_exclude"],
+                "behind_proxy": False,
             }
         )
         assert set(entry) >= RETIRED_CERTIFICATE_KEYS, "the fixture must carry every retired key"
@@ -323,7 +323,6 @@ class TestRetiredKeysAreTolerated:
             "challenge_type": LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             "enabled": True,
             "hsts": "max-age=31536000; includeSubDomains",
-            "behind_proxy": False,
             "acme_client": "certbot",
             "dns_provider": "acct-b",
             "delegation_cname": "a-gg-com.fm.gw",
@@ -336,6 +335,16 @@ class TestRetiredKeysAreTolerated:
         )
 
         assert not hasattr(cert, retired)
+
+    def test_a_dev_bench_config_carrying_behind_proxy_false_loads_cleanly(self):
+        """`behind_proxy` never shipped past the unreleased 1.0.0 cycle, but every dev bench made
+        since d710ec22 (2026-09-03) wrote it unconditionally -- this is that exact on-disk shape."""
+        cert = CERTIFICATE_ADAPTER.validate_python(
+            {"domain": "a.gg.com", "ssl_type": "dev", "behind_proxy": False}
+        )
+
+        assert type(cert) is DevCertificate
+        assert not hasattr(cert, "behind_proxy")
 
     @pytest.mark.parametrize("ssl_type", ["dev", "disable"])
     def test_retired_keys_are_tolerated_on_every_variant(self, ssl_type):
@@ -404,7 +413,6 @@ class TestCustomCertificate:
             "challenge_type": None,
             "enabled": True,
             "hsts": "off",
-            "behind_proxy": False,
         }
 
     def test_a_certificate_read_back_from_the_union_never_carries_source_paths(self):

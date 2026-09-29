@@ -10,18 +10,19 @@ $ fm services COMMAND [ARGS]...
 
 | Command | Description |
 |---|---|
-| [`fm services info`](#fm-services-info) | Show the global services' card: live container state, the root database credentials and the proxy's real-ip trust. |
+| [`fm services info`](#fm-services-info) | Show the global services' card: live container state, the root database credentials, the ports the proxy publishes on and which proxies in front of it are trusted. |
 | [`fm services migrate`](#fm-services-migrate) | Bring fm's global services & configuration up to the current version. |
 | [`fm services start`](#fm-services-start) | Start the global services shared by every bench. |
 | [`fm services stop`](#fm-services-stop) | Stop the global services shared by every bench. |
 | [`fm services restart`](#fm-services-restart) | Restart the global services shared by every bench. |
 | [`fm services shell`](#fm-services-shell) | Open a bash shell in one of the global service containers. |
-| [`fm services real-ip`](#fm-services-real-ip) | Restore the visitor's real IP at the global nginx proxy when it sits behind a CDN or load balancer. |
+| [`fm services ports`](#fm-services-ports) | Publish the global proxy on different host ports, so fm can share a machine with another web server. |
 | [`fm services prune`](#fm-services-prune) | Reclaim the host tier's disk: fm's own backup sessions and the shared services' logs. |
+| [`fm services trusted-proxies`](#fm-services-trusted-proxies) | Which proxies in front of fm may speak for the client. |
 
 ## `fm services info`
 
-Show the global services' card: live container state, the root database credentials and the proxy's real-ip trust.
+Show the global services' card: live container state, the root database credentials, the ports the proxy publishes on and which proxies in front of it are trusted.
 
 The root database password is printed in cleartext. It belongs to the mariadb container every bench shares, which is why it is on this card and not on any bench's fm info.
 
@@ -161,7 +162,7 @@ $ fm services restart SERVICE_NAME
 
 #### Apply a change to the proxy
 
-A restart is what puts a new proxy config into effect, for instance after fm services real-ip.
+A restart is what puts a new proxy config into effect, for instance after fm services trusted-proxies set.
 
 ```bash
 fm services restart nginx-proxy
@@ -207,48 +208,51 @@ fm services shell mariadb
 fm services shell nginx-proxy
 ```
 
-## `fm services real-ip`
+## `fm services ports`
 
-Restore the visitor's real IP at the global nginx proxy when it sits behind a CDN or load balancer.
+Publish the global proxy on different host ports, so fm can share a machine with another web server.
 
-Trust only the ranges you actually sit behind: whatever you trust fully controls the client IP that fm, your logs and frappe go on to see.
+Only the HOST side moves: the proxy keeps listening on 80 and 443 inside its container, because every bench resolves its own domains to that address and a site's server-side calls to itself would otherwise stop working. Redirects fm writes pick the new port up from one generated file.
+
+On a host with no services yet this writes the setting and exits, creating nothing -- that is what makes it usable on a machine whose first install cannot get past a busy port. Where the stack already exists the ports are applied and the proxy is recreated, which is a brief outage for every bench on the host.
+
+Let's Encrypt HTTP-01 needs port 80 reachable at the public name, so moving off 80 means using --challenge dns01, --dev or --custom for certificates fm issues.
 
 **Usage**:
 
 ```console
-$ fm services real-ip [OPTIONS]
+$ fm services ports [OPTIONS]
 ```
 
 **Options**:
 
-* `--cdn TEXT`: Trust a CDN's published ranges. Supported: cloudflare.
-* `--trust TEXT`: CIDR range or single IP of a proxy in front of fm (repeatable).
-* `--header TEXT`: Header the client IP is read from. Defaults to CF-Connecting-IP for --cdn cloudflare and X-Forwarded-For otherwise; anything that is not a valid header name is refused.
-* `--off`: Remove the configuration and reload the proxy.  [default: false]
-* `--status`: Show the active configuration. Writes nothing.  [default: false]
+* `--http INTEGER`: Host port published to the proxy's :80.
+* `--https INTEGER`: Host port published to the proxy's :443.
+* `--bind TEXT`: Host address to publish on, e.g. 127.0.0.1 to accept only a local front. Absent publishes on every interface.
+* `-y, --yes`: Apply to a running stack without asking; the proxy is recreated.  [default: false]
 
 ### Examples
 
-#### Trust Cloudflare
+#### Move fm off a port something else already owns
 
-Proxy logs, fm maintenance --allow-ip and frappe's rate limiting then see the visitor instead of Cloudflare's edge.
+Run this before the first install on a host whose 80/443 are taken: it writes the setting without creating or starting anything.
 
 ```bash
-fm services real-ip --cdn cloudflare
+fm services ports --http 8080 --https 8443
 ```
 
-#### Trust your own load balancer
+#### Keep the origin private behind a local front
 
-Each run replaces the whole configuration, so pass every range you sit behind in one call.
+Only the front can then reach fm, so a forged X-Forwarded-Proto cannot arrive from anywhere else.
 
 ```bash
-fm services real-ip --trust 203.0.113.0/24
+fm services ports --http 8080 --https 8443 --bind 127.0.0.1
 ```
 
-#### Show what is trusted
+#### Go back to the standard ports
 
 ```bash
-fm services real-ip --status
+fm services ports --http 80 --https 443
 ```
 
 ## `fm services prune`
@@ -292,4 +296,106 @@ fm services prune
 
 ```bash
 fm services prune --only logs
+```
+
+## `fm services trusted-proxies`
+
+Which proxies in front of fm may speak for the client.
+
+**Usage**:
+
+```console
+$ fm services trusted-proxies COMMAND [ARGS]...
+```
+
+| Command | Description |
+|---|---|
+| [`fm services trusted-proxies show`](#fm-services-trusted-proxies-show) | Show which proxies this host trusts and what is read from them. |
+| [`fm services trusted-proxies set`](#fm-services-trusted-proxies-set) | Trust the proxies in front of fm, so the visitor's address and scheme survive the hop. |
+| [`fm services trusted-proxies clear`](#fm-services-trusted-proxies-clear) | Trust nothing in front of fm. |
+
+### `fm services trusted-proxies show`
+
+Show which proxies this host trusts and what is read from them.
+
+**Usage**:
+
+```console
+$ fm services trusted-proxies show
+```
+
+#### Examples
+
+##### See the directives actually in force
+
+Prints the rendered configuration, not the setting that produced it, which is what a trust problem needs.
+
+```bash
+fm services trusted-proxies show
+```
+
+### `fm services trusted-proxies set`
+
+Trust the proxies in front of fm, so the visitor's address and scheme survive the hop.
+
+Trust only the ranges you actually sit behind: whatever you trust fully controls the client IP and the scheme that fm, your logs and frappe go on to see. Anything arriving from any other address is judged on the connection itself, so a forged header changes nothing.
+
+Each run replaces the whole set.
+
+**Usage**:
+
+```console
+$ fm services trusted-proxies set [OPTIONS]
+```
+
+**Options**:
+
+* `--cdn TEXT`: Trust a CDN's published ranges. Supported: cloudflare.
+* `--trust TEXT`: CIDR range or single IP of a proxy in front of fm (repeatable).
+* `--client-ip-header TEXT`: Header the client IP is read from. Defaults to CF-Connecting-IP for --cdn cloudflare and X-Forwarded-For otherwise; anything that is not a valid header name is refused.
+
+#### Examples
+
+##### Trust Cloudflare
+
+Proxy logs, fm maintenance --allow-ip and frappe's rate limiting then see the visitor instead of Cloudflare's edge.
+
+```bash
+fm services trusted-proxies set --cdn cloudflare
+```
+
+##### Trust your own load balancer
+
+Each run replaces the whole set, so pass every range you sit behind in one call.
+
+```bash
+fm services trusted-proxies set --trust 203.0.113.0/24
+```
+
+##### Trust a front running on the same machine
+
+```bash
+fm services trusted-proxies set --trust 127.0.0.1
+```
+
+### `fm services trusted-proxies clear`
+
+Trust nothing in front of fm.
+
+Use this whenever a front is removed: leaving its range trusted lets anyone reaching fm directly claim to be any client, over any scheme.
+
+**Usage**:
+
+```console
+$ fm services trusted-proxies clear
+```
+
+#### Examples
+
+##### Stop trusting anything in front
+
+Every request is then judged on the connection fm itself received, which is the right setting whenever nothing sits in front.
+
+```bash
+fm services trusted-proxies clear
 ```

@@ -175,3 +175,38 @@ def test_the_placeholder_page_names_nothing_internal(tmp_path):
         assert served, "the placeholder must still answer 503"
         for leak in ("VIRTUAL_HOST", "VIRTUAL_PORT", "docker", "compose", "fm-frontend-network", "Frappe"):
             assert leak not in served[0], f"{leak} is served to the public internet"
+
+
+def test_the_https_templates_redirect_is_guarded_on_fm_client_scheme(tmp_path):
+    """Today's unconditional `return 301` loops behind a front that forwards plain HTTP to this
+    proxy: every request comes back here as http, so it would redirect forever. Guarding on
+    `$fm_client_scheme` makes it redirect only a REAL direct plain-HTTP request."""
+    manager = _manager(tmp_path)
+
+    body = manager.render(DOMAIN, https=True)
+
+    assert "if ($fm_client_scheme = http) {" in body
+    assert "return 301 https://$host$fm_https_suffix$request_uri;" in body
+
+
+def test_the_https_templates_redirect_falls_back_to_503_when_not_plain_http(tmp_path):
+    """The guard's non-redirect branch must still answer with fm's own placeholder body, not let
+    the request fall through to nginx's bare default."""
+    manager = _manager(tmp_path)
+
+    body = manager.render(DOMAIN, https=True)
+    port_80_block = body.split("listen 443", 1)[0]
+
+    assert "return 503 '<html>" in port_80_block
+    assert "default_type text/html;" in port_80_block
+
+
+def test_the_acme_challenge_location_stays_ahead_of_the_guarded_redirect(tmp_path):
+    """Real nginx location matching applies here (unlike the bench vhost's rewrite-phase
+    redirect), so the `location ^~` challenge block must still precede `location /` textually."""
+    manager = _manager(tmp_path)
+
+    body = manager.render(DOMAIN, https=True)
+    port_80_block = body.split("listen 443", 1)[0]
+
+    assert port_80_block.index("location ^~ /.well-known/acme-challenge/") < port_80_block.index("location / {")
