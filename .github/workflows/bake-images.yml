@@ -28,19 +28,27 @@ jobs:
         # Each build runs on a runner NATIVE to the platform it produces: an emulated arm64 build
         # of this image takes hours. `ubuntu-24.04-arm` is GitHub-hosted and free for public
         # repositories, which is what replaced the self-hosted arm64 box.
+        # `target` is pinned, never left to default. Buildx builds the LAST stage in a Dockerfile,
+        # and Docker/nginx/Dockerfile ends with `app-assets`, a stage that exists only for
+        # `fm bake` (bake.py passes `--target app-assets` with a provisioned bench as its context).
+        # Building it here fails on `COPY sites/assets`, which is not in this repository.
         include:
           - os: ubuntu-latest
             platform: linux/amd64
             service_name: frappe
+            target: frappe
           - os: ubuntu-latest
             platform: linux/amd64
             service_name: nginx
+            target: base
           - os: ubuntu-24.04-arm
             platform: linux/arm64
             service_name: frappe
+            target: frappe
           - os: ubuntu-24.04-arm
             platform: linux/arm64
             service_name: nginx
+            target: base
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -109,6 +117,7 @@ jobs:
           context: Docker/${{ matrix.service_name }}/.
           push: true
           platforms: ${{ matrix.platform }}
+          target: ${{ matrix.target }}
           tags: ${{ env.image_name }}
           provenance: false
           cache-from: ${{ env.USE_CACHE == 'true' && format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache-{2}', env.owned, matrix.service_name, matrix.platform == 'linux/amd64' && 'amd64' || 'arm64') || '' }}
