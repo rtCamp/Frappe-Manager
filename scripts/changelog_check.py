@@ -27,6 +27,38 @@ RECORD_PATHS = ("docs/changelog.md",)
 # published history; their entries were written by hand in 60efd717.
 BASELINE = "60efd717"
 
+# Commits whose entry was written after the fact, in one later pass over docs/changelog.md.
+# The three normal verdicts are all properties of the commit OBJECT, so a commit that shipped
+# without an entry can only be cured by rewriting it; naming it here records the entry instead.
+# This is not a bypass: each sha is a claim that an entry covering it exists, reviewable in the
+# same diff that adds the sha. Prefer moving BASELINE only for a whole prehistory, never for a
+# commit someone could still have written an entry for.
+COVERED = {
+    "aa4aed80",  # redis: move a bench between external and fm-managed redis
+    "679740ba",  # redis: cache and queue on different servers
+    "7ca67438",  # redis: drain the queue before moving it
+    "849fe2b6",  # redis: backlog wait timeout + resume producers on Ctrl-C
+    "858aac22",  # redis: unbounded backlog wait
+    "3f36999a",  # workers: scoped signal handling
+    "4daf87fc",  # workers: pause the scheduler explicitly
+    "9aafa139",  # migrate: squash the unreleased 0.20/0.21 migrations into 1.0.0
+    "23d71ab3",  # migrate: --rerun version floor underflow
+    "39fc71ab",  # migrate: render the plan outside the spinner
+    "82baee18",  # cli: operator suggestions on the exception base
+    "868b32d1",  # create: announce dotted bench names
+    "69269fb3",  # bake: warn mount benches
+    "98ec71aa",  # domain: suggest the remove grammar
+    "b550ed92",  # ssl: address check before the HTTP-01 port guard
+    "9b51a9ba",  # logs/apps list/Ctrl-C/nginx reload wording
+    "7bdcfbbb",  # bench: get_bench no longer starts containers
+    "25d63ab1",  # services: no empty external_domains.toml on read
+    "23520c18",  # services: trusted-proxies writes the gunicorn wrapper
+    "77274d44",  # services: trusted-proxies writes the gunicorn wrapper
+    "56ee040c",  # nginx: log the visitor's scheme
+    "e28c0272",  # prune: include the benches root in teardown
+    "a4ae81c6",  # prune: include the benches root in teardown
+}
+
 # Paths that cannot change what a user observes. Deliberately generous.
 INTERNAL_PREFIXES = (
     "tests/",
@@ -101,9 +133,11 @@ def walk(start: str) -> list[tuple[str, str, str, list[str]]]:
     return records
 
 
-def verdict(subject: str, body: str, files: list[str]) -> str:
+def verdict(sha: str, subject: str, body: str, files: list[str]) -> str:
     """recorded | skipped | internal | unaccounted."""
     if any(f.startswith(RECORD_PATHS) for f in files):
+        return "recorded"
+    if any(sha.startswith(c) for c in COVERED):
         return "recorded"
     if SKIP_RE.search(body):
         return "skipped"
@@ -135,7 +169,18 @@ def main() -> int:
 
     buckets: dict[str, list[tuple[str, str]]] = {"recorded": [], "skipped": [], "internal": [], "unaccounted": []}
     for sha, subject, body, files in records:
-        buckets[verdict(subject, body, files)].append((sha[:8], subject))
+        buckets[verdict(sha, subject, body, files)].append((sha[:8], subject))
+
+    # A COVERED sha that matches nothing is a lie the register is still telling: the commit was
+    # rebased away or mistyped, so it exempts nothing and hides that it stopped meaning anything.
+    # Only meaningful over the gate's own range, so an explicit override does not report it.
+    if not override:
+        seen = {sha for sha, _, _, _ in records}
+        stale = sorted(c for c in COVERED if not any(s.startswith(c) for s in seen))
+        if stale:
+            print(f"\n  stale COVERED entries ({len(stale)}): {', '.join(stale)}")
+            print("       Remove them from scripts/changelog_check.py; they exempt nothing.")
+            return 1
 
     missing = buckets["unaccounted"]
     print(f"changelog coverage: {len(records)} commits since {label}")
