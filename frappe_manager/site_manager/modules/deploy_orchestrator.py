@@ -1882,8 +1882,19 @@ class DeployOrchestrator:
             # The compose IS pinned to previous_image at this point; record reality
             # so deployments matches what a later `compose up` would run.
             self._record(previous_image, "rollback", nginx_image=nginx_image)
+            # Maintenance mode is deliberately LEFT ON: fm cannot tell a slow boot from a broken
+            # one, and serving a half-migrated site is worse than a 503. What was missing is the
+            # way out -- this raise skips the clear below, so the site stayed 503 with nothing
+            # naming the command that ends it, on a bench whose containers may simply have been
+            # slower than the gate.
             raise DeployError(
-                f"Rollback to {previous_image} failed health check; bench halted. Investigate the containers.",
+                f"Rollback to {previous_image} failed health check; bench halted on {previous_image} "
+                f"with maintenance mode ON, so the site serves 503 until you clear it.",
+                suggestions=[
+                    f"Check the containers: 'fm logs {self.config.name}'",
+                    f"If they are healthy, clear it: fm shell {self.config.name} -c "
+                    f"'{BENCH_BIN} --site {self.site} set-config -g maintenance_mode 0'",
+                ],
             )
         self._ensure_nginx()
 

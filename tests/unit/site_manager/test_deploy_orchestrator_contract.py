@@ -90,6 +90,9 @@ class FakeConfig:
     def __init__(self, root_path, switch=None, workers=None, deployments=None, site_names=None, redis=None):
         self.runtime = BenchRuntime.image
         self.image = NEW_TAG
+        # The bench name, which the halted-rollback message needs to hand back a runnable
+        # recovery command rather than just a symptom.
+        self.name = "mybench"
         self.switch = switch if switch is not None else SwitchConfig()
         self.workers = workers
         self.root_path = str(root_path)
@@ -1601,6 +1604,19 @@ class TestRollback:
         orch._record.assert_called_once_with(OLD_TAG, "rollback", nginx_image=OLD_NGINX_TAG)
         orch.resume_workers.assert_not_called()
         orch._ensure_nginx.assert_not_called()
+
+
+    def test_a_halted_rollback_says_the_site_is_503_and_how_to_end_it(self, tmp_path):
+        """The raise skips the `maintenance_mode 0` below it, so the site serves 503 until someone
+        clears it by hand -- on a bench whose containers may simply have been slower than the gate.
+        Leaving maintenance on is the safe default; leaving it unexplained is the defect."""
+        orch, _ = self._rollback_rig(tmp_path, healthy=False)
+
+        with pytest.raises(DeployError) as excinfo:
+            orch.rollback(OLD_TAG)
+
+        assert "maintenance mode ON" in str(excinfo.value)
+        assert any("maintenance_mode 0" in s for s in excinfo.value.suggestions)
 
     def test_rollback_refuses_a_non_image_bench(self, tmp_path):
         orch, _ = self._rollback_rig(tmp_path)
