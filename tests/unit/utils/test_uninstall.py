@@ -27,8 +27,13 @@ class FakeDocker:
     def volume_ls(self) -> list[str]:
         return list(self._volumes)
 
-    def images(self) -> list[dict]:
-        return list(self._images)
+    def images(self, label: str | None = None) -> list[dict]:
+        # Mirrors `docker images --filter label=...`: the real client narrows server-side, so a
+        # stand-in that ignored the filter would let a test pass on an image fm cannot actually
+        # recognise.
+        if label is None:
+            return list(self._images)
+        return [image for image in self._images if label in (image.get("Labels") or "")]
 
     def container_images(self) -> dict[str, str]:
         return dict(self._container_images)
@@ -218,6 +223,28 @@ class TestKeepBackups:
 
 @pytest.mark.unit
 class TestImageFiltering:
+    def test_a_baked_image_is_found_by_its_label_not_its_name(self, tmp_path):
+        """`fm bake --app-image local/anything:v1` produces an image whose repository and tag the
+        operator chose, so nothing in the reference identifies it as fm's; once the bench that
+        built it is gone it runs no container either. Every baked image therefore survived an
+        uninstall that reported it had removed what fm built. The label is the only handle."""
+        docker = FakeDocker(
+            images=[
+                {"Repository": "local/anything", "Tag": "v1", "Labels": "fm.baked=true"},
+                {"Repository": "someone/else", "Tag": "v9", "Labels": ""},
+            ]
+        )
+        with (
+            patch("frappe_manager.utils.uninstall.CLI_DIR", tmp_path),
+            patch("frappe_manager.utils.uninstall.CLI_BENCHES_DIRECTORY", tmp_path / "sites"),
+            patch("frappe_manager.utils.uninstall.CLI_SERVICES_DIRECTORY", tmp_path / "services"),
+            patch("frappe_manager.utils.uninstall.CLI_CACHE_PATH", tmp_path / "cache"),
+        ):
+            plan = plan_teardown(docker, {Scope.host}, keep_backups=False, include_images=True)
+
+        assert "local/anything:v1" in plan.images
+        assert "someone/else:v9" not in plan.images
+
     def test_include_images_false_yields_empty_image_list(self, tmp_path):
         """include_images=False never lists any image, even when fm images exist."""
         docker = FakeDocker(images=[{"Repository": f"{FM_IMAGE_PREFIX}/frappe", "Tag": "1.0"}])

@@ -381,13 +381,22 @@ class DockerClient:
     def images(
         self,
         format: Literal["json"] = "json",
+        label: str | None = None,
     ):
+        """Images on this host, optionally narrowed to those carrying ``label``.
+
+        `label` is docker's own `--filter label=...`, so ownership is asked of the daemon rather
+        than inferred from a repository name. That matters for anything `fm bake` produced: its
+        name is whatever the operator chose, so there is nothing in the reference to recognise.
+        """
         parameters: dict = locals()
 
         images_cmd: list[str] = ["images"]
-        remove_parameters = []
+        remove_parameters = ["label"]
 
         images_cmd += parameters_to_options(parameters, exclude=remove_parameters)
+        if label:
+            images_cmd += ["--filter", f"label={label}"]
 
         output: SubprocessOutput = run_command_with_exit_code(
             self.docker_cmd + images_cmd,

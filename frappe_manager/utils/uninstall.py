@@ -10,6 +10,7 @@ from enum import Enum
 from pathlib import Path
 
 from frappe_manager import (
+    BAKED_LABEL,
     CLI_BENCH_CONFIG_FILE_NAME,
     CLI_BENCHES_DIRECTORY,
     CLI_CACHE_PATH,
@@ -167,8 +168,14 @@ def plan_teardown(docker, scopes: set[Scope], *, keep_backups: bool, include_ima
 def _fm_images(docker) -> set[str]:
     """Every image on this host that fm pulled or built, whatever pulled it first.
 
-    Three sources, unioned then intersected with what is actually present: fm's own repositories
-    at any tag, the stock set the templates name, and the image each fm container actually runs.
+    Four sources, unioned then intersected with what is actually present: fm's own repositories
+    at any tag, the stock set the templates name, the image each fm container actually runs, and
+    anything carrying `BAKED_LABEL`.
+
+    That last source exists because the first three can only recognise a NAME. A baked image's
+    repository and tag are whatever the operator passed to `fm bake --app-image`, and once the
+    bench that built it is gone it runs no container either -- so every baked image survived an
+    uninstall that reported it had removed what fm built.
     """
     from frappe_manager.utils.site import get_all_docker_images
 
@@ -179,6 +186,12 @@ def _fm_images(docker) -> set[str]:
         if name.startswith(BENCH_OBJECT_PREFIX) or name in GLOBAL_CONTAINERS
     }
 
+    baked = set()
+    for image in docker.images(label=BAKED_LABEL):
+        reference = f"{image.get('Repository', '')}:{image.get('Tag', '')}"
+        if image.get("Tag") and image.get("Tag") != "<none>":
+            baked.add(reference)
+
     present = set()
     for image in docker.images():
         repository = image.get("Repository", "")
@@ -186,7 +199,7 @@ def _fm_images(docker) -> set[str]:
         if not tag or tag == "<none>":
             continue
         reference = f"{repository}:{tag}"
-        if repository.startswith(FM_IMAGE_PREFIX) or reference in wanted:
+        if repository.startswith(FM_IMAGE_PREFIX) or reference in wanted or reference in baked:
             present.add(reference)
     return present
 

@@ -30,6 +30,11 @@ CLI_SITE_NAME_DELIMETER = "_"
 # tells one of fm's own images from anything else on the host.
 FM_IMAGE_PREFIX = "ghcr.io/rtcamp/frappe-manager"
 
+# Stamped on every image `fm bake` builds, and the only way to recognise one afterwards: a baked
+# image's repository and tag are whatever the operator chose, so nothing in the reference says it
+# is fm's. `fm self uninstall` asks the daemon for this label rather than guessing from a name.
+BAKED_LABEL = "fm.baked"
+
 
 DEFAULT_EXTENSIONS = [
     "ms-python.debugpy",

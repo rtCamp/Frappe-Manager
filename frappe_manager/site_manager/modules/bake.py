@@ -23,7 +23,7 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from frappe_manager import CLI_DIR, COMMON_SITE_CONFIG_FILE, CONTAINER_BENCH_DIR
+from frappe_manager import BAKED_LABEL, CLI_DIR, COMMON_SITE_CONFIG_FILE, CONTAINER_BENCH_DIR
 from frappe_manager.docker import DockerClient
 from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.logger import get_logger
@@ -569,6 +569,10 @@ class BakeManager:
                 # The pair, recorded on the artifact itself. It is the only carrier that crosses
                 # machines: a CI bake and a switch on another host share no state but the image.
                 "fm.nginx.image": nginx_tag,
+                # Ownership, asked of the daemon later. A baked image's NAME is whatever the
+                # operator chose, so nothing in the reference identifies it as fm's -- which is why
+                # `fm self uninstall` kept every baked image while claiming to remove what fm built.
+                BAKED_LABEL: "true",
             }
             extra = ["--build-arg", f"BASE_IMAGE={base_image}"]
             for _k, _v in labels.items():
@@ -694,7 +698,7 @@ class BakeManager:
                 tag=nginx_tag,
                 context=staging,
                 platform=platform,
-                extra=["--target", "app-assets"],
+                extra=["--target", "app-assets", "--label", f"{BAKED_LABEL}=true"],
             )
         finally:
             shutil.rmtree(staging, ignore_errors=True)
