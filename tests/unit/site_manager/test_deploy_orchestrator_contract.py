@@ -329,6 +329,20 @@ class TestBinding:
         assert orch.workers_config == WorkersConfig()
 
 
+class TestStartupBudget:
+    """The gate that decides whether a deploy took was a frozen 90s (retries=45, interval=2) with
+    no knob, so on a host where a dev bench boots in ~3 minutes every switch failed deterministically
+    -- and then its rollback failed the same gate, halting the bench in maintenance."""
+
+    def test_the_configured_budget_decides_how_long_the_gate_waits(self, tmp_path):
+        orch = make_orch(tmp_path, switch=SwitchConfig(startup_timeout=600))
+        assert orch._startup_retries(interval=2) == 300
+
+    def test_a_budget_shorter_than_one_poll_still_polls_once(self, tmp_path):
+        orch = make_orch(tmp_path, switch=SwitchConfig(startup_timeout=0))
+        assert orch._startup_retries(interval=2) == 1
+
+
 class TestSwitchHookLookup:
     def test_no_hooks_configured_yields_none(self, tmp_path):
         orch = make_orch(tmp_path, switch=SwitchConfig(hooks=None))

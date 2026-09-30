@@ -1069,6 +1069,11 @@ class SwitchConfig(BaseModel):
         description="Seconds the one-shot bench migrate may run before it is killed (0 disables the budget).",
     )
     migrate_command: str | None = Field(None, description="Custom migrate command override.")
+    startup_timeout: int = Field(
+        300,
+        description="Seconds a newly started frappe container may take to answer before the deploy is "
+        "considered failed. This is a startup budget, not a per-request timeout: it covers the whole boot.",
+    )
     maintenance_mode: bool = Field(True, description="Show maintenance page during schema-changing steps.")
     maintenance_mode_phases: list[str] = Field(
         default_factory=lambda: ["migrate"],

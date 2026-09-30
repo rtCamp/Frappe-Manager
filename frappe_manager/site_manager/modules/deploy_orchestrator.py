@@ -433,12 +433,13 @@ class DeployOrchestrator:
         )
 
 
-    def _health_check(self, retries: int = 45, interval: int = 2) -> bool:
+    def _health_check(self, retries: int | None = None, interval: int = 2) -> bool:
+        retries = self._startup_retries(interval) if retries is None else retries
         for i in range(retries):
             try:
                 result = self.docker.compose.exec(
                     service=FRAPPE_SERVICE,
-                    command='curl -s -o /dev/null -w "%{http_code}" http://localhost:80',
+                    command='curl -s --max-time 5 -o /dev/null -w "%{http_code}" http://localhost:80',
                     user="frappe",
                     stream=False,
                 )
@@ -500,14 +501,27 @@ class DeployOrchestrator:
                 return cid
         return None
 
-    def _container_health(self, container_id: str, retries: int = 45, interval: int = 2) -> bool:
-        """Poll ``/api/method/ping`` inside ``container_id`` (curl or wget). Honors
-        the timing rule: retries*interval spans well past the app's boot +
-        in-flight window before we drain the old replica."""
+    def _startup_retries(self, interval: int) -> int:
+        """How many polls the configured startup budget buys.
+
+        `[switch].startup_timeout` is a TOTAL boot budget, in docker's `--start-period` sense, not
+        docker's `--timeout` (which is per-check). Kubernetes spells the same thing as
+        `failureThreshold * periodSeconds`, and this is that product read backwards: the interval
+        stays internal because nobody needs to tune poll frequency, only patience.
+        """
+        return max(1, self.switch_config.startup_timeout // interval)
+
+    def _container_health(self, container_id: str, retries: int | None = None, interval: int = 2) -> bool:
+        """Poll ``/api/method/ping`` inside ``container_id`` (curl or wget) until the startup
+        budget runs out."""
+        retries = self._startup_retries(interval) if retries is None else retries
+        # --max-time/-T: an unbounded probe makes the budget a floor rather than a ceiling. A
+        # container that accepts the connection and never answers -- gunicorn deadlocked on a DB
+        # lock, exactly what this gate exists to catch -- would otherwise hang the deploy forever.
         probe = (
             'if command -v curl >/dev/null 2>&1; then '
-            'curl -s -o /dev/null -w "%{http_code}" http://localhost:80/api/method/ping; '
-            'else wget -q -O /dev/null -S http://localhost:80/api/method/ping 2>&1 | '
+            'curl -s --max-time 5 -o /dev/null -w "%{http_code}" http://localhost:80/api/method/ping; '
+            'else wget -q -T 5 -O /dev/null -S http://localhost:80/api/method/ping 2>&1 | '
             'awk "/HTTP\\//{print \\$2; exit}"; fi'
         )
         for i in range(retries):
