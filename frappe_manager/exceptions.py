@@ -104,3 +104,14 @@ class InvalidBenchNameError(FrappeManagerException):
     """
 
     exit_code = 2
+
+
+class VersionUnusableByApps(FrappeManagerException):
+    """An explicitly requested Python or Node version that the bench's apps reject.
+
+    Exit 2: the version came off the command line. Raised as soon as the app's own requirement is
+    known, because the alternative is discovering it from a dependency resolver minutes and
+    gigabytes later.
+    """
+
+    exit_code = 2
