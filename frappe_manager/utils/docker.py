@@ -74,7 +74,10 @@ def run_command_with_exit_code(
     if not stream:
         if not capture_output:
             logger.debug("- -" * 10)
-            logger.debug(f"COMMAND: {' '.join(full_cmd)}")
+            # Local import: helpers imports this module, so a module-level one is a cycle.
+            from frappe_manager.utils.helpers import redact_command_line
+
+            logger.debug(f"COMMAND: {redact_command_line(full_cmd)}")
 
             run_output = run(full_cmd, cwd=cwd, env=env, input=input_data)
             exit_code = run_output.returncode

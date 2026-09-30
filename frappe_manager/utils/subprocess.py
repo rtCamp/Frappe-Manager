@@ -117,7 +117,11 @@ def stream_command_output(
         can therefore cost trailing output, never the exit code.
     """
     logger.debug("- -" * 10)
-    logger.debug(f"COMMAND: {' '.join(cmd)}")
+    # The argv can carry a credential -- `bench reinstall --admin-password ...`, a db root
+    # password, a token -- and this line goes to fm.log, which operators paste into issues.
+    from frappe_manager.utils.helpers import redact_command_line  # local: helpers imports this module
+
+    logger.debug(f"COMMAND: {redact_command_line(cmd)}")
 
     if env is not None:
         subprocess_env = dict(os.environ)

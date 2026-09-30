@@ -1756,12 +1756,18 @@ class Bench:
 
         self.output.change_head(f"Resetting bench site {target}")
 
-        self.site_manager.reset_bench_site(admin_pass, site=target)
-        # `target`, not the bench's own site. Resetting a named site used to read the PRIMARY site's
-        # recorded password as the fallback and then record the new one against the primary too, so
-        # `fm reset shop/b.example.com` reset b with shop.localhost's password and overwrote
-        # shop.localhost's record with it. Two wrong sites in one command, both silent.
+        # Recorded BEFORE the reinstall, not after. `bench reinstall` builds the site while
+        # site_config.json still holds the old value, so writing afterwards left the file claiming
+        # a password that was never set: every reset installed the PREVIOUS reset's password, and
+        # `--admin-pass` appeared to do nothing while the file agreed it had worked.
+        #
+        # `target`, not the bench's own site. Resetting a named site used to read the PRIMARY
+        # site's recorded password as the fallback and then record the new one against the primary
+        # too, so `fm reset shop/b.example.com` reset b with shop.localhost's password and
+        # overwrote shop.localhost's record with it. Two wrong sites in one command, both silent.
         self.set_bench_site_config(target, {"admin_password": admin_pass})
+
+        self.site_manager.reset_bench_site(admin_pass, site=target)
 
         self.output.print(f"Reset bench site {target}")
 

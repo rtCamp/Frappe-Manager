@@ -54,6 +54,13 @@ SECRET_OPTIONS = frozenset(
         # `fm ngrok -t` is the one short alias of a secret-taking option; the drift test below
         # checks aliases too, so a new one cannot slip in unredacted.
         "-t",
+        # Flags of the tools fm SHELLS OUT TO. fm logs the argv it runs, so `bench reinstall
+        # --admin-password ... --db-root-password ...` wrote both into fm.log in cleartext. The
+        # drift test cannot see these -- they belong to bench, not to fm's Typer app -- so they
+        # are listed by hand.
+        "--admin-password",
+        "--db-root-password",
+        "--mariadb-root-password",
     }
 )
 
@@ -106,6 +113,26 @@ def redact_argv(argv: list[str]) -> str:
         parts.append(arg)
         redact_next = arg in SECRET_OPTIONS
     return " ".join(parts)
+
+
+_SECRET_FLAG_IN_TEXT_RE = re.compile(
+    r"(?<!\S)(?P<flag>" + "|".join(re.escape(o) for o in sorted(SECRET_OPTIONS, key=len, reverse=True)) + r")"
+    r"(?P<sep>[=\s]+)(?P<value>'[^']*'|\"[^\"]*\"|\S+)"
+)
+
+
+def redact_command_line(argv: list[str]) -> str:
+    """A command line for the log, with secret flag values replaced wherever they appear.
+
+    `redact_argv` only sees whole argv ELEMENTS, and fm often hands docker one element holding a
+    whole shell command: `compose exec frappe "bench --site x reinstall --admin-password s3cret"`.
+    The flag is inside that string, so an element-wise scan walks straight past it. This runs over
+    the joined text as well, which catches both shapes.
+    """
+    return _SECRET_FLAG_IN_TEXT_RE.sub(
+        lambda m: f"{m.group('flag')}{m.group('sep')}***" if m.group("value") != "-" else m.group(0),
+        redact_argv(argv),
+    )
 
 def remove_zombie_subprocess_process(process):
     """
