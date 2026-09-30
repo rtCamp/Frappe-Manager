@@ -68,28 +68,38 @@ def ports(
         output.error("--http and --https cannot be the same port", exception=typer.Exit(code=1))
 
     fm_config = FMConfigManager.import_from_toml()
-    fm_config.proxy.http_port = http
-    fm_config.proxy.https_port = https
-    fm_config.proxy.bind = bind
-    fm_config.export_to_toml()
+    # Deliberately NOT written yet. `prompt_ask` raises on a non-interactive host, so recording the
+    # ports up here left a refused run with fm_config.toml naming ports the proxy is not on -- the
+    # command said it could not proceed and had already changed the answer. Each terminal path
+    # below records it once it knows the outcome.
+    def _record_ports() -> None:
+        fm_config.proxy.http_port = http
+        fm_config.proxy.https_port = https
+        fm_config.proxy.bind = bind
+        fm_config.export_to_toml()
 
     where = f"{bind}:" if bind else ""
-    output.print(f"Proxy publishes on {where}{http} (http) and {where}{https} (https)")
+    target = f"{where}{http} (http) and {where}{https} (https)"
 
     services = ctx.obj.get("services") if ctx.obj else None
     if services is None or not services.compose_path.exists():
         # No stack yet: writing the setting is the whole job. This command is exempt from the
         # first-install path precisely so it can run here -- on a host whose install fails on a
         # busy port, creating the stack to change the port would fail for the port being busy.
+        _record_ports()
+        output.print(f"Recorded: proxy publishes on {target}")
         output.print("No global services yet; the next command creates them on these ports.")
         return
 
-    if not services.apply_proxy_ports():
-        output.print("Already published there; nothing to apply.")
+    if not services.apply_proxy_ports(http=http, https=https, bind=bind):
+        _record_ports()
+        output.print(f"Already published on {target}; nothing to apply.")
         return
 
     if not yes:
-        output.warning("Applying this recreates the global proxy: every bench on this host is briefly unreachable.")
+        output.warning(
+            f"Applying {target} recreates the global proxy: every bench on this host is briefly unreachable."
+        )
         choice = output.prompt_ask(
             prompt="Recreate the proxy now? (default: no)",
             choices=["yes", "no"],
@@ -97,15 +107,19 @@ def ports(
             required_flag="--yes or -y",
         )
         if choice != "yes":
-            output.print("Saved; run 'fm services restart nginx-proxy --recreate' to apply it.", emoji_code="")
+            _record_ports()
             services.compose_file_manager.write_to_file()
+            output.print(
+                f"Saved {target}; run 'fm services restart nginx-proxy --recreate' to apply it.", emoji_code=""
+            )
             return
 
+    _record_ports()
     services.compose_file_manager.write_to_file()
     services.set_forwarded_trust_conf()
     # Recreate, not restart: a published port is fixed when the container is created.
     services.docker_client.compose.up(services=["nginx-proxy"], detach=True, force_recreate=True, stream=False)
-    output.print("Proxy recreated on the new ports")
+    output.print(f"Proxy recreated on {target}")
 
     if http != 80:
         output.print(

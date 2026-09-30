@@ -171,13 +171,13 @@ def set_trusted(
         # is bind-mounted into the live global proxy's /etc/nginx/conf.d.
         output.error(
             f"--client-ip-header {client_ip_header!r} is not a valid header name (allowed: letters, digits and '-')",
-            exception=typer.Exit(code=1),
+            exception=typer.Exit(code=2),
         )
 
     if not cdn and not trust and not local:
         output.error(
             "Nothing to trust: pass --local, --cdn cloudflare and/or --trust CIDR (or use 'trusted-proxies clear')",
-            exception=typer.Exit(code=1),
+            exception=typer.Exit(code=2),
         )
 
     ranges: list[str] = []
@@ -186,7 +186,7 @@ def set_trusted(
         if cdn.lower() != "cloudflare":
             output.error(
                 f"Unsupported CDN {cdn!r}; supported: cloudflare (use --trust for custom ranges)",
-                exception=typer.Exit(code=1),
+                exception=typer.Exit(code=2),
             )
         ranges += _fetch_cloudflare_ranges(output)
         if resolved_header is None:
@@ -205,7 +205,7 @@ def set_trusted(
         try:
             validated = validate_cidrs(trust)
         except ValueError as e:
-            output.error(f"--trust: {e}", exception=typer.Exit(code=1))
+            output.error(f"--trust: {e}", exception=typer.Exit(code=2))
         # A loopback range can never match: fm's proxy is a container, and docker source-NATs a
         # connection from this machine to the bridge gateway. Trusting it would look configured
         # and quietly trust nobody, which is the worst of the three possible outcomes.
@@ -213,7 +213,7 @@ def set_trusted(
         if loopback:
             output.error(
                 f"--trust {loopback[0]} can never match: fm's proxy runs in a container and never sees a connection from this machine as loopback. Use --local instead.",
-                exception=typer.Exit(code=1),
+                exception=typer.Exit(code=2),
             )
         ranges += validated
         if resolved_header is None:

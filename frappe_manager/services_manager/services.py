@@ -561,17 +561,24 @@ class ServicesManager:
         conf_path.write_text(desired)
         return True
 
-    def apply_proxy_ports(self) -> bool:
-        """Push `[proxy]` onto the proxy service's published ports. True when the compose changed.
+    def apply_proxy_ports(self, http: int | None = None, https: int | None = None, bind: str | None = None) -> bool:
+        """Push the proxy's published host ports onto its compose service. True when it changed.
 
         Only the HOST side moves (`8080:80`): the container keeps listening on 80/443 because every
         bench container resolves its own domains to the proxy at those ports, and moving the
         listener breaks every server-side self-call a site makes (notes/proxy-front-design.md V5).
+
+        The ports are ARGUMENTS, with `[proxy]` only as the default for callers reconciling an
+        existing install. Re-reading the config here made the caller's write-then-call ordering
+        load-bearing and invisible: `fm services ports` computed the ports it wanted, and this
+        silently answered about whatever was still on disk.
         """
-        fm_config = FMConfigManager.import_from_toml()
-        proxy = fm_config.proxy
-        host = f"{proxy.bind}:" if proxy.bind else ""
-        desired = [f"{host}{proxy.http_port}:80", f"{host}{proxy.https_port}:443"]
+        proxy = FMConfigManager.import_from_toml().proxy
+        http = proxy.http_port if http is None else http
+        https = proxy.https_port if https is None else https
+        bind = proxy.bind if bind is None else bind
+        host = f"{bind}:" if bind else ""
+        desired = [f"{host}{http}:80", f"{host}{https}:443"]
 
         try:
             service = self.compose_file_manager.yml["services"]["nginx-proxy"]

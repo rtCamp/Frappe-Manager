@@ -41,10 +41,11 @@ from frappe_manager.commands.compose import compose
 from frappe_manager.commands.self.stop import stop
 from frappe_manager.commands.self.upgrade import upgrade
 from frappe_manager.commands.services.info import info as services_info
-from frappe_manager.commands.services.trusted_proxies import clear, set_trusted
+from frappe_manager.commands.services.ports import ports
 from frappe_manager.commands.services.shell import shell_services
 from frappe_manager.commands.services.start import start_services
 from frappe_manager.commands.services.stop import stop_services
+from frappe_manager.commands.services.trusted_proxies import clear, set_trusted
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.output_manager import get_global_output_handler
@@ -556,6 +557,62 @@ def test_a_stopped_proxy_is_reported_as_pending_not_active(tmp_path, out):
     h.services.docker_client.compose.exec.assert_not_called()
     assert "Trusted proxies active" not in joined(out.print)
     assert "applies on next start" in joined(out.print)
+
+
+def _ports_rig(tmp_path, monkeypatch, *, ports_changed=True):
+    config = SimpleNamespace(
+        proxy=SimpleNamespace(http_port=80, https_port=443, bind=None),
+        export_to_toml=MagicMock(),
+    )
+    monkeypatch.setattr(
+        "frappe_manager.commands.services.ports.FMConfigManager.import_from_toml",
+        classmethod(lambda cls: config),
+    )
+    services = MagicMock(name="services_manager")
+    services.compose_path = tmp_path / "docker-compose.yml"
+    services.compose_path.write_text("services: {}\n")
+    services.apply_proxy_ports.return_value = ports_changed
+    ctx = MagicMock(spec=typer.Context)
+    ctx.obj = {"services": services}
+    return ctx, config, services
+
+
+def test_a_refused_port_change_does_not_record_the_ports_it_refused(tmp_path, out, monkeypatch):
+    """`prompt_ask` raises on a non-interactive host. The setting used to be written before the
+    prompt, so a run that said it could not proceed had already put ports in fm_config.toml that
+    the proxy is not published on."""
+    ctx, config, services = _ports_rig(tmp_path, monkeypatch)
+    with patch.object(out.handler, "prompt_ask", side_effect=typer.Exit(code=1)), pytest.raises(typer.Exit):
+        ports(ctx, http=8080, https=8443, bind=None, yes=False)
+
+    config.export_to_toml.assert_not_called()
+    assert config.proxy.http_port == 80
+    services.compose_file_manager.write_to_file.assert_not_called()
+
+
+def test_declining_the_recreate_still_records_the_ports_and_says_how_to_apply(tmp_path, out, monkeypatch):
+    """Declining is a decision, not a refusal: the ports are saved and applied by the named restart."""
+    ctx, config, services = _ports_rig(tmp_path, monkeypatch)
+    with patch.object(out.handler, "prompt_ask", return_value="no"):
+        ports(ctx, http=8080, https=8443, bind=None, yes=False)
+
+    config.export_to_toml.assert_called_once()
+    assert config.proxy.http_port == 8080
+    assert "restart nginx-proxy --recreate" in joined(out.print)
+
+
+def test_the_ports_asked_for_are_the_ports_compared_against(tmp_path, out, monkeypatch):
+    """`apply_proxy_ports` used to re-read fm_config.toml itself, so it answered about whatever was
+    on disk rather than what was typed. That made the caller's write-before-call ordering
+    load-bearing and invisible: moving the write later made the command report 'already published'
+    about ports the proxy was not on."""
+    ctx, _config, services = _ports_rig(tmp_path, monkeypatch)
+
+    with patch.object(out.handler, "prompt_ask", return_value="no"):
+        ports(ctx, http=8080, https=8443, bind=None, yes=False)
+
+    services.apply_proxy_ports.assert_called_once_with(http=8080, https=8443, bind=None)
+
 
 
 def test_clearing_the_trusted_set_recreates_the_proxy_when_the_env_moves(tmp_path, out):
