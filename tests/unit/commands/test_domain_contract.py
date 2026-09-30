@@ -80,6 +80,10 @@ class DomainWorld:
     def prints(self) -> list[str]:
         return [c.args[0] for c in self.output.print.call_args_list if c.args]
 
+    @property
+    def warnings(self) -> list[str]:
+        return [c.args[0] for c in self.output.warning.call_args_list if c.args]
+
 
     def _ctx(self, *, site: str | None = None, domain: str | None = None, args: list[str] | None = None) -> typer.Context:
         ctx = MagicMock(spec=typer.Context)
@@ -120,18 +124,29 @@ class TestDomainAdd:
 
         world.bench.update_alias_domains.assert_called_once_with(add_domains=["www.new.com"], site=None)
 
-    def test_allow_domain_conflicts_flag_skips_the_check(self, world):
+    def test_an_accepted_conflict_still_warns(self, world):
+        """`--allow-domain-conflicts` permits the clash; it does not hide it. The check is still
+        run, because two benches answering one hostname means the proxy decides which site a
+        visitor reaches -- silence there is the defect, not the conflict."""
+        conflict = DomainConflict(domain="www.new.com", owner_bench="other.localhost", owner_site="other.localhost")
+        world.validate_domains_unique.side_effect = DomainConflictError([conflict])
+
         world.add(["www.new.com"], allow_domain_conflicts=True)
 
-        assert world.validate_domains_unique.call_args.kwargs["skip_check"] is True
+        assert world.validate_domains_unique.call_args.kwargs["skip_check"] is False
+        assert any("alternate between them" in w for w in world.warnings)
         world.bench.update_alias_domains.assert_called_once()
 
-    def test_config_enforce_domain_uniqueness_false_also_skips_the_check(self, world):
+    def test_config_enforce_domain_uniqueness_false_also_warns(self, world):
+        """Turning the rule off host-wide is the same opt-in, and gets the same warning."""
+        conflict = DomainConflict(domain="www.new.com", owner_bench="other.localhost", owner_site="other.localhost")
+        world.validate_domains_unique.side_effect = DomainConflictError([conflict])
         world.fm_config.validation.enforce_domain_uniqueness = False
 
         world.add(["www.new.com"])
 
-        assert world.validate_domains_unique.call_args.kwargs["skip_check"] is True
+        assert any("alternate between them" in w for w in world.warnings)
+        world.bench.update_alias_domains.assert_called_once()
 
     def test_conflict_refusal_names_the_flag_hint_and_changes_nothing(self, world):
         conflict = DomainConflict(domain="www.new.com", owner_bench="othersite.localhost", owner_site="othersite.localhost")

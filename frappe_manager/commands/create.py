@@ -1345,11 +1345,21 @@ def create(
     all_domains = set(bench_config.domains)
     skip_check = allow_domain_conflicts or not fm_config.validation.enforce_domain_uniqueness
     try:
-        validate_domains_unique(all_domains, benches_root=CLI_BENCHES_DIRECTORY, skip_check=skip_check)
+        # Always ASKED, even when the answer cannot refuse: skipping the check outright meant an
+        # accepted conflict was completely silent, and two benches claiming one hostname is not a
+        # neutral state -- the proxy round-robins between two different sites, so which one answers
+        # a request is chance. Opting in is allowed; not being told is not.
+        validate_domains_unique(all_domains, benches_root=CLI_BENCHES_DIRECTORY, skip_check=False)
     except DomainConflictError as e:
-        output.display_error(str(e))
-        output.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
-        raise typer.Exit(1) from e
+        if not skip_check:
+            output.display_error(str(e))
+            output.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
+            raise typer.Exit(1) from e
+        output.warning(str(e))
+        output.warning(
+            "Proceeding anyway. Both benches will answer for that hostname and the proxy will "
+            "alternate between them, so which site a visitor reaches is not predictable."
+        )
 
     if apps_from_user:
         apps_to_check = bench_config.get_apps_config()

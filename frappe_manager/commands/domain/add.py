@@ -110,16 +110,25 @@ def add_domain(
 
     skip_check = allow_domain_conflicts or not fm_config.validation.enforce_domain_uniqueness
     try:
+        # Asked even when it cannot refuse; see the same shape in commands/create.py. An accepted
+        # conflict used to be silent, and two benches answering one hostname is decided by whichever
+        # upstream the proxy picks.
         validate_domains_unique(
             domains,
             benches_root=CLI_BENCHES_DIRECTORY,
             exclude_bench=bench.name,
-            skip_check=skip_check,
+            skip_check=False,
         )
     except DomainConflictError as e:
-        output.display_error(str(e))
-        output.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
-        raise typer.Exit(1) from e
+        if not skip_check:
+            output.display_error(str(e))
+            output.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
+            raise typer.Exit(1) from e
+        output.warning(str(e))
+        output.warning(
+            "Proceeding anyway. Both benches will answer for that hostname and the proxy will "
+            "alternate between them, so which site a visitor reaches is not predictable."
+        )
 
     output.change_head("Updating alias domains")
     # `update_alias_domains` (site_manager/modules/bench_orchestrator.py:1376) saves the config,

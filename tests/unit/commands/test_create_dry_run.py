@@ -80,13 +80,13 @@ def test_an_explicit_flag_beats_a_config_key(cli, benches):
 
 
 @pytest.mark.timeout(20)
-def test_the_github_token_is_never_echoed(cli, benches):
-    """It IS written to disk, so the writer keeps it -- but a preview lands in a scrollback buffer
-    and in any CI log that captures stdout, and it is the user's own credential."""
+def test_the_github_token_is_absent_entirely(cli, benches):
+    """It is no longer written to disk, so the preview of what WOULD be written must not carry it
+    at all -- not even as a placeholder. It used to be persisted and previewed as `<redacted>`."""
     result, _ = _invoke(cli, ["new.localhost", "--github-token", "ghp_SUPERSECRET"])
 
     assert "ghp_SUPERSECRET" not in result.output
-    assert "<redacted>" in result.output
+    assert "github_token" not in result.output
 
 
 @pytest.mark.timeout(20)

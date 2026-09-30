@@ -54,6 +54,14 @@ def add_apps(
             show_default=False,
         ),
     ] = ...,
+    github_token: Annotated[
+        str | None,
+        typer.Option(
+            "--github-token",
+            help="GitHub token for a private app repository. Used for this run only; fm does not store it.",
+            show_default=False,
+        ),
+    ] = None,
     drain: Annotated[
         bool,
         typer.Option(
@@ -108,6 +116,12 @@ def add_apps(
             f"Installing apps WITHOUT draining: in-flight jobs are interrupted "
             f"(SIGUSR1, force-stop after {kill_timeout}s)"
         )
+
+    # In memory for this run only: `github_token` is in NOT_WRITTEN_TO_DISK, so nothing here can
+    # persist it back into bench_config.toml. It used to be read from that file, which is exactly
+    # why the file held a credential in the first place.
+    if github_token:
+        bench.bench_config.github_token = github_token
 
     # `rq_suspended` owns the resume, including when a signal ends the run: `rq:suspended` is a
     # redis key that outlives this process, so a leaked one leaves workers alive and consuming

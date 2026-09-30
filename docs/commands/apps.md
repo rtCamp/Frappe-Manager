@@ -34,6 +34,7 @@ $ fm apps add BENCH(/SITE|all) APP:REF... [OPTIONS]
 
 **Options**:
 
+* `--github-token TEXT`: GitHub token for a private app repository. Used for this run only; fm does not store it.
 * `--drain/--no-drain`: Suspend RQ workers and wait for in-flight jobs before migrating; --no-drain interrupts them instead.  [default: true]
 
 ### Examples

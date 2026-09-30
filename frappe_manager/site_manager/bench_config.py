@@ -1143,6 +1143,11 @@ NOT_WRITTEN_TO_DISK: frozenset[str] = frozenset(
         "db_password_generated",
         "attach_existing_site",
         "encryption_key",
+        # The one credential that used to be persisted, beside `db_admin_password` and
+        # `db_password` which never were. A PAT copied into bench_config.toml outlives the command
+        # that needed it, is readable by anything that can read the bench, and rides along in every
+        # copy of that file. Supplied per run instead, like the database admin credentials.
+        "github_token",
     }
 )
 
