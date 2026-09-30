@@ -11,7 +11,9 @@
             "cwd": "/workspace/frappe-bench/sites",
             "consoleName": "Frappe Debug",
             "env": {"DEV_SERVER": "1"},
-            "justMyCode": false
+            "justMyCode": false,
+            "autoReload": {"enable": true},
+            "presentation": {"group": "1_web", "order": 1}
         },
         {
             "name": "Debug Specific Queue",
@@ -25,7 +27,10 @@
                 "${input:queue}"
             ],
             "consoleName": "${input:queue} worker",
-            "cwd": "/workspace/frappe-bench/sites"
+            "cwd": "/workspace/frappe-bench/sites",
+            "justMyCode": false,
+            "autoReload": {"enable": true},
+            "presentation": {"group": "2_workers", "order": 1}
         },
         {
             "name": "Debug specific fuction",
@@ -38,7 +43,17 @@
                 "execute",
                 "${input:executable_path}"
             ],
-            "consoleName": "Frappe Function"
+            "consoleName": "Frappe Function",
+            "justMyCode": false,
+            "presentation": {"group": "3_oneshot", "order": 1}
+        }
+    ],
+    "compounds": [
+        {
+            "name": "Frappe: web + worker",
+            "configurations": ["fm-frappe-debug", "Debug Specific Queue"],
+            "stopAll": true,
+            "presentation": {"group": "0_all", "order": 1}
         }
     ],
     "inputs": [

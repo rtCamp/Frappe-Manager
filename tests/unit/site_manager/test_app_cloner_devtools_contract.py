@@ -1090,6 +1090,32 @@ def test_no_attach_prepares_without_looking_for_the_code_cli(devtools, monkeypat
     assert "--no-attach" in " ".join(str(c) for c in tools.output.print.call_args_list)
 
 
+def test_the_devcontainer_metadata_forwards_the_bench_port(devtools):
+    """VSCode forwards this to whoever attached, so a bench on a remote host answers at localhost
+    on the laptop that attached to it -- otherwise an ssh -L by hand."""
+    tools = devtools()
+    tools.compose_file_manager.get_labels.return_value = {}
+
+    tools._update_container_config("frappe", ["ms-python.python"])
+
+    written = json.loads(tools.compose_file_manager.configure_service.call_args.kwargs["labels"]["devcontainer.metadata"])
+    assert written[0]["forwardPorts"] == [80]
+    assert "ruff" in written[0]["postAttachCommand"]
+
+
+def test_the_shipped_settings_carry_no_deprecated_ruff_keys():
+    """The Ruff extension switches to the Rust native server only when NO deprecated setting is
+    present, so shipping `ruff.fixAll`/`ruff.organizeImports`/`ruff.lint.run` pinned every bench to
+    ruff-lsp, archived in Dec 2025. Booleans in codeActionsOnSave are deprecated too (VSCode 1.83)."""
+    from frappe_manager.site_manager import get_vscode_settings_json
+
+    settings = get_vscode_settings_json()
+
+    assert not [key for key in settings if key.startswith("ruff.")]
+    on_save = settings["[python]"]["editor.codeActionsOnSave"]
+    assert all(isinstance(value, str) for value in on_save.values())
+
+
 def test_an_existing_config_file_is_backed_up_before_being_replaced(devtools):
     tools = devtools()
     vscode_dir = tools.bench_path / "workspace" / "frappe-bench" / ".vscode"

@@ -204,6 +204,16 @@ class BenchDevTools:
             {
                 "remoteUser": user,
                 "remoteEnv": {"SHELL": "/bin/bash"},
+                # The bench answers on 80 INSIDE the container. VS Code forwards it to whoever
+                # attached, so a bench on a remote host is reachable at localhost on the laptop
+                # that attached to it -- the case fm exists for, and previously a manual ssh -L.
+                "forwardPorts": [80],
+                # Runs on every attach, so the linter the settings name is present without fm
+                # exec'ing a pip install on its own schedule. Guarded, so it costs nothing when
+                # ruff is already there.
+                "postAttachCommand": (
+                    f"test -x {CONTAINER_BENCH_DIR}/env/bin/ruff || {CONTAINER_BENCH_DIR}/env/bin/pip install ruff"
+                ),
                 "customizations": {
                     "vscode": {
                         "settings": get_vscode_settings_json(),
@@ -252,7 +262,10 @@ class BenchDevTools:
         """Apply new container configuration."""
         self.output.change_head("Configuration changed, regenerating label in bench compose")
         self.compose_file_manager.configure_service("frappe", labels=labels)
-        self.output.print("Regenerated bench compose")
+        # A label is fixed at container creation, so the `up` below RECREATES frappe for the new
+        # metadata to exist at all. Say so: this reported "Regenerated bench compose" and then
+        # bounced the bench's web container without the word appearing anywhere.
+        self.output.print("Regenerated bench compose; recreating the frappe container to apply it")
         self.docker_client.compose.up(
             services=["frappe"],
             detach=True,
