@@ -161,6 +161,7 @@ $ fm ssl add BENCH(/DOMAIN) [OPTIONS]
 * `--cert PATH`: Certificate file (PEM). --custom only.
 * `--key PATH`: Private key file (PEM), unencrypted. --custom only.
 * `--ca PATH`: CA bundle file (PEM). Optional; when given, bench containers trust it for outbound self-calls once you run 'fm start BENCH' to apply the updated compose. --custom only.
+* `-y, --yes`: Replace an existing custom certificate without asking for confirmation.  [default: false]
 
 ### Examples
 

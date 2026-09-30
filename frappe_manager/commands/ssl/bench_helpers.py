@@ -95,6 +95,56 @@ def _regenerate_bench_compose(bench: Bench, output) -> bool:
         return True
 
 
+def _replace_existing_custom_certificate(output, bench, domain: str, custom: bool, yes: bool) -> None:
+    """Let a `--custom` add rotate the certificate it already holds for this domain.
+
+    `add_certificate` refuses any domain it already knows, which is right for issuance -- a second
+    Let's Encrypt add would mint a duplicate and burn a rate limit. It is wrong for an import: fm
+    stores only the BYTES of a custom certificate, never the --cert/--key paths, so re-running the
+    add is the only way to rotate one, and it is exactly what `SSLCertificateManualRenewalRequired`
+    tells the operator to do. Refusing it made that instruction a dead end whose only workaround,
+    remove-then-add, takes HTTPS down in between.
+
+    Replacement is expressed on the add verb rather than a `renew --custom`, following certbot's
+    `--cert-name` and ACM's `import-certificate --certificate-arn`: renew means the ISSUER produces
+    new bytes, which is the one thing an imported certificate has no way to do.
+
+    Changing TYPE is still refused. ACM's reimport has the same rule -- material may be refreshed,
+    identity may not -- and a `--custom` add landing on a Let's Encrypt domain is far more likely to
+    be a mistyped domain than an intended conversion.
+    """
+    existing = next((c for c in bench.certificate_manager.certificates if c.domain == domain), None)
+    if not existing:
+        return
+
+    if not custom or existing.ssl_type != SUPPORTED_SSL_TYPES.custom:
+        output.display_error(
+            f"'{domain}' already has a {existing.ssl_type.value} certificate. Only a custom "
+            f"certificate can be replaced in place; changing type means "
+            f"'fm ssl remove {bench.name}/{domain}' first, which serves the domain over plain HTTP "
+            f"until the new certificate is added."
+        )
+        raise typer.Exit(1)
+
+    try:
+        current_expiry = bench.certificate_manager.get_certificate_expiry(domain).strftime("%Y-%m-%d")
+    except Exception:
+        current_expiry = "unknown"
+
+    if not yes:
+        choice = output.prompt_ask(
+            prompt=f"Replace the custom certificate for {domain} (expires {current_expiry})?",
+            choices=["yes", "no"],
+            default="no",
+            required_flag="--yes or -y",
+        )
+        if choice != "yes":
+            output.print("Aborted; the existing certificate is untouched.", emoji_code=":information:")
+            raise typer.Exit(1)
+
+    bench.certificate_manager.remove_certificate_by_domain(domain)
+
+
 def _add_bench_certificate(
     ctx: typer.Context,
     benchname: str,
@@ -108,6 +158,7 @@ def _add_bench_certificate(
     cert_path: Path | None = None,
     key_path: Path | None = None,
     ca_path: Path | None = None,
+    yes: bool = False,
 ):
     """Add SSL certificate for a bench domain (existing logic extracted)."""
 
@@ -171,6 +222,8 @@ def _add_bench_certificate(
             output.print(f"Using DNS credentials '{dns_provider}'", emoji_code=":information:")
         if cname:
             output.print(f"Using CNAME delegation: {cname}", emoji_code=":information:")
+
+    _replace_existing_custom_certificate(output, bench, domain, custom=custom, yes=yes)
 
     with spinner(output, f"Adding SSL certificate for {domain}"):
         bench.certificate_manager.add_certificate(cert, test_ca=test_ca)

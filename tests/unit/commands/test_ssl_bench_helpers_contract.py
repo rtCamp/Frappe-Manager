@@ -206,6 +206,7 @@ def _add(
     cert_path=None,
     key_path=None,
     ca_path=None,
+    yes=True,
 ):
     return _add_bench_certificate(
         h.ctx,
@@ -219,11 +220,54 @@ def _add(
         cert_path=cert_path,
         key_path=key_path,
         ca_path=ca_path,
+        yes=yes,
     )
 
 
 def _remove(h, *, domain=DOMAIN, yes=True):
     return _remove_bench_certificate(h.ctx, BENCH, domain, yes)
+
+def _existing(h, ssl_type):
+    h.cert_manager.certificates = [SimpleNamespace(domain=DOMAIN, ssl_type=ssl_type)]
+
+
+@pytest.mark.timeout(15)
+def test_a_custom_add_rotates_the_custom_certificate_it_already_holds(h):
+    """fm stores a custom certificate's bytes, never the --cert/--key paths, so re-running the add
+    is the only way to rotate one -- and it is what the renew refusal tells the operator to do.
+    Refusing it made that instruction a dead end whose only workaround takes HTTPS down."""
+    _existing(h, SUPPORTED_SSL_TYPES.custom)
+
+    _add(h, custom=True, cert_path=Path("/tmp/c.pem"), key_path=Path("/tmp/k.pem"))
+
+    h.cert_manager.remove_certificate_by_domain.assert_called_once_with(DOMAIN)
+    h.cert_manager.add_certificate.assert_called_once()
+
+
+@pytest.mark.timeout(15)
+def test_a_custom_add_over_a_letsencrypt_certificate_is_refused(h):
+    """Replacement refreshes material, never identity: a --custom add landing on an issued
+    certificate is far more likely a mistyped domain than an intended conversion."""
+    _existing(h, SUPPORTED_SSL_TYPES.le)
+
+    with pytest.raises(typer.Exit):
+        _add(h, custom=True, cert_path=Path("/tmp/c.pem"), key_path=Path("/tmp/k.pem"))
+
+    h.cert_manager.remove_certificate_by_domain.assert_not_called()
+    h.cert_manager.add_certificate.assert_not_called()
+
+
+@pytest.mark.timeout(15)
+def test_declining_the_replacement_leaves_the_existing_certificate_untouched(h):
+    """The prompt guards a live site: a typo'd domain would otherwise clobber a working cert."""
+    _existing(h, SUPPORTED_SSL_TYPES.custom)
+    h.output.prompt_ask.return_value = "no"
+
+    with pytest.raises(typer.Exit):
+        _add(h, custom=True, cert_path=Path("/tmp/c.pem"), key_path=Path("/tmp/k.pem"), yes=False)
+
+    h.cert_manager.remove_certificate_by_domain.assert_not_called()
+    h.cert_manager.add_certificate.assert_not_called()
 
 
 @pytest.mark.timeout(15)

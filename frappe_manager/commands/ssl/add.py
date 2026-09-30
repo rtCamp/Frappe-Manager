@@ -162,6 +162,10 @@ def add_certificate(
             readable=False,
         ),
     ] = None,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Replace an existing custom certificate without asking for confirmation."),
+    ] = False,
 ):
     """
     Issue or import an SSL certificate for a domain and point nginx at it.
@@ -316,4 +320,5 @@ def add_certificate(
             cert_path=cert,
             key_path=key,
             ca_path=ca,
+            yes=yes,
         )
