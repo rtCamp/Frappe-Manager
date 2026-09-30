@@ -31,6 +31,7 @@ from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.site_manager.bench_config import (
     BenchConfig,
+    BenchRuntime,
     Deployment,
     Deployments,
     FMBenchEnvType,
@@ -864,10 +865,33 @@ def test_the_server_check_refuses_to_start_without_supervisord(tmp_path):
     harness.bench.supervisor.is_supervisord_running.return_value = False
     orchestrator = harness.orchestrator()
 
-    with pytest.raises(Exception, match="Supervisord not running"):
+    with pytest.raises(Exception, match="Supervisord did not start"):
         orchestrator.verify_bench_server_responding()
 
     assert harness.events.has("compose_exec") is False
+
+
+def test_an_image_bench_waits_far_longer_for_supervisord(tmp_path):
+    """Its entrypoint prepares the baked workspace BEFORE supervisord starts, which is O(image
+    contents): measured at 2m14s against the 30s that is ample for a mount bench, whose workspace
+    is a bind mount with nothing to copy. One number for both failed every image create."""
+    config = _config(tmp_path)
+    config.runtime = BenchRuntime.image
+    harness = _Harness(config, tmp_path)
+    harness.bench.supervisor.is_supervisord_running.return_value = False
+
+    with pytest.raises(Exception, match="Supervisord did not start"):
+        harness.orchestrator().verify_bench_server_responding()
+
+    mount_harness = _Harness(_config(tmp_path), tmp_path)
+    mount_harness.bench.supervisor.is_supervisord_running.return_value = False
+    with pytest.raises(Exception, match="Supervisord did not start"):
+        mount_harness.orchestrator().verify_bench_server_responding()
+
+    image_timeout = harness.bench.supervisor.is_supervisord_running.call_args.kwargs["timeout"]
+    mount_timeout = mount_harness.bench.supervisor.is_supervisord_running.call_args.kwargs["timeout"]
+    assert image_timeout > mount_timeout
+    assert image_timeout >= 300
 
 
 @pytest.mark.parametrize("status", ["200", "404"])

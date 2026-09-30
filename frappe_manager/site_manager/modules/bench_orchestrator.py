@@ -531,8 +531,19 @@ class BenchOrchestrator:
 
         self.output.change_head("Verifying bench server is responding")
 
-        if not bench.supervisor.is_supervisord_running(timeout=30):
-            raise Exception("Supervisord not running after 30 seconds")
+        # An image bench's entrypoint chowns the whole baked workspace before supervisord starts,
+        # and that is O(image contents) on an overlayfs copy-up: measured at 2m14s for a frappe-only
+        # image, against the 30s that is ample for a mount bench, where the workspace is a bind
+        # mount with nothing to copy. One number for both made `fm create --runtime image` fail
+        # deterministically, every time, on a container that then came up fine a minute later.
+        supervisord_timeout = 600 if bench.bench_config.runtime == BenchRuntime.image else 30
+
+        if not bench.supervisor.is_supervisord_running(timeout=supervisord_timeout):
+            raise Exception(
+                f"Supervisord did not start within {supervisord_timeout}s. On an image bench the "
+                "entrypoint prepares the baked workspace before supervisord runs, so a very large "
+                f"image can outlast this; check 'fm logs {bench.name}' for where it stopped."
+            )
 
         max_retries = 30
 
