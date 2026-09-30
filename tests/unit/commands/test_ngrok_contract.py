@@ -24,7 +24,7 @@ import pytest
 import typer
 
 from frappe_manager.commands.ngrok import ngrok
-from frappe_manager.ngrok import create_tunnel
+from frappe_manager.ngrok import NgrokTunnelError, create_tunnel
 from frappe_manager.output_manager import get_global_output_handler
 
 ngrok_helper = import_module("frappe_manager.ngrok")
@@ -40,7 +40,10 @@ NEW_TOKEN = "new-token"
 # --------------------------------------------------------------------------- #
 # create_tunnel
 # --------------------------------------------------------------------------- #
-def test_create_tunnel_propagates_a_forwarding_failure(monkeypatch):
+def test_a_setup_failure_raises_once_instead_of_printing_it(monkeypatch):
+    """It used to display_error AND re-raise, and the command caught it to display_error again,
+    so the same raw text reached the terminal three times (the third as "Unexpected Error").
+    One typed exception, rendered once by main.py's handler."""
     handler = get_global_output_handler()
     sdk = MagicMock(name="ngrok-sdk")
     sdk.set_auth_token.side_effect = RuntimeError("ERR_NGROK_105 authentication failed")
@@ -48,22 +51,39 @@ def test_create_tunnel_propagates_a_forwarding_failure(monkeypatch):
 
     with (
         patch.object(handler, "display_error") as display_error,
-        pytest.raises(RuntimeError, match="ERR_NGROK_105"),
+        pytest.raises(NgrokTunnelError, match="ERR_NGROK_105"),
     ):
         create_tunnel(BENCH, "bad-token")
 
-    display_error.assert_called_once_with("Error creating tunnel: ERR_NGROK_105 authentication failed")
+    display_error.assert_not_called()
     sdk.forward.assert_not_called()
 
 
-def test_create_tunnel_propagates_a_failure_from_the_forward_call_itself(monkeypatch):
+def test_the_auth_token_never_reaches_the_error_message(monkeypatch):
+    """ngrok echoes the token back inside its own error text ("Your authtoken: <value>"), and fm
+    printed and logged that verbatim -- measured as three copies of a real token in fm.log.
+    Redaction keyed on option names cannot see this: the secret is inside prose fm did not write."""
+    sdk = MagicMock(name="ngrok-sdk")
+    sdk.set_auth_token.side_effect = RuntimeError(
+        "('failed to connect session', 'Your authtoken: 2abcSECRETxyz\\nsee dashboard', 'ERR_NGROK_105')"
+    )
+    monkeypatch.setattr(ngrok_helper, "ngrok", sdk)
+
+    with pytest.raises(NgrokTunnelError) as excinfo:
+        create_tunnel(BENCH, "2abcSECRETxyz")
+
+    assert "2abcSECRETxyz" not in str(excinfo.value)
+    assert "***" in str(excinfo.value)
+    assert "ERR_NGROK_105" in str(excinfo.value)
+
+
+def test_a_failure_from_the_forward_call_itself_is_typed_too(monkeypatch):
     """The auth token can be fine and the listener still never come up (port in use, no network)."""
-    handler = get_global_output_handler()
     sdk = MagicMock(name="ngrok-sdk")
     sdk.forward.side_effect = OSError("address already in use")
     monkeypatch.setattr(ngrok_helper, "ngrok", sdk)
 
-    with patch.object(handler, "display_error"), pytest.raises(OSError, match="address already in use"):
+    with pytest.raises(NgrokTunnelError, match="address already in use"):
         create_tunnel(BENCH, "good-token")
 
 

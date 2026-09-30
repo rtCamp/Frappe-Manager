@@ -115,8 +115,7 @@ def ngrok(
 
         output.print(f"Creating ngrok tunnel for {tunnel_host}", emoji_code=":link:")
 
-        try:
-            create_tunnel(tunnel_host, auth_token)
-        except Exception as e:
-            output.display_error(f"Failed to create tunnel: {e!s}")
-            raise
+        # No local except: `create_tunnel` raises NgrokTunnelError with the token already removed,
+        # and main.py's handler renders it once. Catching to re-print produced the SAME raw text
+        # three times -- here, inside create_tunnel, and again as "Unexpected Error".
+        create_tunnel(tunnel_host, auth_token)
