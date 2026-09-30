@@ -152,10 +152,16 @@ class BenchDevTools:
         """
         self._verify_bench_running()
 
+        # The label update comes FIRST because it can RECREATE the frappe container, and a recreate
+        # replaces the container filesystem. In image runtime the debug config is written inside the
+        # container (nothing mounts it on the host), so writing it first meant fm created the files
+        # and then destroyed them in the next step, silently. Proven on a live bench: a file written
+        # into the container is GONE after a force-recreate. Mount runtime is unaffected either way,
+        # since its .vscode lives on the host.
+        self._update_container_config(user, sorted(extensions))
+
         if debugger:
             self._setup_debugger_config(workdir)
-
-        self._update_container_config(user, sorted(extensions))
 
         vscode_path = shutil.which("code") if attach else None
         if vscode_path is None:

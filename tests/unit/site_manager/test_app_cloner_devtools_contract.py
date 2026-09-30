@@ -1116,6 +1116,23 @@ def test_the_shipped_settings_carry_no_deprecated_ruff_keys():
     assert all(isinstance(value, str) for value in on_save.values())
 
 
+def test_the_container_is_recreated_before_the_debug_config_is_written_into_it(devtools):
+    """A label change recreates the frappe container, and a recreate replaces its filesystem --
+    proven on a live bench, where a file written into the container was gone afterwards. In image
+    runtime the debug config lives INSIDE the container, so writing it before the recreate created
+    the files and then destroyed them, silently."""
+    tools = devtools(image_runtime=True)
+    tools.compose_file_manager.get_labels.return_value = {}
+    calls: list[str] = []
+    tools._update_container_config = lambda *a, **k: calls.append("recreate")
+    tools._sync_vscode_config_files = lambda *a, **k: calls.append("write")
+    tools._install_ruff = lambda *a, **k: None
+
+    tools.attach_to_bench("frappe", [], "/workspace/frappe-bench", debugger=True, attach=False)
+
+    assert calls == ["recreate", "write"]
+
+
 def test_an_existing_config_file_is_backed_up_before_being_replaced(devtools):
     tools = devtools()
     vscode_dir = tools.bench_path / "workspace" / "frappe-bench" / ".vscode"
