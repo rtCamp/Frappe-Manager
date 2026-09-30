@@ -6,7 +6,7 @@ Not bench update: app code ships with fm bake then fm switch. Apps are managed w
 
 Most options change the whole bench. --db-ca is the one Site Option below, and a plain fm update BENCH applies it to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one.
 
-The whole update is decided before any of it is applied, so an invalid flag changes nothing and a value that already matches is reported instead of reapplied. --dry-run prints that plan and exits without touching the bench.
+The whole update is decided before any of it is applied, so an invalid flag changes nothing and a value that already matches is reported instead of reapplied. The plan is printed and confirmed before anything is touched; --yes skips the question and --dry-run prints the plan and exits without touching the bench. An update with nothing to do never asks.
 
 **Usage**:
 
@@ -37,6 +37,7 @@ $ fm update BENCH(/SITE) [OPTIONS]
 * `--no-redis`: Bring BOTH sides back to fm's own per-bench redis containers.  [default: false]
 * `--db-ca PATH`: Reinstall the external database CA after a rotation: the site PEM, the bench ca-bundle.pem the dumps use, and the recorded path are refreshed together.
 * `--dry-run`: Print what would change and exit without touching the bench.  [default: false]
+* `-y, --yes`: Apply the plan without asking for confirmation.  [default: false]
 
 ## Examples
 

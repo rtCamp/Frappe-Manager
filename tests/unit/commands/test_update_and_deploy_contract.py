@@ -247,6 +247,9 @@ class UpdateWorld:
         # primary site), but the address grammar still accepts and stashes it like every other
         # BenchSiteArgument command.
         ctx.obj = {"services": self.services, "site": site}
+        # Confirmed by default: these tests exercise what the apply does, not whether it asks.
+        # The prompt itself is defended by the tests below that pass yes=False explicitly.
+        kwargs.setdefault("yes", True)
         return update(ctx, address=BENCH, **kwargs)
 
 
@@ -1303,6 +1306,40 @@ class TestPlanningIsSeparateFromApplying:
 
         world.bench.set_common_bench_config.assert_not_called()
         assert world.saves == 0
+
+
+class TestConfirmation:
+    """`fm update` was the only plan-first command that printed a plan and applied it unasked,
+    while prune, delete and migrate all wait -- and it is the most destructive thing fm does to a
+    RUNNING bench short of delete and switch."""
+
+    def test_declining_leaves_the_bench_untouched(self, world):
+        with patch.object(world.output, "prompt_ask", return_value="no"), pytest.raises(typer.Exit):
+            world.run(environment=FMBenchEnvType.prod, yes=False)
+
+        assert world.config.environment_type == FMBenchEnvType.dev
+        assert world.compose_up_calls == []
+        assert world.saves == 0
+
+    def test_confirming_applies_the_plan(self, world):
+        with patch.object(world.output, "prompt_ask", return_value="yes"):
+            world.run(environment=FMBenchEnvType.prod, yes=False)
+
+        assert world.config.environment_type == FMBenchEnvType.prod
+
+    def test_an_update_with_nothing_to_do_never_asks(self, world):
+        """`plan.is_empty` returns before the question: a no-op has no permission to seek."""
+        with patch.object(world.output, "prompt_ask") as asked:
+            world.run(environment=FMBenchEnvType.dev, yes=False)
+
+        asked.assert_not_called()
+
+    def test_dry_run_never_asks(self, world):
+        """--dry-run prints the plan, changes nothing, exits 0 and never prompts."""
+        with patch.object(world.output, "prompt_ask") as asked:
+            world.run(environment=FMBenchEnvType.prod, dry_run=True, yes=False)
+
+        asked.assert_not_called()
 
 
 class TestDryRun:

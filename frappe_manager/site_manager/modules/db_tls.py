@@ -67,7 +67,7 @@ def install_site_ca(bench_path: Path, site: str, ca_source: Path) -> str:
     `db_ssl_check_hostname` is not written here: it is a site_config.json key,
     and the CLI half always verifies via ssl-verify-server-cert.
     """
-    source = _validated_ca_source(ca_source)
+    source = validate_ca_source(ca_source)
 
     site_dir = site_tls_host_dir(bench_path, site)
     site_dir.mkdir(parents=True, exist_ok=True)
@@ -127,7 +127,7 @@ def remove_site_tls(bench_path: Path, site: str) -> None:
     rebuild_ca_bundle(bench_path)
 
 
-def _validated_ca_source(ca_source: Path) -> Path:
+def validate_ca_source(ca_source: Path) -> Path:
     """Fail on the operator's own path, before anything is written.
 
     Reached from two directions: `bench_orchestrator.py` calls `install_site_ca` directly at

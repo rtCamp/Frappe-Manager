@@ -221,6 +221,10 @@ def update(
             show_default=False,
         ),
     ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Apply the plan without asking for confirmation."),
+    ] = False,
 ):
     """
     Change a bench's settings.
@@ -229,7 +233,7 @@ def update(
 
     Most options change the whole bench. --db-ca is the one Site Option below, and a plain fm update BENCH applies it to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one.
 
-    The whole update is decided before any of it is applied, so an invalid flag changes nothing and a value that already matches is reported instead of reapplied. --dry-run prints that plan and exits without touching the bench.
+    The whole update is decided before any of it is applied, so an invalid flag changes nothing and a value that already matches is reported instead of reapplied. The plan is printed and confirmed before anything is touched; --yes skips the question and --dry-run prints the plan and exits without touching the bench. An update with nothing to do never asks.
     """
     services_manager = ctx.obj["services"]
 
@@ -271,9 +275,36 @@ def update(
         drain=drain,
         drain_timeout=orchestrator.workers_config.drain_timeout,
     )
+    # Before the confirmation, not inside the apply: update's contract is that the whole change is
+    # decided before any of it happens, and a CA path that cannot be read is the operator's own
+    # typo. Validated late, it asked you to approve a plan that could not work.
+    if plan.db_ca is not None:
+        from frappe_manager.site_manager.modules import db_tls
+
+        try:
+            db_tls.validate_ca_source(plan.db_ca)
+        except (FileNotFoundError, PermissionError, ValueError) as e:
+            output.error(str(e), exception=typer.Exit(code=2))
+
 
     if dry_run or plan.is_empty:
         return
+
+    # The other plan-first commands (prune, delete, migrate) all show the plan and wait; this one
+    # showed it and applied. It is the most destructive thing fm does to a RUNNING bench short of
+    # delete and switch -- it rebuilds env/ and restarts web and workers -- so it asks too. Only
+    # when there is something to do: `plan.is_empty` already returned above, so a no-op update
+    # never prompts, and --dry-run never reaches here.
+    if not yes:
+        choice = output.prompt_ask(
+            prompt="Apply the update above? (default: no)",
+            choices=["yes", "no"],
+            default="no",
+            required_flag="--yes or -y",
+        )
+        if choice != "yes":
+            output.print("Aborted; the bench is untouched.", emoji_code="")
+            raise typer.Exit(1)
 
     with spinner(output, "Updating bench configuration"):
         apply_update(bench, plan, output, orchestrator=orchestrator, drain=drain)

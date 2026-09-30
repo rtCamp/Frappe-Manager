@@ -8,7 +8,7 @@ hand-written check actually fire. The ``*ReadableGate`` classes below pin exactl
 existing, unreadable file must reach fm's own check, not click's.
 
 The ``*ExistenceGuard`` classes alongside them pin a DIFFERENT thing that happens to share the
-same fixtures: ``create``'s ``_validated_ca`` and ``update``'s ``db_tls._validated_ca_source``
+same fixtures: ``create``'s ``_validated_ca`` and ``update``'s ``db_tls.validate_ca_source``
 also refuse a missing path or a directory, entirely independent of ``readable=False`` (click's
 own ``exists=False`` default lets both through unblocked regardless of that flag). No other test
 in the suite drives those two hand checks through the CLI, so they are kept here rather than
@@ -185,7 +185,7 @@ def _invoke_update(update_world, db_ca_arg):
 
 
 class TestUpdateDbCaExistenceGuard:
-    """``db_tls._validated_ca_source``'s existence check, not the readable=False fix: click's own
+    """``db_tls.validate_ca_source``'s existence check, not the readable=False fix: click's own
     ``exists=False`` default lets a missing path or a directory through unblocked regardless of
     ``readable``, so these two do not discriminate that flag. Kept anyway because no other test
     drives ``install_site_ca``'s real validation through the CLI; everywhere else in the suite
@@ -210,7 +210,7 @@ class TestUpdateDbCaExistenceGuard:
 
 
 class TestUpdateDbCaReadableGate:
-    """``db_tls._validated_ca_source`` is the hand check; it used to be dead via the CLI for the
+    """``db_tls.validate_ca_source`` is the hand check; it used to be dead via the CLI for the
     same reason create's was: click's implicit readable=True intercepted first."""
 
     @requires_non_root
