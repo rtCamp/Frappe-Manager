@@ -27,14 +27,17 @@ else
 		echo "Linking development supervisor config (frappe-dev.conf)"
 		ln -sfn /opt/user/frappe-dev.conf /opt/user/conf.d/active-env.conf
 
-		if [ ! -f /opt/user/bench-dev-server.sh ]; then
+		# Rewritten in place. frappe-dev.conf runs /opt/user/bench-dev-server, so writing the
+		# corrected copy to bench-dev-server.sh patched a file nothing executes: the dev server
+		# kept `bench serve --port 80` with no host, bound 127.0.0.1 inside the container, and the
+		# separate nginx container could never reach it -- a bench that built cleanly and then
+		# served 502 forever.
+		if ! grep -q -- "--host 0.0.0.0" /opt/user/bench-dev-server; then
 			echo "Configuring bench dev server to bind 0.0.0.0:80"
 			if /usr/local/bin/bench serve --help 2>/dev/null | grep -q "\-\-host"; then
-				sed 's/--port [0-9]\+/--host 0.0.0.0 --port 80/' /opt/user/bench-dev-server >/opt/user/bench-dev-server.sh
-			else
-				sed 's/--port [0-9]\+/--port 80/' /opt/user/bench-dev-server >/opt/user/bench-dev-server.sh
+				sed -i 's/--port [0-9]\+/--host 0.0.0.0 --port 80/' /opt/user/bench-dev-server
 			fi
-			chmod +x /opt/user/bench-dev-server.sh
+			chmod +x /opt/user/bench-dev-server
 			echo "Configured bench dev server"
 		fi
 	else
