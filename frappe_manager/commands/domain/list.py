@@ -27,8 +27,20 @@ def list_domains(
 
     services_manager = ctx.obj["services"]
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
-    site_names = bench.bench_config.site_names
     sites = bench.bench_config.sites or {}
+    # `site_names` falls back to the BENCH name when `[sites]` is empty, which is the legacy
+    # fallback for benches created before names and sites came apart. A `--bench-only` bench
+    # genuinely serves nothing, and that fallback made this command report the bench name as a
+    # primary DOMAIN -- contradicting `fm info` and `fm list`, which both say it has no site.
+    if not sites:
+        empty = f"{bench.name} serves no site (created with --bench-only, or none recorded in bench_config.toml)"
+        if json_result:
+            output.print_data([])
+        else:
+            output.data_raw(empty)
+        return
+
+    site_names = bench.bench_config.site_names
     primary = bench.bench_config.primary_site_or_none()
     width = max((len(name) for name in site_names), default=0)
 

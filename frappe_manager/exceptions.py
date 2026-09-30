@@ -94,3 +94,13 @@ class MissingArgumentError(NonInteractiveError):
     """
 
     exit_code = 2
+
+
+class InvalidBenchNameError(FrappeManagerException):
+    """A bench or site name that is not a legal hostname.
+
+    Exit 2: the name came off the command line, so this is a wrong command line, the same class of
+    mistake as an unknown flag.
+    """
+
+    exit_code = 2

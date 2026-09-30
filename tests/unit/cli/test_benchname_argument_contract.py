@@ -31,7 +31,12 @@ import typer
 from frappe_manager.commands import app
 from frappe_manager.commands.compose import _benchname_callback as _compose_benchname_callback
 from frappe_manager.commands.maintenance._helpers import optional_bench_site_callback
-from frappe_manager.exceptions import FrappeManagerException, MissingArgumentError, NonInteractiveError
+from frappe_manager.exceptions import (
+    FrappeManagerException,
+    InvalidBenchNameError,
+    MissingArgumentError,
+    NonInteractiveError,
+)
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchException, BenchNotFoundError
 from frappe_manager.utils import callbacks
@@ -725,17 +730,18 @@ class TestSitenameCallbackRejection:
         assert "nope.localhost" in str(excinfo.value)
 
     @pytest.mark.parametrize("bad", ["bad name", "_leading.localhost", "has_underscore"])
-    def test_non_fqdn_name_raises_bench_exception(self, benches, bad):
-        # validate_sitename routes through output.error(), which RAISES.
-        # Note: it appends `.localhost` to a bare name *before* complaining, so
-        # the message names the suffixed value. Pinned as-is.
-        with pytest.raises(BenchException):
+    def test_non_fqdn_name_is_a_usage_error_quoting_what_was_typed(self, benches, bad):
+        """A malformed name is a wrong command line: exit 2, and the message quotes the value the
+        operator wrote rather than the `.localhost` form fm derived from it."""
+        with pytest.raises(InvalidBenchNameError) as excinfo:
             sitename_callback(bad)
+        assert f"'{bad}'" in str(excinfo.value)
+        assert excinfo.value.exit_code == 2
 
     def test_fqdn_check_happens_before_the_existence_check(self, benches):
         # An invalid name never reaches BenchNotFoundError, even though its
         # directory is absent too.
-        with pytest.raises(BenchException):
+        with pytest.raises(InvalidBenchNameError):
             sitename_callback("bad name.localhost")
 
 

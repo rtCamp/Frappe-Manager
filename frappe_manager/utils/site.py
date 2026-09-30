@@ -5,8 +5,8 @@ from pathlib import Path
 
 from frappe_manager import CLI_BENCHES_DIRECTORY, COMMON_SITE_CONFIG_FILE
 from frappe_manager.docker import DOCKER_LINE_NOISE, DockerVolumeMount, DockerVolumeType
+from frappe_manager.exceptions import InvalidBenchNameError
 from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.site_manager.exceptions import BenchException
 
 
 def host_bench_dir(bench_path: Path) -> Path:
@@ -176,15 +176,20 @@ def validate_sitename(sitename: str | None) -> str:
         raise ValueError("Sitename cannot be None")
 
     match = is_fqdn(sitename)
+    typed = sitename
 
     if domain_level(sitename) == 0:
         sitename = sitename + ".localhost"
 
     if not match:
-        output = get_global_output_handler()
-        output.error(
-            f"The {sitename} must follow Fully Qualified Domain Name (FQDN) format.",
-            exception=BenchException(sitename, "Valid FQDN site name not provided."),
+        # Quotes what was TYPED, not the `.localhost` form fm derived from it: reporting
+        # 'BadName!.localhost' invents a suffix the operator never wrote. One sentence, raised
+        # directly -- `output.error(..., exception=BenchException(...))` stated the same fact
+        # twice in two grammars and exited 1 for what is a malformed argument.
+        raise InvalidBenchNameError(
+            f"'{typed}' is not a valid name: it must be a hostname -- letters, digits and "
+            "hyphens, with dots separating labels.",
+            suggestions=["A name without a dot gets '.localhost' appended, so 'shop' becomes 'shop.localhost'"],
         )
 
     return sitename

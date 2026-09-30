@@ -328,7 +328,7 @@ def bake(
             )
         except ConfigOverlayError as e:
             output.display_error(str(e))
-            raise typer.Exit(1) from e
+            raise typer.Exit(e.exit_code) from e
         if not bench_config.apps_list:
             output.display_error("Standalone bake needs apps: pass --apps or a --config providing \\[\\[apps]].")
             raise typer.Exit(1)
@@ -358,7 +358,7 @@ def bake(
             apply_config_overlays(bench_config_path, config)
         except ConfigOverlayError as e:
             output.display_error(str(e))
-            raise typer.Exit(1) from e
+            raise typer.Exit(e.exit_code) from e
         bench_config = BenchConfig.import_from_toml(bench_config_path)
 
     # A digest is a hash of content that does not exist until the image is built, so it can name

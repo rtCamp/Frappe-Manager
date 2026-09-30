@@ -1222,7 +1222,9 @@ def create(
         )
     except ConfigOverlayError as e:
         output.display_error(str(e))
-        raise typer.Exit(1) from e
+        # The exception's own code, not a hardcoded 1: a bad `--config` value is a wrong command
+        # line, and exit 2 is what every other bad value on it answers with.
+        raise typer.Exit(e.exit_code) from e
 
     if bench_config.apps_from:
         output.print(

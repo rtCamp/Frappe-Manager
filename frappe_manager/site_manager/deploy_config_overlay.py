@@ -22,7 +22,24 @@ from frappe_manager.utils import toml_document
 
 
 class ConfigOverlayError(FrappeManagerException):
-    """Raised when a --config value cannot be read or parsed as TOML."""
+    """Raised when a --config value cannot be read or parsed as TOML.
+
+    Exit 2: every way this fails is a wrong `--config` value on the command line.
+    """
+
+    exit_code = 2
+
+
+def looks_like_a_path(value: str) -> bool:
+    """Whether a `--config` value was plainly meant as a filename rather than inline TOML.
+
+    Only consulted once parsing has already FAILED, to choose the message. Inline TOML carries at
+    least one of `=` (a key), `[` (a table header) or a newline; a value with none of those and a
+    `.toml` suffix or a path separator is a filename that is not there.
+    """
+    if any(ch in value for ch in "=[\n"):
+        return False
+    return value.endswith(".toml") or "/" in value or value.startswith("~")
 
 
 def resolve_source(value: str) -> str:
@@ -150,6 +167,10 @@ def merge_overlays(base_toml: str, configs: list[str]) -> str:
         try:
             overlay = tomlkit.parse(text).unwrap()
         except Exception as e:
+            if looks_like_a_path(value):
+                # A mistyped path used to be reported as malformed TOML ("Empty key at line 1 col
+                # 0"), sending the reader to inspect a file that does not exist.
+                raise ConfigOverlayError(f"--config file not found: {value}") from e
             raise ConfigOverlayError(f"Could not parse --config value as TOML ({value!r}): {e}") from e
         if not isinstance(overlay, dict):
             raise ConfigOverlayError(f"--config value is not a TOML table ({value!r})")
