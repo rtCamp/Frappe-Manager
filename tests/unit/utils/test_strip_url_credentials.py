@@ -55,3 +55,31 @@ def test_text_with_no_credential_is_unchanged():
 
     text = "cloned https://github.com/a/b.git at ref v1"
     assert redact_credentials_in_text(text) == text
+
+
+class TestRenderedTracebackRedaction:
+    """`capture_and_format_exception` renders frame locals into fm.log. That is what makes an fm
+    traceback worth reading, and it is also how a stored Cloudflare token reached the log: the
+    frame held the loaded config object, so ANY later error on the host re-printed the credential.
+    """
+
+    def test_an_attribute_that_names_a_secret_is_masked(self):
+        from frappe_manager.utils.helpers import redact_secrets_in_text
+
+        said = redact_secrets_in_text("FMConfigManager(api_token='cf_realtoken', name='acct-b')")
+
+        assert "cf_realtoken" not in said
+        assert "name='acct-b'" in said, "only the secret is masked; the frame stays readable"
+
+    def test_the_json_spelling_is_masked_too(self):
+        """site_config.json renders with quoted keys, so a scan for bare `name=` misses it."""
+        from frappe_manager.utils.helpers import redact_secrets_in_text
+
+        assert "hunter2" not in redact_secrets_in_text('{"password": "hunter2"}')
+
+    def test_an_ordinary_attribute_is_left_alone(self):
+        """Masking everything would make the locals dump useless, which is why it exists."""
+        from frappe_manager.utils.helpers import redact_secrets_in_text
+
+        text = "db_host = 'db.example.com'"
+        assert redact_secrets_in_text(text) == text

@@ -34,13 +34,23 @@ logger = get_logger(component="helpers")
 # Every option whose VALUE is a secret. fm.log is a support artifact operators paste into issues,
 # so the invocation line must not be where a token or a database password leaks. Matched on the
 # option NAME, not on the value's shape: a password can look like anything.
+#
+# `tests/unit/utils/test_redact_argv.py` walks the live CLI and fails if a value-taking option
+# whose name contains token/pass/secret/key/cred is missing here, so this list cannot drift
+# behind a newly added flag -- which is exactly how `--api-token` leaked a Cloudflare token.
+# `--key` is deliberately absent: it names a PEM file PATH, and the path is worth keeping.
 SECRET_OPTIONS = frozenset(
     {
-        "--github-token",
         "--admin-pass",
-        "--db-password",
+        "--api-key",
+        "--api-token",
+        "--auth-token",
         "--db-admin-password",
+        "--db-password",
+        "--encryption-key",
+        "--github-token",
         "--license-key",
+        "--password",
     }
 )
 
@@ -364,8 +374,28 @@ def rich_object_to_string(obj) -> str:
     return captured_str
 
 
+_SECRET_ATTR_RE = re.compile(
+    r"(?P<name>[\"']?\w*(?:token|password|passwd|secret|api_key|license_key|admin_pass|encryption_key)\w*[\"']?)"
+    r"(?P<sep>\s*[=:]\s*)"
+    r"(?P<quote>['\"])(?P<value>(?:(?!(?P=quote)).)*)(?P=quote)",
+    re.IGNORECASE,
+)
+
+
+def redact_secrets_in_text(text: str) -> str:
+    """Mask credentials in text fm did not compose: URL credentials and `name='value'` pairs."""
+    text = redact_credentials_in_text(text)
+    return _SECRET_ATTR_RE.sub(lambda m: f"{m.group('name')}{m.group('sep')}{m.group('quote')}***{m.group('quote')}", text)
+
+
 def capture_and_format_exception(traceback_max_frames: int = 100) -> str:
-    """Capture the current exception and return a formatted traceback string."""
+    """Capture the current exception and return a formatted traceback string.
+
+    `show_locals` is what makes an fm traceback worth reading, and also what put a Cloudflare
+    token in fm.log: the rendered frame included the loaded FMConfigManager, so ANY later error
+    on the host re-printed the stored credential. Locals are kept and the rendered text is
+    masked, because fm.log is a file operators paste into issues.
+    """
 
     exc_type, exc_value, exc_traceback = sys.exc_info()
 
@@ -377,9 +407,7 @@ def capture_and_format_exception(traceback_max_frames: int = 100) -> str:
         max_frames=traceback_max_frames,
     )
 
-    formatted_traceback = rich_object_to_string(traceback)
-
-    return formatted_traceback
+    return redact_secrets_in_text(rich_object_to_string(traceback))
 
 
 def pluralise(singular, count):

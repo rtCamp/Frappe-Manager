@@ -38,3 +38,36 @@ def test_nothing_else_is_touched():
 def test_a_value_that_looks_like_an_option_is_still_redacted():
     """Matched on the option NAME, never on the value's shape: a password can look like anything."""
     assert "--not-a-flag" not in redact_argv(["create", "x", "--admin-pass", "--not-a-flag"])
+
+
+def test_no_secret_bearing_option_is_missing_from_the_set():
+    """The set is hand-written, so it can fall behind a newly added flag -- which is how a
+    Cloudflare `--api-token` reached fm.log in cleartext. Walk the LIVE CLI instead of trusting it:
+    any value-taking option whose name says it carries a credential must be redacted.
+
+    `--key` is the one deliberate exclusion: it names a PEM file path, not a secret."""
+    import click
+    import typer.main
+
+    from frappe_manager.commands import app
+
+    NAMES_A_SECRET = ("token", "pass", "secret", "key", "cred")
+    ALLOWED_VISIBLE = {"--key"}
+
+    found: set[str] = set()
+
+    def walk(command):
+        if isinstance(command, click.Group):
+            for child in command.commands.values():
+                walk(child)
+            return
+        for param in command.params:
+            if isinstance(param, click.Option) and not param.is_flag:
+                name = param.opts[0]
+                if any(word in name for word in NAMES_A_SECRET):
+                    found.add(name)
+
+    walk(typer.main.get_command(app))
+
+    missing = found - SECRET_OPTIONS - ALLOWED_VISIBLE
+    assert not missing, f"secret-bearing options not redacted from fm.log: {sorted(missing)}"
