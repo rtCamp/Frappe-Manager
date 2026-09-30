@@ -507,6 +507,26 @@ def _resolve_domains(ctx: typer.Context, benchname: str, domain: str) -> list[st
     return list(bench.bench_config.domains)
 
 
+def _resolve_certificates_to_remove(ctx: typer.Context, benchname: str, domain: str) -> list[str]:
+    """The domains `remove` should act on: for `all`, the ones that actually HOLD a certificate.
+
+    `_resolve_domains` answers with every hostname the bench serves, which is right for issuance
+    and wrong here: on any real bench the alias domains hold no certificate of their own, so
+    removing "everything" aborted at the first of them with `Certificate not found` -- after
+    deleting the ones before it and leaving the ones after. `remove --help` already promised "every
+    certificate the bench holds", so this is the documented meaning. A domain named EXPLICITLY that
+    has no certificate is still an error: that is a typo worth reporting.
+    """
+    if domain != RESERVED_BENCH_NAME:
+        return [domain]
+
+    services_manager = ctx.obj["services"]
+    output = get_output_handler(ctx)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
+    certified = {cert.domain for cert in bench.certificate_manager.certificates}
+    return [domain for domain in bench.bench_config.domains if domain in certified]
+
+
 def _prompt_for_domain(ctx: typer.Context, benchname: str, domain: str | None) -> str | None:
     """The domain half of a `BENCH/DOMAIN` address, picked from what the bench actually serves.
 

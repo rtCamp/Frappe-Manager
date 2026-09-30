@@ -2725,7 +2725,9 @@ def test_added_aliases_come_with_the_command_that_gets_them_a_certificate(tmp_pa
 
     harness.orchestrator().update_alias_domains(add_domains=["a.example.com"])
 
-    assert f"fm ssl add {SITE} a.example.com" in str(harness.output.print.call_args_list)
+    # BENCH/DOMAIN, not "BENCH DOMAIN": the two-argument form fm used to print is rejected by
+    # click before fm sees it, so the advice could not be run as given.
+    assert f"fm ssl add {SITE}/a.example.com" in str(harness.output.print.call_args_list)
 
 
 def test_removing_an_alias_needs_no_certificate_advice(tmp_path):

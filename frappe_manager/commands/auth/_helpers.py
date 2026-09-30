@@ -191,7 +191,7 @@ def apply_auth(
                 output.error(
                     # Certificate lookup is keyed by DOMAIN (`SSLCertificate.domain`), while the
                     # `fm ssl add` hint below takes BENCH then the domain separately.
-                    f"Domain '{guarded_domain}' has no TLS certificate: basic auth sends the credentials base64-encoded on every request, so on the web surface they would travel in the clear in front of every path including /api. Add HTTPS with 'fm ssl add {bench.name} {guarded_domain}', or pass --insecure to accept that.",
+                    f"Domain '{guarded_domain}' has no TLS certificate: basic auth sends the credentials base64-encoded on every request, so on the web surface they would travel in the clear in front of every path including /api. Add HTTPS with 'fm ssl add {bench.name}/{guarded_domain}', or pass --insecure to accept that.",
                     exception=typer.Exit(code=1),
                 )
             output.warning(

@@ -23,6 +23,7 @@ Four of the old pins are now asserted the other way round, and each says so wher
 import inspect
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -537,6 +538,10 @@ def bench_domains():
     with ExitStack() as stack:
         bench = MagicMock(name="bench")
         bench.bench_config.domains = list(DOMAINS)
+        # `remove BENCH/all` acts on the certificates a bench HOLDS, not every hostname it serves,
+        # so the double has to say which those are. Every domain certified by default; a test that
+        # cares narrows it.
+        bench.certificate_manager.certificates = [SimpleNamespace(domain=d) for d in DOMAINS]
         handler = MagicMock()
         handler.prompt_fuzzy.side_effect = EOFError("not a terminal")
         stack.enter_context(patch(f"{BENCH_HELPERS}.Bench")).get_object.return_value = bench
@@ -622,6 +627,30 @@ def test_remove_fans_a_bench_slash_all_over_every_domain_the_bench_serves(removi
 
     assert [c.args[2] for c in removing.delete.call_args_list] == DOMAINS
     assert {c.args[1] for c in removing.delete.call_args_list} == {BENCH}
+
+
+def test_remove_all_skips_domains_that_hold_no_certificate(removing, bench_domains):
+    """Alias domains usually hold no certificate of their own, so expanding `all` over every
+    hostname aborted at the first of them with `Certificate not found` -- after deleting the ones
+    before it and leaving the ones after, order-dependently. `remove --help` already promised
+    "every certificate the bench holds"."""
+    bench_domains.certificate_manager.certificates = [SimpleNamespace(domain=DOMAINS[0])]
+    removing.address("all")
+
+    remove_certificate(removing.ctx, address=BENCH, yes=True)
+
+    assert [c.args[2] for c in removing.delete.call_args_list] == [DOMAINS[0]]
+
+
+def test_remove_all_on_a_bench_with_no_certificates_says_so_instead_of_failing(removing, bench_domains):
+    """Nothing to remove is not a failure; it is the state the command asks for."""
+    bench_domains.certificate_manager.certificates = []
+    removing.address("all")
+
+    remove_certificate(removing.ctx, address=BENCH, yes=True)
+
+    removing.delete.assert_not_called()
+    assert "no SSL certificates" in removing.printed()
 
 
 def test_remove_of_one_domain_deletes_exactly_that_one(removing):

@@ -36,7 +36,7 @@ With `--name` you are storing a **labelled credential set**, which only a certif
 
 ```bash
 fm ssl dns-config cloudflare --name client-zones --api-token OTHER_TOKEN
-fm ssl add mybench client.example.com --challenge dns01 --dns-provider client-zones
+fm ssl add mybench/client.example.com --challenge dns01 --dns-provider client-zones
 ```
 
 The label identifies the account, not the provider: every set stored through this command drives the Cloudflare API. A label is looked up in the bench table first and the global table second, and a certificate whose label is in neither refuses to issue and to renew. fm never substitutes a different set, because doing so would authenticate against the wrong Cloudflare account and report success. Full resolution order: [DNS providers](../reference/configuration.md#dns-providers).
@@ -122,10 +122,10 @@ fm ssl dns-config cloudflare mybench --remove --name client-zones
 After configuring credentials, issue certificates with:
 
 ```bash
-fm ssl add mybench example.com --challenge dns01
+fm ssl add mybench/example.com --challenge dns01
 
 # Or against a labelled account
-fm ssl add mybench client.example.com --challenge dns01 --dns-provider client-zones
+fm ssl add mybench/client.example.com --challenge dns01 --dns-provider client-zones
 ```
 
 ## Related

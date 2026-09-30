@@ -152,6 +152,13 @@ class TestRendererBehaviour:
         """`[[apps]]` looks like it escapes itself. It does not; it collapses to `[]`."""
         assert render("[[apps]]") == "[]"
 
+    def test_a_doubled_bracket_needs_both_brackets_escaped(self):
+        """Escaping only the outer one still collapses: `\\[[apps]]` renders as `[]`, losing the
+        word entirely, and the stray backslash then shows up verbatim in the generated docs. This
+        is the escape a TOML array-of-tables needs in any rendered help text."""
+        assert render(r"\[[apps]]") == "[]"
+        assert render(r"\[\[apps]]") == "[[apps]]"
+
     def test_the_output_handler_shares_rich_markup_semantics(self):
         """The handler is not a separate escaping regime; it is a rich Console underneath."""
         from frappe_manager.output_manager.rich_output import RichOutputHandler

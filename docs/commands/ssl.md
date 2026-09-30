@@ -369,7 +369,7 @@ fm ssl dns-config cloudflare --api-token cf_AbCdEf1234567890
 
 ##### Store a second account under a label
 
-Labelled sets go to [ssl.dns_providers.acct-b]; bind one with fm ssl add BENCH DOMAIN --challenge dns01 --dns-provider acct-b.
+Labelled sets go to [ssl.dns_providers.acct-b]; bind one with fm ssl add BENCH/DOMAIN --challenge dns01 --dns-provider acct-b.
 
 ```bash
 fm ssl dns-config cloudflare --api-token cf_ZyXwVu0987654321 --name acct-b

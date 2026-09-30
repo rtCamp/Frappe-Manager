@@ -6,7 +6,7 @@ from typer_examples import example
 from frappe_manager.commands.arguments import BenchDomainArgument
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, prompt_for_bench_selection
 
-from .bench_helpers import _prompt_for_domain, _remove_bench_certificate, _resolve_domains
+from .bench_helpers import _prompt_for_domain, _remove_bench_certificate, _resolve_certificates_to_remove
 from .external_helpers import _remove_external_certificate
 from .helpers import get_output_handler
 
@@ -94,5 +94,12 @@ def remove_certificate(
         output.data_raw(ctx.get_help())
         raise typer.Exit(1)
 
-    for target in _resolve_domains(ctx, address, domain):
+    targets = _resolve_certificates_to_remove(ctx, address, domain)
+    if not targets:
+        get_output_handler(ctx).print(
+            f"'{address}' holds no SSL certificates; nothing to remove.", emoji_code=":information:"
+        )
+        return
+
+    for target in targets:
         _remove_bench_certificate(ctx, address, target, yes)
