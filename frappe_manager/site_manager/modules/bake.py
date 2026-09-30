@@ -252,31 +252,32 @@ class BakeManager:
             return None
         return None
 
-    def _runtime_dockerfile(self) -> Path:
-        """Locate ``Docker/frappe/runtime.Dockerfile`` (repo root, else CWD)."""
+    @staticmethod
+    def _packaged_docker_dir() -> Path:
+        """The build context shipped INSIDE the package, which is the only copy an installed fm
+        has: `_repo_root` resolves to site-packages there, and `Docker/` is not a python package
+        so it only arrives via the wheel's force-include."""
+        return Path(__file__).resolve().parents[2] / "Docker"
+
+    def _build_context_file(self, *parts: str) -> Path:
+        """Locate one file under `Docker/`: the packaged copy, then a checkout, then CWD."""
         candidates = [
-            self._repo_root() / "Docker" / "frappe" / "runtime.Dockerfile",
-            Path.cwd() / "Docker" / "frappe" / "runtime.Dockerfile",
+            self._packaged_docker_dir().joinpath(*parts),
+            self._repo_root() / "Docker" / Path(*parts),
+            Path.cwd() / "Docker" / Path(*parts),
         ]
         for candidate in candidates:
             if candidate.exists():
                 return candidate
         raise BakeError(
-            f"Could not find Docker/frappe/runtime.Dockerfile (looked in: {', '.join(str(c) for c in candidates)}).",
+            f"Could not find Docker/{'/'.join(parts)} (looked in: {', '.join(str(c) for c in candidates)}).",
         )
 
+    def _runtime_dockerfile(self) -> Path:
+        return self._build_context_file("frappe", "runtime.Dockerfile")
+
     def _nginx_dockerfile(self) -> Path:
-        """Locate ``Docker/nginx/Dockerfile`` (repo root, else CWD)."""
-        candidates = [
-            self._repo_root() / "Docker" / "nginx" / "Dockerfile",
-            Path.cwd() / "Docker" / "nginx" / "Dockerfile",
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-        raise BakeError(
-            f"Could not find Docker/nginx/Dockerfile (looked in: {', '.join(str(c) for c in candidates)}).",
-        )
+        return self._build_context_file("nginx", "Dockerfile")
 
     @staticmethod
     def default_nginx_image(image: str) -> str:
