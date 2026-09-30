@@ -1110,7 +1110,7 @@ def create(
         bool,
         typer.Option(
             "--db-no-verify-hostname",
-            help="Check the certificate chain but not that the certificate names the host dialled.",
+            help="Check the certificate chain but not that the certificate names the host dialled. Applies to Frappe's own driver; fm's preflight uses the mariadb client, which verifies the hostname whenever a CA is set and cannot be told not to, so a certificate that cannot name the endpoint is still refused at create time.",
             show_default=False,
             rich_help_panel=_PANEL_DATABASE,
         ),
@@ -1205,6 +1205,16 @@ def create(
     requested = {
         name for name in (*_FLAG_TO_CONFIG, "app_image", "nginx_image") if ctx.get_parameter_source(name) in _EXPLICIT_SOURCES
     }
+
+    # Symmetric to `_refuse_immutable_inputs`: `--nginx-image` names the companion of an app
+    # image, so without `--app-image` there is nothing to pair it with. It used to be accepted and
+    # silently dropped -- `_apply_app_image` only runs under `if app_image` -- so a full build
+    # finished on the stock nginx with the requested value recorded nowhere at all.
+    if "nginx_image" in requested and "app_image" not in requested:
+        raise typer.BadParameter(
+            "--nginx-image names the companion assets image for an app image, so it needs "
+            "--app-image. A mount bench builds its own assets and has no companion to name.",
+        )
     try:
         bench_config, apps_from_user = bench_config_from_inputs(
             config=config,

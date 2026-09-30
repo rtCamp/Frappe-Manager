@@ -448,9 +448,11 @@ def probe_stage_one(
                     CHECK_CA_VERIFICATION,
                     CheckStatus.fail,
                     "the supplied CA did not verify this server, or the certificate cannot name"
-                    f" {host}: {summarize(settings.text, *secrets)}. Fix the bundle or pass"
-                    " --db-no-verify-hostname only if the certificate genuinely cannot name the"
-                    " endpoint.",
+                    f" {host}: {summarize(settings.text, *secrets)}. The certificate has to name"
+                    " the host fm dials: the mariadb client verifies the hostname whenever a CA is"
+                    " set and offers no way to turn that off, so --db-no-verify-hostname does not"
+                    " relax this probe (it applies to Frappe's own driver at runtime). Use a"
+                    " certificate that names this endpoint, or dial the name it already carries.",
                 )
             )
         enforcement, enforced = _tls_enforcement(

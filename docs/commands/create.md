@@ -50,7 +50,7 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `--db-admin-user TEXT`: Administrative login, used once at create time to create the schema, the site user and the grant. Never stored.
 * `--db-admin-password TEXT`: Password for --db-admin-user. Pass - to read it from stdin.
 * `--db-ca PATH`: Host path to the CA bundle signing the server certificate. Required whenever the server enforces TLS.
-* `--db-no-verify-hostname`: Check the certificate chain but not that the certificate names the host dialled.  [default: false]
+* `--db-no-verify-hostname`: Check the certificate chain but not that the certificate names the host dialled. Applies to Frappe's own driver; fm's preflight uses the mariadb client, which verifies the hostname whenever a CA is set and cannot be told not to, so a certificate that cannot name the endpoint is still refused at create time.  [default: false]
 * `--attach-existing-site`: The schema already holds a Frappe site: build the bench around it and write nothing to the database.  [default: false]
 * `--encryption-key TEXT`: The attached site's encryption_key, - to read from stdin. Without it Frappe mints a new one and existing encrypted secrets stop being readable.
 

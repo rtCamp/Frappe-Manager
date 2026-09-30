@@ -65,7 +65,7 @@ from frappe_manager.utils.callbacks import (
     sites_autocompletion_callback,
     version_callback,
 )
-from frappe_manager.utils.helpers import get_current_fm_version
+from frappe_manager.utils.helpers import get_current_fm_version, redact_argv
 from frappe_manager.utils.site import pull_docker_images, stock_images_missing, validate_sitename
 
 
@@ -443,7 +443,7 @@ def app_callback(
             logger.info(f"{':' * 20}FM Invoked{':' * 20}")
             logger.info("")
 
-            logger.info(f"RUNNING COMMAND: {' '.join(sys.argv[1:])}")
+            logger.info(f"RUNNING COMMAND: {redact_argv(sys.argv[1:])}")
             logger.info(f"LOG LEVEL: {level_name}")
             logger.info("-" * 20)
 

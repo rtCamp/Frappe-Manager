@@ -30,6 +30,41 @@ from frappe_manager.utils.docker import run_command_with_exit_code
 logger = get_logger(component="helpers")
 
 
+# Every option whose VALUE is a secret. fm.log is a support artifact operators paste into issues,
+# so the invocation line must not be where a token or a database password leaks. Matched on the
+# option NAME, not on the value's shape: a password can look like anything.
+SECRET_OPTIONS = frozenset(
+    {
+        "--github-token",
+        "--admin-pass",
+        "--db-password",
+        "--db-admin-password",
+        "--license-key",
+    }
+)
+
+
+def redact_argv(argv: list[str]) -> str:
+    """The command line as typed, with secret option VALUES replaced.
+
+    Both spellings: `--db-password x` and `--db-password=x`. A bare `-` is kept, since it names
+    stdin rather than carrying the secret.
+    """
+    parts: list[str] = []
+    redact_next = False
+    for arg in argv:
+        if redact_next:
+            parts.append(arg if arg == "-" else "***")
+            redact_next = False
+            continue
+        name, sep, _ = arg.partition("=")
+        if sep and name in SECRET_OPTIONS:
+            parts.append(f"{name}=***")
+            continue
+        parts.append(arg)
+        redact_next = arg in SECRET_OPTIONS
+    return " ".join(parts)
+
 def remove_zombie_subprocess_process(process):
     """
     This function iterates over a list of process IDs and terminates each process.
