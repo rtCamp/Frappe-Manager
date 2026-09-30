@@ -1,5 +1,4 @@
 import os
-import re
 import shlex
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -8,7 +7,6 @@ from typing import Any, cast
 from frappe_manager import BENCH_PYTHON, CONTAINER_BENCH_DIR
 from frappe_manager.docker import DOCKER_LINE_NOISE, DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.exceptions import VersionUnusableByApps
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
@@ -106,6 +104,7 @@ class BenchAppManager:
 
     def get_current_runtime_versions(self, use_run: bool = False) -> dict[str, str | None]:
         """Get currently installed Python and Node versions from the container."""
+        import re
 
         versions: dict[str, str | None] = {}
         versions["python"] = None
@@ -169,25 +168,12 @@ class BenchAppManager:
             if frappe_app_path.exists():
                 frappe_python_req = extract_python_version_requirement(frappe_app_path)
 
-            # Refused HERE, not discovered by `uv pip install` minutes later. The app requirement
-            # was already read and used only to decorate a message; comparing the REQUESTED
-            # version against it costs nothing, and is the difference between a one-line refusal
-            # and a 690 MB half-built bench dying on "your requirements are unsatisfiable".
-            if frappe_python_req:
-                asked = re.match(r"(\d+)\.(\d+)", python_version_requirement.strip().lstrip(">=~^"))
-                if asked and not self._python_version_satisfies_requirement(
-                    int(asked.group(1)), int(asked.group(2)), frappe_python_req
-                ):
-                    raise VersionUnusableByApps(
-                        f"Python {python_version_requirement} was asked for, but frappe requires {frappe_python_req}.",
-                        suggestions=[f"Drop --python to let fm pick a version frappe accepts ({frappe_python_req})"],
-                    )
-
             try:
                 check_current_version_cmd = f"{BENCH_PYTHON} --version"
                 result = self._container_capture(check_current_version_cmd, use_run=use_run)
 
                 if result and result.exit_code == 0:
+                    import re
 
                     current_version_output = " ".join(result.combined)
                     version_match = re.search(r"Python (\d+)\.(\d+)\.(\d+)", current_version_output)
@@ -238,6 +224,7 @@ fi
                     selected_python_full = None
                     selected_version = None
                     if result and result.exit_code == 0:
+                        import re
 
                         candidates = []
 
@@ -274,6 +261,7 @@ fi
                         result = self._container_capture(detect_installed_cmd, use_run=use_run)
                         selected_python_full = None
                         if result and result.combined:
+                            import re
 
                             installed = []
                             for line in result.combined:
@@ -337,24 +325,12 @@ fi
             if frappe_app_path.exists():
                 frappe_node_req = extract_node_version_requirement(frappe_app_path)
 
-            # Same trap as --python above: yarn discovers it during `bench setup requirements`,
-            # after the whole python side has been installed, with "The engine \"node\" is
-            # incompatible with this module".
-            if frappe_node_req:
-                asked_node = re.match(r"(\d+)", node_version_requirement.strip().lstrip(">=~^v"))
-                if asked_node and not self._node_version_satisfies_requirement(
-                    int(asked_node.group(1)), frappe_node_req
-                ):
-                    raise VersionUnusableByApps(
-                        f"Node {node_version_requirement} was asked for, but frappe requires {frappe_node_req}.",
-                        suggestions=[f"Drop --node to let fm pick a version frappe accepts ({frappe_node_req})"],
-                    )
-
             try:
                 check_current_node_cmd = "node --version"
                 result = self._container_capture(check_current_node_cmd, use_run=use_run)
 
                 if result and result.exit_code == 0:
+                    import re
 
                     current_node_output = " ".join(result.combined)
                     version_match = re.search(r"v(\d+\.\d+\.\d+)", current_node_output)
@@ -432,6 +408,7 @@ fi
         return venv_recreated
 
     def _python_version_satisfies_requirement(self, current_major: int, current_minor: int, requirement: str) -> bool:
+        import re
 
         requirement = requirement.strip()
         current_version = f"{current_major}.{current_minor}"
@@ -460,6 +437,7 @@ fi
         return False
 
     def _node_version_satisfies_requirement(self, current_major: int, requirement: str) -> bool:
+        import re
 
         requirement = requirement.strip()
 
@@ -821,6 +799,7 @@ fi
 
     def _filter_docker_warnings(self, output: SubprocessOutput) -> SubprocessOutput:
         """Filter out Docker Compose warning messages from captured output."""
+        import re
 
         if not output.combined:
             return output

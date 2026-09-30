@@ -29,6 +29,7 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `-t, --github-token TEXT`: Token for cloning private app repos.
 * `--python TEXT`: Python version, e.g. '3.11'. Auto-detected by default.
 * `--node TEXT`: Node version, e.g. '20'. Auto-detected by default.
+* `--skip-version-check`: Accept a Python/Node version that does not satisfy frappe's requirement.  [default: false]
 * `--restart-policy [no|always|on-failure|unless-stopped]`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
 * `--runtime [mount|image]`: 'mount' (default) live-mounts an editable workspace; 'image' runs a pre-built app image, moved to a new image with 'fm switch'.
 * `--app-image TEXT`: The image the bench's containers run, as an image reference (a repository plus a version, e.g. ghcr.io/acme/mybench:v15.2.1). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another image.

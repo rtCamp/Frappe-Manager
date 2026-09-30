@@ -525,7 +525,7 @@ class Bench:
     def exists(self):
         return self.path.exists()
 
-    def create(self, bench_only: bool = False, remove_on_failure: bool = False):
+    def create(self, bench_only: bool = False, remove_on_failure: bool = False, skip_version_check: bool = False):
         """
         Create this bench.
 
@@ -542,7 +542,9 @@ class Bench:
         extra = {"operation": "bench_create", "bench_name": self.name, "bench_only": bench_only}
         self.logger.debug(f"Starting bench creation: {self.name}", extra_fields=extra)
         try:
-            self.orchestrator.create_bench(bench_only, remove_on_failure=remove_on_failure)
+            self.orchestrator.create_bench(
+                bench_only, remove_on_failure=remove_on_failure, skip_version_check=skip_version_check
+            )
             self.logger.info(f"Bench created successfully: {self.name}", extra_fields=extra)
         except Exception as e:
             extra["error"] = str(e)

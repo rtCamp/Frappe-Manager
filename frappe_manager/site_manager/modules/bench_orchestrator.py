@@ -105,8 +105,14 @@ class BenchOrchestrator:
         # created and offer to drop it. Never survives the run: a later invocation holds no
         # admin credentials and has no business dropping anything.
         self._provisioned: DatabaseConfig | None = None
+        # Read by `_phase2_initialize_bench`, which is where the app clone finally makes frappe's
+        # own version requirement readable. Held on the instance rather than passed through every
+        # phase signature, like `_provisioned` above.
+        self._skip_version_check: bool = False
 
-    def create_bench(self, bench_only: bool = False, remove_on_failure: bool = False) -> None:
+    def create_bench(
+        self, bench_only: bool = False, remove_on_failure: bool = False, skip_version_check: bool = False
+    ) -> None:
         """
         Orchestrate the complete bench creation workflow using 5-phase approach.
 
@@ -152,6 +158,7 @@ class BenchOrchestrator:
             Exception: If any step in the creation process fails
         """
         bench = self.bench
+        self._skip_version_check = skip_version_check
 
         bench.docker_ops.check_required_docker_images_available()
 
@@ -413,6 +420,7 @@ class BenchOrchestrator:
             use_uv=bench.bench_config.use_uv,
             github_token=bench.bench_config.github_token,
             use_run=True,
+            skip_version_check=self._skip_version_check,
         )
 
     def _phase2_seed_from_image(self) -> None:

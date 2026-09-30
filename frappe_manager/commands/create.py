@@ -914,6 +914,15 @@ def create(
             rich_help_panel=_PANEL_MOUNT,
         ),
     ] = None,
+    skip_version_check: Annotated[
+        bool,
+        typer.Option(
+            "--skip-version-check",
+            help="Accept a Python/Node version that does not satisfy frappe's requirement.",
+            show_default=False,
+            rich_help_panel=_PANEL_MOUNT,
+        ),
+    ] = False,
     restart_policy: Annotated[
         RestartPolicyEnum | None,
         typer.Option(
@@ -1360,4 +1369,10 @@ def create(
         return
 
     with spinner(output, "Creating bench"):
-        bench_service.create_bench(address, bench_config, bench_only=bench_only, remove_on_failure=remove_on_failure)
+        bench_service.create_bench(
+            address,
+            bench_config,
+            bench_only=bench_only,
+            remove_on_failure=remove_on_failure,
+            skip_version_check=skip_version_check,
+        )

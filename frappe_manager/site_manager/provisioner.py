@@ -21,6 +21,8 @@ import tempfile
 import time
 from pathlib import Path
 
+import typer
+
 from frappe_manager import CONTAINER_BENCH_DIR
 from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.output_manager import OutputHandler
@@ -28,6 +30,10 @@ from frappe_manager.site_manager.bench_config import (
     AppConfig,
     extract_node_version_requirement,
     extract_python_version_requirement,
+    parse_node_version_for_runtime,
+    parse_python_version_for_runtime,
+    validate_node_version_compatibility,
+    validate_python_version_compatibility,
 )
 from frappe_manager.site_manager.hooks import app_has_build_hooks, hook_env, hook_script
 from frappe_manager.site_manager.modules.bench_app import BenchAppManager
@@ -35,6 +41,27 @@ from frappe_manager.site_manager.modules.bench_app import BenchAppManager
 
 class ProvisionHookError(FrappeManagerException):
     """Raised when a build hook fails during provisioning."""
+
+
+def _refuse_incompatible_runtime(output, *, label, flag, wanted, requirement, validate, suggest) -> None:
+    """Refuse a runtime version the bench's apps reject, in the shape `fm update` already uses.
+
+    Silent when the requirement could not be read: an unreadable pin is not evidence of a
+    conflict, and refusing on one would block a build that would have worked.
+    """
+    if not requirement:
+        return
+    compatible, reason = validate(wanted, requirement)
+    if compatible:
+        return
+    output.print(f"{label}: {wanted}")
+    output.print(f"Frappe requires: {requirement}")
+    output.display_error(reason, emoji_code=":cross_mark:")
+    suggested = suggest(requirement)
+    if suggested:
+        output.print(f"Hint: Try {flag} {suggested}", emoji_code=":light_bulb:")
+    output.print("Use --skip-version-check to bypass this validation (not recommended)")
+    raise typer.Exit(code=1)
 
 
 def provision(
@@ -46,6 +73,7 @@ def provision(
     github_token: str | None = None,
     use_run: bool = True,
     detect_versions: bool = True,
+    skip_version_check: bool = False,
 ) -> list[AppConfig]:
     """Clone apps -> detect/setup Python+Node runtimes -> install deps + build.
 
@@ -73,12 +101,37 @@ def provision(
                 if detected_python:
                     bench_config.python_version = detected_python
                     output.print(f"Detected Python version requirement: {detected_python}")
+            elif not skip_version_check:
+                # The same check `fm update` runs, at the first moment a create can run it: the
+                # requirement lives in frappe's own metadata, so it is unknowable until the clone
+                # above. Unchecked, an incompatible --python was discovered by `uv pip install`
+                # minutes later, on "your requirements are unsatisfiable", leaving a half-built
+                # bench behind.
+                _refuse_incompatible_runtime(
+                    output,
+                    label="Python",
+                    flag="--python",
+                    wanted=bench_config.python_version,
+                    requirement=extract_python_version_requirement(frappe_app_path),
+                    validate=validate_python_version_compatibility,
+                    suggest=parse_python_version_for_runtime,
+                )
 
             if not bench_config.node_version:
                 detected_node = extract_node_version_requirement(frappe_app_path)
                 if detected_node:
                     bench_config.node_version = detected_node
                     output.print(f"Detected Node version requirement: {detected_node}")
+            elif not skip_version_check:
+                _refuse_incompatible_runtime(
+                    output,
+                    label="Node",
+                    flag="--node",
+                    wanted=bench_config.node_version,
+                    requirement=extract_node_version_requirement(frappe_app_path),
+                    validate=validate_node_version_compatibility,
+                    suggest=parse_node_version_for_runtime,
+                )
 
     if bench_config.python_version or bench_config.node_version:
         app_manager.setup_python_and_node_environments(use_run=use_run, recreate_python_env=True)
