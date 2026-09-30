@@ -64,7 +64,7 @@ def list_certificates(
             output = get_output_handler(ctx)
             output.display_error("Benchname required in bench mode")
             output.data_raw(ctx.get_help())
-            raise typer.Exit(1)
+            raise typer.Exit(2)
 
         _list_bench_certificates(ctx, address)
 
