@@ -1012,15 +1012,18 @@ class TestSwitchTargetImageResolution:
             "Dumps live under <bench>/backups/deploy-*/ -- restore manually if one exists."
         ]
 
-    def test_a_deploy_failure_during_switch_is_reported_as_exit_1(self, ship):
+    def test_a_deploy_failure_during_switch_reaches_the_handler_that_renders_its_suggestions(self, ship):
+        """The command no longer catches DeployError to print `str(e)` and raise typer.Exit(1):
+        that swallowed the `suggestions` main.py renders, so a halted deploy named its symptom and
+        not the command that recovers from it. `exit_code` on the exception carries the same 1."""
         ship.config.deployments = _deploy_state()
-        ship.orchestrator.deploy.side_effect = DeployError("swap failed")
+        ship.orchestrator.deploy.side_effect = DeployError("swap failed", suggestions=["fm logs mybench"])
 
-        with pytest.raises(typer.Exit) as exc:
+        with pytest.raises(DeployError) as exc:
             ship.switch(image="local/mybench:t9")
 
         assert exc.value.exit_code == 1
-        assert ship.errors == ["swap failed"]
+        assert exc.value.suggestions == ["fm logs mybench"]
 
 
 class TestPrune:

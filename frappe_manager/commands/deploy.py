@@ -7,7 +7,7 @@ from typer_examples import example
 from frappe_manager.commands.arguments import RequiredBenchNameArgument
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_config import BenchRuntime
-from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError, DeployOrchestrator
+from frappe_manager.site_manager.modules.deploy_orchestrator import DeployOrchestrator
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.helpers import ImageRef
 from frappe_manager.utils.process_lock import bench_lock
@@ -245,19 +245,19 @@ def switch(
             raise typer.Exit(1)
         dumps = {site: Path(p) for site, p in recorded.items()}
 
-    try:
-        orchestrator = DeployOrchestrator(bench, output_handler=output)
-        orchestrator.deploy(
-            target,
-            nginx_image=target_nginx_image,
-            rolling=rolling,
-            migrate_override=migrate,
-            restore_db_dumps=dumps,
-            prune_keep=keep,
-            restore_confirmed=yes,
-        )
-    except DeployError as e:
-        output.display_error(str(e))
-        raise typer.Exit(1) from e
+    # No local `except DeployError`: it caught the error, printed only `str(e)` and re-raised
+    # typer.Exit(1), which swallowed the `suggestions` main.py's handler exists to render -- so a
+    # halted deploy named its symptom and not the command that recovers from it. DeployError's
+    # exit_code is already 1, so the global handler produces the same status.
+    orchestrator = DeployOrchestrator(bench, output_handler=output)
+    orchestrator.deploy(
+        target,
+        nginx_image=target_nginx_image,
+        rolling=rolling,
+        migrate_override=migrate,
+        restore_db_dumps=dumps,
+        prune_keep=keep,
+        restore_confirmed=yes,
+    )
 
 

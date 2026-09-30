@@ -1714,12 +1714,22 @@ class DeployOrchestrator:
                 raise DeployError(
                     f"Deploy of {new_image} failed health check; rolled back to {old_image}.",
                 )
-            # No previous image to roll back to: the new (unhealthy) image stays pinned and the
-            # bench sits in maintenance. New code on new schema -- matched, so NOT a rollback.
+            # The compose IS pinned to new_image and its containers are running it, so record that
+            # before raising: `rollback()` already does, and skipping it here left `fm info` naming
+            # the OLD image while docker ran the new one -- state is the rollback source of truth,
+            # so a state that disagrees with reality misdirects whoever picks up the incident.
             self._deploy_outcome = "halted"
+            self._record(new_image, "halted", nginx_image=new_nginx_image)
+            if old_image:
+                reason = f"rollback is disabled for this bench (\\[switch].rollback_image = false); {old_image} is still recorded as previous"
+            else:
+                reason = "there is no previous image to roll back to"
             raise DeployError(
-                f"Deploy of {new_image} failed health check and is halted in maintenance mode "
-                f"(no previous image to roll back to). Investigate the new containers.",
+                f"Deploy of {new_image} failed health check and is halted in maintenance mode: {reason}.",
+                suggestions=[
+                    f"Check the new containers: 'fm logs {self.config.name}'",
+                    *([f"Roll back by hand: 'fm switch {self.config.name} {old_image}'"] if old_image else []),
+                ],
             )
         if not do_rolling:
             self._ensure_nginx()

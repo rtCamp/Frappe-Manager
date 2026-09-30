@@ -1308,11 +1308,28 @@ class TestHealthGate:
             r.orch.deploy(NEW_TAG)
         r.orch.rollback.assert_not_called()
 
-    def test_a_failed_health_gate_never_records_the_new_image(self, rig):
+    def test_a_halted_health_gate_records_the_image_it_left_pinned(self, rig):
+        """The compose is the new image and its containers are running it (see the sibling test
+        below), so state must say so: deploy state is the rollback source of truth, and leaving it
+        naming the OLD image made `fm info` disagree with docker for whoever picked up the
+        incident."""
         r = rig(_health_check=False)
         with pytest.raises(DeployError):
             r.orch.deploy(NEW_TAG)
-        r.orch._record.assert_not_called()
+        assert r.orch._record.call_args.args[0] == NEW_TAG
+
+    def test_a_halt_with_rollback_disabled_does_not_claim_there_is_no_previous_image(self, rig):
+        """One branch serves two causes. It said "no previous image to roll back to" even when a
+        previous image existed and only the config had turned rollback off, sending the operator
+        looking for a state that was never the problem."""
+        r = rig(deployments=_current_state(OLD_TAG), switch=SwitchConfig(rollback_image=False), _health_check=False)
+
+        with pytest.raises(DeployError) as excinfo:
+            r.orch.deploy(NEW_TAG)
+
+        assert "no previous image" not in str(excinfo.value)
+        assert "rollback_image" in str(excinfo.value)
+        assert any(OLD_TAG in s for s in excinfo.value.suggestions)
 
     def test_a_failed_health_gate_does_not_restore_the_compose(self, rig):
         """Post-swap: the compose IS the new image and the rollback re-pins it."""

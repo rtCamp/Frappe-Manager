@@ -76,6 +76,8 @@ def _orch(tmp_path, switch, deployments=None):
     config = SimpleNamespace(
         runtime=BenchRuntime.image,
         image=NEW,
+        # The halt message hands back a runnable recovery command, so it needs the bench's name.
+        name=SITE,
         switch=switch,
         workers=None,
         root_path=str(tmp_path),
