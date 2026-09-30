@@ -11,7 +11,21 @@ cleanup() {
 trap cleanup SIGTERM
 
 fuser -k 80/tcp
-/usr/local/bin/bench serve --port 80 &
+
+# Asked HERE, not in the entrypoint. `bench` only resolves subcommands inside a bench directory,
+# and supervisor sets `directory=/workspace/frappe-bench` for this program; the entrypoint runs
+# from `/`, where `bench serve --help` degrades to generic help with no `--host` in it. So a
+# boot-time probe always concluded the flag was unavailable and left the server on its default.
+#
+# That default changed under us: older frappe bound 0.0.0.0, newer frappe added `--host` and
+# defaults it to 127.0.0.1. nginx runs in a SEPARATE container, so a loopback bind makes every
+# request a 502 -- on a bench that built cleanly and reported success.
+HOST_ARG=""
+if /usr/local/bin/bench serve --help 2>/dev/null | grep -q -- "--host"; then
+	HOST_ARG="--host 0.0.0.0"
+fi
+
+/usr/local/bin/bench serve $HOST_ARG --port 80 &
 
 running_script_pid=$!
 wait $running_script_pid
