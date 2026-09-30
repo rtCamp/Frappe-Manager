@@ -4,6 +4,7 @@ import importlib.resources as pkg_resources
 import importlib.util
 import json
 import os
+import re
 import secrets
 import shutil
 import sys
@@ -43,6 +44,34 @@ SECRET_OPTIONS = frozenset(
     }
 )
 
+
+def strip_url_credentials(url: str) -> str:
+    """``https://TOKEN@github.com/org/repo`` -> ``https://github.com/org/repo``.
+
+    Everything before the last `@` in the authority is the credential. Returns the input
+    unchanged when there is none, and when the string is not a URL at all (`git@github.com:org/repo`
+    is scp syntax, where the `@` separates a USERNAME, not a secret).
+    """
+    scheme, sep, rest = url.partition("://")
+    if not sep:
+        return url
+    authority, slash, path = rest.partition("/")
+    if "@" not in authority:
+        return url
+    _credential, _, host = authority.rpartition("@")
+    return f"{scheme}://{host}{slash}{path}"
+
+
+_URL_CREDENTIAL_RE = re.compile(r"(?P<scheme>[a-z][a-z0-9+.\-]*://)[^/\s@]*@")
+
+
+def redact_credentials_in_text(text: str) -> str:
+    """Strip credentials from any URL embedded in free text.
+
+    For messages fm did not compose: a GitPython error quotes the whole git command line, so the
+    token-bearing clone URL rides into the log inside the exception string.
+    """
+    return _URL_CREDENTIAL_RE.sub(lambda m: m.group("scheme"), text)
 
 def redact_argv(argv: list[str]) -> str:
     """The command line as typed, with secret option VALUES replaced.

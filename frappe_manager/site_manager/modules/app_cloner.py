@@ -20,6 +20,7 @@ from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.logger import ctx_submit, get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.site_manager.bench_config import AppConfig, extract_app_python_module_name
+from frappe_manager.utils.helpers import redact_credentials_in_text, strip_url_credentials
 
 
 class AppClonerError(FrappeManagerException):
@@ -173,7 +174,7 @@ class AppCloner:
                 cloned = True
                 break
             except Exception as e:
-                self.logger.debug(f"{method_name} failed for monorepo: {e}")
+                self.logger.debug(f"{method_name} failed for monorepo: {redact_credentials_in_text(str(e))}")
                 if shared_clone_path.exists():
                     shutil.rmtree(shared_clone_path)
                 continue
@@ -274,7 +275,7 @@ class AppCloner:
 
         for method_name, repo_url in auth_methods:
             try:
-                self.logger.debug(f"Trying {method_name} for {app.name}: {repo_url}")
+                self.logger.debug(f"Trying {method_name} for {app.name}: {strip_url_credentials(repo_url)}")
                 self._git_clone(repo_url, clone_path, app)
                 self.logger.info(f"Successfully cloned {app.name} using {method_name}")
 
@@ -301,7 +302,7 @@ class AppCloner:
 
             except (GitCommandError, Exception) as e:
                 last_error = e
-                self.logger.debug(f"{method_name} failed for {app.name}: {e}")
+                self.logger.debug(f"{method_name} failed for {app.name}: {redact_credentials_in_text(str(e))}")
                 if clone_path.exists():
                     import shutil
 
@@ -351,9 +352,18 @@ class AppCloner:
 
         clone_type = "shallow" if clone_kwargs.get("depth") == 1 else "full"
         ref_info = f" (ref: {app.ref})" if app.ref else ""
-        self.logger.debug(f"Cloning {app.name} from {repo_url}{ref_info} [{clone_type} clone]")
+        # The URL may carry the token; the log must not.
+        self.logger.debug(f"Cloning {app.name} from {strip_url_credentials(repo_url)}{ref_info} [{clone_type} clone]")
 
         repo = Repo.clone_from(repo_url, clone_path, **clone_kwargs)
+
+        # git records the URL it cloned FROM as the remote, so a token-bearing URL leaves the
+        # credential sitting in apps/<app>/.git/config forever -- outliving the command by any
+        # amount, readable by anything that can read the bench, and copied into every image baked
+        # from that workspace. Rewritten to the credential-free form immediately after the clone.
+        clean_url = strip_url_credentials(repo_url)
+        if clean_url != repo_url:
+            repo.remote().set_url(clean_url)
 
         if app.is_commit:
             self.logger.debug(f"Checking out commit {app.ref} for {app.name}")
