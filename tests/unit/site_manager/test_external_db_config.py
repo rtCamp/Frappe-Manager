@@ -295,7 +295,7 @@ def test_common_site_config_redis_defaults_to_the_bench_containers(tmp_path):
     common = _bc(tmp_path).get_commmon_site_config_data()
     assert common["redis_cache"] == "redis://fm__x_localhost__redis-cache:6379"
     assert common["redis_queue"] == "redis://fm__x_localhost__redis-queue:6379"
-    assert common["redis_socketio"] == common["redis_cache"]
+    assert common["redis_socketio"] == common["redis_queue"]
 
 
 def test_common_site_config_uses_the_given_redis_urls_verbatim(tmp_path):
@@ -306,8 +306,9 @@ def test_common_site_config_uses_the_given_redis_urls_verbatim(tmp_path):
     common = bc.get_commmon_site_config_data()
     assert common["redis_cache"] == "redis://r.example:6379/0"
     assert common["redis_queue"] == "redis://r.example:6379/1"
-    # redis_socketio has no reader on v16 but bench tooling expects the key; it mirrors cache.
-    assert common["redis_socketio"] == common["redis_cache"]
+    # frappe v16's realtime reads redis_queue (node_utils.js get_redis_subscriber defaults to it),
+    # never redis_socketio -- but bench tooling expects the key, so it must agree with the queue.
+    assert common["redis_socketio"] == common["redis_queue"]
 
 
 # ------------------------------------------------------------------ redis endpoints

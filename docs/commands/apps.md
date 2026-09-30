@@ -17,7 +17,7 @@ $ fm apps COMMAND [ARGS]...
 
 Fetch app code onto a bench and install it into its site(s).
 
-Fetching an app's code and installing it into a site's database are different things. A plain fm apps add BENCH fetches the code and records the app on the bench, so any site created afterwards gets it, and installs it into nothing. fm apps add BENCH/SITE installs and migrates that one site, and fm apps add BENCH/all does every site the bench serves, reporting failures per site and exiting non-zero without stopping at the first.
+Fetching an app's code and installing it into a site's database are different things. A plain fm apps add BENCH fetches the code and adds the app to the bench's sites/apps.txt, so any site created afterwards gets it, and installs it into nothing. It does not write an \[[apps]] entry in bench_config.toml -- that is a bake config's job, which is why fm apps list reports such an app as present on disk but not recorded. fm apps add BENCH/SITE installs and migrates that one site, and fm apps add BENCH/all does every site the bench serves, reporting failures per site and exiting non-zero without stopping at the first.
 
 An image-runtime bench ships app changes by baking a new image: fm bake BENCH --apps APP:REF, then fm switch.
 

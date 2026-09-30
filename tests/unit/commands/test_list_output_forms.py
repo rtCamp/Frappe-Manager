@@ -37,7 +37,7 @@ def test_json_with_paths_is_refused(cli):
     with patch.object(handler, "display_error") as display_error:
         result, service_cls = _invoke(cli, ["--json", "--paths"])
 
-    assert result.exit_code == 1
+    assert result.exit_code == 2
     assert "--paths cannot be combined with --json" in " ".join(
         str(c.args[0]) for c in display_error.call_args_list
     )
@@ -49,7 +49,7 @@ def test_global_json_mode_with_paths_is_refused(cli):
     with patch.object(handler, "display_error"):
         result, service_cls = _invoke(cli, ["--paths"], obj_extra={"json": True})
 
-    assert result.exit_code == 1
+    assert result.exit_code == 2
     service_cls.return_value.list_benches_data.assert_not_called()
 
 

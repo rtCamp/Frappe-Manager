@@ -265,8 +265,10 @@ def get_bench_connection_config(
         "bench_id": "workspace-frappe-bench",
         "redis_cache": redis_cache,
         "redis_queue": redis_queue,
-        # The framework ignores this on v16, but bench tooling still expects the key.
-        "redis_socketio": redis_cache,
+        # frappe v16's realtime reads `redis_queue` (node_utils.js `get_redis_subscriber(kind =
+        # "redis_queue")`), never this key, but bench tooling still expects it present. Pointing it
+        # at the cache made the three keys disagree with each other and with --redis-queue's help.
+        "redis_socketio": redis_queue,
     }
 
 

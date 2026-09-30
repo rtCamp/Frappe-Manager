@@ -132,34 +132,34 @@ def restart(
     drain_explicit = ctx.get_parameter_source("drain") == ParameterSource.COMMANDLINE
 
     if rolling and recreate:
-        output.error("--rolling cannot be combined with --recreate", exception=typer.Exit(code=1))
+        output.error("--rolling cannot be combined with --recreate", exception=typer.Exit(code=2))
 
     if force and rolling:
         output.error(
             "--force cannot be combined with --rolling (the rolling swap replaces web containers gracefully)",
-            exception=typer.Exit(code=1),
+            exception=typer.Exit(code=2),
         )
 
     if force and drain_explicit and drain:
         output.error(
             "--force cannot be combined with --drain (drain waits for in-flight jobs; force kills them)",
-            exception=typer.Exit(code=1),
+            exception=typer.Exit(code=2),
         )
 
     if drain_explicit and drain and not workers:
         output.error(
             "--drain cannot be combined with --no-workers (drain suspends the worker tier "
             "before restarting it; with workers excluded there is nothing to drain)",
-            exception=typer.Exit(code=1),
+            exception=typer.Exit(code=2),
         )
 
     if service:
         if rolling:
-            output.error("--service cannot be combined with --rolling", exception=typer.Exit(code=1))
+            output.error("--service cannot be combined with --rolling", exception=typer.Exit(code=2))
         if drain_explicit and drain:
             output.error(
                 "--service cannot be combined with --drain (drain applies to the worker group: --workers --drain)",
-                exception=typer.Exit(code=1),
+                exception=typer.Exit(code=2),
             )
 
     # --rolling swaps the web containers and, at most, cycles the workers afterwards: its branch
@@ -170,18 +170,18 @@ def restart(
             output.error(
                 "--redis cannot be combined with --rolling (the rolling swap only replaces web containers; "
                 "bounce redis in its own run: fm restart <bench> --redis --no-web --no-workers)",
-                exception=typer.Exit(code=1),
+                exception=typer.Exit(code=2),
             )
         if nginx:
             output.error(
                 "--nginx cannot be combined with --rolling (the rolling swap only replaces web containers; "
                 "restart nginx in its own run: fm restart <bench> --nginx --no-web --no-workers)",
-                exception=typer.Exit(code=1),
+                exception=typer.Exit(code=2),
             )
         if not web:
             output.error(
                 "--no-web cannot be combined with --rolling (--rolling IS the zero-downtime web restart)",
-                exception=typer.Exit(code=1),
+                exception=typer.Exit(code=2),
             )
 
     # Nothing selected is a usage error, not a successful no-op: an empty selection would

@@ -129,6 +129,16 @@ class LogPrune:
     def drop_count(self) -> int:
         return len(self.archives_to_drop) + sum(len(r.archives_to_drop) for r in self.rotations)
 
+    @property
+    def drop_size(self) -> int:
+        """Bytes the dropped archives free. Separate from `rotate_size`, which counts the LIVE
+        files being archived: those shrink rather than disappear, so summing only that reported
+        "~0 B reclaimed" for a run whose whole job was deleting old archives."""
+        return sum(p.stat().st_size for p in self._all_drops() if p.exists())
+
+    def _all_drops(self) -> list[Path]:
+        return [*self.archives_to_drop, *(a for r in self.rotations for a in r.archives_to_drop)]
+
 
 def _archives_of(log_file: Path) -> list[Path]:
     """This file's rotation archives, newest first by mtime."""

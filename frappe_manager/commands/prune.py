@@ -301,7 +301,10 @@ def prune(
         reclaimed += plan.size
         execute_session_prune(plan)
     if log_plan is not None:
-        reclaimed += log_plan.rotate_size
+        # Measured BEFORE the delete, and including the dropped archives: counting only the live
+        # files being rotated reported "~0 B reclaimed" for a run whose whole job was deleting old
+        # archives, since those files shrink rather than vanish.
+        reclaimed += log_plan.rotate_size + log_plan.drop_size
         execute_log_prune(log_plan)
 
     output.print(f"Done     : ~{format_size(reclaimed)} reclaimed", emoji_code="")

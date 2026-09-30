@@ -71,7 +71,7 @@ def start(
             "--no-include-default-workers with --no-include-custom-workers regenerates an EMPTY worker set, "
             "which deletes docker-compose.workers.yml and leaves the bench with no workers at all: keep one "
             "of the two.",
-            exception=typer.Exit(code=1),
+            exception=typer.Exit(code=2),
         )
 
     worker_scope_flags = [
@@ -84,7 +84,7 @@ def start(
             f"{' and '.join(worker_scope_flags)} only apply with --reconfigure-workers, which is what "
             "regenerates docker-compose.workers.yml; on its own fm start leaves the worker set exactly "
             "as it is already configured.",
-            exception=typer.Exit(code=1),
+            exception=typer.Exit(code=2),
         )
 
     check_bench_migration_required(benchname)

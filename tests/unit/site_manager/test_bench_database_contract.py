@@ -27,7 +27,8 @@ Contracts pinned:
    user drop is always `remove_all_host=True` (every host grant, not just `%`).
 4. **What `sync_common_site_config` writes.** Redis only, config driven: an external
    `[redis]` is used verbatim, otherwise the per-bench redis container addresses are
-   minted from the container prefix; `redis_socketio` always aliases the cache;
+   minted from the container prefix; `redis_socketio` follows the QUEUE, which is the key
+    frappe v16's realtime actually reads;
    `socketio_port` is the *string* `"80"`; and **no `db_*` key is ever minted**, since
    that would clobber an external database back to container names.
 
@@ -490,7 +491,7 @@ def test_sync_mints_the_per_bench_redis_containers_when_no_external_redis(tmp_pa
         "bench_id": "workspace-frappe-bench",
         "redis_cache": MANAGED_CACHE,
         "redis_queue": MANAGED_QUEUE,
-        "redis_socketio": MANAGED_CACHE,
+        "redis_socketio": MANAGED_QUEUE,
         "socketio_port": "80",
     }
 
@@ -505,7 +506,7 @@ def test_sync_uses_an_external_redis_verbatim(tmp_path):
         "bench_id": "workspace-frappe-bench",
         "redis_cache": "redis://r.example:6379/0",
         "redis_queue": "redis://r.example:6379/1",
-        "redis_socketio": "redis://r.example:6379/0",
+        "redis_socketio": "redis://r.example:6379/1",
         "socketio_port": "80",
     }
 

@@ -37,19 +37,19 @@ def cli(tmp_path):
 
 def test_force_with_explicit_drain_conflicts(cli):
     result = runner.invoke(cli, ["x.localhost", "--force", "--drain"])
-    assert result.exit_code == 1
+    assert result.exit_code == 2
     assert "cannot be combined" in result.output
 
 
 def test_force_with_rolling_conflicts(cli):
     result = runner.invoke(cli, ["x.localhost", "--force", "--rolling"])
-    assert result.exit_code == 1
+    assert result.exit_code == 2
     assert "cannot be combined" in result.output
 
 
 def test_service_with_explicit_drain_conflicts(cli):
     result = runner.invoke(cli, ["x.localhost", "--service", "frappe", "--drain"])
-    assert result.exit_code == 1
+    assert result.exit_code == 2
     assert "cannot be combined" in result.output
 
 
@@ -113,7 +113,7 @@ def test_no_workers_with_explicit_drain_conflicts(cli):
     # Drain runs only over the worker tier; excluding workers while explicitly
     # asking for a drain used to pass silently with no drain at all.
     result = runner.invoke(cli, ["x.localhost", "--no-workers", "--drain"])
-    assert result.exit_code == 1
+    assert result.exit_code == 2
     assert "cannot be combined" in result.output
 
 

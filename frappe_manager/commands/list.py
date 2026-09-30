@@ -54,7 +54,7 @@ def list(
         # silently preferring one form (the JSON rows already carry name and path).
         output.error(
             "--paths cannot be combined with --json (the JSON rows already carry name and path)",
-            exception=typer.Exit(code=1),
+            exception=typer.Exit(code=2),
         )
 
     if json_output or ctx.obj.get("json"):
