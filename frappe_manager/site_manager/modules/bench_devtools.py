@@ -271,6 +271,13 @@ class BenchDevTools:
         # A label is fixed at container creation, so the `up` below RECREATES frappe for the new
         # metadata to exist at all. Say so: this reported "Regenerated bench compose" and then
         # bounced the bench's web container without the word appearing anywhere.
+        #
+        # The FIRST `fm code` on any bench always lands here, because the label does not exist
+        # until something writes it. Emitting it from `compose_shape.bench_service_specs` instead
+        # would have the container born with it, leaving a recreate only for an operator who
+        # actually asked for different --extension/--user values. Not done: it puts a dev-tooling
+        # key in every bench's compose including prod, and a future change to DEFAULT_EXTENSIONS
+        # would then recreate frappe on the next compose regeneration.
         self.output.print("Regenerated bench compose; recreating the frappe container to apply it")
         self.docker_client.compose.up(
             services=["frappe"],
