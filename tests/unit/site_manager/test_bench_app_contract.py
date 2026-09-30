@@ -1523,9 +1523,53 @@ class TestSetupEnvironmentsPython:
         assert manager.setup_python_and_node_environments(recreate_python_env=True) is True
 
         venv_cmd = _find(_commands(manager), VENV_MARKER)[0]
-        assert "mv env env.bak-$timestamp" in venv_cmd
+        assert f"mv env {manager.VENV_BACKUP}" in venv_cmd
         assert "uv venv env --python cpython-3.11.9-linux-aarch64-gnu --seed --link-mode=copy" in venv_cmd
         assert _said(manager.output.print, "Created virtual environment with Python cpython-3.11.9-linux-aarch64-gnu")
+
+    def test_recreate_rebuilds_even_when_the_current_python_already_satisfies(self, tmp_path):
+        """The repair verb's whole reason to exist is an env/ whose Python is FINE. A satisfied
+        version check nulls the requirement and skips the stage that reads the flag, so this was
+        the one case --recreate-python-env silently did nothing in."""
+        manager = _manager(tmp_path)
+        manager.bench_config.python_version = "3.11"
+        _script(manager, [(PY_VERSION_CMD, _output(["Python 3.11.9"]))])
+
+        assert manager.setup_python_and_node_environments(recreate_python_env=True) is True
+
+        venv_cmd = _find(_commands(manager), VENV_MARKER)[0]
+        assert f"mv env {manager.VENV_BACKUP}" in venv_cmd
+        assert _find(_commands(manager), "uv python install") == []
+
+    def test_no_recreate_leaves_the_env_alone(self, tmp_path):
+        """--no-recreate-python-env with nothing else to do must not touch env/."""
+        manager = _manager(tmp_path)
+        manager.bench_config.python_version = "3.11"
+        _script(manager, [(PY_VERSION_CMD, _output(["Python 3.11.9"]))])
+
+        assert manager.setup_python_and_node_environments(recreate_python_env=False) is False
+        assert _find(_commands(manager), VENV_MARKER) == []
+
+    def test_an_interrupted_rebuild_is_restored_before_its_backup_is_deleted(self, tmp_path):
+        """env.bak with no usable env/ is a rebuild killed between its two renames. The rebuild
+        opens with `rm -rf env.bak`, so without this the recovery path deletes the only complete
+        venv the bench has left."""
+        manager = _manager(tmp_path)
+        manager.bench_config.python_version = "3.11"
+        _script(
+            manager,
+            [
+                (PY_VERSION_CMD, _output(["Python 3.11.9"])),
+                ("orphaned", _output(["orphaned"])),
+            ],
+        )
+
+        manager.setup_python_and_node_environments(recreate_python_env=True)
+
+        commands = _commands(manager)
+        restore = _find(commands, f"mv {manager.VENV_BACKUP} env")[0]
+        assert commands.index(restore) < commands.index(_find(commands, VENV_MARKER)[0])
+        assert _said(manager.output.warning, "previous environment rebuild was interrupted")
 
     def test_recreate_reports_the_scanned_version_when_one_was_reused(self, tmp_path):
         manager = _manager(tmp_path)

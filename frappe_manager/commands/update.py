@@ -547,25 +547,35 @@ def _setup_runtime(bench: Bench, plan: UpdatePlan, output) -> None:
     output.print("Runtime versions updated successfully")
 
     if venv_recreated:
-        apps_txt_path = host_bench_dir(bench.path) / "sites" / "apps.txt"
-        if apps_txt_path.exists():
-            installed_apps = [line.strip() for line in apps_txt_path.read_text().splitlines() if line.strip()]
-            apps_list = [
-                AppConfig.from_dict({"app": name, "branch": None}, github_token=bench.bench_config.github_token)
-                for name in installed_apps
-            ]
-            output.change_head("Reinstalling apps into new virtual environment")
-            output.print(f"Found {len(apps_list)} installed apps: {', '.join([a.name for a in apps_list])}")
-            bench.app_manager.install_apps(
-                apps_list=apps_list,
-                github_token=bench.bench_config.github_token,
-                use_uv=bench.bench_config.use_uv,
-                skip_clone=True,
-                use_run=True,
-            )
-            output.print("All apps reinstalled successfully")
-        else:
-            output.warning("No apps.txt found, skipping app reinstallation")
+        # `recreate_venv` left the pre-repair venv as env.bak and this is the only place that can
+        # close that transaction: a venv with no apps in it is worse than whatever the operator
+        # asked to repair, so anything that fails between here and the last install puts the old
+        # environment back rather than leaving the bench on an empty one.
+        try:
+            apps_txt_path = host_bench_dir(bench.path) / "sites" / "apps.txt"
+            if apps_txt_path.exists():
+                installed_apps = [line.strip() for line in apps_txt_path.read_text().splitlines() if line.strip()]
+                apps_list = [
+                    AppConfig.from_dict({"app": name, "branch": None}, github_token=bench.bench_config.github_token)
+                    for name in installed_apps
+                ]
+                output.change_head("Reinstalling apps into new virtual environment")
+                output.print(f"Found {len(apps_list)} installed apps: {', '.join([a.name for a in apps_list])}")
+                bench.app_manager.install_apps(
+                    apps_list=apps_list,
+                    github_token=bench.bench_config.github_token,
+                    use_uv=bench.bench_config.use_uv,
+                    skip_clone=True,
+                    use_run=True,
+                )
+                output.print("All apps reinstalled successfully")
+            else:
+                output.warning("No apps.txt found, skipping app reinstallation")
+        except Exception:
+            output.warning("Environment rebuild failed; restoring the previous environment")
+            bench.app_manager.restore_venv_backup(use_run=True)
+            raise
+        bench.app_manager.commit_venv_backup(use_run=True)
 
     if plan.restart_web:
         output.change_head("Restarting web services (frappe, socketio)")

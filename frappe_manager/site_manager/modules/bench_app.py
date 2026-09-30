@@ -132,22 +132,61 @@ class BenchAppManager:
 
         return versions
 
-    def setup_python_and_node_environments(self, use_run: bool = False, recreate_python_env: bool = False) -> bool:
+    VENV_BACKUP = "env.bak"
+
+    def recreate_venv(self, python_spec: str, use_run: bool) -> None:
+        """Rebuild ``env/`` at ``python_spec``, keeping the previous one aside as ``env.bak``.
+
+        The caller OWNS the outcome: it must call `commit_venv_backup` once the apps are back in
+        the new venv, or `restore_venv_backup` if anything between here and there fails. A fresh
+        venv with no apps installed is worse than the corrupt one the operator asked to repair, and
+        this backup is the only way back to a working bench.
+
+        The name is fixed, not timestamped: a timestamped backup cannot be found again by a restore
+        path that did not create it, so the old one was unrecoverable by anything but a human who
+        knew it existed -- and it accumulated a full venv per repair, none ever removed.
         """
-        Setup Python and Node.js environments for the bench.
+        # Before the `rm -rf` below, which would otherwise delete the only complete venv the bench
+        # has left if a previous rebuild was killed between its two renames.
+        self._recover_orphaned_venv_backup(use_run=use_run)
+        self._container_run(
+            f"cd {CONTAINER_BENCH_DIR} && rm -rf {self.VENV_BACKUP} && "
+            f"{{ [ -d env ] && mv env {self.VENV_BACKUP} || true; }} && "
+            f"uv venv env --python {python_spec} --seed --link-mode=copy",
+            use_run=use_run,
+        )
 
-        This method:
-        1. Installs the required Python version via UV if not already present
-        2. Creates venv with UV using that Python version
-        3. Installs Node version via fnm if not present
-        4. Sets fnm default to use that Node version
+    def commit_venv_backup(self, use_run: bool) -> None:
+        """Drop the pre-repair venv once the new one is proven (built, and apps installed into it)."""
+        self._container_run(f"cd {CONTAINER_BENCH_DIR} && rm -rf {self.VENV_BACKUP}", use_run=use_run)
 
-        Returns:
-            dict: {
-                'venv_recreated': bool,
-                'old_python_version': str or None,
-                'old_node_version': str or None
-            }
+    def restore_venv_backup(self, use_run: bool) -> None:
+        """Put the pre-repair venv back, discarding the half-built one."""
+        self._container_run(
+            f"cd {CONTAINER_BENCH_DIR} && if [ -d {self.VENV_BACKUP} ]; then rm -rf env && mv {self.VENV_BACKUP} env; fi",
+            use_run=use_run,
+        )
+
+    def _recover_orphaned_venv_backup(self, use_run: bool) -> None:
+        """An ``env.bak`` with no ``env/`` beside it is a repair whose process was killed between
+        the two renames. Building a new venv on top of that state abandons the only complete one
+        the bench has, so put it back before doing anything else."""
+        result = self._container_capture(
+            f"cd {CONTAINER_BENCH_DIR} && [ -d {self.VENV_BACKUP} ] && [ ! -x env/bin/python ] && echo orphaned || true",
+            use_run=use_run,
+        )
+        if result and any("orphaned" in line for line in result.combined):
+            self.output.warning(
+                f"Found {self.VENV_BACKUP} with no usable env/ -- a previous environment rebuild was interrupted. "
+                "Restoring the environment it saved.",
+            )
+            self.restore_venv_backup(use_run=use_run)
+
+    def setup_python_and_node_environments(self, use_run: bool = False, recreate_python_env: bool = False) -> bool:
+        """Install the bench's required Python/Node and, when asked, rebuild ``env/`` at it.
+
+        Returns whether the venv was rebuilt, which is the caller's signal to reinstall the apps
+        into it -- and to finish the backup transaction `recreate_venv` opened.
         """
         from frappe_manager.site_manager.bench_config import (
             parse_node_version_for_runtime,
@@ -290,16 +329,7 @@ fi
 
                     if recreate_python_env:
                         self.output.change_head(f"Creating virtual environment with {selected_python_full}")
-                        quoted_python = shlex.quote(selected_python_full)
-                        recreate_venv_cmd = f"""
-                        cd {CONTAINER_BENCH_DIR}
-                        if [ -d env ]; then
-                            timestamp=$(date +%Y%m%d_%H%M%S)
-                            mv env env.bak-$timestamp
-                        fi
-                        uv venv env --python {quoted_python} --seed --link-mode=copy
-                        """
-                        self._container_run(recreate_venv_cmd, use_run=use_run)
+                        self.recreate_venv(shlex.quote(selected_python_full), use_run=use_run)
                         selected_version_str = (
                             f"{selected_version[0]}.{selected_version[1]}.{selected_version[2]}"
                             if selected_version
@@ -313,6 +343,19 @@ fi
                 except Exception as e:
                     self.output.warning(f"Failed to setup Python {python_version}: {e}")
                     self.output.warning("Continuing with default Python version")
+
+        if recreate_python_env and not venv_recreated:
+            # The block above only runs when the bench NEEDS a different interpreter: a satisfied
+            # version check nulls `python_version_requirement`, which used to skip the rebuild too.
+            # So the one case `--recreate-python-env` exists for -- repairing an env/ whose Python
+            # is perfectly fine -- was the case it silently did nothing in. The caller asked; the
+            # version check does not get a vote. Rebuild at the interpreter already selected on
+            # disk rather than installing one, which is what "rebuild at the recorded Python" means.
+            self.output.change_head("Recreating virtual environment")
+            default_python = f"{CONTAINER_BENCH_DIR}/.uv/python-default/bin/python"
+            self.recreate_venv(f"$( [ -x {default_python} ] && echo {default_python} || echo python3 )", use_run=use_run)
+            self.output.print("Recreated virtual environment")
+            venv_recreated = True
 
         node_version_requirement = self.bench_config.node_version
         if node_version_requirement:
