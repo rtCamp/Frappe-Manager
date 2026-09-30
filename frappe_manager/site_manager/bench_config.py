@@ -1002,6 +1002,22 @@ class AuthConfig(WebAuthConfig):
     """
 
     tools: bool = Field(True, description="Prompt on the admin tools paths (/adminer/, /mailpit/).")
+    tools_user: str | None = Field(
+        None,
+        description="Basic auth username for the admin tools; falls back to `user` when unset, which is what "
+        "an existing bench does until tools credentials are set explicitly.",
+    )
+    tools_password: str | None = Field(
+        None, description="Basic auth password for the admin tools; falls back to `password` when unset."
+    )
+
+    @property
+    def effective_tools_user(self) -> str:
+        return self.tools_user or self.user
+
+    @property
+    def effective_tools_password(self) -> str | None:
+        return self.tools_password or self.password
 
 
 class WorkersConfig(BaseModel):

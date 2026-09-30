@@ -11,7 +11,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from frappe_manager.site_manager.bench_config import AuthConfig, SiteConfig, WebAuthConfig
-from frappe_manager.site_manager.modules.auth import build_tools_auth_block, container_htpasswd_path
+from frappe_manager.site_manager.modules.auth import (
+    build_tools_auth_block,
+    container_htpasswd_path,
+    container_tools_htpasswd_path,
+)
 from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
 from tests.unit.site_manager.test_site_contract import SITE, build_bench, make_bench_config
 
@@ -119,10 +123,11 @@ class TestPerSiteAuthInteraction:
         h.bench.bench_config.sites[OTHER].auth = WebAuthConfig(web=True, password="sp")
         obj.save_nginx_location_config()
 
-        # The tools are one container pair for the whole bench, so they stay on bench credentials
-        # whatever a site does with its own web prompt.
+        # The tools are one container pair for the whole bench, so they stay on the BENCH's tools
+        # credential whatever a site does with its own web prompt -- and on their own htpasswd, so a
+        # web password change cannot re-credential them.
         conf = (h.conf_dir / "custom" / OTHER / "admin-tools.conf").read_text()
-        assert f"auth_basic_user_file {container_htpasswd_path(SITE)};" in conf
+        assert f"auth_basic_user_file {container_tools_htpasswd_path(SITE)};" in conf
 
     def test_each_sites_block_reflects_its_own_web_state(self, tools):
         h, obj = tools(auth=AuthConfig(web=False, tools=False, password="bp"))

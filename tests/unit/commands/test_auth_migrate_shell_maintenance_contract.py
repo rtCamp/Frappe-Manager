@@ -550,7 +550,36 @@ def test_an_explicit_password_wins_over_minting(tmp_path):
     with patch.object(auth_helpers_mod, "generate_password", return_value=MINTED_PW) as gen:
         _run_enable(bench, tools=True, password=CHOSEN_PW)
     gen.assert_not_called()
-    assert _saved(bench).password == CHOSEN_PW
+    # `--tools` was named, so the credential lands on the TOOLS pair: naming one surface must not
+    # re-credential the other.
+    assert _saved(bench).effective_tools_password == CHOSEN_PW
+
+
+@pytest.mark.usefixtures("out")
+def test_protecting_the_web_surface_leaves_the_tools_credential_alone(tmp_path):
+    """Measured on a live bench: enabling web auth re-credentialled an already-protected tools
+    surface, so whoever held the tools password got a 401 with nothing saying why. The credential
+    belongs to the surface being protected, which is how nginx, Traefik and CapRover all scope it."""
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=True, tools_user="ops", tools_password="ops-pw"))
+
+    _run_enable(bench, web=True, user="dev", password="dev-pw")
+
+    saved = _saved(bench)
+    assert (saved.user, saved.password) == ("dev", "dev-pw")
+    assert (saved.effective_tools_user, saved.effective_tools_password) == ("ops", "ops-pw")
+
+
+@pytest.mark.usefixtures("out")
+def test_a_bench_with_no_tools_credential_of_its_own_follows_the_web_one(tmp_path):
+    """The fallback is what keeps existing benches working with no migration: until tools
+    credentials are set explicitly, the tools surface reads the bench's."""
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=True, tools=True, user="admin", password="shared"))
+
+    _run_enable(bench, web=True, user="admin", password="rotated")
+
+    saved = _saved(bench)
+    assert saved.tools_password is None
+    assert saved.effective_tools_password == "rotated"
 
 
 @pytest.mark.usefixtures("out")

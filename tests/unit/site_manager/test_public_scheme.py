@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from frappe_manager.site_manager.modules.public_scheme import host_has_trusted_front, public_scheme
-from frappe_manager.site_manager.modules.realip import build_proxy_realip_conf, PROXY_CONF_FILENAME
+from frappe_manager.site_manager.modules.realip import PROXY_CONF_FILENAME, build_proxy_realip_conf
 
 
 class TestPublicScheme:

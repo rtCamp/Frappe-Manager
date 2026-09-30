@@ -61,6 +61,7 @@ from frappe_manager.site_manager.modules.auth import (
     build_server_auth_conf,
     container_htpasswd_path,
     htpasswd_name,
+    tools_htpasswd_name,
 )
 from frappe_manager.site_manager.modules.hsts_manager import HstsManager
 from frappe_manager.site_manager.modules.realip import build_bench_realip_conf
@@ -804,7 +805,7 @@ class TestEnsureFmNginxConfs:
         # The tools surface carries its own directives inside admin-tools.conf; a
         # server-context include would gate the whole site.
         assert not (h.conf_dir / "custom" / SITE / SERVER_CONF_NAME).exists()
-        assert (h.conf_dir / "http_auth" / htpasswd_name(SITE)).exists()
+        assert (h.conf_dir / "http_auth" / tools_htpasswd_name(SITE)).exists()
 
     def test_tools_auth_needs_admin_tools_enabled_to_mint_credentials(self, tmp_path):
         bench_path = tmp_path / SITE

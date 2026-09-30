@@ -18,7 +18,6 @@ refusal into a stack trace or a stack trace into silence. That is what this file
 from unittest.mock import patch
 
 import pytest
-import typer
 
 from frappe_manager.exceptions import MissingArgumentError, NonInteractiveError
 from frappe_manager.utils.callbacks import (

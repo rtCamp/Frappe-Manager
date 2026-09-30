@@ -1438,7 +1438,7 @@ def test_location_conf_gates_the_tools_itself_when_only_tools_auth_is_on(tmp_pat
         t.tools.save_nginx_location_config()
 
     conf = t.location_conf.read_text()
-    assert f"auth_basic_user_file /etc/nginx/http_auth/{BENCH}.htpasswd;" in conf
+    assert f"auth_basic_user_file /etc/nginx/http_auth/{BENCH}.tools.htpasswd;" in conf
     assert 'auth_basic "Restricted";' in conf
     assert "auth_basic off;" not in conf
 
@@ -1479,7 +1479,7 @@ def test_the_tools_gate_is_the_benchs_even_when_the_web_surface_is_gated_too(tmp
 
     conf = t.location_conf.read_text()
     assert "auth_basic " in conf
-    assert f"auth_basic_user_file /etc/nginx/http_auth/{BENCH}.htpasswd;" in conf
+    assert f"auth_basic_user_file /etc/nginx/http_auth/{BENCH}.tools.htpasswd;" in conf
 
 
 @pytest.mark.timeout(15)

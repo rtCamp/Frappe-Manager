@@ -115,7 +115,7 @@ class BenchAdminTools:
         """
         from jinja2 import Template
 
-        from frappe_manager.site_manager.modules.auth import build_tools_auth_block, container_htpasswd_path
+        from frappe_manager.site_manager.modules.auth import build_tools_auth_block, container_tools_htpasswd_path
 
         config = self.bench.bench_config
         auth = config.auth
@@ -132,7 +132,7 @@ class BenchAdminTools:
                     "auth_block": build_tools_auth_block(
                         web=config.auth_for(site).web if site else bool(auth and auth.web),
                         tools=bool(auth.tools) if auth else True,
-                        auth_file=container_htpasswd_path(self.bench_name),
+                        auth_file=container_tools_htpasswd_path(self.bench_name),
                         allow_ips=auth.allow_ips if auth else [],
                     ),
                 }

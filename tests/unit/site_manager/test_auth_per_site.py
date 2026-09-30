@@ -21,6 +21,7 @@ from frappe_manager.site_manager.modules.auth import (
     htpasswd_name,
     site_htpasswd_name,
     site_var_suffix,
+    tools_htpasswd_name,
 )
 from frappe_manager.utils.config_keys import collect_unknown_keys
 from tests.unit.site_manager.test_site_contract import SITE, build_bench, make_bench_config
@@ -184,9 +185,9 @@ class TestToolsStayBenchWide:
         )
         h.bench.ensure_fm_nginx_confs()
 
-        # The tools surface is backed by the bench's htpasswd whatever the sites do; sweeping it as
+        # The tools surface is backed by its OWN htpasswd whatever the sites do; sweeping it as
         # "no scope wants this" would unlock /adminer/ on every hostname.
-        assert (h.conf_dir / "http_auth" / htpasswd_name(SITE)).exists()
+        assert (h.conf_dir / "http_auth" / tools_htpasswd_name(SITE)).exists()
 
     def test_a_site_can_no_longer_be_stopped_from_expressing_a_tools_value(self):
         # Not "rejected": there is one Adminer and one Mailpit per bench, so a per-site `tools`

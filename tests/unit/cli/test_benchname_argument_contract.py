@@ -38,7 +38,7 @@ from frappe_manager.exceptions import (
     NonInteractiveError,
 )
 from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.site_manager.exceptions import BenchException, BenchNotFoundError
+from frappe_manager.site_manager.exceptions import BenchNotFoundError
 from frappe_manager.utils import callbacks
 from frappe_manager.utils import site as site_utils
 from frappe_manager.utils.callbacks import (

@@ -78,13 +78,29 @@ def container_site_htpasswd_path(bench_name: str, site: str) -> str:
 
 
 def htpasswd_name(bench_name: str) -> str:
-    """Basename of the bench's single htpasswd file, shared by both surfaces."""
+    """Basename of the bench's htpasswd file, backing its WEB surface."""
     return f"{bench_name}.htpasswd"
+
+
+def tools_htpasswd_name(bench_name: str) -> str:
+    """Basename of the admin tools' own htpasswd.
+
+    Separate from the web surface's because the credential belongs to the thing being protected,
+    not to the host: nginx makes `auth_basic_user_file` a per-location directive, and every
+    comparable tool (Traefik middlewares, ingress-nginx per-Ingress secrets, CapRover's per-service
+    form) scopes it that way. Sharing one file meant `fm auth enable BENCH --web --password X`
+    silently re-credentialled an already-protected tools surface and locked out whoever held it.
+    """
+    return f"{bench_name}.tools.htpasswd"
 
 
 def container_htpasswd_path(bench_name: str) -> str:
     """Where that file appears inside the container (configs/nginx/conf is /etc/nginx)."""
     return f"/etc/nginx/http_auth/{htpasswd_name(bench_name)}"
+
+
+def container_tools_htpasswd_path(bench_name: str) -> str:
+    return f"/etc/nginx/http_auth/{tools_htpasswd_name(bench_name)}"
 
 
 def generate_password() -> str:

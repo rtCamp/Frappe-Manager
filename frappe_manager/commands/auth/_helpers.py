@@ -49,9 +49,21 @@ def print_state(output, config: WebAuthConfig, hint_when_off: bool) -> None:
         if hint_when_off and (config.password or config.allow_ips or config.allow_paths):
             output.print("  credentials and exemptions stay stored and apply again when a surface is protected")
         return
-    output.print(f"  user: {config.user}")
-    if config.password:
-        output.print(f"  password: {config.password}")
+    # One credential line per protected surface, because they can now differ. A single line was
+    # only ever right while both surfaces shared a file, and it is what made a silent
+    # re-credentialling of the tools surface invisible.
+    tools_differs = isinstance(config, AuthConfig) and (config.tools_user or config.tools_password)
+    web_label = "  web user" if (tools and tools_differs) else "  user"
+    if config.web or not tools:
+        output.print(f"{web_label}: {config.user}")
+        if config.password:
+            output.print(f"{web_label.replace('user', 'password')}: {config.password}")
+    if tools and isinstance(config, AuthConfig):
+        label = "  tools user" if tools_differs else "  user"
+        if not config.web or tools_differs:
+            output.print(f"{label}: {config.effective_tools_user}")
+            if config.effective_tools_password:
+                output.print(f"{label.replace('user', 'password')}: {config.effective_tools_password}")
     if config.allow_ips:
         output.print(f"  no prompt from: {', '.join(config.allow_ips)}")
     if config.web and config.allow_paths:
@@ -257,12 +269,21 @@ def apply_auth(
         # Same reasoning as the site branch above, for the bench's own [auth]: mutate the loaded
         # AuthConfig in place so a stray key survives, and only construct fresh below when the
         # bench has no [auth] table yet to preserve.
-        bench.bench_config.auth.user = new_user
-        bench.bench_config.auth.password = new_password
-        bench.bench_config.auth.web = web_on
-        bench.bench_config.auth.tools = tools_on
-        bench.bench_config.auth.allow_ips = new_allow_ips
-        bench.bench_config.auth.allow_paths = new_allow_paths
+        # The credential follows the surface NAMED, not the bench: `--tools` writes the tools pair
+        # and `--web` the web pair, so protecting one surface cannot silently re-credential an
+        # already-protected other and lock out whoever holds it. Naming neither means both, which
+        # is the common case and keeps a single shared credential.
+        stored_auth = bench.bench_config.auth
+        if credentials_touched and tools_named:
+            stored_auth.tools_user = new_user
+            stored_auth.tools_password = new_password
+        else:
+            stored_auth.user = new_user
+            stored_auth.password = new_password
+        stored_auth.web = web_on
+        stored_auth.tools = tools_on
+        stored_auth.allow_ips = new_allow_ips
+        stored_auth.allow_paths = new_allow_paths
     else:
         bench.bench_config.auth = AuthConfig(
             user=new_user,

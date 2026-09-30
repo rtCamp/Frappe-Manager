@@ -38,7 +38,7 @@ $ fm auth enable BENCH(/SITE) [OPTIONS]
 
 * `--web`: Act on the web surface: frappe and socketio.  [default: false]
 * `--tools`: Act on the admin tools surface: /adminer/ and /mailpit/. Bench-wide, so it takes no site part.  [default: false]
-* `--user TEXT`: Basic auth username for the scope you named: both surfaces of the bench, or that one site. Defaults to 'admin'.
+* `--user TEXT`: Basic auth username for the surface you named: --web's, --tools's, or that one site's. Naming neither surface sets one credential for both. Defaults to 'admin'.
 * `--password TEXT`: Basic auth password. Pass - to read it from stdin, keeping it out of the shell history. A random one is minted on the first enable.
 * `--rotate`: Replace the password with a fresh random one, invalidating browser sessions that cached the old one.  [default: false]
 * `--allow-ip TEXT`: Address or CIDR that skips the prompt (repeatable; replaces the stored list). Behind a CDN this needs the edge trusted, see fm services trusted-proxies.

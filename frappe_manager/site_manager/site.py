@@ -2075,6 +2075,7 @@ class Bench:
             is_fm_auth_conf,
             site_htpasswd_name,
             site_var_suffix,
+            tools_htpasswd_name,
             write_htpasswd,
         )
         from frappe_manager.site_manager.modules.realip import build_bench_realip_conf
@@ -2127,19 +2128,19 @@ class Bench:
                     seen_bench = True
                     scopes.append(("", auth))
 
-        # `tools` is bench-wide by design (one Adminer and one Mailpit per bench), so it reads the
-        # bench's auth and is backed by the bench's htpasswd whatever the sites do.
+        # `tools` is bench-wide by design (one Adminer and one Mailpit per bench), but it gets its
+        # OWN htpasswd: sharing the web surface's file made a web password change silently
+        # re-credential an already-protected tools surface.
         tools_wanted = bool(auth.tools and self.bench_config.admin_tools)
         bench_web = any(key == "" and sauth.web for key, sauth in scopes)
-        needs_bench_htpasswd = tools_wanted or bench_web
 
         minted = False
         for _key, sauth in scopes:
             if sauth.web and sauth.password is None:
                 sauth.password = generate_password()
                 minted = True
-        if tools_wanted and auth.password is None:
-            auth.password = generate_password()
+        if tools_wanted and auth.effective_tools_password is None:
+            auth.tools_password = generate_password()
             minted = True
         if minted:
             self.bench_config.auth = auth
@@ -2171,8 +2172,13 @@ class Bench:
                 if sauth.password:
                     htpasswds[htpasswd_file] = (sauth.user, sauth.password)
 
-        if needs_bench_htpasswd and auth.password:
+        if bench_web and auth.password:
             htpasswds[bench_htpasswd] = (auth.user, auth.password)
+        if tools_wanted and auth.effective_tools_password:
+            htpasswds[conf_dir / "http_auth" / tools_htpasswd_name(self.name)] = (
+                auth.effective_tools_user,
+                auth.effective_tools_password,
+            )
 
         if not per_site:
             # One conf for the whole bench, at the path every template includes.

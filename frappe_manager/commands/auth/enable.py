@@ -78,7 +78,7 @@ def enable(
         str | None,
         typer.Option(
             "--user",
-            help="Basic auth username for the scope you named: both surfaces of the bench, or that one site. Defaults to 'admin'.",
+            help="Basic auth username for the surface you named: --web's, --tools's, or that one site's. Naming neither surface sets one credential for both. Defaults to 'admin'.",
             show_default=False,
             rich_help_panel=PANEL_CREDENTIALS,
         ),
