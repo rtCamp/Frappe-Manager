@@ -259,3 +259,24 @@ def test_every_metavar_survives_rich_intact():
         console.print(f"Usage: fm {cmd} [OPTIONS] [{metavar}]")
         rendered = console.file.getvalue()
         assert metavar in rendered, f"{cmd}: {metavar!r} did not survive rich"
+
+
+def test_no_module_emits_an_invalid_escape_sequence_warning():
+    """Rich needs `\\[` to show a literal bracket, and python treats that as an invalid escape in a
+    normal string -- so a help string written for rich prints a SyntaxWarning on EVERY fm command
+    unless its docstring is raw. Caught only by running the installed package, never by the suite."""
+    import pathlib
+    import warnings
+
+    offenders = []
+    for path in sorted(pathlib.Path("frappe_manager").rglob("*.py")):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            try:
+                compile(path.read_text(), str(path), "exec")
+            except SyntaxError:
+                continue
+        if any(issubclass(item.category, SyntaxWarning) for item in caught):
+            offenders.append(str(path))
+
+    assert offenders == []

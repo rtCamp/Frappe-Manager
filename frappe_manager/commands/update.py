@@ -268,16 +268,10 @@ def update(
         queue_depth=lambda: redis_queue_depth(_current_queue_url(bench), orchestrator.container_command_runner()),
     )
 
-    report_plan(
-        output,
-        plan,
-        dry_run=dry_run,
-        drain=drain,
-        drain_timeout=orchestrator.workers_config.drain_timeout,
-    )
-    # Before the confirmation, not inside the apply: update's contract is that the whole change is
-    # decided before any of it happens, and a CA path that cannot be read is the operator's own
-    # typo. Validated late, it asked you to approve a plan that could not work.
+    # Before `report_plan`, not after: printing "database CA reinstall from /nope.pem" and THEN
+    # refusing shows the operator a plan containing an action fm has already decided is
+    # impossible. An unreadable CA path is a bad command line, so it is answered like one --
+    # nothing printed but the refusal, exit 2.
     if plan.db_ca is not None:
         from frappe_manager.site_manager.modules import db_tls
 
@@ -286,6 +280,13 @@ def update(
         except (FileNotFoundError, PermissionError, ValueError) as e:
             output.error(str(e), exception=typer.Exit(code=2))
 
+    report_plan(
+        output,
+        plan,
+        dry_run=dry_run,
+        drain=drain,
+        drain_timeout=orchestrator.workers_config.drain_timeout,
+    )
 
     if dry_run or plan.is_empty:
         return
