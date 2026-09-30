@@ -32,7 +32,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-import typer
 from git import GitCommandError
 
 from frappe_manager.docker.docker_exceptions import DockerException
@@ -681,13 +680,14 @@ def test_standalone_and_monorepo_apps_are_routed_to_different_destinations(tmp_p
 def devtools(tmp_path):
     """A BenchDevTools whose only real collaborator is the filesystem under tmp_path."""
 
-    def build(*, running: bool = True) -> BenchDevTools:
+    def build(*, running: bool = True, image_runtime: bool = False) -> BenchDevTools:
         return BenchDevTools(
             docker_client=MagicMock(),
             compose_file_manager=MagicMock(),
             bench_path=tmp_path / "bench",
             bench_name="test.localhost",
             is_running_fn=lambda: running,
+            is_image_runtime_fn=lambda: image_runtime,
             output_handler=_out(),
         )
 
@@ -816,20 +816,23 @@ def test_attach_refuses_a_bench_that_is_not_running_before_doing_anything(devtoo
     tools.compose_file_manager.configure_service.assert_not_called()
 
 
-def test_a_missing_vscode_binary_stops_the_attach_with_a_single_report(devtools, monkeypatch):
-    """Was pinned as "only reported, then attach breaks": the check did not raise, so
-    `_build_vscode_command`'s assert was the real gate and the user got the same failure twice
-    (and a TypeError instead, under `python -O`). The check is now terminal."""
+def test_a_missing_vscode_binary_prepares_the_bench_and_says_how_to_connect(devtools, monkeypatch):
+    """A server has no `code` CLI, and that is the normal case, not a failure: the durable half --
+    the devcontainer metadata VSCode reads however you connect -- has been written, and the
+    operator attaches from their laptop over Remote-SSH. It used to raise AFTER writing the debug
+    config, so the run reported failure for work that had succeeded."""
     tools = devtools()
+    tools.compose_file_manager.get_container_names.return_value = {"frappe": "fm__x__frappe"}
+    # Preparation now runs BEFORE the attach decision, so the label read is on the path.
+    tools.compose_file_manager.get_labels.return_value = {}
     monkeypatch.setattr(devtools_module.shutil, "which", lambda name: None)
 
-    with pytest.raises(typer.Exit) as excinfo:
-        tools.attach_to_bench("frappe", [], "/workspace/frappe-bench")
+    tools.attach_to_bench("frappe", [], "/workspace/frappe-bench")
 
-    assert excinfo.value.exit_code == 1
-    tools.output.display_error.assert_called_once_with(
-        "Visual Studio Code binary i.e 'code' is not accessible via cli",
-    )
+    tools.output.display_error.assert_not_called()
+    printed = " ".join(str(c) for c in tools.output.print.call_args_list)
+    assert "Attach to Running Container" in printed
+    assert "fm__x__frappe" in printed
 
 
 def test_attach_launches_the_remote_container_uri_built_from_the_hex_container_name(devtools, monkeypatch):
@@ -1027,7 +1030,10 @@ def test_debugger_config_writes_the_three_vscode_files_and_installs_ruff(devtool
     # stream=True iterator is lazy -- the pip install silently never executed.
     tools.docker_client.compose.exec.assert_called_once_with(
         service="frappe",
-        command="/workspace/frappe-bench/env/bin/pip install ruff",
+        command=(
+            "bash -c 'test -x /workspace/frappe-bench/env/bin/ruff || "
+            "/workspace/frappe-bench/env/bin/pip install ruff'"
+        ),
         user="frappe",
         stream=False,
     )
@@ -1041,9 +1047,47 @@ def test_config_files_are_written_sorted_and_indented(devtools):
     target.mkdir(parents=True)
     path = target / "settings.json"
 
-    tools._write_config_file(path, {"b": 1, "a": 2})
+    path.write_text(json.dumps({"b": 1, "a": 2}, indent=4, sort_keys=True))
 
     assert path.read_text() == '{\n    "a": 2,\n    "b": 1\n}'
+
+def test_an_image_bench_writes_the_config_into_the_container_not_the_host(devtools):
+    """Image runtime binds only the data paths (compose_shape.data_binds), so the host's
+    workspace/.vscode is mounted nowhere: fm wrote three files the container -- the thing VSCode
+    attaches to -- could never see, and reported success."""
+    tools = devtools(image_runtime=True)
+
+    tools._sync_vscode_config_files("/workspace/frappe-bench/")
+
+    assert not (tools.bench_path / "workspace" / "frappe-bench" / ".vscode").exists()
+    written = [c.kwargs["command"] for c in tools.docker_client.compose.exec.call_args_list]
+    assert len(written) == 3
+    assert all("/workspace/frappe-bench/.vscode" in cmd for cmd in written)
+
+
+def test_rewriting_identical_config_makes_no_backup(devtools):
+    """The backup name is timestamped to the second and nothing ever removes one, so backing up on
+    every run left three more stale files per invocation."""
+    tools = devtools()
+    tools._sync_vscode_config_files("/workspace/frappe-bench/")
+    vscode_dir = tools.bench_path / "workspace" / "frappe-bench" / ".vscode"
+    before = sorted(p.name for p in vscode_dir.iterdir())
+
+    tools._sync_vscode_config_files("/workspace/frappe-bench/")
+
+    assert sorted(p.name for p in vscode_dir.iterdir()) == before
+
+
+def test_no_attach_prepares_without_looking_for_the_code_cli(devtools, monkeypatch):
+    """The flag is for scripts and servers: it must not depend on whether `code` happens to exist."""
+    tools = devtools()
+    tools.compose_file_manager.get_labels.return_value = {}
+    tools.compose_file_manager.get_container_names.return_value = {"frappe": "fm__x__frappe"}
+    monkeypatch.setattr(devtools_module.shutil, "which", lambda name: "/usr/bin/code")
+
+    tools.attach_to_bench("frappe", [], "/workspace/frappe-bench", attach=False)
+
+    assert "--no-attach" in " ".join(str(c) for c in tools.output.print.call_args_list)
 
 
 def test_an_existing_config_file_is_backed_up_before_being_replaced(devtools):

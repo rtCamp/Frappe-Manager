@@ -2151,7 +2151,7 @@ class TestThinDelegations:
         bench.supervisor = MagicMock()
 
         bench.attach_to_bench("frappe", ["ms-python.python"], "/workspace", debugger=True)
-        bench.devtools.attach_to_bench.assert_called_once_with("frappe", ["ms-python.python"], "/workspace", True)
+        bench.devtools.attach_to_bench.assert_called_once_with("frappe", ["ms-python.python"], "/workspace", True, True)
 
         bench.get_apps_dev_requirements()
         bench.devtools.get_apps_dev_requirements.assert_called_once_with()

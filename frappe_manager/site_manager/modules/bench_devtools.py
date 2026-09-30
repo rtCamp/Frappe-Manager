@@ -16,8 +16,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import typer
-
 from frappe_manager import BENCH_PYTHON, CONTAINER_BENCH_DIR
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.logger import get_logger
@@ -54,6 +52,7 @@ class BenchDevTools:
         bench_path: Path,
         bench_name: str,
         is_running_fn,
+        is_image_runtime_fn=None,
         output_handler: OutputHandler | None = None,
     ):
         """
@@ -72,6 +71,10 @@ class BenchDevTools:
         self.bench_path = bench_path
         self.bench_name = bench_name
         self._is_running = is_running_fn
+        # Lazy: the bench config is loaded after this module is constructed. Image runtime binds
+        # only the data paths (compose_shape.data_binds), so the host's workspace/.vscode is not
+        # mounted anywhere and writing there is a no-op the container never sees.
+        self._is_image_runtime = is_image_runtime_fn or (lambda: False)
         self.output = output_handler or RichOutputHandler()
         self.logger = get_logger(component="devtools")
 
@@ -133,55 +136,64 @@ class BenchDevTools:
             ) from e
         self.output.print("Installed dev packages in env")
 
-    def attach_to_bench(self, user: str, extensions: list[str], workdir: str, debugger: bool = False) -> None:
-        """
-        Attach to running bench container using VS Code Remote Containers.
+    def attach_to_bench(
+        self, user: str, extensions: list[str], workdir: str, debugger: bool = False, attach: bool = True
+    ) -> None:
+        """Prepare the bench for VS Code, then attach this machine's editor to it if it can.
 
-        Args:
-            user: Username to use in the container
-            extensions: List of VS Code extensions to install
-            workdir: Working directory path inside container
-            debugger: Whether to setup debugging configuration
+        Preparation is the durable half and always runs: the `devcontainer.metadata` label carries
+        the extensions, remoteUser and settings, and VS Code reads it however you connect --
+        including Remote-SSH to this host followed by "Attach to Running Container". Launching a
+        local editor is a convenience for whoever is sitting at a desktop.
 
-        Raises:
-            BenchNotRunning: If bench container is not running
-            BenchAttachTocontainerFailed: If attaching fails
+        So a missing `code` CLI is not a failure: the bench IS prepared, and there is a documented
+        way to finish from another machine. It used to raise, after writing the debug config, so a
+        server run reported failure for work that had actually succeeded.
         """
         self._verify_bench_running()
 
         if debugger:
             self._setup_debugger_config(workdir)
 
-        self._verify_vscode_installed()
+        self._update_container_config(user, sorted(extensions))
+
+        vscode_path = shutil.which("code") if attach else None
+        if vscode_path is None:
+            self._report_manual_attach(reason_is_flag=not attach)
+            return
 
         container_name = self._get_frappe_container_name()
-        vscode_cmd = self._build_vscode_command(container_name, workdir)
+        self._attach_to_container(self._build_vscode_command(vscode_path, container_name, workdir))
 
-        self._update_container_config(user, sorted(extensions))
-        self._attach_to_container(vscode_cmd)
+    def _report_manual_attach(self, reason_is_flag: bool) -> None:
+        reason = (
+            "--no-attach was given, so nothing was launched"
+            if reason_is_flag
+            else "the 'code' CLI is not on this machine, so nothing was launched"
+        )
+        self.output.print(f"Prepared '{self.bench_name}' for VS Code; {reason}.", emoji_code=":information:")
+        self.output.print(
+            "To connect from another machine: open VS Code there, Remote-SSH to this host, then run "
+            f"'Dev Containers: Attach to Running Container' and pick {self._frappe_container_display_name()}.",
+            emoji_code="",
+        )
+
+    def _frappe_container_display_name(self) -> str:
+        return self.compose_file_manager.get_container_names()["frappe"]
 
     def _verify_bench_running(self) -> None:
         """Verify bench container is running."""
         if not self._is_running():
             raise BenchNotRunning(self.bench_name)
 
-    def _verify_vscode_installed(self) -> None:
-        """Verify VS Code is installed and accessible."""
-        vscode_path = shutil.which("code")
-        if not vscode_path:
-            self.output.display_error("Visual Studio Code binary i.e 'code' is not accessible via cli")
-            # Terminal: without this the attach fell through to `_build_vscode_command`, which aborted on its assert and reported the same failure twice.
-            raise typer.Exit(1)
-
     def _get_frappe_container_name(self) -> str:
         """Get the frappe container name and encode it."""
         container_name = self.compose_file_manager.get_container_names()
         return container_name["frappe"].encode().hex()
 
-    def _build_vscode_command(self, container_hex: str, workdir: str) -> str:
-        """Build the VS Code remote container command."""
-        vscode_path = shutil.which("code")
-        assert vscode_path is not None, "VS Code binary not found"
+    def _build_vscode_command(self, vscode_path: str, container_hex: str, workdir: str) -> str:
+        """Build the VS Code remote container command. The caller resolved `code` already; looking
+        it up a second time here needed an assert to convince a reader it could not be None."""
         return shlex.join([vscode_path, f"--folder-uri=vscode-remote://attached-container+{container_hex}+{workdir}"])
 
     def _update_container_config(self, user: str, extensions: list[str]) -> None:
@@ -259,25 +271,63 @@ class BenchDevTools:
         self._install_ruff()
         self.output.print("Synced vscode debugger configuration")
 
-    def _sync_vscode_config_files(self, workdir: str) -> None:
-        """Sync VS Code configuration files."""
+    def _vscode_config_files(self) -> dict:
         from frappe_manager.site_manager import get_vscode_launch_json, get_vscode_settings_json, get_vscode_tasks_json
 
-        workdir = workdir.strip("/")
-        vscode_dir = self.bench_path / workdir / ".vscode"
-        vscode_dir.mkdir(exist_ok=True, parents=True)
-
-        config_files = {
+        return {
             "tasks": get_vscode_tasks_json(),
             "launch": get_vscode_launch_json(),
             "settings": get_vscode_settings_json(),
         }
 
-        for filename, content in config_files.items():
+    def _sync_vscode_config_files(self, workdir: str) -> None:
+        """Write the .vscode files where the RUNTIME can actually read them.
+
+        Mount runtime binds the whole `./workspace`, so the host copy is the container's. Image
+        runtime binds only the data paths, so a host write lands in a directory nothing mounts:
+        the files appeared, fm claimed success, and the container -- which is what VS Code attaches
+        to -- never saw them. There they go into the container instead, which is where they can be
+        read, and like every other image-runtime edit they last until the next deploy.
+        """
+        if self._is_image_runtime():
+            self._write_config_in_container(workdir, self._vscode_config_files())
+            return
+
+        workdir = workdir.strip("/")
+        vscode_dir = self.bench_path / workdir / ".vscode"
+        vscode_dir.mkdir(exist_ok=True, parents=True)
+
+        for filename, content in self._vscode_config_files().items():
             file_path = vscode_dir / f"{filename}.json"
+            rendered = json.dumps(content, indent=4, sort_keys=True)
+            # Compare first: this used to back up and rewrite all three files on EVERY run, and the
+            # backup name is timestamped to the second, so a directory collected three more stale
+            # files per invocation and nothing ever removed them. A backup now means a real change.
             if file_path.exists():
+                if file_path.read_text() == rendered:
+                    continue
                 self._backup_config_file(file_path)
-            self._write_config_file(file_path, content)
+            file_path.write_text(rendered)
+
+    def _write_config_in_container(self, workdir: str, config_files: dict) -> None:
+        vscode_dir = f"/{workdir.strip('/')}/.vscode"
+        for filename, content in config_files.items():
+            rendered = json.dumps(content, indent=4, sort_keys=True)
+            target = f"{vscode_dir}/{filename}.json"
+            # A quoted heredoc: `compose exec` takes no stdin, and the content is JSON full of
+            # quotes and newlines, so it cannot ride as an argument. 'FMEOF' quoted stops the
+            # shell expanding anything inside.
+            script = f"mkdir -p {shlex.quote(vscode_dir)} && cat > {shlex.quote(target)} <<'FMEOF'\n{rendered}\nFMEOF\n"
+            try:
+                self.docker_client.compose.exec(
+                    service="frappe",
+                    command=f"bash -c {shlex.quote(script)}",
+                    user="frappe",
+                    stream=False,
+                )
+            except DockerException:
+                self.logger.error(f"vscode config write failed: {capture_and_format_exception()}")
+                self.output.warning(f"Could not write {filename}.json into the container")
 
     def _backup_config_file(self, file_path: Path) -> None:
         """Backup existing config file."""
@@ -285,19 +335,17 @@ class BenchDevTools:
         shutil.copy2(file_path, backup_path)
         self.output.print(f"Backup previous '{file_path.name}' : {backup_path}")
 
-    def _write_config_file(self, file_path: Path, content: dict) -> None:
-        """Write new config file."""
-        with open(file_path, "w+") as f:
-            f.write(json.dumps(content, indent=4, sort_keys=True))
-
     def _install_ruff(self) -> None:
         """Install ruff in the container environment."""
         try:
             # stream=False on purpose: a discarded stream=True iterator is lazy and never
             # executes, so this install silently did nothing (and the handler below was dead).
+            # Guarded by a `test -x`: this ran a pip install, and so a PyPI round trip, on every
+            # single --debugger invocation even when ruff was already sitting in the venv.
+            probe = f"test -x {CONTAINER_BENCH_DIR}/env/bin/ruff || {CONTAINER_BENCH_DIR}/env/bin/pip install ruff"
             self.docker_client.compose.exec(
                 service="frappe",
-                command=f"{CONTAINER_BENCH_DIR}/env/bin/pip install ruff",
+                command=f"bash -c {shlex.quote(probe)}",
                 user="frappe",
                 stream=False,
             )

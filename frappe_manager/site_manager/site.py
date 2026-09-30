@@ -22,6 +22,7 @@ from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import (
     AuthConfig,
     BenchConfig,
+    BenchRuntime,
     DatabaseConfig,
     DatabaseEngine,
     FMBenchEnvType,
@@ -259,6 +260,7 @@ class Bench:
             bench_path=path,
             bench_name=name,
             is_running_fn=lambda: self.running,
+            is_image_runtime_fn=lambda: self.bench_config.runtime == BenchRuntime.image,
             output_handler=self.output,
         )
 
@@ -1188,7 +1190,9 @@ class Bench:
         except KeyboardInterrupt:
             self.output.print("Detected CTRL+C. Exiting..")
 
-    def attach_to_bench(self, user: str, extensions: list[str], workdir: str, debugger: bool = False) -> None:
+    def attach_to_bench(
+        self, user: str, extensions: list[str], workdir: str, debugger: bool = False, attach: bool = True
+    ) -> None:
         """
         Attaches to a running bench's container using Visual Studio Code Remote Containers extension.
 
@@ -1202,7 +1206,7 @@ class Bench:
             BenchNotRunning: If the bench container is not running
             BenchAttachTocontainerFailed: If attaching to container fails
         """
-        return self.devtools.attach_to_bench(user, extensions, workdir, debugger)
+        return self.devtools.attach_to_bench(user, extensions, workdir, debugger, attach)
 
     @property
     def sites_dir(self) -> Path:

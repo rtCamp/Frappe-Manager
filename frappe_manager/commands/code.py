@@ -57,11 +57,22 @@ def code(
         str,
         typer.Option("--work-dir", "-w", help="Directory VSCode opens inside the container."),
     ] = CONTAINER_BENCH_DIR,
+    attach: Annotated[
+        bool,
+        typer.Option(
+            "--attach/--no-attach",
+            help="Launch VSCode on THIS machine and attach it to the bench's container. --no-attach prepares the bench and stops, which is what a server wants: connect later with Remote-SSH plus 'Dev Containers: Attach to Running Container'. Without the flag fm attaches when the 'code' CLI is available and prepares-and-explains when it is not.",
+        ),
+    ] = True,
 ):
     """
-    Open a bench in VSCode, attached to its running frappe container.
+    Prepare a bench for VSCode and attach to its running frappe container.
 
-    Needs the bench up (--force-start starts it) and the VSCode 'code' CLI on PATH. An image-mode bench has no mounted workspace, so edits made here live only in that container and are lost on the next deploy or switch.
+    Preparing is the durable half and always happens: the container carries fm's devcontainer metadata (extensions, the user VSCode runs as, editor settings), and VSCode applies it however you connect. Needs the bench up; --force-start starts it.
+
+    Attaching launches VSCode on THIS machine, so it needs the 'code' CLI on PATH. Without it fm prepares the bench and tells you how to connect from another one -- Remote-SSH to this host, then 'Dev Containers: Attach to Running Container' -- which is the normal way to use a bench on a server. --no-attach asks for that explicitly.
+
+    --debugger writes the debug configuration and installs ruff. An image-mode bench has no mounted workspace, so both live inside that container only and are lost on the next deploy or switch.
     """
 
     check_bench_migration_required(benchname)
@@ -82,4 +93,4 @@ def code(
     if force_start:
         bench.start()
 
-    bench.attach_to_bench(user=user, extensions=extensions, workdir=workdir, debugger=debugger)
+    bench.attach_to_bench(user=user, extensions=extensions, workdir=workdir, debugger=debugger, attach=attach)
