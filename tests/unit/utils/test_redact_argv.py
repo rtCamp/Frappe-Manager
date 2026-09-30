@@ -65,7 +65,9 @@ def test_no_secret_bearing_option_is_missing_from_the_set():
             if isinstance(param, click.Option) and not param.is_flag:
                 name = param.opts[0]
                 if any(word in name for word in NAMES_A_SECRET):
-                    found.add(name)
+                    # Every spelling, not just the long one: `fm ngrok -t <token>` carries the
+                    # same secret and is what an operator actually types.
+                    found.update(param.opts)
 
     walk(typer.main.get_command(app))
 

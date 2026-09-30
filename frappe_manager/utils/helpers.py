@@ -51,6 +51,9 @@ SECRET_OPTIONS = frozenset(
         "--github-token",
         "--license-key",
         "--password",
+        # `fm ngrok -t` is the one short alias of a secret-taking option; the drift test below
+        # checks aliases too, so a new one cannot slip in unredacted.
+        "-t",
     }
 )
 
@@ -377,15 +380,27 @@ def rich_object_to_string(obj) -> str:
 _SECRET_ATTR_RE = re.compile(
     r"(?P<name>[\"']?\w*(?:token|password|passwd|secret|api_key|license_key|admin_pass|encryption_key)\w*[\"']?)"
     r"(?P<sep>\s*[=:]\s*)"
-    r"(?P<quote>['\"])(?P<value>(?:(?!(?P=quote)).)*)(?P=quote)",
+    # Quoted first so a quoted value is taken whole; the bare alternative is one run of
+    # non-space, which is what a printed credential looks like (`password: hunter2`).
+    r"(?P<value>\"[^\"]*\"|'[^']*'|\S+)",
     re.IGNORECASE,
 )
 
 
+def _mask_secret_value(match: "re.Match[str]") -> str:
+    value = match.group("value")
+    quote = value[0] if value[:1] in ("'", '"') else ""
+    return f"{match.group('name')}{match.group('sep')}{quote}***{quote}"
+
+
 def redact_secrets_in_text(text: str) -> str:
-    """Mask credentials in text fm did not compose: URL credentials and `name='value'` pairs."""
-    text = redact_credentials_in_text(text)
-    return _SECRET_ATTR_RE.sub(lambda m: f"{m.group('name')}{m.group('sep')}{m.group('quote')}***{m.group('quote')}", text)
+    """Mask credentials in text fm did not compose, or printed for a human: URL credentials and
+    `name = value` pairs, quoted or bare.
+
+    Deliberately over-eager on the bare form: masking a non-secret in a log costs a reader one
+    lookup, leaking a real one costs a rotation.
+    """
+    return _SECRET_ATTR_RE.sub(_mask_secret_value, redact_credentials_in_text(text))
 
 
 def capture_and_format_exception(traceback_max_frames: int = 100) -> str:

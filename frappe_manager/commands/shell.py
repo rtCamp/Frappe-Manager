@@ -37,7 +37,11 @@ def _handle_bench_console(
     output,
 ) -> None:
     if not site:
-        site = benchname
+        # The bench's own default site, NOT its name. A bench `lc1` serves `lc1.localhost`, so
+        # passing the bench name reached frappe as a site and died with "lc1 does not exist.
+        # Sites on this bench: * lc1.localhost" -- on the plain `fm shell BENCH --bench-console`
+        # form the help describes as landing on the default site.
+        site = bench.bench_config.primary_site_or_none() or benchname
 
     python_code = None
 

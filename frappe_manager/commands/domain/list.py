@@ -20,8 +20,10 @@ def list_domains(
     """
     List every site's primary domain and its alias domains, one per line.
 
-    Copy targets get PLAIN lines, not table cells (commands/list.py:61): a rich cell would truncate or fold a long hostname, corrupting anything copied out of it.
+    Output is plain lines rather than a table, so a hostname can be copied out of it intact.
     """
+    # Plain lines, not table cells: rich truncates or folds a long value, and both corrupt a
+    # copied hostname. Same rule as `fm list --paths`.
     output = get_global_output_handler()
     check_bench_migration_required(benchname)
 

@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from frappe_manager.output_manager.base import OutputHandler
+from frappe_manager.utils.helpers import redact_secrets_in_text
 
 
 class LoggingOutputHandler(OutputHandler):
@@ -78,7 +79,10 @@ class LoggingOutputHandler(OutputHandler):
             level: Log level (logging.DEBUG, INFO, WARNING, ERROR)
             message: Message to log
         """
-        prefixed_message = f"{self.log_prefix} {message}"
+        # The console mirror writes whatever fm printed into fm.log, and fm prints credentials on
+        # purpose -- `fm auth enable` shows the basic-auth password it just set. On the terminal
+        # that is the point; in a file operators paste into issues it is a leak.
+        prefixed_message = f"{self.log_prefix} {redact_secrets_in_text(message)}"
 
         if level == logging.DEBUG:
             self.logger.debug(prefixed_message)

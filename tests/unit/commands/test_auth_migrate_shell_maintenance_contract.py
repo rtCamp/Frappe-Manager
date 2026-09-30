@@ -1103,6 +1103,9 @@ def _shell_bench(tmp_path, *, runtime=BenchRuntime.mount, services=("frappe", "n
     bench.name = "mybench"
     bench.path = tmp_path
     bench.bench_config.runtime = runtime
+    # A bench `mybench` SERVES `mybench.localhost`; the two are not interchangeable, which is the
+    # whole point of the console's site resolution.
+    bench.bench_config.primary_site_or_none.return_value = "mybench.localhost"
     bench.docker_client.compose.docker_compose_cmd = list(COMPOSE)
     bench.get_available_services.return_value = list(services)
     bench.execute_command.return_value = 0
@@ -1147,16 +1150,19 @@ def test_interactive_bench_console_execs_compose_exec_with_user_and_workdir(tmp_
         "frappe",
         "bench",
         "--site",
-        "mybench",
+        "mybench.localhost",
         "console",
     ]
     r.execvp.assert_called_once_with("docker", argv)
 
 
-def test_bench_console_site_defaults_to_the_benchname_and_is_overridable(tmp_path):
+def test_bench_console_site_defaults_to_the_default_site_and_is_overridable(tmp_path):
+    """The bench's default SITE, never its name. `bench --site mybench` reached frappe as a site
+    that does not exist ("Sites on this bench: * mybench.localhost") and killed the plain
+    `fm shell BENCH --bench-console` form the help says lands on the default site."""
     bench = _shell_bench(tmp_path)
     default = _console(bench, user="frappe")
-    assert default.execvp.call_args.args[1][-2] == "mybench"
+    assert default.execvp.call_args.args[1][-2] == "mybench.localhost"
 
     explicit = _console(bench, user="frappe", site="other.localhost")
     assert explicit.execvp.call_args.args[1][-2] == "other.localhost"
@@ -1183,7 +1189,7 @@ def test_bench_console_with_run_uses_the_exec_entrypoint_and_drops_user_and_work
         "frappe",
         "/bin/bash",
         "-c",
-        "cd /workspace/frappe-bench && bench --site mybench console",
+        "cd /workspace/frappe-bench && bench --site mybench.localhost console",
     ]
     r.execvp.assert_called_once_with("docker", argv)
 
@@ -1681,9 +1687,10 @@ def test_no_bench_with_a_missing_vhostd_directory_still_reports_cleanly(out, tmp
 @pytest.mark.parametrize("code", [399, 600, 200, 0])
 def test_a_response_code_outside_the_error_range_is_refused(out, tmp_path, code):
     services, _, _ = _maint_services(tmp_path)
-    r = _run_maintenance_enable(services, tmp_path / "benches", response_code=code)
-    assert r.exit.exit_code == 1
-    assert f"got {code}" in joined(out.display_error)
+    with pytest.raises(typer.BadParameter) as excinfo:
+        _run_maintenance_enable(services, tmp_path / "benches", response_code=code)
+    assert excinfo.value.exit_code == 2
+    assert f"got {code}" in str(excinfo.value)
 
 
 @pytest.mark.parametrize("code", [400, 599])
@@ -1700,32 +1707,36 @@ def test_message_with_page_is_refused(out, tmp_path):
     services, _, _ = _maint_services(tmp_path)
     page = tmp_path / "page.html"
     page.write_text("<html></html>")
-    r = _run_maintenance_enable(services, tmp_path / "benches", message="down", page=page)
-    assert r.exit.exit_code == 1
-    assert "--message cannot be combined with --page" in joined(out.display_error)
+    with pytest.raises(typer.BadParameter) as excinfo:
+        _run_maintenance_enable(services, tmp_path / "benches", message="down", page=page)
+    assert excinfo.value.exit_code == 2
+    assert "--message cannot be combined with --page" in str(excinfo.value)
 
 
 def test_a_missing_page_file_is_refused(out, tmp_path):
     services, _, _ = _maint_services(tmp_path)
-    r = _run_maintenance_enable(services, tmp_path / "benches", page=tmp_path / "nope.html")
-    assert r.exit.exit_code == 1
-    assert "--page file not found" in joined(out.display_error)
+    with pytest.raises(typer.BadParameter) as excinfo:
+        _run_maintenance_enable(services, tmp_path / "benches", page=tmp_path / "nope.html")
+    assert excinfo.value.exit_code == 2
+    assert "--page file not found" in str(excinfo.value)
 
 
 @pytest.mark.parametrize("bad_ip", ["203.0.113.0/24", "not-an-ip", ""])
 def test_allow_ip_takes_single_addresses_only(out, tmp_path, bad_ip):
     services, _, _ = _maint_services(tmp_path)
-    r = _run_maintenance_enable(services, tmp_path / "benches", allow_ip=[bad_ip])
-    assert r.exit.exit_code == 1
-    assert "CIDR ranges are not supported here" in joined(out.display_error)
+    with pytest.raises(typer.BadParameter) as excinfo:
+        _run_maintenance_enable(services, tmp_path / "benches", allow_ip=[bad_ip])
+    assert excinfo.value.exit_code == 2
+    assert "CIDR ranges are not supported here" in str(excinfo.value)
 
 
 @pytest.mark.parametrize("bad_path", ["api/method/ping", "/api/method/ping?x=1", "/api/*/ping", ""])
 def test_allow_path_must_be_absolute_with_an_optional_trailing_star(out, tmp_path, bad_path):
     services, _, _ = _maint_services(tmp_path)
-    r = _run_maintenance_enable(services, tmp_path / "benches", allow_path=[bad_path])
-    assert r.exit.exit_code == 1
-    assert "--allow-path must be an absolute path" in joined(out.display_error)
+    with pytest.raises(typer.BadParameter) as excinfo:
+        _run_maintenance_enable(services, tmp_path / "benches", allow_path=[bad_path])
+    assert excinfo.value.exit_code == 2
+    assert "--allow-path must be an absolute path" in str(excinfo.value)
 
 
 def test_valid_ipv6_and_starred_paths_pass_validation(out, tmp_path):

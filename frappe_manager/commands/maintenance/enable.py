@@ -139,35 +139,26 @@ def enable(
     check_bench_migration_required(benchname)
 
     if not 400 <= response_code <= 599:
-        output.error(
-            f"--response-code must be an HTTP error status between 400 and 599, got {response_code}",
-            exception=typer.Exit(code=1),
-        )
+        raise typer.BadParameter(f"--response-code must be an HTTP error status between 400 and 599, got {response_code}")
 
     if message is not None and page is not None:
-        output.error("--message cannot be combined with --page (pick one)", exception=typer.Exit(code=1))
+        raise typer.BadParameter("--message cannot be combined with --page (pick one)")
 
     if page is not None and not page.exists():
-        output.error(f"--page file not found: {page}", exception=typer.Exit(code=1))
+        raise typer.BadParameter(f"--page file not found: {page}")
 
     if page is not None and not os.access(page, os.R_OK):
-        output.error(f"--page file is not readable: {page}", exception=typer.Exit(code=1))
+        raise typer.BadParameter(f"--page file is not readable: {page}")
 
     for ip in allow_ip:
         try:
             ipaddress.ip_address(ip)
         except ValueError:
-            output.error(
-                f"--allow-ip must be a single IPv4/IPv6 address, got {ip!r} (CIDR ranges are not supported here)",
-                exception=typer.Exit(code=1),
-            )
+            raise typer.BadParameter(f"--allow-ip must be a single IPv4/IPv6 address, got {ip!r} (CIDR ranges are not supported here)")
 
     for path in allow_path:
         if not _ALLOW_PATH_RE.match(path):
-            output.error(
-                f"--allow-path must be an absolute path like /api/method/ping (optionally ending in *), got {path!r}",
-                exception=typer.Exit(code=1),
-            )
+            raise typer.BadParameter(f"--allow-path must be an absolute path like /api/method/ping (optionally ending in *), got {path!r}")
 
     services, vhostd_dir, html_host_dir, html_container_dir = proxy_paths(ctx)
 
