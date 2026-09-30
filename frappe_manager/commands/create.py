@@ -1016,14 +1016,17 @@ def create(
         typer.Option(
             "--db-type",
             help="Database engine for this site: mariadb or postgres. Without --db-host it is fm's own server for that engine.",
-            rich_help_panel=_PANEL_DATABASE,
+            # NOT the external-database panel: this selects the ENGINE, and without --db-host it
+            # selects which of fm's OWN servers the site lands on. Filing it under "External
+            # Database" told the reader postgres was only reachable on someone else's server.
+            rich_help_panel=_PANEL_SITE,
         ),
     ] = DatabaseEngine.mariadb,
     db_host: Annotated[
         str | None,
         typer.Option(
             "--db-host",
-            help="External database host, replacing fm's mariadb container. MySQL is not a supported backend.",
+            help="External database host, replacing fm's own server for this site's engine. MySQL is not a supported backend.",
             show_default=False,
             rich_help_panel=_PANEL_DATABASE,
         ),

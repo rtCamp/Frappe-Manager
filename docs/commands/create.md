@@ -41,7 +41,7 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `--allow-domain-conflicts`: Skip the domain uniqueness check.  [default: false]
 * `--alias-domains TEXT`: Extra domains THIS SITE answers on (comma-separated). Certificates come from 'fm ssl add'.
 * `--db-type [mariadb|postgres]`: Database engine for this site: mariadb or postgres. Without --db-host it is fm's own server for that engine.  [default: mariadb]
-* `--db-host TEXT`: External database host, replacing fm's mariadb container. MySQL is not a supported backend.
+* `--db-host TEXT`: External database host, replacing fm's own server for this site's engine. MySQL is not a supported backend.
 * `--db-port INTEGER`: Port of the external database server. Defaults to the engine's own: 3306 or 5432.  [default: 3306]
 * `--db-name TEXT`: Schema on that server this site lives in. Required with --db-host.
 * `--db-user TEXT`: Login user for the schema. Defaults to the schema name, and must equal it on a v15 bench.
