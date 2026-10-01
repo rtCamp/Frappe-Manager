@@ -13,12 +13,14 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from types import SimpleNamespace
 import typer
 
 from frappe_manager.commands.arguments import BenchSiteArgument
 from frappe_manager.commands.domain.add import add_domain
 from frappe_manager.commands.domain.list import list_domains
 from frappe_manager.commands.domain.remove import remove_domain
+from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.output_manager import set_global_output_handler
 from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.site_manager.bench_config import SiteConfig
@@ -278,3 +280,46 @@ class TestRequiredDomainsArgument:
         add_cmd = click_group.commands["add"]
         domains_param = next(p for p in add_cmd.params if p.name == "domains")
         assert domains_param.required is True
+
+
+class TestDomainRemoveWithACertificate:
+    """A certificate outlives the domain it was issued for unless this command deals with it:
+    nginx stops answering immediately, but the material and its private key stay on disk, and
+    re-adding the domain puts THAT certificate back in service with no issuance step."""
+
+    def _holds(self, world, ssl_type):
+        world.bench.bench_config.sites = {"shop.local": SiteConfig(alias_domains=["www.shop.com"])}
+        world.bench.certificate_manager.certificates = [
+            SimpleNamespace(domain="www.shop.com", ssl_type=ssl_type)
+        ]
+
+    def test_a_dev_certificate_goes_with_the_domain(self, world):
+        """Signed by a CA fm owns and regenerated in seconds, so refusing would be a wall for
+        nothing."""
+        self._holds(world, SUPPORTED_SSL_TYPES.dev)
+
+        world.remove(domain="www.shop.com")
+
+        world.bench.certificate_manager.remove_certificate_by_domain.assert_called_once_with("www.shop.com")
+        world.bench.update_alias_domains.assert_called_once()
+
+    def test_a_letsencrypt_certificate_is_refused_and_the_domain_kept(self, world):
+        """Reissuing costs a rate-limited round with the CA, so fm will not discard it on the
+        operator's behalf -- and the domain stays, because a half-done removal is worse."""
+        self._holds(world, SUPPORTED_SSL_TYPES.le)
+
+        with pytest.raises(typer.Exit):
+            world.remove(domain="www.shop.com")
+
+        world.bench.certificate_manager.remove_certificate_by_domain.assert_not_called()
+        world.bench.update_alias_domains.assert_not_called()
+
+    def test_the_refusal_names_the_command_that_removes_it(self, world):
+        """Pointing at `fm ssl remove` is the whole point: the operator is one command from done."""
+        self._holds(world, SUPPORTED_SSL_TYPES.custom)
+
+        with pytest.raises(typer.Exit):
+            world.remove(domain="www.shop.com")
+
+        said = " ".join(str(c) for c in [*world.output.display_error.call_args_list, *world.output.print.call_args_list])
+        assert f"fm ssl remove {BENCH}/www.shop.com" in said

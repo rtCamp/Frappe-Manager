@@ -6,6 +6,7 @@ from frappe_manager.commands.arguments import BenchServedDomainArgument
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.site_manager.site import Bench
+from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.utils.site import resolve_known_name
 
 
@@ -72,6 +73,33 @@ def remove_domain(
             known = ", ".join(f"'{s}'" for s in sorted(sites)) or "no sites"
             output.display_error(f"'{domain}' is not a served alias of bench '{bench.name}'. It serves {known}.")
         raise typer.Exit(1)
+
+    # A certificate outlives the domain it was issued for unless something deals with it here:
+    # nginx stops answering immediately, but the material and its private key stay on disk, and
+    # re-adding the domain puts THAT certificate back in service with no issuance step.
+    #
+    # Split by type because the cost of being wrong differs by orders of magnitude. A dev
+    # certificate is signed by a CA fm owns and regenerates in seconds, so removing it with the
+    # domain costs nothing. A Let's Encrypt one costs a rate-limited issuance, and a `--custom` one
+    # is bytes only the operator holds -- fm never stored the --cert/--key paths, so it cannot be
+    # re-created at all. Those two are refused and named, which is the order NPM documents and
+    # certbot enforces.
+    cert = next((c for c in bench.certificate_manager.certificates if c.domain == domain), None)
+    if cert is not None:
+        if cert.ssl_type == SUPPORTED_SSL_TYPES.dev:
+            output.change_head(f"Removing the dev certificate for {domain}")
+            bench.certificate_manager.remove_certificate_by_domain(domain)
+            output.print(f"Removed the dev certificate for {domain}; it regenerates if you add the domain back")
+        else:
+            output.display_error(
+                f"'{domain}' holds a {cert.ssl_type.value} certificate, which fm will not discard on your behalf: "
+                f"a Let's Encrypt one costs a rate-limited reissue and a custom one fm cannot recreate, "
+                f"since it stores the bytes and never the files you imported."
+            )
+            output.print(
+                f"Remove it first: 'fm ssl remove {bench.name}/{domain}', then run this again.", emoji_code=""
+            )
+            raise typer.Exit(1)
 
     output.change_head("Updating alias domains")
     bench.update_alias_domains(remove_domains=[domain], site=owner_site)

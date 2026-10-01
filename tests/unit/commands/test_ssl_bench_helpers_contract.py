@@ -900,15 +900,16 @@ def test_list_shows_a_configured_domain_with_no_certificate_as_no_ssl_beside_one
 
 
 @pytest.mark.timeout(15)
-def test_list_hides_a_certificate_whose_domain_left_the_bench_config(h):
-    """SUSPICION (pinned): a certificate for an un-configured domain is silently invisible,
-    so a stale certificate cannot be discovered through ``fm ssl list``."""
+def test_list_shows_a_certificate_whose_domain_left_the_bench_config(h):
+    """`fm domain remove` leaves the certificate and its private key on disk. Hiding it here made
+    that leftover undiscoverable -- and `fm ssl remove` refused it for the same reason -- so the
+    only way out was deleting files by hand. It is listed after the served domains, marked."""
     h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
     h.cert_manager.list_certificates.return_value = [_cert_row(DOMAIN), _cert_row("orphan.example.com")]
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    assert [card.name for card in h.cards()] == [DOMAIN]
+    assert [card.name for card in h.cards()] == [DOMAIN, "orphan.example.com"]
 
 
 @pytest.mark.timeout(15)
@@ -1142,6 +1143,7 @@ def test_structured_data_for_a_domain_with_no_certificate_is_null_not_na(h):
         "dns_provider_missing": False,
         "status": "none",
         "live": False,
+        "orphaned": False,
         "expiry": None,
         "days_until_expiry": None,
         "renewal": None,
@@ -2005,3 +2007,28 @@ def test_list_says_whether_anything_is_actually_serving_the_domain(h):
     cards = {card.name: card for card in h.cards()}
     assert "[fm.ok]live[/fm.ok]" in cards[DOMAIN].meta
     assert "[fm.muted]not live[/fm.muted]" in cards[ALIAS].meta
+
+
+@pytest.mark.timeout(15)
+def test_remove_reaches_a_certificate_whose_domain_is_gone(h):
+    """`fm domain remove` leaves the certificate behind, so matching only the SERVED domains made
+    the leftover unremovable by the one command whose job is removing it -- material and a private
+    key stranded on disk with no fm route to them."""
+    h.set_sites({DOMAIN: []})
+    h.cert_manager.certificates = [SimpleNamespace(domain="orphan.example.com", ssl_type=SUPPORTED_SSL_TYPES.le)]
+
+    _remove_bench_certificate(h.ctx, BENCH, "orphan.example.com", True)
+
+    h.cert_manager.remove_certificate_by_domain.assert_called_once_with("orphan.example.com")
+
+
+@pytest.mark.timeout(15)
+def test_remove_still_refuses_a_domain_this_bench_never_had(h):
+    """Reaching orphans must not become a way to act on an arbitrary name."""
+    h.set_sites({DOMAIN: []})
+    h.cert_manager.certificates = []
+
+    with pytest.raises(typer.Exit):
+        _remove_bench_certificate(h.ctx, BENCH, "stranger.example.com", True)
+
+    h.cert_manager.remove_certificate_by_domain.assert_not_called()

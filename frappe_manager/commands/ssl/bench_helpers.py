@@ -273,14 +273,18 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
     output = get_output_handler(ctx)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
-    domains = bench.bench_config.domains
-    resolved = resolve_known_name(domain, domains)
+    # Certificates the bench HOLDS, not just the domains it serves: `fm domain remove` leaves a
+    # certificate behind, and matching only served domains made that leftover unremovable by the
+    # one command whose job is removing it.
+    held = [cert.domain for cert in bench.certificate_manager.certificates]
+    targets = [*bench.bench_config.domains, *(d for d in held if d not in bench.bench_config.domains)]
+    resolved = resolve_known_name(domain, targets)
     if resolved is None:
         # Names what the bench DOES serve, the way `fm domain remove` already does. Saying only
         # that the domain is not configured leaves the operator guessing at the spelling.
         output.display_error(
             f"Domain '{domain}' is not configured for bench '{benchname}'. It serves "
-            f"{', '.join(repr(d) for d in sorted(domains))}."
+            f"{', '.join(repr(d) for d in sorted(bench.bench_config.domains))}."
         )
         raise typer.Exit(1)
     domain = resolved
@@ -375,7 +379,14 @@ def _bench_certificate_rows(bench: Bench, backends: set[str]) -> list[dict]:
 
     rows: list[dict] = []
 
-    for domain in all_domains:
+    # Certificates whose domain the bench no longer serves, listed AFTER the served ones. Omitting
+    # them hid every certificate `fm domain remove` left behind -- material and a private key still
+    # on disk, invisible to this command and refused by `fm ssl remove` because the domain is gone
+    # from the config. No comparable tool strands a certificate that way: NPM and certbot both keep
+    # a cert listable and deletable after whatever used it is gone.
+    orphaned = [domain for domain in cert_map if domain not in all_domains]
+
+    for domain in [*all_domains, *sorted(orphaned)]:
         dns_provider, dns_provider_missing = _dns_provider_facts(bench.bench_config, cert_models.get(domain))
 
         if domain in cert_map:
@@ -412,6 +423,11 @@ def _bench_certificate_rows(bench: Bench, backends: set[str]) -> list[dict]:
                 "dns_provider_missing": dns_provider_missing,
                 "status": status,
                 "live": domain in backends,
+                # A certificate the bench keeps for a domain it no longer serves. nginx stops
+                # answering for it immediately, so this is dormant material rather than exposure --
+                # but re-adding the domain puts THIS certificate back in service with no issuance
+                # step, which is how an expired one comes back as a broken site.
+                "orphaned": domain not in all_domains,
                 "expiry": expiry,
                 "days_until_expiry": days_left,
                 "renewal": renewal,
@@ -464,6 +480,11 @@ def _bench_certificate_card(row: dict) -> railcard.Card:
         if row["challenge_type"] == LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
             card.fact("challenge", row["challenge_type"])
             card.fact("dns provider", _dns_provider_fact(row))
+        if row.get("orphaned"):
+            # Says what it is AND what it does, because "orphaned" alone reads as harmless: the
+            # bench stopped serving this domain, so nginx no longer answers for it, but re-adding
+            # the domain puts this same certificate back in service without issuing anything.
+            card.fact("orphaned", "domain no longer served; still on disk, reused if re-added")
         if row["expiry"] is not None:
             card.fact("expiry", cert_expiry_words(row["expiry"]))
         if row["days_until_expiry"] is not None:
