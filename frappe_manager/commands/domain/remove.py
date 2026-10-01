@@ -4,6 +4,7 @@ from typer_examples import example
 from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.commands.arguments import BenchServedDomainArgument
 from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.services_manager.proxy_dropins import ProxyDropins
 from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
@@ -103,4 +104,12 @@ def remove_domain(
 
     output.change_head("Updating alias domains")
     bench.update_alias_domains(remove_domains=[domain], site=owner_site)
+
+    # The same orphan rule as the certificate above, for the proxy config: the drop-ins keyed by
+    # this domain outlive it, and a domain later added to a DIFFERENT bench would inherit this
+    # one's upload limit and HSTS without anything saying so.
+    dropins = ProxyDropins.for_services_path(bench.services.path)
+    removed = [dropins.remove(domain, concern) for concern in dropins.active(domain)]
+    if any(removed):
+        bench.services.nginx_controller.reload()
     output.print("Alias domains updated successfully")

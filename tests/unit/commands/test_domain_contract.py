@@ -10,22 +10,23 @@ elsewhere and is treated here as an opaque collaborator.
 import inspect
 from contextlib import ExitStack
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from types import SimpleNamespace
 import typer
 
 from frappe_manager.commands.arguments import BenchSiteArgument
 from frappe_manager.commands.domain.add import add_domain
 from frappe_manager.commands.domain.list import list_domains
 from frappe_manager.commands.domain.remove import remove_domain
-from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.output_manager import set_global_output_handler
 from frappe_manager.output_manager.base import OutputHandler
+from frappe_manager.services_manager.proxy_dropins import ProxyDropins
 from frappe_manager.site_manager.bench_config import SiteConfig
 from frappe_manager.site_manager.domain_conflict import DomainConflict, DomainConflictError
 from frappe_manager.site_manager.exceptions import BenchNotRunning
+from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 
 pytestmark = pytest.mark.timeout(15)
 
@@ -323,3 +324,61 @@ class TestDomainRemoveWithACertificate:
 
         said = " ".join(str(c) for c in [*world.output.display_error.call_args_list, *world.output.print.call_args_list])
         assert f"fm ssl remove {BENCH}/www.shop.com" in said
+
+
+class TestDomainRemoveProxyDropinCleanup:
+    """The nginx proxy drop-in fragments for a domain outlive it the same way a certificate
+    does (see TestDomainRemoveWithACertificate above): nginx keeps serving the orphaned
+    fragment, and a domain later added to a DIFFERENT bench silently inherits this bench's
+    upload limit and HSTS header unless this command cleans them up."""
+
+    def _dropins(self, world, tmp_path) -> ProxyDropins:
+        services_path = tmp_path / "services"
+        world.bench.services.path = services_path
+        return ProxyDropins.for_services_path(services_path)
+
+    def test_removes_every_dropin_and_the_vhostd_bootstrap(self, world, tmp_path):
+        """Seeds two concerns so a short-circuiting `any(dropins.remove(...) for ...)` -- which
+        stops after the first True and strands every concern after it, e.g. HSTS, for the next
+        bench to silently inherit -- fails this test."""
+        dropins = self._dropins(world, tmp_path)
+        dropins.set("www.example.com", "upload-limit", "client_max_body_size 50m;\n")
+        dropins.set("www.example.com", "hsts", "add_header Strict-Transport-Security max-age=63072000;\n")
+
+        world.remove(domain="www.example.com")
+
+        assert dropins.active("www.example.com") == []
+        assert not (dropins.fmd_dir / "vhost" / "www.example.com").exists()
+        assert not (dropins.vhostd_dir / "www.example.com").exists()
+
+    def test_another_domains_dropins_are_untouched(self, world, tmp_path):
+        """Cleanup is scoped to the removed domain's own fragment directory; a sibling alias's
+        drop-ins and bootstrap must survive the removal."""
+        dropins = self._dropins(world, tmp_path)
+        dropins.set("www.example.com", "upload-limit", "client_max_body_size 50m;\n")
+        dropins.set("api.example.com", "upload-limit", "client_max_body_size 50m;\n")
+
+        world.remove(domain="www.example.com")
+
+        assert dropins.active("api.example.com") == ["upload-limit"]
+        assert (dropins.vhostd_dir / "api.example.com").exists()
+
+    def test_reloads_the_proxy_once_when_a_dropin_is_removed(self, world, tmp_path):
+        """One domain removal with two concerns must fold into a single nginx reload, not zero
+        and not two."""
+        dropins = self._dropins(world, tmp_path)
+        dropins.set("www.example.com", "upload-limit", "client_max_body_size 50m;\n")
+        dropins.set("www.example.com", "hsts", "add_header Strict-Transport-Security max-age=63072000;\n")
+
+        world.remove(domain="www.example.com")
+
+        world.bench.services.nginx_controller.reload.assert_called_once()
+
+    def test_does_not_reload_the_proxy_when_the_domain_had_no_dropins(self, world, tmp_path):
+        """No fragments to clean up means nothing changed in the shared nginx config, so a
+        reload would be wasted work against a potentially busy proxy."""
+        self._dropins(world, tmp_path)
+
+        world.remove(domain="www.example.com")
+
+        world.bench.services.nginx_controller.reload.assert_not_called()
