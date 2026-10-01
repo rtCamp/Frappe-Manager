@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 from typer_examples import example, install
 
+from frappe_manager.commands.arguments import JsonResultOption
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.modules.realip import (
     CLOUDFLARE_FALLBACK_RANGES,
@@ -89,21 +90,29 @@ def _apply_downstream_trust(services, output) -> None:
     "",
     detail="Prints the rendered configuration, not the setting that produced it, which is what a trust problem needs.",
 )
-def show(ctx: typer.Context):
+def status(ctx: typer.Context, json_results: JsonResultOption = False):
     """
     Show which proxies this host trusts and what is read from them.
     """
     output = get_global_output_handler()
+    if json_results:
+        output.set_json_results()
     services = ctx.obj["services"]
 
     conf_path = Path(services.proxy_storage.dirs.confd.host) / PROXY_CONF_FILENAME
+    configured = conf_path.exists() and is_fm_realip_conf(conf_path.read_text())
+    directives = conf_path.read_text().splitlines()[1:] if configured else []
 
-    if not (conf_path.exists() and is_fm_realip_conf(conf_path.read_text())):
+    if output.wants_structured_data:
+        output.print_data({"trusted": configured, "config_path": str(conf_path), "directives": directives})
+        return
+
+    if not configured:
         output.print("No proxies are trusted; fm treats every request as arriving directly.")
         return
 
     output.print(f"Trusted proxies ({conf_path}):")
-    for line in conf_path.read_text().splitlines()[1:]:
+    for line in directives:
         output.print(f"  {line}", emoji_code="")
 
 

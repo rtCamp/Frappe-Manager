@@ -144,12 +144,16 @@ Writes nothing. A site with no auth of its own follows the bench, and is reporte
 **Usage**:
 
 ```console
-$ fm auth status BENCH(/SITE)
+$ fm auth status BENCH(/SITE) [OPTIONS]
 ```
 
 **Arguments**:
 
 * `BENCH(/SITE)`: Bench, or BENCH/SITE for one of its sites. Without a site part the whole bench is addressed: every site that has no auth of its own follows it.
+
+**Options**:
+
+* `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
 
 ### Examples
 

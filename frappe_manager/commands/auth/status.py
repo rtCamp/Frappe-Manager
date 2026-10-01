@@ -3,6 +3,7 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
+from frappe_manager.commands.arguments import JsonResultOption
 from frappe_manager.commands.auth._helpers import ADDRESS_HELP, print_state, resolve_scope
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.callbacks import bench_site_autocompletion_callback, bench_site_callback
@@ -33,6 +34,7 @@ def status(
             callback=bench_site_callback,
         ),
     ] = None,
+    json_results: JsonResultOption = False,
 ):
     """
     Report which surfaces are protected, with the credentials and allow lists while a surface is protected.
@@ -41,10 +43,32 @@ def status(
     """
 
     output = get_global_output_handler()
+    if json_results:
+        output.set_json_results()
     bench, site, entry = resolve_scope(ctx, address, output)
 
     scope = f"{bench.name}/{site}" if site else bench.name
     stored = entry.auth if entry is not None else bench.bench_config.auth
+
+    if output.wants_structured_data:
+        # The EFFECTIVE config, not the stored one: a site with no auth of its own is protected or
+        # not by the bench's setting, and a payload reporting `null` there would read as "open".
+        effective = stored if stored is not None else (bench.bench_config.auth_for(site) if site else None)
+        output.print_data(
+            {
+                "scope": scope,
+                "site": site,
+                "inherited": site is not None and entry is not None and entry.auth is None,
+                "web": bool(effective and effective.web),
+                "tools": bool(effective and getattr(effective, "tools", False)),
+                "user": getattr(effective, "user", None),
+                "password": getattr(effective, "password", None),
+                "allow_ips": list(getattr(effective, "allow_ips", None) or []),
+                "allow_paths": list(getattr(effective, "allow_paths", None) or []),
+                "sites_with_own_auth": bench.bench_config.sites_with_own_auth if not site else [],
+            }
+        )
+        return
 
     if stored is None:
         if site:

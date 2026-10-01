@@ -5,6 +5,7 @@ import sys
 
 from typer_examples import example
 
+from frappe_manager.commands.arguments import JsonResultOption
 from frappe_manager.commands.ssl.ca.helpers import ca_paths, expiry_note, fingerprint, read_ca
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.ssl_manager.trust_store_manager import TrustStoreManager
@@ -14,15 +15,33 @@ from frappe_manager.ssl_manager.trust_store_manager import TrustStoreManager
     "Is fm's dev CA trusted on this host?",
     "",
 )
-def ca_status():
+def ca_status(json_results: JsonResultOption = False):
     """
     Show fm's dev CA and every trust store on this host that currently trusts it.
 
     Each store is asked directly (the keychain, the system CA directories, each browser's NSS database), never the .installed marker fm writes next to the CA: that marker records only that one install once succeeded, not where, and not whether it is still there. A CA fm believes it installed but no store actually holds is the case this command exists to surface, and `fm ssl ca install` is the fix.
     """
     output = get_global_output_handler()
+    if json_results:
+        output.set_json_results()
     paths = ca_paths()
     cert = read_ca(paths.cert)
+    entries = TrustStoreManager(output).find()
+
+    if output.wants_structured_data:
+        output.print_data(
+            {
+                "path": str(paths.cert),
+                "exists": cert is not None,
+                "subject": cert.subject.rfc4514_string() if cert else None,
+                "sha256": fingerprint(cert) if cert else None,
+                "private_key_present": paths.key.exists(),
+                "trusted_stores": [
+                    {"store": e.store, "location": e.location, "fingerprint": e.fingerprint or None} for e in entries
+                ],
+            }
+        )
+        return
 
     if cert is None:
         state = "unreadable" if paths.cert.exists() else "not created yet"
@@ -34,8 +53,6 @@ def ca_status():
         output.print(f"expires     {expiry_note(cert)}", emoji_code="", prefix="  ")
         output.print(f"private key {'present' if paths.key.exists() else 'MISSING'}", emoji_code="", prefix="  ")
 
-
-    entries = TrustStoreManager(output).find()
     local = fingerprint(cert) if cert else None
     if entries:
         output.print(f"Trusted  : {len(entries)} store(s)", emoji_code="")

@@ -1826,7 +1826,9 @@ def test_status_reports_on_off_and_foreign_per_domain_without_reloading(out, tmp
     assert r.exit is None
     assert texts(out.print) == [
         "mybench: maintenance ON (code 404, bypass: https://mybench/fm-bypass/" + "b" * 32 + ")",
-        "alias.example.com: custom vhost config present (no fm maintenance block)",
+        # Answer first: the old wording described fm's implementation and left "is this in
+        # maintenance" unanswered.
+        "alias.example.com: maintenance off [fm.muted](custom vhost config present)[/fm.muted]",
         "plain.example.com: maintenance off",
     ]
     services.nginx_controller.reload.assert_not_called()

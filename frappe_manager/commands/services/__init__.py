@@ -19,7 +19,7 @@ from frappe_manager.commands.services.trusted_proxies import (
     trusted_proxies_app,
 )
 from frappe_manager.commands.services.trusted_proxies import (
-    show as show_trusted_proxies,
+    status as trusted_proxies_status,
 )
 
 services_app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
@@ -34,7 +34,7 @@ services_app.command(name="restart", no_args_is_help=True)(restart_services)
 services_app.command(name="shell", no_args_is_help=True)(shell_services)
 services_app.command(name="ports", no_args_is_help=True)(ports_services)
 services_app.add_typer(trusted_proxies_app, name="trusted-proxies", help="Which proxies in front of fm may speak for the client.")
-trusted_proxies_app.command(name="show")(show_trusted_proxies)
+trusted_proxies_app.command(name="status")(trusted_proxies_status)
 trusted_proxies_app.command(name="set", no_args_is_help=True)(set_trusted)
 trusted_proxies_app.command(name="clear")(clear_trusted_proxies)
 services_app.command(name="prune")(prune_services)

@@ -110,12 +110,16 @@ Writes nothing. Without a bench, lists every domain currently in maintenance acr
 **Usage**:
 
 ```console
-$ fm maintenance status BENCH(/SITE)
+$ fm maintenance status BENCH(/SITE) [OPTIONS]
 ```
 
 **Arguments**:
 
 * `BENCH(/SITE)`: Bench, or BENCH/SITE for one site's hostnames only. Omit it to list every domain in maintenance, across every bench.
+
+**Options**:
+
+* `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
 
 ### Examples
 
