@@ -109,7 +109,7 @@ class BenchSiteManager:
         self.frappe_bench_dir: Path = host_bench_dir(bench_path)
         self.bench_cli_cmd = ["/opt/user/.bin/bench"]
 
-    def wait_for_required_services(self, timeout: int = 120) -> None:
+    def wait_for_required_services(self, site: str | None = None, timeout: int = 120) -> None:
         """
         Wait for required services (database, Redis) to be available.
 
@@ -124,6 +124,10 @@ class BenchSiteManager:
         probed directly.
 
         Args:
+            site: Which site's `[database]` entry to wait on; defaults to the bench's own. A
+                site added to an existing bench (`_add_site_to_bench`, commands/create.py) may
+                record a DIFFERENT engine than the bench's primary site, so the caller names it
+                rather than this always checking the primary's.
             timeout: Maximum time to wait in seconds (default: 120)
 
         Raises:
@@ -138,7 +142,7 @@ class BenchSiteManager:
         # endpoint fm does not run.
         candidates: list[tuple[ComposeFile | None, str | None, str, int]] = []
 
-        database = self.bench_config.get_database()
+        database = self.bench_config.get_database(site)
         if database.external:
             candidates.append((None, None, database.host, database.resolved_port))
         else:

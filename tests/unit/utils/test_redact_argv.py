@@ -7,7 +7,7 @@ run is the command line as typed. A `--github-token` landed there in cleartext, 
 
 import pytest
 
-from frappe_manager.utils.helpers import SECRET_OPTIONS, redact_argv
+from frappe_manager.utils.helpers import SECRET_OPTIONS, redact_argv, redact_command_line
 
 pytestmark = pytest.mark.timeout(15)
 
@@ -73,3 +73,19 @@ def test_no_secret_bearing_option_is_missing_from_the_set():
 
     missing = found - SECRET_OPTIONS - ALLOWED_VISIBLE
     assert not missing, f"secret-bearing options not redacted from fm.log: {sorted(missing)}"
+
+
+def test_a_password_passed_through_the_environment_is_redacted():
+    """The db probes hand the client its password via MYSQL_PWD/PGPASSWORD, which keeps it off the
+    container's process listing -- but fm builds that prefix inside a command STRING it logs, and a
+    scan keyed on flag names walks straight past an env assignment. Measured before this: 16 copies
+    of an external server's admin password in fm.log from one `fm create` against it."""
+    line = redact_command_line(["docker", "compose", "exec", "frappe", "MYSQL_PWD=s3cret mariadb -h db"])
+
+    assert "s3cret" not in line
+    assert "MYSQL_PWD=***" in line
+
+
+def test_postgres_password_env_is_redacted_too():
+    """Same shape, different client: the postgres probe uses PGPASSWORD."""
+    assert "pw" not in redact_command_line(["sh", "-c", "PGPASSWORD=pw psql -h db"]).replace("PGPASSWORD", "")

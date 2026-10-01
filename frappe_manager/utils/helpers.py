@@ -120,6 +120,13 @@ _SECRET_FLAG_IN_TEXT_RE = re.compile(
     r"(?P<sep>[=\s]+)(?P<value>'[^']*'|\"[^\"]*\"|\S+)"
 )
 
+# Clients that take their password from the ENVIRONMENT rather than a flag, which is the safer
+# choice -- it keeps the value off the container's process listing -- but fm builds the prefix
+# inside a command STRING it then logs, so the flag-name scan below walks straight past
+# `MYSQL_PWD=<value>`. Measured: 16 copies of an external server's admin password in fm.log from
+# one `fm create` against it.
+_SECRET_ENV_IN_TEXT_RE = re.compile(r"(?<!\S)(?P<name>MYSQL_PWD|PGPASSWORD|MARIADB_PWD)=(?P<value>'[^']*'|\"[^\"]*\"|\S+)")
+
 
 def redact_command_line(argv: list[str]) -> str:
     """A command line for the log, with secret flag values replaced wherever they appear.
@@ -129,10 +136,11 @@ def redact_command_line(argv: list[str]) -> str:
     The flag is inside that string, so an element-wise scan walks straight past it. This runs over
     the joined text as well, which catches both shapes.
     """
-    return _SECRET_FLAG_IN_TEXT_RE.sub(
+    redacted = _SECRET_FLAG_IN_TEXT_RE.sub(
         lambda m: f"{m.group('flag')}{m.group('sep')}***" if m.group("value") != "-" else m.group(0),
         redact_argv(argv),
     )
+    return _SECRET_ENV_IN_TEXT_RE.sub(lambda m: f"{m.group('name')}=***", redacted)
 
 def remove_zombie_subprocess_process(process):
     """

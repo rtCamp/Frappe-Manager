@@ -658,9 +658,15 @@ class BenchOrchestrator:
         """
         return self._external_flow is db_probe.Flow.attach
 
-    def _external_database(self) -> DatabaseConfig:
-        """The `[database."<site>"]` entry driving this create. Only called once the gate ran."""
-        database = self.bench.bench_config.get_database_config(self.bench.site_name)
+    def _external_database(self, site: str | None = None) -> DatabaseConfig:
+        """The `[database."<site>"]` entry driving this create. Only called once the gate ran.
+
+        `site` defaults to the bench's own, which is every call from the create pipeline; a
+        site-add (`_add_site_to_bench`, commands/create.py) names the new one and every lookup
+        below has to follow it rather than the bench's primary site.
+        """
+        site = site or self.bench.site_name
+        database = self.bench.bench_config.get_database_config(site)
         if database is None:
             raise BenchOperationException(
                 self.bench.name,
@@ -668,7 +674,7 @@ class BenchOrchestrator:
             )
         return database
 
-    def _external_database_gate(self) -> None:
+    def _external_database_gate(self, site: str | None = None) -> None:
         """Stage one of the database preflight, the flow decision, and the per-site config file.
 
         Returns immediately when this site has no `[database]` entry, which is every bench on the
@@ -688,10 +694,15 @@ class BenchOrchestrator:
         `env/`, both of which phase 2 creates, and the image runtime has no phase 2 at all. That
         is not a compromise either: the CLI is the stack Frappe shells out to for the initial SQL
         import, for restores and for dumps, and it is the half that needs the option file.
+
+        `site` defaults to the bench's own; `_add_site_to_bench` passes the site being added, so
+        every path below -- the TLS install, the probe, the written `site_config.json` -- follows
+        it instead of the bench's primary site.
         """
         bench = self.bench
         config = bench.bench_config
-        database = config.get_database_config(bench.site_name)
+        site = site or bench.site_name
+        database = config.get_database_config(site)
 
         if database is None:
             return
@@ -699,9 +710,9 @@ class BenchOrchestrator:
         mysql_home = None
         if database.ca:
             self.output.change_head("Installing the database CA")
-            db_tls.install_site_ca(bench.path, bench.site_name, Path(database.ca))
-            mysql_home = db_tls.site_mysql_home(bench.site_name)
-            self.output.print(f"Installed {database.ca} for {bench.site_name} and refreshed the CA bundle")
+            db_tls.install_site_ca(bench.path, site, Path(database.ca))
+            mysql_home = db_tls.site_mysql_home(site)
+            self.output.print(f"Installed {database.ca} for {site} and refreshed the CA bundle")
 
         attach = config.attach_existing_site
         # Only a password the OPERATOR supplied can be authenticated. On the provisioning path fm
@@ -766,14 +777,44 @@ class BenchOrchestrator:
         # in only on the provisioning path: `grant_all_privileges` is the single thing in Frappe
         # that reads it and only `setup_database` reaches it, so on adopt-empty or attach the key
         # would imply behaviour it does not have.
-        self.output.change_head(f"Writing sites/{bench.site_name}/site_config.json")
+        self.output.change_head(f"Writing sites/{site}/site_config.json")
         bench.create_bench_site_config(
-            config.get_site_config_data(bench.site_name, provisioning=decision.flow is db_probe.Flow.provision)
+            config.get_site_config_data(site, provisioning=decision.flow is db_probe.Flow.provision),
+            site=site,
         )
 
         if self._attaching:
             self._disable_migrate_for_attach()
             self._report_attach_warnings()
+
+    def prepare_site_database(self, site: str) -> None:
+        """External-database preflight for a site added to an existing bench.
+
+        `_add_site_to_bench` (commands/create.py) calls this instead of inlining
+        `_phase4_create_site`'s sequence: that method's tail (`set_bench_site_config` with the
+        admin password, `sync_bench_config_configuration`'s supervisor restart) is bench-wide and
+        primary-site shaped, and running it on every site-add would restart the bench's frappe
+        server for sites that never asked for one. This covers only the database half: the gate,
+        the immediately-before-write recheck, and provisioning when the gate decided to.
+
+        A no-op when `site` has no `[database]` entry: fm's own server provisions the schema
+        itself, the way `bench new-site` always has.
+        """
+        self._external_database_gate(site=site)
+        if self._attaching:
+            # The CLI refuses `--attach-existing-site` on `fm create BENCH/SITE`
+            # (`_refuse_unhonoured_site_flags`) precisely so this is never reached: attach records
+            # the attached site as the bench's default and skips its app install, both of which
+            # only make sense for a bench's first site.
+            raise BenchOperationException(
+                self.bench.name,
+                f"attaching {site} to an existing database is not supported when adding a site to "
+                "a bench that already exists.",
+            )
+        if self._external_flow is not None:
+            self._recheck_external_schema(site=site)
+        if self._external_flow is db_probe.Flow.provision:
+            self._provision_external_schema(site=site)
 
     def _probe_runner(self, *, use_run: bool) -> db_probe.Runner:
         """Run one probe command in the bench container and hand back its combined output.
@@ -900,7 +941,7 @@ class BenchOrchestrator:
                     break
         return sharing
 
-    def _recheck_external_schema(self) -> None:
+    def _recheck_external_schema(self, site: str | None = None) -> None:
         """Re-take the emptiness verdict immediately before phase 4 writes anything.
 
         The probe's answer is minutes stale by now: phases 2 and 3 sit in between and both take
@@ -914,10 +955,13 @@ class BenchOrchestrator:
         create fails. On the provisioning path that login does not exist yet, so stage one
         re-runs with the admin credentials instead, and Frappe's own `setup_database` connection
         moments later is the driver-level check there.
+
+        `site` defaults to the bench's own; see `_external_database`.
         """
         bench = self.bench
         config = bench.bench_config
-        database = self._external_database()
+        site = site or bench.site_name
+        database = self._external_database(site)
 
         self.output.change_head(f"Re-checking schema {database.name} on {database.host}")
 
@@ -945,12 +989,12 @@ class BenchOrchestrator:
                 admin_password=config.db_admin_password,
                 site_user=database.login_user,
                 schema=database.name,
-                mysql_home=db_tls.site_mysql_home(bench.site_name) if database.ca else None,
+                mysql_home=db_tls.site_mysql_home(site) if database.ca else None,
             )
         else:
             result = db_probe.probe_stage_two(
                 self._probe_runner(use_run=False),
-                site=bench.site_name,
+                site=site,
                 schema=database.name,
             )
 
@@ -964,7 +1008,7 @@ class BenchOrchestrator:
                 f" stopped before writing anything to it. {decision.message}",
             )
 
-    def _provision_external_schema(self) -> None:
+    def _provision_external_schema(self, site: str | None = None) -> None:
         """Have Frappe create the schema, the login and the grant, under the advisory lock.
 
         fm issues no SQL of its own here. `provision_external_schema` calls Frappe's
@@ -974,10 +1018,13 @@ class BenchOrchestrator:
         only narrows: two operators, or two `fm create` runs, can otherwise both read "absent"
         and both proceed. The admin password travels on the container's stdin and never reaches a
         flag, a file or a process listing.
+
+        `site` defaults to the bench's own; see `_external_database`.
         """
         bench = self.bench
         config = bench.bench_config
-        database = self._external_database()
+        site = site or bench.site_name
+        database = self._external_database(site)
 
         if not config.db_admin_user or not config.db_admin_password:
             raise BenchOperationException(
@@ -992,7 +1039,7 @@ class BenchOrchestrator:
         bench.site_manager.provision_external_schema(
             admin_user=config.db_admin_user,
             admin_password=config.db_admin_password,
-            site=bench.site_name,
+            site=site,
         )
         # Only from here does a later failure have something to offer to undo.
         self._provisioned = database

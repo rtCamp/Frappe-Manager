@@ -292,7 +292,7 @@ class _Harness:
         self.events.append(f"compose_exec({kwargs.get('command')})")
         return SubprocessOutput(stdout=["200"], stderr=[], combined=["200"], exit_code=0)
 
-    def _write_site_config(self, data: dict) -> None:
+    def _write_site_config(self, data: dict, site: str | None = None) -> None:
         self.written_site_configs.append(dict(data))
         self.events.append("write_site_config")
 

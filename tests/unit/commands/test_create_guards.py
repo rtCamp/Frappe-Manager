@@ -104,15 +104,18 @@ def test_a_free_bench_name_passes_the_guard_into_the_body(cli, benches):
 # ----------------------------------- site-scoped flags on a path that would discard them
 
 
-"""Three invocations used to exit 0 having thrown the operator's flag away.
+"""Two invocations used to exit 0 having thrown the operator's flag away.
 
 `--bench-only` skips `record_site`, so an entire external database was accepted and the bench came
-up on the mariadb container instead: working, and pointed at the wrong server. `fm create
-BENCH/SITE` reaches `_add_site_to_bench`, which has no database parameters at all. And `--bench-only`
+up on the mariadb container instead: working, and pointed at the wrong server. `--bench-only`
 beside a `BENCH/SITE` address is a contradiction that was resolved by ignoring the flag.
 
 Silence is the bug in each case. A refusal that names the flags is the fix, and it has to name them:
 "invalid combination" leaves the operator to guess which of eleven database flags was the problem.
+
+`fm create BENCH/SITE` itself now HONOURS every database flag (`_add_site_to_bench` wires them
+through `_resolve_external_options`, same as the bench-create path); only `--attach-existing-site`
+is refused there, below, for the narrower reason that attach binds its site as the bench default.
 """
 
 
@@ -223,20 +226,73 @@ def test_naming_a_site_and_saying_no_site_is_refused(cli, benches):
     assert "--bench-only" in said
 
 
-def test_adding_a_site_refuses_the_database_flags_it_cannot_carry(cli, benches):
-    """`_add_site_to_bench` takes `apps` and `alias_domains` and nothing else, and `record_site` is
-    called with `None` for the database, so these were accepted and dropped."""
-    result, _ = _invoke(cli, ["existing/second.example.com", "--db-host", "h", "--db-name", "n"])
+def test_adding_a_site_with_a_managed_engine_is_honoured(cli, benches):
+    """`_add_site_to_bench` now takes `database`/`credentials`, wired through
+    `_resolve_external_options` exactly like the bench-create path: no longer refused."""
+    with patch("frappe_manager.commands.create._add_site_to_bench") as add_site:
+        result = runner.invoke(
+            cli,
+            ["existing/second.example.com", "--db-type", "postgres"],
+            obj={"services": MagicMock(), "verbose": False, "fm_config_manager": MagicMock()},
+        )
 
-    assert result.exit_code != 0
-    said = _said(result)
-    # The guard's own phrasing, not just the flag names: a help dump also lists every --db-* flag.
-    assert "does not take --db-host, --db-name" in said
+    assert result.exit_code == 0, _said(result)
+    add_site.assert_called_once()
+    database = add_site.call_args.kwargs["database"]
+    assert database.type.value == "postgres"
+    assert database.external is False
+
+
+def test_adding_a_site_with_an_external_database_is_honoured(cli, benches):
+    with patch("frappe_manager.commands.create._add_site_to_bench") as add_site:
+        result = runner.invoke(
+            cli,
+            [
+                "existing/second.example.com",
+                "--db-host",
+                "db.example.com",
+                "--db-name",
+                "shop_db",
+                "--db-admin-user",
+                "root",
+                "--db-admin-password",
+                "secret",
+            ],
+            obj={"services": MagicMock(), "verbose": False, "fm_config_manager": MagicMock()},
+        )
+
+    assert result.exit_code == 0, _said(result)
+    add_site.assert_called_once()
+    database = add_site.call_args.kwargs["database"]
+    credentials = add_site.call_args.kwargs["credentials"]
+    assert database.host == "db.example.com"
+    assert database.name == "shop_db"
+    assert credentials.db_admin_user == "root"
+    assert credentials.db_admin_password == "secret"
+
+
+def test_adding_a_site_refuses_attach_existing_site(cli, benches):
+    """Attach records its site as the bench's default and skips its own app install, both of which
+    only make sense for a bench's first site; refused outright rather than silently ignored."""
+    result, _ = _invoke(
+        cli,
+        [
+            "existing/second.example.com",
+            "--db-host",
+            "db.example.com",
+            "--db-name",
+            "shop_db",
+            "--attach-existing-site",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "--attach-existing-site" in _said(result)
 
 
 def test_adding_a_site_still_takes_the_aliases_it_does_forward(cli, benches):
-    """`--alias-domains` IS passed through to `_add_site_to_bench`, so refusing it would remove a
-    working feature. This is the line between the two halves of the guard."""
+    """`--alias-domains` is forwarded to `_add_site_to_bench` just like every database flag now
+    is; this pins that it is still never refused."""
     result, _ = _invoke(cli, ["existing/second.example.com", "--alias-domains", "x.example.com"])
 
     assert "--alias-domains" not in _said(result)

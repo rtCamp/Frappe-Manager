@@ -587,7 +587,7 @@ class Bench:
             raise BenchException(self.name, message=f"File not found {site_config_path.name}.")
         save_dict_to_file(config, site_config_path)
 
-    def create_bench_site_config(self, config: dict):
+    def create_bench_site_config(self, config: dict, site: str | None = None):
         """Create `sites/<site>/site_config.json` from the host, before anything connects.
 
         The external flow must write this file BEFORE `new-site` or any provisioning runs:
@@ -595,8 +595,12 @@ class Bench:
         `make_site_config` writes the file only when it does not exist and `make_conf` re-inits
         the site afterwards, so a file fm wrote first survives untouched and is what the rest of
         `new-site` reads. Unlike `set_bench_site_config` this creates the directory and the file.
+
+        `site` defaults to the bench's own; `BenchOrchestrator._external_database_gate` passes the
+        site being added when it is adding one to a bench that already exists.
         """
-        site_dir = host_bench_dir(self.path) / "sites" / self.site_name
+        site = site or self.site_name
+        site_dir = host_bench_dir(self.path) / "sites" / site
         site_dir.mkdir(parents=True, exist_ok=True)
         site_config_path = site_dir / "site_config.json"
         # save_dict_to_file merges, so it reads the file before writing and cannot create one.

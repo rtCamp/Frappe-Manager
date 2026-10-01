@@ -342,22 +342,20 @@ _SITE_SCOPED_FLAGS: dict[str, str] = {
     "encryption_key": "--encryption-key",
 }
 
-# The subset `_add_site_to_bench` has no parameter for: adding a site to an existing bench records
-# it with no database wiring of its own (`record_site(..., None, ...)`), so these cannot be honoured
-# on that path. `--alias-domains` is absent because it IS forwarded there.
-_SITE_DB_FLAGS = frozenset(_SITE_SCOPED_FLAGS) - {"alias_domains"}
-
-
 def _refuse_unhonoured_site_flags(ctx: typer.Context, *, bench_only: bool, added_site: str | None) -> None:
-    """Refuse site-scoped flags on a path that would discard them.
+    """Refuse site-scoped flags on a path that would discard them, or that bind to the bench's
+    primary site in a way `fm create BENCH/SITE` cannot honour.
 
-    All three of these used to exit 0 having thrown the flag away: `--bench-only` skips
-    `record_site` entirely, so `fm create shop --bench-only --db-host h --db-name n` accepted a
-    whole external database and created a bench on the mariadb container instead; `fm create
-    BENCH/SITE` reaches `_add_site_to_bench`, which takes no database arguments; and `--bench-only`
-    beside a `BENCH/SITE` address is a straight contradiction that was resolved by ignoring the
-    flag. Silently dropping database wiring is the worst of the three, because the bench comes up
-    working and pointed at the wrong server.
+    `--bench-only` skips `record_site` entirely, so `fm create shop --bench-only --db-host h
+    --db-name n` used to accept a whole external database and create a bench on the mariadb
+    container instead, throwing it away; and `--bench-only` beside a `BENCH/SITE` address is a
+    straight contradiction that used to be resolved by ignoring the flag.
+
+    `--attach-existing-site` is refused on `fm create BENCH/SITE` for a narrower reason:
+    `_attach_existing_site` records the attached site as the bench's default and
+    `_skip_phase6_for_attach` skips its app install, both of which only make sense for a bench's
+    FIRST site. Every other database flag IS honoured on that path: `_add_site_to_bench` wires
+    them through `_resolve_external_options` exactly like the bench-create path does.
 
     Only flags the operator actually passed count, so a default like `--db-port 3306` never trips.
     """
@@ -373,23 +371,23 @@ def _refuse_unhonoured_site_flags(ctx: typer.Context, *, bench_only: bool, added
             "BENCH/SITE names a site to create and --bench-only says to create none. Pass the bench "
             "name alone for an empty bench, or drop --bench-only to create the site you named."
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if bench_only and given:
         output.display_error(
             f"--bench-only creates no site, so {', '.join(sorted(given))} would have nothing to "
             "apply to. Create the bench, then add the site with 'fm create BENCH/SITE' and pass them there."
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
-    unhonoured = sorted(given & {_SITE_SCOPED_FLAGS[n] for n in _SITE_DB_FLAGS})
-    if added_site and unhonoured:
+    if added_site and "--attach-existing-site" in given:
         output.display_error(
-            f"'fm create BENCH/SITE' does not take {', '.join(unhonoured)}: a site added to an "
-            "existing bench is recorded without database wiring of its own. Create the bench and its "
-            "first site together to point them at an external server."
+            "'fm create BENCH/SITE' does not take --attach-existing-site: attach records the "
+            "attached site as the bench's default and skips its own app install, both of which only "
+            "make sense for a bench's first site. Create the bench and its attached site together "
+            "with 'fm create BENCH --db-host ... --attach-existing-site' instead."
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
 
 @dataclass(frozen=True)
@@ -566,6 +564,8 @@ def _add_site_to_bench(
     verbose: bool,
     apps: list[AppConfig],
     alias_domains: list[str] | None = None,
+    database: DatabaseConfig | None = None,
+    credentials: _ExternalCredentials | None = None,
 ) -> None:
     """Add `site` to the bench `benchname`, which already exists and may be serving.
 
@@ -577,6 +577,10 @@ def _add_site_to_bench(
     Not run: the workspace and the apps are already cloned, the containers are already up, and the
     migration stamp already describes the bench. What runs is the site itself, its apps, and then
     the routing change.
+
+    `database` and `credentials` are `_resolve_external_options`'s output, called by the caller
+    exactly as the bench-create path calls it: `None` (the default) means fm's own server, for
+    whichever engine `database.type` names.
     """
     output = get_global_output_handler()
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
@@ -589,9 +593,7 @@ def _add_site_to_bench(
         emoji_code=":globe_with_meridians:",
     )
 
-    # A schema of this site's own on the mariadb container. Never the bench's `db_name`: that one
-    # names the first site's schema, and two sites sharing a schema is data loss.
-    schema = mint_mariadb_schema_name(site)
+    database = database or DatabaseConfig()
 
     # Recorded BEFORE `new-site`, because `get_site_config_data` and the TLS paths are keyed by site
     # and are read during creation. Saved to disk only once the site works, below.
@@ -599,11 +601,41 @@ def _add_site_to_bench(
     # here just as the fresh-create path records them on the first site's. Missing this is invisible
     # to a unit test of `record_site`: the flag simply never arrived, and the site was created with
     # an empty alias list while fm reported success.
-    bench.bench_config.sites = record_site(bench.bench_config.sites, site, None, alias_domains)
+    bench.bench_config.sites = record_site(bench.bench_config.sites, site, database, alias_domains)
+    if credentials is not None:
+        # Runtime-only fields: excluded from export_to_toml, so none of this reaches disk.
+        bench.bench_config.db_admin_user = credentials.db_admin_user
+        bench.bench_config.db_admin_password = credentials.db_admin_password
+        bench.bench_config.db_password = credentials.db_password
+        bench.bench_config.db_password_generated = credentials.db_password_generated
+        bench.bench_config.attach_existing_site = credentials.attach_existing_site
+        bench.bench_config.encryption_key = credentials.encryption_key
+
+    schema = None
+    if not database.external:
+        # A schema of this site's own on fm's OWN server for this site's engine. Never the bench's
+        # `db_name`: that one names the first site's schema, and two sites sharing a schema is data
+        # loss.
+        schema = mint_mariadb_schema_name(site)
 
     try:
+        # Same funnel the bench-create pipeline's phase 3 uses before it ever reaches for `site`'s
+        # database: brings this engine's container up (this bench may have only ever needed
+        # mariadb before, and this site is `--db-type postgres`, or vice versa) and does not
+        # return until it answers, so `new-site`/the probe below never race a container that just
+        # started.
+        bench.site_manager.wait_for_required_services(site=site)
+
+        # No-op when `database` is fm's own server: the gate returns immediately, same as a
+        # fresh-create whose first site has no `[database]` entry.
+        bench.orchestrator.prepare_site_database(site)
+
         output.change_head(f"Creating site {site}")
-        bench.site_manager.create_bench_site(site=site, db_name=schema, set_default=False)
+        bench.site_manager.create_bench_site(
+            site=site,
+            db_name=database.name if database.external else schema,
+            set_default=False,
+        )
 
         if apps:
             output.change_head(f"Installing apps into {site}")
@@ -612,11 +644,20 @@ def _add_site_to_bench(
         # Site-scoped cleanup: the bench and its other sites are untouched. `remove_bench` is what a
         # failed CREATE calls and would be catastrophic here.
         output.stop()
+        if database.external:
+            schema_note = (
+                f"schema {database.name} on {database.host} may hold partial data; it is not "
+                "recorded in bench_config.toml, so nothing else refers to it."
+            )
+        else:
+            schema_note = (
+                f"a schema named {schema} may exist on fm's {database.type.value}; it is not "
+                "recorded in bench_config.toml, so nothing else refers to it."
+            )
         output.warning(
             f"Could not add {site}. The bench and its other sites are untouched. Any partial site "
-            f"directory is at {bench.path / 'workspace' / 'frappe-bench' / 'sites' / site}, and a "
-            f"schema named {schema} may exist on mariadb; neither is recorded in bench_config.toml, "
-            f"so nothing else refers to them.",
+            f"directory is at {bench.path / 'workspace' / 'frappe-bench' / 'sites' / site}, and "
+            f"{schema_note}",
         )
         raise
 
@@ -1172,6 +1213,29 @@ def create(
             output_early.display_error(str(e))
             output_early.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
             raise typer.Exit(1) from e
+        # `configured=None`: there is no `--config` overlay on this path (unlike the bench-create
+        # path below), so there is never an already-merged `[database]` entry to defer to.
+        # `redis_cache`/`redis_queue` are not threaded through here: `[redis]` is bench-wide, and
+        # `--attach-existing-site` is refused above by `_refuse_unhonoured_site_flags`, so it is
+        # always False by the time `_resolve_external_options` sees it.
+        database_config, _, credentials = _resolve_external_options(
+            configured=None,
+            db_type=db_type,
+            db_host=db_host,
+            db_port=db_port,
+            db_port_given=ctx.get_parameter_source("db_port") in _EXPLICIT_SOURCES,
+            db_name=db_name,
+            db_user=db_user,
+            db_password=db_password,
+            db_admin_user=db_admin_user,
+            db_admin_password=db_admin_password,
+            db_ca=db_ca,
+            db_no_verify_hostname=db_no_verify_hostname,
+            attach_existing_site=attach_existing_site,
+            encryption_key=encryption_key,
+            redis_cache=None,
+            redis_queue=None,
+        )
         _add_site_to_bench(
             # `benchname`, not `address`: this helper takes a bench DIRECTORY name, and the site it
             # adds arrives separately. A future rename of this command's `address` parameter must
@@ -1182,6 +1246,8 @@ def create(
             verbose=verbose,
             apps=cast("list[AppConfig]", apps),
             alias_domains=alias_domains,
+            database=database_config,
+            credentials=credentials,
         )
         return
 
