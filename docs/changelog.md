@@ -82,6 +82,8 @@ This is the 1.0.0 cycle. Versions 0.20.0 and 0.21.0 were never published: their 
 
 ### Bug Fixes
 
+- **delete:** Removing a site takes its own `configs/nginx/conf/custom/<site>/` directory with it. The sweep deleted a file only when a marker proved fm wrote it, so it had to be taught each filename and knew two of three: every site ever deleted left its `admin-tools.conf` behind, and a site recreated under the same name inherited that routing and auth with nothing saying so. The marker rule is for the proxy's shared `vhost.d/<domain>`, where fm cannot tell its own content from another writer's; this directory is fm's by name, so the path is the proof
+
 - **domain:** A newly added alias domain gets its site's upload limit and HSTS immediately. It used to get neither until something happened to run `fm start`: measured, a 5 MB upload was rejected with 413 on a bench configured for 50M
 
 - **migrate:** The v1.0.0 migration runs at all. It imported PyYAML, which fm does not depend on, so on any clean install the module failed to load, discovery skipped it with a warning, and the command then reported success and stamped the version as migrated with none of the work done. Found by installing fm on a clean host

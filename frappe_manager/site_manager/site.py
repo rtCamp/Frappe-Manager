@@ -1400,6 +1400,7 @@ class Bench:
         # site's.
         self._remove_proxy_upload_limits(site_domains)
         self._remove_proxy_hsts(site_domains)
+        self._remove_site_nginx_conf_dir(site)
         self._forget_site_backups(site, delete_backups=delete_backups)
         try:
             remove_site_tls(self.path, site)
@@ -1417,6 +1418,27 @@ class Bench:
         self.republish_site_map()
         self.logger.info(f"Site removed: {site} from {self.name}", extra_fields=extra)
         return True
+
+    def _remove_site_nginx_conf_dir(self, site: str) -> None:
+        """Drop the removed site's own `custom/<site>/` directory in the bench nginx conf.
+
+        Ownership here is the PATH, not a marker: fm creates this directory, names it after a site
+        it records, and generates every file in it, so once the site is gone the whole directory
+        names nothing. The marker rule applies to the proxy's shared `vhost.d/<domain>`, where fm
+        cannot tell its own content from another writer's; carrying it here meant the sweep had to
+        be taught about each filename separately, and it knew about `auth.conf` and
+        `upload-limit.conf` while `admin-tools.conf` outlived every deleted site.
+
+        A resurrected site of the same name is the case that bites: it would inherit the old
+        site's admin-tools routing and auth without anything saying so.
+        """
+        conf_dir = self.path / "configs" / "nginx" / "conf" / "custom" / site
+        if not conf_dir.is_dir():
+            return
+        try:
+            shutil.rmtree(conf_dir)
+        except OSError as e:
+            self.output.warning(f"Could not remove the nginx conf directory for {site}: {e}")
 
     def _remove_proxy_upload_limits(self, domains: set[str]) -> None:
         """Drop the removed site's upload-limit drop-in fragments.

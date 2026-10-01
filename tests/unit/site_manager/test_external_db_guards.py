@@ -582,6 +582,11 @@ def _vhostd(bench) -> Path:
     return bench.services.path / "nginx-proxy" / "vhostd"
 
 
+def _nginx_custom_dir(bench, site: str) -> Path:
+    """The bench nginx conf directory fm owns and generates whole-cloth for `site`."""
+    return bench.path / "configs" / "nginx" / "conf" / "custom" / site
+
+
 def test_the_removed_sites_proxy_upload_limit_files_go(tmp_path):
     """The removed domain's upload-limit fragment, its now-empty fragment directory, and the
     vhostd include bootstrap (nothing else was holding it open) must all go -- not just the
@@ -672,6 +677,50 @@ def test_the_removed_sites_database_tls_material_goes(tmp_path):
     bench.remove_site("b.example.com", delete_fm_managed_db=True)
 
     assert not tls.exists()
+
+
+def test_the_removed_sites_nginx_conf_dir_is_deleted_whole(tmp_path):
+    """Ownership of `custom/<site>/` is the PATH, not a per-file marker, so the whole directory
+    must go, including a file the sweep was never taught about: if per-file sweeping ever creeps
+    back in, a site later recreated with the same name inherits the old site's admin-tools
+    routing and auth with nothing saying so."""
+    bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
+    conf_dir = _nginx_custom_dir(bench, "b.example.com")
+    conf_dir.mkdir(parents=True)
+    (conf_dir / "admin-tools.conf").write_text("resolver 127.0.0.11 valid=10s ipv6=off;\n")
+    (conf_dir / "some-other-file.conf").write_text("whatever fm never names explicitly\n")
+
+    bench.remove_site("b.example.com", delete_fm_managed_db=True)
+
+    assert not conf_dir.exists()
+
+
+def test_a_surviving_sites_nginx_conf_dir_is_untouched(tmp_path):
+    """The bench keeps serving its other sites, so their nginx conf directory must survive."""
+    bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
+    kept_dir = _nginx_custom_dir(bench, "shop.localhost")
+    kept_dir.mkdir(parents=True)
+    (kept_dir / "admin-tools.conf").write_text("resolver 127.0.0.11 valid=10s ipv6=off;\n")
+    conf_dir = _nginx_custom_dir(bench, "b.example.com")
+    conf_dir.mkdir(parents=True)
+    (conf_dir / "admin-tools.conf").write_text("resolver 127.0.0.11 valid=10s ipv6=off;\n")
+
+    bench.remove_site("b.example.com", delete_fm_managed_db=True)
+
+    assert kept_dir.is_dir()
+    assert (kept_dir / "admin-tools.conf").exists()
+
+
+def test_removing_a_site_with_no_nginx_conf_dir_is_a_no_op(tmp_path):
+    """No directory was ever created for this site (e.g. it predates the feature) -- removal
+    must not raise."""
+    bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
+    conf_dir = _nginx_custom_dir(bench, "b.example.com")
+    assert not conf_dir.exists()
+
+    assert bench.remove_site("b.example.com", delete_fm_managed_db=True) is True
+
+    assert not conf_dir.exists()
 
 
 def test_cleanup_that_fails_warns_and_still_finishes_the_removal(tmp_path):
