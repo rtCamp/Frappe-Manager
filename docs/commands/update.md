@@ -36,6 +36,7 @@ $ fm update BENCH(/SITE) [OPTIONS]
 * `--abandon-queued`: Switch the redis queue even though jobs are still pending, leaving them on the old server instead of pausing producers and waiting for the backlog to drain. Those jobs are never run.  [default: false]
 * `--no-redis`: Bring BOTH sides back to fm's own per-bench redis containers.  [default: false]
 * `--db-ca PATH`: Reinstall the external database CA after a rotation: the site PEM, the bench ca-bundle.pem the dumps use, and the recorded path are refreshed together.
+* `--default-site`: Make the addressed site this bench's default, the one bench commands use when none is named.  [default: false]
 * `--dry-run`: Print what would change and exit without touching the bench.  [default: false]
 * `-y, --yes`: Apply the plan without asking for confirmation.  [default: false]
 

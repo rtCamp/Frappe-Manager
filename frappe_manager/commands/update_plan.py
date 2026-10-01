@@ -46,6 +46,7 @@ from frappe_manager.site_manager.bench_config import (
     extract_python_version_requirement,
     parse_node_version_for_runtime,
     parse_python_version_for_runtime,
+    read_default_site,
     requests_immutable_runtime_inputs,
     validate_node_version_compatibility,
     validate_python_version_compatibility,
@@ -121,6 +122,9 @@ class UpdatePlan:
     restart_web: bool = False
     restart_workers: bool = False
     kill_timeout: int = 0
+    # The site this bench answers with when a bench command names none. Carried as the site NAME
+    # rather than a bool so apply writes what planning decided, not what it re-derives.
+    default_site: str | None = None
 
     changes: list[str] = field(default_factory=list)
     already: list[str] = field(default_factory=list)
@@ -353,6 +357,7 @@ def plan_update(
     restart_policy: RestartPolicyEnum | None = None,
     python_version: str | None = None,
     node_version: str | None = None,
+    default_site: str | None = None,
     skip_version_check: bool = False,
     recreate_python_env: bool | None = None,
     db_ca: Path | None = None,
@@ -467,6 +472,21 @@ def plan_update(
             plan.changes.append(f"environment  {config.environment_type.value} -> {environment.value}")
             plan.regenerate_compose = True
             plan.recreate_services.add("frappe")
+
+    if default_site:
+        # Frappe's own answer, read from common_site_config.json, not fm's recorded primary: that
+        # file is what `bench` reads when no --site is named, so it is the thing being changed.
+        #
+        # The site comes from the ADDRESS, not `bench.site_name`: the primary is itself derived
+        # from `default_site`, so comparing against it made every invocation a no-op -- including
+        # `fm update BENCH/other.localhost --default-site`, which reported the site it was
+        # replacing as already default.
+        current = read_default_site(bench.path)
+        if current == default_site:
+            plan.already.append(f"default site is already {default_site}")
+        else:
+            plan.default_site = default_site
+            plan.changes.append(f"default site    {current or 'unset'} -> {default_site}")
 
     if restart_policy is not None:
         if restart_policy == config.restart_policy:

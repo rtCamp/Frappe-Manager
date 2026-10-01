@@ -1308,6 +1308,29 @@ class TestPlanningIsSeparateFromApplying:
         assert world.saves == 0
 
 
+class TestDefaultSite:
+    """Switching which site a bench answers with when none is named, without creating one."""
+
+    def test_promoting_a_site_writes_frappes_own_answer(self, world, monkeypatch):
+        """`default_site` lives in common_site_config.json because frappe is what reads it; fm's
+        recorded primary is a different question."""
+        monkeypatch.setattr(
+            "frappe_manager.commands.update_plan.read_default_site", lambda _root: "other.localhost"
+        )
+
+        world.run(default_site=True, yes=True)
+
+        world.bench.set_common_bench_config.assert_called_once_with({"default_site": BENCH})
+
+    def test_promoting_the_site_that_is_already_default_changes_nothing(self, world, monkeypatch):
+        """A no-op must stay a no-op: this is the whole point of planning before applying."""
+        monkeypatch.setattr("frappe_manager.commands.update_plan.read_default_site", lambda _root: BENCH)
+
+        world.run(default_site=True, yes=True)
+
+        world.bench.set_common_bench_config.assert_not_called()
+
+
 class TestConfirmation:
     """`fm update` was the only plan-first command that printed a plan and applied it unasked,
     while prune, delete and migrate all wait -- and it is the most destructive thing fm does to a

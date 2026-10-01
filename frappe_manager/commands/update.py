@@ -213,6 +213,15 @@ def update(
             rich_help_panel=_PANEL_SITE,
         ),
     ] = None,
+    default_site: Annotated[
+        bool,
+        typer.Option(
+            "--default-site",
+            help="Make the addressed site this bench's default, the one bench commands use when none is named.",
+            show_default=False,
+            rich_help_panel=_PANEL_SITE,
+        ),
+    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option(
@@ -254,6 +263,9 @@ def update(
         restart_policy=restart_policy,
         python_version=python_version,
         node_version=node_version,
+        # The site HALF of BENCH/SITE, which the callback stashes on ctx.obj; `bench.site_name` is
+        # the primary, and the primary is derived from default_site, so using it is always a no-op.
+        default_site=(ctx.obj.get("site") or bench.site_name) if default_site else None,
         skip_version_check=skip_version_check,
         recreate_python_env=recreate_python_env,
         db_ca=db_ca,
@@ -387,6 +399,13 @@ def _apply_plan(bench: Bench, plan: UpdatePlan, output) -> None:
     # and saving unconditionally here would double-write.
     if plan.writes_bench_config:
         bench.save_bench_config()
+
+    # `common_site_config.json`, not bench_config.toml: this is frappe's own answer for "which site
+    # when none is named", and frappe is the one that reads it.
+    if plan.default_site is not None:
+        output.change_head(f"Making {plan.default_site} the bench's default site")
+        bench.set_common_bench_config({"default_site": plan.default_site})
+        output.print(f"Default site is now {plan.default_site}")
 
     # `update_upload_limit` owns its own save plus the three writes that actually enforce the limit
     # (proxy vhost.d, the bench custom conf, site_config), and reloads nginx once if anything
