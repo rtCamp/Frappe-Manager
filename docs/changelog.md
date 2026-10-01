@@ -78,7 +78,11 @@ This is the 1.0.0 cycle. Versions 0.20.0 and 0.21.0 were never published: their 
 - **create:** A dotted bench name says where it will resolve. A name without a dot gets `.localhost` appended; any dotted name is served exactly as typed, which means it resolves only where the operator points it, by DNS record or hosts entry. That path was previously silent, so a bench created as `shop.example.com` looked identical to one that would work locally
 - **bake:** `fm bake` on a mount bench warns before building that `fm switch` cannot deploy the result, and after building hands over the paste-able `fm create --runtime image --app-image <tag>`. The image is for seeding a new bench; a mount bench cannot switch to it
 
+- **config:** The upload limit is a per-site property. `[sites."<site>"].upload_limit` sets one site's limit and the bench's `upload_limit` is the default every site without its own inherits. `fm update BENCH/SITE --upload-limit` sets that site; `fm update BENCH --upload-limit` sets the default and leaves sites that set their own alone, naming them. Naming a site used to be accepted and then silently ignored, changing the whole bench. All three enforcement points follow the site: the shared proxy's per-domain drop-in, the bench nginx conf (now `custom/<site>/upload-limit.conf`, since one shared file cannot carry a per-site value and a second `client_max_body_size` in one server context is fatal to nginx), and Frappe's own `max_file_size`
+
 ### Bug Fixes
+
+- **domain:** A newly added alias domain gets its site's upload limit and HSTS immediately. It used to get neither until something happened to run `fm start`: measured, a 5 MB upload was rejected with 413 on a bench configured for 50M
 
 - **migrate:** The v1.0.0 migration runs at all. It imported PyYAML, which fm does not depend on, so on any clean install the module failed to load, discovery skipped it with a warning, and the command then reported success and stamped the version as migrated with none of the work done. Found by installing fm on a clean host
 

@@ -49,6 +49,7 @@ from frappe_manager.site_manager.bench_config import (
     FMBenchEnvType,
     RedisConfig,
     RestartPolicyEnum,
+    SiteConfig,
     WorkersConfig,
 )
 from frappe_manager.site_manager.exceptions import BenchNotRunning
@@ -614,6 +615,70 @@ class TestUploadLimit:
         world.bench.generate_compose.assert_not_called()
         world.bench.update_upload_limit.assert_not_called()
         assert world.compose_up_calls == []
+        assert world.saves == 0
+
+
+class TestUploadLimitPerSite:
+    """`fm update BENCH/SITE --upload-limit`: a site named in the address must change only that
+    site, a bench-scoped change must leave an overriding site's own value alone (and say so by
+    name), and an already-matching value at the ADDRESSED scope must report nothing to do."""
+
+    def test_site_scoped_change_writes_only_that_site_not_the_bench_default(self, world):
+        world.config.upload_limit = "50M"
+        world.config.sites = {}
+        world.config.effective_upload_limit.side_effect = lambda site: "50M"
+
+        world.run(upload_limit="500M", site="other.localhost")
+
+        world.bench.update_upload_limit.assert_not_called()
+        assert world.config.sites["other.localhost"].upload_limit == "500M"
+        assert world.config.upload_limit == "50M"
+        world.bench.save_bench_config.assert_called_once()
+        world.bench.ensure_fm_nginx_confs.assert_called_once()
+        world.bench.apply_upload_limit.assert_called_once()
+
+    def test_bench_scoped_change_keeps_an_overriding_sites_own_value_and_names_it(self, world):
+        world.config.upload_limit = "50M"
+        world.config.sites_with_own_upload_limit.return_value = ["site-a"]
+        world.config.sites = {"site-a": SiteConfig(upload_limit="500M")}
+
+        world.run(upload_limit="120M")
+
+        world.bench.update_upload_limit.assert_called_once_with("120M")
+        assert "  upload limit (bench default)  50M -> 120M" in world.prints
+        assert "  kept their own upload limit: site-a (500M)" in world.prints
+        # The kept site itself is never touched by a bench-scoped write.
+        assert world.config.sites["site-a"].upload_limit == "500M"
+
+    def test_the_plan_line_names_the_addressed_site(self, world):
+        world.config.upload_limit = "50M"
+        world.config.effective_upload_limit.side_effect = lambda site: "50M"
+
+        world.run(upload_limit="120M", site="other.localhost", dry_run=True)
+
+        assert "  upload limit (other.localhost)  50M -> 120M" in world.prints
+        world.bench.update_upload_limit.assert_not_called()
+        assert world.saves == 0
+
+    def test_an_unchanged_value_at_the_named_site_reports_nothing_to_do(self, world):
+        world.config.upload_limit = "50M"
+        world.config.effective_upload_limit.side_effect = lambda site: "500M"
+
+        world.run(upload_limit="500m", site="other.localhost")
+
+        assert world.prints == [f"{BENCH}: nothing to do (upload limit (other.localhost) is already 500M)"]
+        world.bench.update_upload_limit.assert_not_called()
+        assert world.saves == 0
+
+    def test_an_unchanged_bench_default_reports_nothing_to_do(self, world):
+        """A site-scoped request compares against the site's OWN effective limit, never the bench
+        field directly -- this pins the bench-scoped comparison stays against the bench field."""
+        world.config.upload_limit = "500M"
+
+        world.run(upload_limit="500m")
+
+        assert world.prints == [f"{BENCH}: nothing to do (upload limit (bench default) is already 500M)"]
+        world.bench.update_upload_limit.assert_not_called()
         assert world.saves == 0
 
 

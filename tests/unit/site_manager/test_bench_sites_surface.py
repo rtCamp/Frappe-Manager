@@ -281,13 +281,47 @@ def test_a_one_site_bench_prints_the_url_it_always_has_and_no_per_site_rows(tmp_
     info.output.print_data.assert_called_once_with(f"<rendered {BENCH}>")
 
 
+def test_a_single_ordinary_site_with_its_own_upload_limit_still_gets_a_row(tmp_path, card_spy):
+    """The single-site, fm's-own-mariadb case above prints no per-site rows at all. The one thing
+    that must still force the row is a site's own upload limit: otherwise the override it
+    actually enforces is invisible on the one card an operator reads."""
+    config = _config(tmp_path, sites={SITE: None})
+    config.sites[SITE].upload_limit = "10M"
+    card, _ = _info_card(tmp_path, config, site_config={SITE: {}})
+
+    assert card.labelled("sites") == [
+        f"http://{SITE}  [fm.muted]fm's mariadb[/fm.muted]  [fm.ok]● primary[/fm.ok]"
+        "  [fm.muted]· upload 10M (own)[/fm.muted]",
+    ]
+
+
+def test_card_and_json_payload_agree_on_each_sites_effective_upload_limit(tmp_path, card_spy):
+    """The card and `--json` must never disagree about which site carries its own limit: that
+    drift has already been a bug in this file before."""
+    config = _config(tmp_path, sites={SITE: None, OTHER: None})
+    config.sites[SITE].upload_limit = "10M"
+    card, info = _info_card(tmp_path, config, site_config={SITE: {}})
+
+    data = info.build_bench_info_data()
+    by_name = {row["name"]: row for row in data["sites"]}
+    assert by_name[SITE]["upload_limit"] == "10M"
+    assert by_name[SITE]["upload_limit_own"] is True
+    assert by_name[OTHER]["upload_limit"] == "50M"
+    assert by_name[OTHER]["upload_limit_own"] is False
+
+    rows = card.labelled("sites")
+    assert "upload 10M (own)" in rows[0]
+    assert "upload 50M (inherited)" in rows[1]
+
+
 def test_a_two_site_bench_lists_every_site_and_marks_the_primary(tmp_path, card_spy):
     config = _config(tmp_path, sites={SITE: None, OTHER: None})
     card, _ = _info_card(tmp_path, config, site_config={SITE: {}})
 
     assert card.labelled("sites") == [
-        f"http://{SITE}  [fm.muted]fm's mariadb[/fm.muted]  [fm.ok]● primary[/fm.ok]",
-        f"http://{OTHER}  [fm.muted]fm's mariadb[/fm.muted]",
+        f"http://{SITE}  [fm.muted]fm's mariadb[/fm.muted]  [fm.ok]● primary[/fm.ok]"
+        "  [fm.muted]· upload 50M (inherited)[/fm.muted]",
+        f"http://{OTHER}  [fm.muted]fm's mariadb[/fm.muted]  [fm.muted]· upload 50M (inherited)[/fm.muted]",
     ]
     # The primary's own line is unchanged: the rows are an addition, not a replacement.
     assert card.facts["url"] == f"http://{SITE}"
@@ -301,8 +335,10 @@ def test_a_site_on_someone_elses_server_names_that_server(tmp_path, card_spy):
     card, _ = _info_card(tmp_path, config, site_config={SITE: {}})
 
     assert card.labelled("sites") == [
-        f"http://{SITE}  [fm.muted]fm's mariadb[/fm.muted]  [fm.ok]● primary[/fm.ok]",
-        f"http://{OTHER}  [fm.muted]external mariadb · rds.internal:3307[/fm.muted]",
+        f"http://{SITE}  [fm.muted]fm's mariadb[/fm.muted]  [fm.ok]● primary[/fm.ok]"
+        "  [fm.muted]· upload 50M (inherited)[/fm.muted]",
+        f"http://{OTHER}  [fm.muted]external mariadb · rds.internal:3307[/fm.muted]"
+        "  [fm.muted]· upload 50M (inherited)[/fm.muted]",
     ]
 
 
@@ -313,7 +349,8 @@ def test_a_single_external_site_still_gets_a_row_because_url_cannot_say_where_it
     card, _ = _info_card(tmp_path, config, site_config={SITE: {}})
 
     assert card.labelled("sites") == [
-        f"http://{SITE}  [fm.muted]external mariadb · rds.internal:3306[/fm.muted]  [fm.ok]● primary[/fm.ok]",
+        f"http://{SITE}  [fm.muted]external mariadb · rds.internal:3306[/fm.muted]  [fm.ok]● primary[/fm.ok]"
+        "  [fm.muted]· upload 50M (inherited)[/fm.muted]",
     ]
 
 
@@ -339,8 +376,8 @@ def test_an_ambiguous_primary_prints_why_instead_of_raising(tmp_path, card_spy):
 
     assert card.facts["url"] == "[fm.muted]2 sites recorded, none named after the bench[/fm.muted]"
     assert card.labelled("sites") == [
-        f"http://{FOREIGN_A}  [fm.muted]fm's mariadb[/fm.muted]",
-        f"http://{FOREIGN_B}  [fm.muted]fm's mariadb[/fm.muted]",
+        f"http://{FOREIGN_A}  [fm.muted]fm's mariadb[/fm.muted]  [fm.muted]· upload 50M (inherited)[/fm.muted]",
+        f"http://{FOREIGN_B}  [fm.muted]fm's mariadb[/fm.muted]  [fm.muted]· upload 50M (inherited)[/fm.muted]",
     ]
     # Nothing is marked primary, because nothing is: guessing one would point every bench-scoped
     # command at another site's schema.

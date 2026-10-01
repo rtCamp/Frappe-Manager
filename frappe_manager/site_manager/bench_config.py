@@ -1584,6 +1584,12 @@ def resolve_primary_site(
     return None
 
 
+# Canonical: every scope that accepts an upload limit validates against this one pattern. It lives
+# here rather than in site.py because site.py imports FROM this module, so the reverse would cycle,
+# and a second copy is how two scopes end up accepting different spellings of the same setting.
+UPLOAD_LIMIT_RE = re.compile(r"^\d+[MG]$", re.IGNORECASE)
+
+
 class SiteConfig(BaseModel):
     """One Frappe site inside a bench (`[sites."<name>"]`).
 
@@ -1653,6 +1659,21 @@ class SiteConfig(BaseModel):
         "site follows the bench's top-level `admin_tools`. This is routing only: the containers "
         "are one pair per bench and the bench-level key is what starts and stops them.",
     )
+    upload_limit: str | None = Field(
+        None,
+        description="Maximum upload size for THIS site's hostnames (e.g. '50M', '1G'), overriding "
+        "the bench's `upload_limit`. Absent means the site inherits the bench default.",
+    )
+
+    @field_validator("upload_limit")
+    @classmethod
+    def _valid_upload_limit(cls, value):
+        """Same format `fm update --upload-limit` enforces, applied here so a bad per-site value
+        is refused at config load instead of reaching the bench's nginx conf.
+        """
+        if value is not None and not UPLOAD_LIMIT_RE.match(value):
+            raise ValueError(f"Invalid upload limit format: {value!r}. Use format like '50M' or '1G'")
+        return value
 
     @field_validator("database", mode="before")
     @classmethod
@@ -2303,6 +2324,7 @@ class BenchConfig(BaseModel):
                     alias_domains=[str(alias) for alias in (site.get("alias_domains") or [])],
                     auth=WebAuthConfig(**dict(site["auth"])) if site.get("auth") else None,
                     serve_admin_tools=site.get("serve_admin_tools"),
+                    upload_limit=site.get("upload_limit"),
                 )
                 for name, site in data["sites"].items()
             }
@@ -2597,6 +2619,30 @@ class BenchConfig(BaseModel):
         if entry is not None and entry.serve_admin_tools is not None:
             return entry.serve_admin_tools
         return True
+
+    def effective_upload_limit(self, site: str) -> str:
+        """The upload limit that applies to `site`: its own if it set one, else the bench's.
+
+        Raises for a site this bench does not know, instead of silently falling back to the
+        bench default: a caller naming a site that is not this bench's asked the wrong question,
+        and answering it anyway would hide that instead of surfacing it.
+        """
+        if site not in self.site_names:
+            raise ValueError(f"{site!r} is not a site of bench {self.name!r}")
+        entry = (self.sites or {}).get(site)
+        if entry is not None and entry.upload_limit is not None:
+            return entry.upload_limit
+        return self.upload_limit
+
+    def sites_with_own_upload_limit(self) -> list[str]:
+        """Site names carrying their own `upload_limit`, sorted.
+
+        For the report `fm update BENCH --upload-limit X` prints: it must not silently overwrite
+        a site that set its own, and this is what names the ones it left alone.
+        """
+        if not self.sites:
+            return []
+        return sorted(name for name, entry in self.sites.items() if entry.upload_limit is not None)
 
     def get_site_mappings(self) -> dict[str, str]:
         """domain -> site, for the nginx entrypoint's `SITE_MAPPINGS`.

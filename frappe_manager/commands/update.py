@@ -15,6 +15,7 @@ from frappe_manager.site_manager.bench_config import (
     AppConfig,
     FMBenchEnvType,
     RestartPolicyEnum,
+    SiteConfig,
     WorkersConfig,
 )
 from frappe_manager.site_manager.modules import db_tls
@@ -54,6 +55,13 @@ _PANEL_SITE = "Site Options (BENCH alone means its primary site)"
 @example(
     "Raise the upload size limit",
     "{benchname} --upload-limit 500M",
+    detail="Sets the bench-wide default. A site that has set its own limit keeps it; the command names any it left alone.",
+    benchname="mybench",
+)
+@example(
+    "Raise the upload size limit for one site",
+    "{benchname}/shop.example.com --upload-limit 500M",
+    detail="Only that site's limit changes; the bench default and its other sites are untouched.",
     benchname="mybench",
 )
 @example(
@@ -82,15 +90,6 @@ def update(
             help="Toggle frappe developer mode, so DocType edits write to app files.",
             show_default=False,
             rich_help_panel=_PANEL_MOUNT,
-        ),
-    ] = None,
-    upload_limit: Annotated[
-        str | None,
-        typer.Option(
-            "--upload-limit",
-            help="Set the maximum file upload size, e.g. 100M or 1G.",
-            show_default=False,
-            rich_help_panel=_PANEL_BENCH,
         ),
     ] = None,
     restart_policy: Annotated[
@@ -201,6 +200,15 @@ def update(
             rich_help_panel=_PANEL_REDIS,
         ),
     ] = False,
+    upload_limit: Annotated[
+        str | None,
+        typer.Option(
+            "--upload-limit",
+            help="Set the maximum file upload size, e.g. 100M or 1G. BENCH/SITE sets that site's own limit; BENCH alone sets the bench default that sites without one inherit.",
+            show_default=False,
+            rich_help_panel=_PANEL_SITE,
+        ),
+    ] = None,
     db_ca: Annotated[
         Path | None,
         typer.Option(
@@ -240,7 +248,7 @@ def update(
 
     Not bench update: app code ships with fm bake then fm switch. Apps are managed with fm apps add, alias domains with fm domain, admin tools with fm tools, APM with fm telemetry.
 
-    Most options change the whole bench. --db-ca is the one Site Option below, and a plain fm update BENCH applies it to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one.
+    Most options change the whole bench. --db-ca is the one Site Option below, and a plain fm update BENCH applies it to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one. --upload-limit follows the same address: fm update BENCH sets the bench-wide default, which a site that has set its own survives, and fm update BENCH/SITE sets only that site's limit, naming the sites a bench-wide change left alone.
 
     The whole update is decided before any of it is applied, so an invalid flag changes nothing and a value that already matches is reported instead of reapplied. The plan is printed and confirmed before anything is touched; --yes skips the question and --dry-run prints the plan and exits without touching the bench. An update with nothing to do never asks.
     """
@@ -260,6 +268,10 @@ def update(
         environment=environment,
         developer_mode=developer_mode,
         upload_limit=upload_limit,
+        # The site HALF of BENCH/SITE, None when only BENCH was given. Separate from `default_site`
+        # below: that one is gated on the --default-site flag, this one scopes --upload-limit and
+        # must be known regardless of which other flags were passed.
+        upload_limit_site=ctx.obj.get("site"),
         restart_policy=restart_policy,
         python_version=python_version,
         node_version=node_version,
@@ -407,12 +419,11 @@ def _apply_plan(bench: Bench, plan: UpdatePlan, output) -> None:
         bench.set_common_bench_config({"default_site": plan.default_site})
         output.print(f"Default site is now {plan.default_site}")
 
-    # `update_upload_limit` owns its own save plus the three writes that actually enforce the limit
+    # `_apply_upload_limit` owns its own save plus the three writes that actually enforce the limit
     # (proxy vhost.d, the bench custom conf, site_config), and reloads nginx once if anything
-    # changed.
+    # changed -- scoped to the bench default or to `plan.upload_limit_site` alone.
     if plan.upload_limit is not None:
-        output.change_head(f"Updating upload size limit to {plan.upload_limit}")
-        bench.update_upload_limit(plan.upload_limit)
+        _apply_upload_limit(bench, plan, output)
 
     try:
         _apply_container_work(bench, plan, output)
@@ -427,6 +438,34 @@ def _apply_plan(bench: Bench, plan: UpdatePlan, output) -> None:
                 "in line -- fm renders containers FROM the recorded config, so nothing is lost.",
             )
         raise
+
+
+def _apply_upload_limit(bench: Bench, plan: UpdatePlan, output) -> None:
+    """Write ``--upload-limit``, scoped to the addressed site or the bench default.
+
+    ``Bench.update_upload_limit`` always assigns the BENCH field -- it is also `fm create`'s and
+    `fm start`'s only caller, neither of which has a site to scope to -- so a site-scoped request
+    cannot go through it without stomping the bench default a site's own value is supposed to
+    survive. This writes ``SiteConfig.upload_limit`` directly instead and runs the same
+    save/render/reload sequence ``update_upload_limit`` runs, minus the bench-field assignment:
+    no site.py change needed, since ``apply_upload_limit``/``ensure_fm_nginx_confs`` already read
+    the effective per-site value off the config object rather than taking one as an argument.
+    """
+    if plan.upload_limit_site is not None:
+        site = plan.upload_limit_site
+        output.change_head(f"Updating {site}'s upload size limit to {plan.upload_limit}")
+        if bench.bench_config.sites is None:
+            bench.bench_config.sites = {}
+        bench.bench_config.sites.setdefault(site, SiteConfig()).upload_limit = plan.upload_limit
+        bench.save_bench_config()
+        bench.ensure_fm_nginx_confs()
+        bench.apply_upload_limit()
+        if bench.services.is_service_running("nginx-proxy"):
+            bench.services.nginx_controller.reload()
+        output.print(f"Upload size limit for {site} updated to {plan.upload_limit}")
+    else:
+        output.change_head(f"Updating upload size limit to {plan.upload_limit}")
+        bench.update_upload_limit(plan.upload_limit)
 
 
 def _wait_for_empty_queue(bench: Bench, plan: UpdatePlan, output, orchestrator) -> None:

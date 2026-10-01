@@ -25,6 +25,11 @@ Real client IPs + JSON access logs (bench nginx):
 - deletes the generated configs/nginx/conf/conf.d/default.conf so the nginx
   entrypoint re-renders it from the new image template, which logs JSON in the
   same format as the global proxy
+- moves configs/nginx/conf/custom/upload-limit.conf from one flat, bench-wide
+  file to one configs/nginx/conf/custom/<site>/upload-limit.conf per site, but
+  only once the bench's nginx conf already serves one server block per site
+  (same probe as the auth move below); a conf that does not is left on the
+  flat file, which every template version includes
 
 HTTP basic auth (bench nginx):
 
@@ -216,6 +221,14 @@ if ($redirect_to_https = 1) {
 """
 
 _LEGACY_RE = re.compile(re.escape(_LEGACY_HTTPS_REDIRECT_CONFIG.strip("\n")) + r"\n?")
+
+# What `ensure_fm_nginx_confs()` (site.py) writes for a flat or per-site upload-limit conf; used
+# to tell an fm-generated file from an operator's hand-edited one before deleting it.
+_UPLOAD_LIMIT_CONF_RE = re.compile(r"^client_max_body_size \S+;\n$")
+
+# Same probe `Bench.nginx_conf_serves_per_site()` runs against a rendered default.conf: present
+# only once the bench's nginx image template includes each site's own drop-in directory.
+_PER_SITE_CUSTOM_INCLUDE_RE = re.compile(r"include\s+/etc/nginx/custom/[^*\s;]+/\*\.conf\s*;")
 
 
 def rewrite_global_db_service(engine: MutableMapping, image: str = MARIADB_IMAGE) -> None:
@@ -666,6 +679,11 @@ class MigrationV100(MigrationBase):
         # Bench nginx config applies to every bench, before the admin-tools
         # early returns below.
         self._place_realip_conf(bench)
+        # Before the refresh below: that step unconditionally deletes `conf.d/default.conf` to
+        # force a re-render on nginx's NEXT start, which says nothing about what this bench's
+        # nginx is actually serving right now -- and that current state is what this step has to
+        # match.
+        self._migrate_upload_limit_layout(bench)
         self._refresh_nginx_default_conf(bench)
         self._add_nginx_depends_on(bench)
         self._move_admin_tools_credentials(bench)
@@ -859,6 +877,90 @@ class MigrationV100(MigrationBase):
         conf_dir.mkdir(parents=True, exist_ok=True)
         (conf_dir / "real-ip.conf").write_text(build_bench_realip_conf(str(subnet)))
         self.output.print(f"Placed bench nginx real-ip conf for {bench.name}")
+
+    def _migrate_upload_limit_layout(self, bench: MigrationBench) -> None:
+        """Move `client_max_body_size` from the flat `custom/upload-limit.conf` to one file per
+        site once this bench's nginx conf can serve them, mirroring `Bench.ensure_fm_nginx_confs()`
+        / `nginx_conf_serves_per_site()` (site.py) -- the same probe `fm auth` already needed for
+        per-site `auth_basic`, for the same reason: `custom/*.conf` is included in every site's
+        server block, a second `client_max_body_size` in one context is fatal even across two
+        `include`d files, so the flat file and the per-site files can never both exist.
+
+        Read BEFORE `_refresh_nginx_default_conf` deletes `conf.d/default.conf`: that deletion
+        forces a re-render on nginx's NEXT start and says nothing about what is being served right
+        now, which is what this step has to match. Forcing a per-site layout onto a conf that does
+        not `include` per-site directories would serve every site from a directory nginx never
+        reads -- i.e. with no limit enforced at all.
+
+        The removal of the unwanted representation and the write of the wanted one happen in this
+        one pass, with no reload in between either side: this tier never reloads bench nginx (see
+        `_refresh_nginx_default_conf`), so a currently running nginx keeps serving whatever it
+        already loaded until its next real start, when the freshly rendered conf and these files
+        agree with each other.
+        """
+        from frappe_manager.site_manager.modules.upload_limit import upload_limit_conf
+
+        conf_dir = bench.path / "configs" / "nginx" / "conf"
+        default_conf = conf_dir / "conf.d" / "default.conf"
+        per_site = default_conf.is_file() and bool(_PER_SITE_CUSTOM_INCLUDE_RE.search(default_conf.read_text()))
+
+        bench_limit = "50M"
+        site_limits: dict[str, str] = {}
+        config_path = bench.path / "bench_config.toml"
+        if config_path.exists():
+            try:
+                doc = tomlkit.parse(config_path.read_text())
+            except Exception:
+                doc = {}
+            bench_limit = str(doc.get("upload_limit", bench_limit))
+            for name, entry in (doc.get("sites") or {}).items():
+                value = entry.get("upload_limit") if hasattr(entry, "get") else None
+                if value:
+                    site_limits[str(name)] = str(value)
+
+        custom_dir = conf_dir / "custom"
+        flat_path = custom_dir / "upload-limit.conf"
+        per_site_paths = {site: custom_dir / site / "upload-limit.conf" for site in bench.site_names}
+
+        wanted: dict[Path, str] = {}
+        if per_site:
+            for site, path in per_site_paths.items():
+                wanted[path] = upload_limit_conf(site_limits.get(site, bench_limit))
+        else:
+            wanted[flat_path] = upload_limit_conf(bench_limit)
+
+        changed = False
+        # Sweep whichever representation is not wanted -- only when it is fm's own shape, so an
+        # operator's hand-edited conf under the same name is left alone.
+        for path in [flat_path, *per_site_paths.values()]:
+            if path in wanted or not path.exists():
+                continue
+            if not _UPLOAD_LIMIT_CONF_RE.match(path.read_text()):
+                continue
+            self.backup_manager.backup(path, bench_name=bench.name)
+            path.unlink()
+            changed = True
+
+        for path, content in wanted.items():
+            if path.exists() and path.read_text() == content:
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+            changed = True
+
+        if not per_site and site_limits:
+            self.output.warning(
+                f"Per-site upload limits on {', '.join(sorted(site_limits))} are recorded but not "
+                f"enforced yet: {bench.name}'s nginx conf predates one server block per site, so "
+                "the whole bench follows its bench-wide upload_limit. Run 'fm migrate' to re-render "
+                "the conf and apply it."
+            )
+
+        if changed:
+            self.output.print(
+                f"Moved {bench.name}'s nginx upload limit to the "
+                f"{'per-site' if per_site else 'flat'} conf layout"
+            )
 
     def _refresh_nginx_default_conf(self, bench: MigrationBench):
         """Drop the generated default.conf so the entrypoint re-renders it from

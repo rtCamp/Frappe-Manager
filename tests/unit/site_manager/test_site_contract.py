@@ -675,7 +675,8 @@ class TestEnsureFmNginxConfs:
         # Already correct on disk, so this pass has nothing to write. Without it the upload conf
         # would be the change that triggers the reload, and the assertion below would say nothing
         # about the subnet.
-        (h.conf_dir / "custom" / "upload-limit.conf").write_text(
+        (h.conf_dir / "custom" / SITE).mkdir(parents=True, exist_ok=True)
+        (h.conf_dir / "custom" / SITE / "upload-limit.conf").write_text(
             f"client_max_body_size {h.bench.bench_config.upload_limit.lower()};\n"
         )
         with patch("frappe_manager.utils.network.detect_running_network", return_value=None):
@@ -689,9 +690,10 @@ class TestEnsureFmNginxConfs:
         """The bug: nothing wrote this file at create, so a bench advertised its configured
         upload_limit while nginx enforced its own 1M default and refused larger uploads with a 413.
         It is an fm-managed conf like the others, so it is written from bench_config and nowhere
-        else -- there is no argument to forget to pass."""
+        else -- there is no argument to forget to pass. Per-site shaped: `harness` has one server
+        block per site, so the directive lands in that site's own file, not a bench-wide one."""
         harness.bench.ensure_fm_nginx_confs()
-        conf = harness.conf_dir / "custom" / "upload-limit.conf"
+        conf = harness.conf_dir / "custom" / SITE / "upload-limit.conf"
         assert conf.read_text() == f"client_max_body_size {harness.bench.bench_config.upload_limit.lower()};\n"
 
     def test_the_upload_limit_conf_tracks_a_changed_config(self, tmp_path):
@@ -701,7 +703,7 @@ class TestEnsureFmNginxConfs:
         config.upload_limit = "512M"
         h = build_bench(tmp_path, bench_config=config)
         h.bench.ensure_fm_nginx_confs()
-        assert (h.conf_dir / "custom" / "upload-limit.conf").read_text() == "client_max_body_size 512m;\n"
+        assert (h.conf_dir / "custom" / SITE / "upload-limit.conf").read_text() == "client_max_body_size 512m;\n"
 
     def test_nginx_wants_the_limit_lowercased(self, tmp_path):
         """`50M` is what the config carries and what fm prints; nginx wants `50m`."""
@@ -711,7 +713,76 @@ class TestEnsureFmNginxConfs:
         config.upload_limit = "1G"
         h = build_bench(tmp_path, bench_config=config)
         h.bench.ensure_fm_nginx_confs()
-        assert "1g;" in (h.conf_dir / "custom" / "upload-limit.conf").read_text()
+        assert "1g;" in (h.conf_dir / "custom" / SITE / "upload-limit.conf").read_text()
+
+    def test_a_site_with_its_own_limit_gets_exactly_one_directive_and_the_flat_file_is_gone(self, tmp_path):
+        """Per-site blocks: each site's server context carries exactly one `client_max_body_size`,
+        whether it follows the bench or set its own, and the flat file that would make it two in
+        the same context is swept rather than left to collide with the per-site ones on the next
+        nginx reload."""
+        other = "other.localhost"
+        bench_path = tmp_path / SITE
+        bench_path.mkdir(parents=True, exist_ok=True)
+        config = make_bench_config(
+            bench_path / "bench_config.toml",
+            auth=AuthConfig(web=False, tools=False),
+            sites={SITE: SiteConfig(), other: SiteConfig(upload_limit="200M")},
+        )
+        h = build_bench(tmp_path, bench_config=config)
+        # The flat file every bench created before per-site rendering already has on disk.
+        flat = h.conf_dir / "custom" / "upload-limit.conf"
+        flat.parent.mkdir(parents=True, exist_ok=True)
+        flat.write_text(f"client_max_body_size {config.upload_limit.lower()};\n")
+
+        h.bench.ensure_fm_nginx_confs()
+
+        assert (h.conf_dir / "custom" / SITE / "upload-limit.conf").read_text() == "client_max_body_size 50m;\n"
+        assert (h.conf_dir / "custom" / other / "upload-limit.conf").read_text() == "client_max_body_size 200m;\n"
+        assert not flat.exists()
+        # The shared `custom/*.conf` glob, included by every site's block, must contribute no
+        # directive of its own, or a site following the bench gets two.
+        shared = list((h.conf_dir / "custom").glob("*.conf"))
+        assert not any("client_max_body_size" in p.read_text() for p in shared)
+
+    def test_a_hand_written_flat_upload_limit_conf_is_never_deleted(self, tmp_path):
+        """Only a copy shaped exactly like fm's own output is fm's to sweep; anything else in the
+        file is an operator's and must survive, same bar `is_fm_auth_conf` sets for auth."""
+        bench_path = tmp_path / SITE
+        bench_path.mkdir(parents=True, exist_ok=True)
+        config = make_bench_config(bench_path / "bench_config.toml", auth=AuthConfig(web=False, tools=False))
+        h = build_bench(tmp_path, bench_config=config)
+        flat = h.conf_dir / "custom" / "upload-limit.conf"
+        flat.parent.mkdir(parents=True, exist_ok=True)
+        flat.write_text("client_max_body_size 50m;  # mine, not fm's\n")
+
+        h.bench.ensure_fm_nginx_confs()
+
+        assert flat.read_text() == "client_max_body_size 50m;  # mine, not fm's\n"
+
+    def test_a_bench_whose_conf_predates_per_site_blocks_follows_the_bench_value_and_warns(self, tmp_path):
+        """`nginx_conf_serves_per_site()` false means a per-site file would be written and never
+        read -- the same trap `fm auth` already falls into for the same reason -- so the whole
+        bench follows the bench value, and the operator is told which sites it left behind."""
+        other = "other.localhost"
+        bench_path = tmp_path / SITE
+        bench_path.mkdir(parents=True, exist_ok=True)
+        config = make_bench_config(
+            bench_path / "bench_config.toml",
+            auth=AuthConfig(web=False, tools=False),
+            sites={SITE: SiteConfig(), other: SiteConfig(upload_limit="200M")},
+        )
+        h = build_bench(tmp_path, bench_config=config, per_site_nginx=False)
+
+        h.bench.ensure_fm_nginx_confs()
+
+        flat = h.conf_dir / "custom" / "upload-limit.conf"
+        assert flat.read_text() == "client_max_body_size 50m;\n"
+        assert not (h.conf_dir / "custom" / other / "upload-limit.conf").exists()
+        # Not pinned to the exact sentence: what the operator must learn is which site(s) it left
+        # alone and what value the bench follows instead.
+        warned = " ".join(str(c.args[0]) for c in h.bench.output.warning.call_args_list)
+        assert other in warned
+        assert "50M" in warned
 
     def test_a_second_pass_that_changes_nothing_does_not_reload_nginx(self, harness):
         harness.bench.ensure_fm_nginx_confs()
@@ -1237,7 +1308,7 @@ class TestUpdateUploadLimit:
         assert '"max_file_size": 104857600' in site_config.read_text()
         # Normalised upward in config, downward in the nginx directive.
         assert bench.bench_config.upload_limit == "100M"
-        custom = harness.path / "configs" / "nginx" / "conf" / "custom" / "upload-limit.conf"
+        custom = harness.path / "configs" / "nginx" / "conf" / "custom" / SITE / "upload-limit.conf"
         assert custom.read_text() == "client_max_body_size 100m;\n"
         # Both hostnames the bench serves get their own proxy-side upload-limit fragment: the
         # site's own name and its alias. A domain with no vhost entry gets nginx-proxy's 1M default.

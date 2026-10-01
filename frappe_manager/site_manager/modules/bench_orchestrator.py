@@ -1609,6 +1609,19 @@ class BenchOrchestrator:
             # written after the render succeeds. Nothing in that path reads the file back.
             self._update_alias_domains_lightweight()
 
+            # A new alias has no `vhost.d` entry of its own yet, so it fell back to the proxy's 1M
+            # default (and the bench's own hardcoded HSTS header unstripped) until an unrelated
+            # `fm start` happened to heal it. Same shape `add_site_to_bench` uses for a freshly
+            # added site (commands/create.py): both run unconditionally so a change to just one is
+            # never skipped by short-circuiting the other, and the proxy reloads once for whichever
+            # changed. `entry.alias_domains` is already updated above, so `bench.domains` here
+            # includes the new alias and `apply_upload_limit` resolves its owning site's effective
+            # limit itself.
+            upload_limit_changed = bench.apply_upload_limit()
+            hsts_changed = bench.apply_hsts()
+            if (upload_limit_changed or hsts_changed) and bench.services.is_service_running("nginx-proxy"):
+                bench.services.nginx_controller.reload()
+
             self.output.change_head("Saving configuration")
             bench.save_bench_config()
             self.output.print("Configuration saved")

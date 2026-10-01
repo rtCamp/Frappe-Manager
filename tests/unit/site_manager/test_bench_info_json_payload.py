@@ -33,6 +33,14 @@ class _ConfigDouble(SimpleNamespace):
     def sites_with_own_auth(self) -> list[str]:
         return [name for name, entry in (self.sites or {}).items() if entry.auth is not None]
 
+    def effective_upload_limit(self, site: str) -> str:
+        entry = (self.sites or {}).get(site)
+        own = getattr(entry, "upload_limit", None) if entry else None
+        return own if own is not None else self.upload_limit
+
+    def sites_with_own_upload_limit(self) -> list[str]:
+        return [name for name, entry in (self.sites or {}).items() if getattr(entry, "upload_limit", None) is not None]
+
 
 def _config(*, sites=None, **over):
     """Minimal duck-typed BenchConfig, same shape as the display_info pin
@@ -51,8 +59,11 @@ def _config(*, sites=None, **over):
         "auth": None,
         "prune": None,
         "switch": None,
+        "upload_limit": "50M",
         "sites": {
-            site: SimpleNamespace(database=database, alias_domains=[], auth=None, serve_admin_tools=None)
+            site: SimpleNamespace(
+                database=database, alias_domains=[], auth=None, serve_admin_tools=None, upload_limit=None
+            )
             for site, database in recorded.items()
         }
         or None,
@@ -107,6 +118,31 @@ def test_admin_and_database_credentials_are_plain_fields_per_site(tmp_path):
         {"site": SITE, "user": "administrator", "password": f"{ADMIN_PW} (default)"}
     ]
     assert data["database_credentials"] == [{"site": SITE, "name": "db", "password": "dbpass"}]
+
+
+def test_site_row_without_its_own_limit_reports_the_bench_default_as_inherited(tmp_path):
+    data = _info(tmp_path).build_bench_info_data()
+    assert data["sites"] == [
+        {
+            "name": SITE,
+            "primary": True,
+            "database": "mariadb",
+            "external_database": None,
+            "upload_limit": "50M",
+            "upload_limit_own": False,
+        }
+    ]
+
+
+def test_site_row_with_its_own_limit_reports_it_as_its_own(tmp_path):
+    info = _info(tmp_path)
+    info.bench_config.sites[SITE].upload_limit = "10M"
+
+    data = info.build_bench_info_data()
+
+    row = data["sites"][0]
+    assert row["upload_limit"] == "10M"
+    assert row["upload_limit_own"] is True
 
 
 def test_https_disabled_is_a_boolean_not_the_not_enabled_string(tmp_path):

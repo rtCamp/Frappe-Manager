@@ -351,6 +351,7 @@ class BenchInfo:
             )
             https["days_until_expiry"] = soonest
 
+        own_upload_limit_sites = set(config.sites_with_own_upload_limit())
         site_rows = []
         for site in sites:
             database = config.get_database_config(site)
@@ -364,6 +365,10 @@ class BenchInfo:
                     "database": config.get_database(site).type.value,
                     # None means the server is fm's own (see display_info).
                     "external_database": {"host": database.host, "port": database.resolved_port} if database else None,
+                    # Card and payload share one precedence rule (`effective_upload_limit`): a
+                    # second derivation here is exactly how the two surfaces would drift apart.
+                    "upload_limit": config.effective_upload_limit(site),
+                    "upload_limit_own": site in own_upload_limit_sites,
                 }
             )
 
@@ -669,15 +674,24 @@ class BenchInfo:
             )
         else:
             card.fact("https", "[fm.muted]not enabled[/fm.muted]")
-        # One row per site, skipped for the single ordinary case (one site on fm's own mariadb)
-        # because `url` above already names it and its schema is in the `access` section: the common
-        # bench's card keeps printing exactly what it always has. Every other shape says something
-        # `url` cannot -- more than one site, a schema on a server fm does not own, or an engine
-        # that is not the default. That last case is why the engine is read rather than assumed:
-        # a site on fm's OWN postgres is not external, so a card keyed on externality alone said
-        # "mariadb" about a postgres site, and with one site printed no row at all.
+        # One row per site, skipped for the single ordinary case (one site on fm's own mariadb,
+        # inheriting the bench's upload limit) because `url` above already names it and its schema
+        # is in the `access` section: the common bench's card keeps printing exactly what it always
+        # has. Every other shape says something `url` cannot -- more than one site, a schema on a
+        # server fm does not own, an engine that is not the default, or a site that set its own
+        # upload limit. That last case must trigger the row too: otherwise the one override a site
+        # actually enforces is invisible on the one card an operator reads. The engine is read
+        # rather than assumed for the same reason: a site on fm's OWN postgres is not external, so
+        # a card keyed on externality alone said "mariadb" about a postgres site, and with one site
+        # printed no row at all.
         engines = {site: config.get_database(site).type.value for site in sites}
-        if sites and (len(sites) > 1 or config.get_database_config(sites[0]) is not None or engines[sites[0]] != "mariadb"):
+        own_upload_sites = set(config.sites_with_own_upload_limit())
+        if sites and (
+            len(sites) > 1
+            or config.get_database_config(sites[0]) is not None
+            or engines[sites[0]] != "mariadb"
+            or bool(own_upload_sites)
+        ):
             for i, site in enumerate(sites):
                 database = config.get_database_config(site)
                 where = (
@@ -686,7 +700,13 @@ class BenchInfo:
                     else f"fm's {engines[site]}"
                 )
                 marker = "  [fm.ok]● primary[/fm.ok]" if site == primary else ""
-                card.fact("sites" if i == 0 else "", f"{public_url(site, protocol, http_port, https_port)}  [fm.muted]{where}[/fm.muted]{marker}")
+                # Same precedence rule the JSON payload reads (`effective_upload_limit`,
+                # `sites_with_own_upload_limit`): a second copy here is how the two would drift.
+                limit = config.effective_upload_limit(site)
+                owns_limit = "own" if site in own_upload_sites else "inherited"
+                upload = f"  [fm.muted]· upload {limit} ({owns_limit})[/fm.muted]"
+                url = public_url(site, protocol, http_port, https_port)
+                card.fact("sites" if i == 0 else "", f"{url}  [fm.muted]{where}[/fm.muted]{marker}{upload}")
 
         # Site directories on disk that `[sites]` does not record (someone ran `bench new-site` by hand
         # inside `fm shell`). Reported, never acted on: fm only destroys a schema it wrote down. Two rows,

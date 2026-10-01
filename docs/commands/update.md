@@ -4,7 +4,7 @@ Change a bench's settings.
 
 Not bench update: app code ships with fm bake then fm switch. Apps are managed with fm apps add, alias domains with fm domain, admin tools with fm tools, APM with fm telemetry.
 
-Most options change the whole bench. --db-ca is the one Site Option below, and a plain fm update BENCH applies it to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one.
+Most options change the whole bench. --db-ca is the one Site Option below, and a plain fm update BENCH applies it to the bench's primary site; name the site with fm update BENCH/SITE when the bench serves more than one. --upload-limit follows the same address: fm update BENCH sets the bench-wide default, which a site that has set its own survives, and fm update BENCH/SITE sets only that site's limit, naming the sites a bench-wide change left alone.
 
 The whole update is decided before any of it is applied, so an invalid flag changes nothing and a value that already matches is reported instead of reapplied. The plan is printed and confirmed before anything is touched; --yes skips the question and --dry-run prints the plan and exits without touching the bench. An update with nothing to do never asks.
 
@@ -22,7 +22,6 @@ $ fm update BENCH(/SITE) [OPTIONS]
 
 * `-e, --environment [prod|dev]`: Switch the bench between dev and prod serving (FRAPPE_ENV), recreating the frappe container. Admin tools and developer mode are left as they are; use 'fm tools enable'/'fm tools disable' or --developer-mode to change those.
 * `--developer-mode [enable|disable]`: Toggle frappe developer mode, so DocType edits write to app files.
-* `--upload-limit TEXT`: Set the maximum file upload size, e.g. 100M or 1G.
 * `--restart-policy [no|always|on-failure|unless-stopped]`: Update Docker restart policy for all bench services.
 * `--python TEXT`: Update the Python version (e.g. '3.11', '>=3.11,<3.14'); recreates the venv and reinstalls apps.
 * `--node TEXT`: Update the Node version (e.g. '20', '>=18') and set it as the bench default.
@@ -35,6 +34,7 @@ $ fm update BENCH(/SITE) [OPTIONS]
 * `--no-redis-queue`: Bring the queue and realtime back to fm's own per-bench redis container, leaving the cache as it is.  [default: false]
 * `--abandon-queued`: Switch the redis queue even though jobs are still pending, leaving them on the old server instead of pausing producers and waiting for the backlog to drain. Those jobs are never run.  [default: false]
 * `--no-redis`: Bring BOTH sides back to fm's own per-bench redis containers.  [default: false]
+* `--upload-limit TEXT`: Set the maximum file upload size, e.g. 100M or 1G. BENCH/SITE sets that site's own limit; BENCH alone sets the bench default that sites without one inherit.
 * `--db-ca PATH`: Reinstall the external database CA after a rotation: the site PEM, the bench ca-bundle.pem the dumps use, and the recorded path are refreshed together.
 * `--default-site`: Make the addressed site this bench's default, the one bench commands use when none is named.  [default: false]
 * `--dry-run`: Print what would change and exit without touching the bench.  [default: false]
@@ -62,8 +62,18 @@ fm update mybench --python 3.11
 
 ### Raise the upload size limit
 
+Sets the bench-wide default. A site that has set its own limit keeps it; the command names any it left alone.
+
 ```bash
 fm update mybench --upload-limit 500M
+```
+
+### Raise the upload size limit for one site
+
+Only that site's limit changes; the bench default and its other sites are untouched.
+
+```bash
+fm update mybench/shop.example.com --upload-limit 500M
 ```
 
 ### Rebuild a broken venv at the recorded versions

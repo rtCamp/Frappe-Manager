@@ -102,6 +102,10 @@ class UpdatePlan:
     environment: FMBenchEnvType | None = None
     restart_policy: RestartPolicyEnum | None = None
     upload_limit: str | None = None
+    # The named half of `BENCH/SITE` when `--upload-limit` is site-scoped; None means the target
+    # is the bench default. `upload_limit` alone cannot say which, since both scopes end up as
+    # the same normalized string.
+    upload_limit_site: str | None = None
     python_version: str | None = None
     node_version: str | None = None
     recreate_python_env: bool = True
@@ -354,6 +358,9 @@ def plan_update(
     environment: FMBenchEnvType | None = None,
     developer_mode: EnableDisableOptionsEnum | None = None,
     upload_limit: str | None = None,
+    # The site half of `BENCH/SITE`, None when only `BENCH` was given. Scopes `--upload-limit`
+    # to that site's own `SiteConfig.upload_limit` instead of the bench default.
+    upload_limit_site: str | None = None,
     restart_policy: RestartPolicyEnum | None = None,
     python_version: str | None = None,
     node_version: str | None = None,
@@ -508,11 +515,26 @@ def plan_update(
 
     if upload_limit is not None:
         normalized = upload_limit.upper()
-        if normalized == (config.upload_limit or "").upper():
-            plan.already.append(f"upload limit is already {normalized}")
+        if upload_limit_site:
+            current = config.effective_upload_limit(upload_limit_site)
+            if normalized == current.upper():
+                plan.already.append(f"upload limit ({upload_limit_site}) is already {normalized}")
+            else:
+                plan.upload_limit = normalized
+                plan.upload_limit_site = upload_limit_site
+                plan.changes.append(f"upload limit ({upload_limit_site})  {current} -> {normalized}")
+        elif normalized == (config.upload_limit or "").upper():
+            plan.already.append(f"upload limit (bench default) is already {normalized}")
         else:
             plan.upload_limit = normalized
-            plan.changes.append(f"upload limit  {config.upload_limit} -> {normalized}")
+            plan.changes.append(f"upload limit (bench default)  {config.upload_limit} -> {normalized}")
+            # A site's own override wins and survives a bench-level change (the decided contract);
+            # name the sites this bench-wide write deliberately left untouched.
+            kept = config.sites_with_own_upload_limit()
+            if kept:
+                sites = config.sites or {}
+                named = ", ".join(f"{s} ({sites[s].upload_limit})" for s in kept)
+                plan.changes.append(f"kept their own upload limit: {named}")
 
     _plan_redis(
         plan,

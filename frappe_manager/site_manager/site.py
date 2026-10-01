@@ -21,6 +21,7 @@ from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.proxy_dropins import ProxyDropins
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import (
+    UPLOAD_LIMIT_RE,
     AuthConfig,
     BenchConfig,
     BenchRuntime,
@@ -67,11 +68,21 @@ from frappe_manager.utils.helpers import (
 )
 from frappe_manager.utils.site import domain_level, host_bench_dir
 
-# One pattern, two call sites. `update_upload_limit` guards itself because it has callers of its
-# own, and `fm update`'s planning phase validates with the SAME regex up front: a format error
-# raised from inside the method lands mid-decision-table, after an --environment change in the
-# same invocation has already recreated the frappe container, and exits before the terminal save.
-UPLOAD_LIMIT_RE = re.compile(r"^\d+[MG]$", re.IGNORECASE)
+# `update_upload_limit` guards itself because it has callers of its own, and `fm update`'s planning
+# phase validates with the SAME regex up front: a format error raised from inside the method lands
+# mid-decision-table, after an --environment change in the same invocation has already recreated the
+# frappe container, and exits before the terminal save.
+
+
+# fm has only ever rendered this file (flat or per-site) as exactly one `client_max_body_size`
+# directive and nothing else, so this shape -- not a marker -- is what the `ensure_fm_nginx_confs`
+# sweep uses to tell an on-disk copy is fm's to remove. A marker would miss every flat
+# `custom/upload-limit.conf` already on disk from before per-site rendering existed.
+_UPLOAD_LIMIT_CONF_RE = re.compile(r"^client_max_body_size[ \t]+\S+;[ \t]*\n?$")
+
+
+def _is_fm_upload_limit_conf(text: str) -> bool:
+    return bool(_UPLOAD_LIMIT_CONF_RE.fullmatch(text))
 
 
 @dataclass(frozen=True)
@@ -1866,11 +1877,11 @@ class Bench:
         )
 
     def apply_upload_limit(self) -> bool:
-        """Push ``bench_config.upload_limit`` to the two places outside the nginx conf.
+        """Push each site's effective upload limit to the two places outside the nginx conf.
 
         Idempotent, and reads the limit off the config rather than taking it as an argument, so the
-        create pipeline, ``fm start`` and ``fm update --upload-limit`` apply one value the same way.
-        The bench's own nginx conf is NOT written here: it is an fm-managed conf, so
+        create pipeline, ``fm start`` and ``fm update --upload-limit`` apply it the same way. The
+        bench's own nginx conf is NOT written here: it is an fm-managed conf, so
         ``ensure_fm_nginx_confs`` owns it and reloads once for whatever changed.
 
         Both steps are skipped when their target does not exist yet, which is what a bench with no
@@ -1881,24 +1892,32 @@ class Bench:
         default while both nginx layers and ``fm info`` advertised the bench's limit: an upload under
         the bench limit but over Frappe's was accepted by nginx and then refused by the app.
 
+        ``bench_config.effective_upload_limit(site)`` is a site's own value if it set one, else the
+        bench's, so a site that never opted in still gets a value and one that did keeps it across a
+        bench-level ``fm update --upload-limit`` change.
+
         `max_file_size` is therefore fm-owned inside a file that is otherwise Frappe's, which is
         the one thing here an operator cannot guess: a hand-edited value is reverted on the next
         `fm start`. Announced when it happens (never on a first write, where there was nothing to
         lose) rather than left to be discovered.
 
+        The proxy fragment is per DOMAIN, not per site, so each domain is resolved to the site it is
+        recorded under (``get_site_mappings``) and written that site's effective limit. A domain with
+        no owning site in that mapping is skipped rather than guessed at the bench default.
+
         Returns True when something on disk changed, so a caller can reload the global proxy only
         when it needs to. The proxy is shared by every bench, so reloading it on each ``fm start``
         would be a cost paid by benches that changed nothing.
         """
-        upload_limit = self.bench_config.upload_limit
         changed = False
 
         sites_dir = host_bench_dir(self.path) / "sites"
-        wanted_bytes = self._parse_size_to_bytes(upload_limit)
         for site in self.bench_config.site_names or [self.site_name]:
             site_config = sites_dir / site / "site_config.json"
             if not site_config.is_file():
                 continue
+            effective_limit = self.bench_config.effective_upload_limit(site)
+            wanted_bytes = self._parse_size_to_bytes(effective_limit)
             try:
                 current = json.loads(site_config.read_text()).get("max_file_size")
             except (OSError, ValueError):
@@ -1911,7 +1930,7 @@ class Bench:
                 # ever learning which command took it.
                 if current is not None:
                     self.output.warning(
-                        f"max_file_size on {site} was {current}; reset to {upload_limit} "
+                        f"max_file_size on {site} was {current}; reset to {effective_limit} "
                         "from upload_limit in bench_config.toml (change it there, not in site_config.json)"
                     )
                 changed = True
@@ -1921,8 +1940,15 @@ class Bench:
         # the proxy's own 1M default no matter what its own nginx allows.
         dropins = ProxyDropins.for_services_path(self.services.path)
         if dropins.vhostd_dir.exists():
-            size = upload_limit.lower()
+            site_mappings = self.bench_config.get_site_mappings()
             for domain in domains_needing_upload_limit(self.domains):
+                owning_site = site_mappings.get(domain)
+                if owning_site is None:
+                    # No site claims this domain (e.g. a wildcard base with nothing resolved under
+                    # it): nothing to derive a limit from, so it is left alone rather than guessed
+                    # at the bench default.
+                    continue
+                size = self.bench_config.effective_upload_limit(owning_site).lower()
                 # An operator's own directive in this shared file and fm's fragment below cannot
                 # coexist in the same nginx server context -- a second `client_max_body_size` is
                 # fatal on the next reload even across `include`d files -- so it is claimed (never
@@ -2104,13 +2130,35 @@ class Bench:
         if subnet:
             wanted[conf_dir / "custom" / "real-ip.conf"] = build_bench_realip_conf(subnet)
 
-        # The bench's own client_max_body_size. Unconditional, because `upload_limit` always has a
-        # value (default 50M) and nothing else ever wrote this file at create: a bench came up on
-        # nginx's built-in 1M default while its config advertised 50M, so uploads over 1M were
-        # refused with a 413 until someone happened to run `fm update --upload-limit`.
-        wanted[conf_dir / "custom" / "upload-limit.conf"] = (
-            f"client_max_body_size {self.bench_config.upload_limit.lower()};\n"
-        )
+        # The bench's own client_max_body_size: one directive must end up in every site's server
+        # block, because nothing else ever wrote this file at create -- a bench came up on nginx's
+        # built-in 1M default while its config advertised 50M, so uploads over 1M were refused with
+        # a 413 until someone happened to run `fm update --upload-limit`.
+        #
+        # `custom/*.conf` is included in EVERY site's server block, and a second
+        # `client_max_body_size` in one context is fatal on the next reload even across `include`d
+        # files (the same trap `claim_foreign_upload_limit` works around at the proxy layer), so the
+        # flat bench-wide file and a per-site file can never coexist: exactly one of the two
+        # branches below runs, matching the auth fallback immediately below for the same reason.
+        per_site = self.nginx_conf_serves_per_site()
+        if per_site:
+            for site in self.bench_config.site_names:
+                wanted[conf_dir / "custom" / site / "upload-limit.conf"] = upload_limit_conf(
+                    self.bench_config.effective_upload_limit(site)
+                )
+        else:
+            # The conf on disk includes only `custom/*.conf`: a per-site file would be written and
+            # never read, so the whole bench follows the bench value until `fm migrate` re-renders
+            # the conf. Same fallback `fm auth` takes, for the same reason, just below.
+            wanted[conf_dir / "custom" / "upload-limit.conf"] = upload_limit_conf(self.bench_config.upload_limit)
+            overriding_upload = self.bench_config.sites_with_own_upload_limit()
+            if overriding_upload:
+                self.output.warning(
+                    f"Per-site upload limit on {', '.join(overriding_upload)} is recorded but not "
+                    "enforced yet: this bench's nginx conf predates one server block per site, so the "
+                    f"whole bench follows the bench's {self.bench_config.upload_limit} until 'fm migrate' "
+                    "re-renders the conf and applies it."
+                )
 
         auth = self.bench_config.auth or AuthConfig()
 
@@ -2123,7 +2171,6 @@ class Bench:
         # not appear twice in one context, so a bench-wide conf beside an overriding site's own
         # would be a config nginx refuses to load at all. Rendering every site from its effective
         # auth keeps exactly one `auth_basic` per block whatever the mix.
-        per_site = self.nginx_conf_serves_per_site()
 
         scopes: list[tuple[str, AuthConfig]] = []
         if not per_site:
@@ -2235,6 +2282,21 @@ class Bench:
             if path in wanted or not path.exists():
                 continue
             if not is_fm_auth_conf(path.read_text()):
+                continue
+            path.unlink()
+            changed = True
+
+        # The flat file and the per-site files can never coexist (see above), so whichever shape
+        # lost the branch this pass must be swept, or the next write is the fatal duplicate. Scoped
+        # to fm's own shape (`_is_fm_upload_limit_conf`), not a marker: every bench's flat file
+        # predates one existing, so a marker added only going forward would never match it.
+        upload_limit_stale: list[Path] = [conf_dir / "custom" / "upload-limit.conf"]
+        if custom_dir.is_dir():
+            upload_limit_stale += [d / "upload-limit.conf" for d in custom_dir.iterdir() if d.is_dir()]
+        for path in upload_limit_stale:
+            if path in wanted or not path.exists():
+                continue
+            if not _is_fm_upload_limit_conf(path.read_text()):
                 continue
             path.unlink()
             changed = True

@@ -108,6 +108,14 @@ def _bench(path: Path, docker_ops) -> Bench:
         domains=[DOMAIN],
         site_names=[],
         get_primary_certificate=lambda: SimpleNamespace(hsts="off"),
+        # `apply_upload_limit` and `ensure_fm_nginx_confs` now resolve a value per site rather than
+        # reading `upload_limit` flat: this stand-in models no per-site overrides at all, so every
+        # site -- the bench's own or a synthetic multi-site one a test adds via `site_names` -- gets
+        # the same flat value back, matching what a real `BenchConfig` with an empty `[sites]` table
+        # returns from `effective_upload_limit`.
+        effective_upload_limit=lambda site: "50M",
+        sites_with_own_upload_limit=list,
+        get_site_mappings=lambda: {d: d for d in bench.bench_config.domains},
     )
     bench.bench_nginx_controller = MagicMock()
     # The overlay refresh reads the subnet from the services compose, which is the pinned

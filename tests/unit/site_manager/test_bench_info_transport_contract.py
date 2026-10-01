@@ -81,6 +81,14 @@ class _ConfigDouble(SimpleNamespace):
     def sites_with_own_auth(self) -> list[str]:
         return [name for name, entry in (self.sites or {}).items() if entry.auth is not None]
 
+    def effective_upload_limit(self, site: str) -> str:
+        entry = (self.sites or {}).get(site)
+        own = getattr(entry, "upload_limit", None) if entry else None
+        return own if own is not None else self.upload_limit
+
+    def sites_with_own_upload_limit(self) -> list[str]:
+        return [name for name, entry in (self.sites or {}).items() if getattr(entry, "upload_limit", None) is not None]
+
 
 def _config(*, sites=None, aliases=None, **over):
     """Minimal duck-typed BenchConfig: display_info only ever reads these attributes.
@@ -118,6 +126,7 @@ def _config(*, sites=None, aliases=None, **over):
         # The disk row's inputs: no per-bench overrides, no switch table (keep_releases default).
         "prune": None,
         "switch": None,
+        "upload_limit": "50M",
         # The real model stores None rather than an empty table, and `site_names` falls back to the
         # BENCH name there: enumeration has to read `sites` to tell those two apart. Each entry is
         # a site record, which is what carries that site's own aliases.
@@ -129,6 +138,7 @@ def _config(*, sites=None, aliases=None, **over):
                 # what every bench that never touched them has.
                 auth=None,
                 serve_admin_tools=None,
+                upload_limit=None,
             )
             for site, database in recorded.items()
         }
