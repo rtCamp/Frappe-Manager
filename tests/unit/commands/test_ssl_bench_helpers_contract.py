@@ -651,8 +651,13 @@ def test_remove_refuses_a_domain_absent_from_the_bench_config(h):
         _remove(h, domain="stranger.example.com")
 
     assert exc.value.exit_code == 1
-    # Remove's refusal is the short form: no allowed-domain list, no fm domain add hint.
-    assert h.errors() == [f"Domain 'stranger.example.com' is not configured for bench '{BENCH}'"]
+    # Names what the bench DOES serve, as `fm domain remove` already did: the short form left the
+    # operator guessing at the spelling, which is the whole reason a bare label failed here while
+    # working in `fm update`.
+    assert h.errors() == [
+        f"Domain 'stranger.example.com' is not configured for bench '{BENCH}'. "
+        f"It serves 'alias.example.com', '{DOMAIN}'."
+    ]
     h.cert_manager.remove_certificate_by_domain.assert_not_called()
 
 

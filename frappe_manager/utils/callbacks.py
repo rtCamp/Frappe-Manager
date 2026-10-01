@@ -21,6 +21,7 @@ from frappe_manager.utils.site import (
     host_bench_dir,
     is_fqdn,
     is_wildcard_fqdn,
+    resolve_known_name,
     validate_sitename,
 )
 
@@ -468,15 +469,8 @@ def _resolve_bench_site(ctx: typer.Context, value: str | None, *, allow_all: boo
             return bench
 
         recorded = _recorded_sites(bench)
-        # EXACT match first, and only then the `<name>.localhost` convenience form. Normalising
-        # up front made a bare-label site unaddressable AND silently retargeted the command at a
-        # different recorded site: on a bench serving both `shop` and `shop.localhost`,
-        # `fm delete shop/shop` resolved to `shop.localhost` and offered to drop ITS database.
-        # fm never creates a bare-label site, so this only arises from a hand-written config or
-        # old data, which is exactly when silently acting on the wrong schema is least excusable.
         typed = site
-        if site not in recorded:
-            site = validate_sitename(site)
+        site = resolve_known_name(site, recorded) or validate_sitename(site)
         if site not in recorded:
             # An alias is a hostname OF a site, so it is a name worth recognising rather than just
             # rejecting. Checked against what was TYPED, not the `.localhost` form: normalising

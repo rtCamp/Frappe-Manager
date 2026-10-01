@@ -19,6 +19,7 @@ from frappe_manager.ssl_manager.letsencrypt_certificate import build_letsencrypt
 from frappe_manager.ssl_manager.ssl_utils import resolve_dns_provider
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME
 from frappe_manager.utils.config_keys import declared_field
+from frappe_manager.utils.site import resolve_known_name
 
 from .external_helpers import proxy_backend_domains
 from .helpers import cert_expiry_words, cert_status_word, get_output_handler
@@ -168,13 +169,18 @@ def _add_bench_certificate(
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     allowed_domains = bench.bench_config.domains
-    if domain not in allowed_domains:
+    # The one address rule, applied where the served set is known. It cannot live in the parameter
+    # callback: `--standalone` manages domains belonging to no bench, and appending `.localhost`
+    # to someone else's domain would mangle it. Nothing reaches here in that mode.
+    resolved = resolve_known_name(domain, allowed_domains)
+    if resolved is None:
         output.display_error(
             f"Domain '{domain}' is not configured for bench '{benchname}'.\n"
             f"Allowed domains: {', '.join(allowed_domains)}\n"
             f"To add an alias domain, use: fm domain add {benchname} {domain}",
         )
         raise typer.Exit(1)
+    domain = resolved
 
     if cname and challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         output.display_error("CNAME delegation (--cname) can only be used with DNS-01 challenge")
@@ -268,9 +274,16 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     domains = bench.bench_config.domains
-    if domain not in domains:
-        output.display_error(f"Domain '{domain}' is not configured for bench '{benchname}'")
+    resolved = resolve_known_name(domain, domains)
+    if resolved is None:
+        # Names what the bench DOES serve, the way `fm domain remove` already does. Saying only
+        # that the domain is not configured leaves the operator guessing at the spelling.
+        output.display_error(
+            f"Domain '{domain}' is not configured for bench '{benchname}'. It serves "
+            f"{', '.join(repr(d) for d in sorted(domains))}."
+        )
         raise typer.Exit(1)
+    domain = resolved
 
     output.change_head(f"Removing SSL certificate for {domain}")
 

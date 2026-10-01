@@ -6,6 +6,7 @@ from frappe_manager.commands.arguments import BenchServedDomainArgument
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.site_manager.site import Bench
+from frappe_manager.utils.site import resolve_known_name
 
 
 @example(
@@ -55,13 +56,15 @@ def remove_domain(
     # the canonical form mirrors the refusal `update_alias_domains` itself raises when asked to
     # remove a site's own name (site_manager/modules/bench_orchestrator.py:1413-1415).
     sites = bench.bench_config.sites or {}
+    # The one address rule, against the aliases this bench actually serves.
+    domain = resolve_known_name(domain, [a for e in sites.values() for a in (e.alias_domains or [])]) or domain
     owner_site = next(
         (name for name, entry in sites.items() if domain in (entry.alias_domains or [])),
         None,
     )
 
     if owner_site is None:
-        if domain in sites:
+        if resolve_known_name(domain, sites) in sites:
             output.display_error(
                 f"'{domain}' is the site's own domain, not an alias; fm domain remove only drops aliases."
             )

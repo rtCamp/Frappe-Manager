@@ -1,6 +1,7 @@
 import json
 import re
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 
 from frappe_manager import CLI_BENCHES_DIRECTORY, COMMON_SITE_CONFIG_FILE
@@ -193,6 +194,32 @@ def validate_sitename(sitename: str | None) -> str:
         )
 
     return sitename
+
+
+def resolve_known_name(typed: str, known: Iterable[str]) -> str | None:
+    """The name in ``known`` that ``typed`` addresses, or None when it addresses none of them.
+
+    One rule for every `BENCH/<second segment>` address fm accepts, whether that segment is a site
+    or a served domain: EXACT match first, and only then the `<name>.localhost` convenience form.
+
+    Exact first is load-bearing, not tidiness. Normalising up front made a bare-label name
+    unaddressable AND silently retargeted the command at a different recorded one: on a bench
+    serving both `shop` and `shop.localhost`, `fm delete shop/shop` resolved to `shop.localhost`
+    and offered to drop ITS database. fm itself never creates a dotless site or alias -- `create`
+    always runs `validate_sitename`, and `domain add` demands a TLD -- so a bare label only arises
+    from a hand-written config or old data, which is exactly when acting on the wrong one is least
+    excusable.
+
+    Callers with no set to match against (`fm ssl --standalone` manages domains belonging to no
+    bench) must not call this: there is nothing to resolve, and appending `.localhost` to someone
+    else's domain would mangle it.
+    """
+    known = list(known)
+    if typed in known:
+        return typed
+    if domain_level(typed) == 0 and f"{typed}.localhost" in known:
+        return f"{typed}.localhost"
+    return None
 
 
 def get_bench_db_connection_info(site_name: str, bench_path: Path):
