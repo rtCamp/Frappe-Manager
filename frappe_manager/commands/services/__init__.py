@@ -13,9 +13,13 @@ from frappe_manager.commands.services.start import start_services
 from frappe_manager.commands.services.stop import stop_services
 from frappe_manager.commands.services.trusted_proxies import (
     clear as clear_trusted_proxies,
+)
+from frappe_manager.commands.services.trusted_proxies import (
     set_trusted,
-    show as show_trusted_proxies,
     trusted_proxies_app,
+)
+from frappe_manager.commands.services.trusted_proxies import (
+    show as show_trusted_proxies,
 )
 
 services_app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")

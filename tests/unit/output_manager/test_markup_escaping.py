@@ -280,3 +280,22 @@ def test_no_module_emits_an_invalid_escape_sequence_warning():
             offenders.append(str(path))
 
     assert offenders == []
+
+
+class TestBenchMetaMaintenance:
+    """`running` describes the containers. Maintenance contradicts it: they are up and every
+    visitor still gets a 503, so it has to sit beside the status word rather than below it."""
+
+    def test_maintenance_appears_next_to_the_status_word(self):
+        from frappe_manager.output_manager.railcard import bench_meta
+
+        meta = bench_meta(True, "mount", "dev", "no", maintenance=True)
+
+        assert "maintenance" in meta
+        assert meta.index("maintenance") < meta.index("mount")
+
+    def test_an_ordinary_bench_says_nothing_about_maintenance(self):
+        """A card that mentions it on every bench trains people to skip the line."""
+        from frappe_manager.output_manager.railcard import bench_meta
+
+        assert "maintenance" not in bench_meta(True, "mount", "dev", "no")

@@ -151,14 +151,22 @@ def status_dot(state: str) -> str:
     return f"[fm.error]{style.dot_bad}[/fm.error] [fm.muted]{state}:[/fm.muted]"
 
 
-def bench_meta(active: bool, runtime: str, environment: str, restart_policy: str) -> str:
+def bench_meta(
+    active: bool, runtime: str, environment: str, restart_policy: str, maintenance: bool = False
+) -> str:
     """Standard bench headline meta. Status is a WORD first (text carries state;
-    tokens only enhance -- mono-theme safe)."""
+    tokens only enhance -- mono-theme safe).
+
+    Maintenance sits beside the status word because it CONTRADICTS it: the containers are up, so
+    `running` is true, while every visitor gets a 503. Reported anywhere lower in the card it would
+    be read after the conclusion it refutes.
+    """
     status_token = "fm.status.running" if active else "fm.status.stopped"
     status_word = "running" if active else "stopped"
     env_token = "fm.env.prod" if environment == "prod" else "fm.env.dev"
+    maintenance_part = "[fm.status.stopped] · maintenance[/fm.status.stopped]" if maintenance else ""
     return (
-        f"[{status_token}]{status_word}[/{status_token}]"
+        f"[{status_token}]{status_word}[/{status_token}]{maintenance_part}"
         f" [fm.muted]· {runtime} ·[/fm.muted] [{env_token}]{environment}[/{env_token}]"
         f"[fm.muted] · restart:{restart_policy}[/fm.muted]"
     )

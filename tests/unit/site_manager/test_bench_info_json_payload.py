@@ -24,6 +24,16 @@ SITE = "web.example.com"
 ADMIN_PW = "admin-pass"
 
 
+class _ConfigDouble(SimpleNamespace):
+    """The real BenchConfig derives this once so `fm info` and `fm auth status` cannot disagree
+    about a per-site override. A property, not a precomputed list: tests attach a site's auth after
+    building the config, exactly as a config loaded then edited would."""
+
+    @property
+    def sites_with_own_auth(self) -> list[str]:
+        return [name for name, entry in (self.sites or {}).items() if entry.auth is not None]
+
+
 def _config(*, sites=None, **over):
     """Minimal duck-typed BenchConfig, same shape as the display_info pin
     (test_bench_info_transport_contract.py) trimmed to what build_bench_info_data reads."""
@@ -54,7 +64,7 @@ def _config(*, sites=None, **over):
         "get_database": lambda site=None: SimpleNamespace(type=SimpleNamespace(value="mariadb")),
     }
     base.update(over)
-    config = SimpleNamespace(**base)
+    config = _ConfigDouble(**base)
     config.serves_admin_tools = lambda site: BenchConfig.serves_admin_tools(config, site)
     return config
 

@@ -72,6 +72,16 @@ def _docker_exc(cmd="docker pull x"):
 # =========================================================================== BenchInfo: wiring
 
 
+class _ConfigDouble(SimpleNamespace):
+    """The real BenchConfig derives this once so `fm info` and `fm auth status` cannot disagree
+    about a per-site override. A property, not a precomputed list: tests attach a site's auth after
+    building the config, exactly as a config loaded then edited would."""
+
+    @property
+    def sites_with_own_auth(self) -> list[str]:
+        return [name for name, entry in (self.sites or {}).items() if entry.auth is not None]
+
+
 def _config(*, sites=None, aliases=None, **over):
     """Minimal duck-typed BenchConfig: display_info only ever reads these attributes.
 
@@ -137,7 +147,7 @@ def _config(*, sites=None, aliases=None, **over):
         "get_database": lambda site=None: SimpleNamespace(type=SimpleNamespace(value="mariadb")),
     }
     base.update(over)
-    config = SimpleNamespace(**base)
+    config = _ConfigDouble(**base)
     # The REAL resolver, bound to the stand-in rather than reimplemented here: whether a site routes
     # the tools is a two-level rule (bench floor, then the site's own value) and a second copy of it
     # in the fixture would drift from the one the card actually calls.
