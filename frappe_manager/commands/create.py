@@ -1267,7 +1267,9 @@ def create(
     # `shop` serving site `shop.localhost`, and `fm create a.example.com` yields bench
     # `a.example.com` serving `a.example.com`, because a name that is already a domain is left
     # alone. This is the one place the two are minted, and everything downstream reads them apart.
-    sitename = validate_sitename(address)
+    # `BENCH/SITE` on a bench that does not exist names the first site outright, which is the only
+    # way to give a bench a first site that is not its own name.
+    sitename = (ctx.obj.get("first_site") if ctx.obj else None) or validate_sitename(address)
     output = get_global_output_handler()
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
     bench_config_path = bench_service.benches_directory / address / CLI_BENCH_CONFIG_FILE_NAME

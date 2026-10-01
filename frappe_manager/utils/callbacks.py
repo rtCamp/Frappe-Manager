@@ -650,11 +650,22 @@ def create_command_sitename_callback(ctx: typer.Context, sitename: str):
         )
 
     if address.site is not None:
-        # Adding a site to an existing bench. The bench MUST exist: there is nothing to add to
-        # otherwise, and creating both at once would hide which half the operator got wrong.
         _ = validate_sitename(address.bench)
         site = validate_sitename(address.site)
-        bench = _resolve_bench(address.bench)
+
+        # A missing bench is not an error here: `fm create shop/erp.localhost` builds `shop` with
+        # `erp.localhost` as its first site, which is also the only way to give a bench a first
+        # site named differently from the bench. The site rides on `ctx.obj` either way; the body
+        # branches on whether the bench was already there.
+        try:
+            bench = _resolve_bench(address.bench)
+        except BenchNotFoundError:
+            # `--help` short-circuits before app_callback fills ctx.obj, so there is nothing to
+            # carry the site on and nothing downstream to act. Keep the original refusal.
+            if ctx.obj is None:
+                raise
+            ctx.obj["first_site"] = site
+            return address.bench
 
         recorded = _recorded_sites(bench)
         if site in recorded:

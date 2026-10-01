@@ -141,9 +141,11 @@ def test_create_refuses_the_reserved_name():
     assert "'all' is reserved" in _said(result)
 
 
-def test_create_refuses_a_site_on_a_bench_that_does_not_exist(tmp_path):
-    """`fm create shop/a.localhost` adds a site to `shop`. There is nothing to add to when `shop`
-    is absent, and creating both at once would hide which half the operator got wrong.
+def test_create_without_a_context_still_refuses_a_missing_bench(tmp_path):
+    """`fm create shop/a.localhost` BUILDS `shop` when it is absent, with `a.localhost` as its first
+    site -- but the site has to ride on `ctx.obj` to reach the command, and `--help` short-circuits
+    before that exists. With nowhere to carry it, the callback keeps raising rather than dropping
+    the site half silently.
 
     Asserted on the exception, not the output: `BenchNotFoundError` is rendered by `main.py`, and
     this bare test app has none of that, so it propagates instead of printing.
@@ -536,3 +538,33 @@ def test_maintenance_gets_the_same_alias_pointer(tmp_path):
         result = runner.invoke(_app("maintenance", enable), ["multi/www.b.example.com"])
 
     assert "is an alias of 'b.example.com'" in _said(result)
+
+
+def test_create_builds_a_missing_bench_with_the_named_site_as_its_first(tmp_path):
+    """`fm create shop/erp.localhost` on an absent `shop` builds the bench with `erp.localhost` as
+    its first site. It is also the only way to give a bench a first site that is not its own name:
+    `fm create shop` always mints `shop.localhost`."""
+    from frappe_manager.utils.callbacks import create_command_sitename_callback
+
+    root = tmp_path / "sites"
+    root.mkdir(parents=True)
+    ctx = _ctx()
+    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
+        assert create_command_sitename_callback(ctx, "shop/erp.localhost") == "shop"
+
+    # `first_site`, not `site`: the latter means "add to a bench that already exists", and the two
+    # take different paths through the command.
+    assert ctx.obj == {"first_site": "erp.localhost"}
+
+
+def test_create_adds_to_a_bench_that_does_exist(tmp_path):
+    """The same address against a real bench is an ADD, and must not be mistaken for a build."""
+    from frappe_manager.utils.callbacks import create_command_sitename_callback
+
+    root = tmp_path / "sites"
+    (root / "shop").mkdir(parents=True)
+    ctx = _ctx()
+    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
+        assert create_command_sitename_callback(ctx, "shop/erp.localhost") == "shop"
+
+    assert ctx.obj == {"site": "erp.localhost"}
