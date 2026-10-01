@@ -52,6 +52,7 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `--db-ca PATH`: Host path to the CA bundle signing the server certificate. Required whenever the server enforces TLS.
 * `--db-no-verify-hostname`: Check the certificate chain but not that the certificate names the host dialled. Applies to Frappe's own driver; fm's preflight uses the mariadb client, which verifies the hostname whenever a CA is set and cannot be told not to, so a certificate that cannot name the endpoint is still refused at create time.  [default: false]
 * `--attach-existing-site`: The schema already holds a Frappe site: build the bench around it and write nothing to the database.  [default: false]
+* `--default-site`: Make this site the bench's default, the one bench commands use when none is named. A bench's FIRST site is its default already; this is for the sites added after it.  [default: false]
 * `--encryption-key TEXT`: The attached site's encryption_key, - to read from stdin. Without it Frappe mints a new one and existing encrypted secrets stop being readable.
 
 ## Examples

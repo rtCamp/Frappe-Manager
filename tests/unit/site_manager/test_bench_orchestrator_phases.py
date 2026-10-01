@@ -1449,6 +1449,45 @@ def attach_harness(monkeypatch, tmp_path):
     return build
 
 
+def _common_config_writes(harness) -> dict:
+    written: dict = {}
+    for call in harness.bench.set_common_bench_config.call_args_list:
+        written.update(call.args[0] if call.args else call.kwargs.get("config", {}))
+    return written
+
+
+def test_attach_claims_the_bench_default_when_there_is_none(attach_harness, monkeypatch):
+    """A bench's first site must be its default or every `bench` command without --site breaks."""
+    harness = attach_harness()
+    monkeypatch.setattr("frappe_manager.site_manager.modules.bench_orchestrator.read_default_site", lambda _root: None)
+
+    harness.orchestrator(real=("_attach_existing_site",))._attach_existing_site()
+
+    assert _common_config_writes(harness).get("default_site") == harness.bench.site_name
+
+
+def test_attach_leaves_an_existing_default_alone(attach_harness, monkeypatch):
+    """Attach wrote `default_site` unconditionally, so attaching a site to a bench already serving
+    others silently repointed the bench at the one just attached. Every other way of adding a site
+    passes `set_default=False`; `--default-site` is how an operator asks for the promotion."""
+    harness = attach_harness()
+    monkeypatch.setattr("frappe_manager.site_manager.modules.bench_orchestrator.read_default_site", lambda _root: "first.localhost")
+
+    harness.orchestrator(real=("_attach_existing_site",))._attach_existing_site()
+
+    assert "default_site" not in _common_config_writes(harness)
+
+
+def test_attach_claims_the_default_when_the_operator_asks(attach_harness, monkeypatch):
+    harness = attach_harness()
+    harness.config.set_default_site = True
+    monkeypatch.setattr("frappe_manager.site_manager.modules.bench_orchestrator.read_default_site", lambda _root: "first.localhost")
+
+    harness.orchestrator(real=("_attach_existing_site",))._attach_existing_site()
+
+    assert _common_config_writes(harness).get("default_site") == harness.bench.site_name
+
+
 def test_attach_turns_migrate_off_with_the_decision_not_after_the_pipeline(attach_harness):
     """A create that dies in a later phase still leaves the bench directory and its `[database]`
     entry on disk. Writing this flag last produced exactly the bench it exists to protect:

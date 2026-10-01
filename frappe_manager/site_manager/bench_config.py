@@ -1848,6 +1848,11 @@ class BenchConfig(BaseModel):
         description="Attach to an existing Frappe schema instead of creating a site. Create-time only.",
         exclude=True,
     )
+    set_default_site: bool = Field(
+        False,
+        description="Make the site being created this bench's default site. Create-time only.",
+        exclude=True,
+    )
     encryption_key: str | None = Field(
         None,
         description="Frappe encryption_key for an attached site. Lives in site_config.json, never here.",

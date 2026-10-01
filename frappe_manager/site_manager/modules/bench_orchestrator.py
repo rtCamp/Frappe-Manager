@@ -37,6 +37,7 @@ from frappe_manager.site_manager.bench_config import (
     DatabaseEngine,
     FMBenchEnvType,
     SwitchConfig,
+    read_default_site,
 )
 from frappe_manager.site_manager.exceptions import BenchException, BenchOperationException
 from frappe_manager.site_manager.modules import db_probe, db_probe_postgres, db_tls
@@ -1073,8 +1074,14 @@ class BenchOrchestrator:
         # core tables, exactly what attach must not do -- so it never gets `default_site` set for free like
         # every other path. Safe to set it here: attach's schema already holds real tables and phase 4 has
         # already run, unlike phase 1, where setting it early 500s a provisioning create.
-        bench.set_common_bench_config({"default_site": bench.site_name})
-        self.output.print(f"Recorded {bench.site_name} as the bench's default site")
+        #
+        # Only when the bench HAS no default. `_add_site_to_bench` passes `set_default=False`, so every
+        # other way of adding a site leaves the existing default alone; attach wrote it unconditionally,
+        # which would silently repoint a bench already serving other sites at the one just attached.
+        # `--default-site` is how an operator asks for that on purpose.
+        if read_default_site(bench.path) is None or self.bench.bench_config.set_default_site:
+            bench.set_common_bench_config({"default_site": bench.site_name})
+            self.output.print(f"Recorded {bench.site_name} as the bench's default site")
 
     def _disable_migrate_for_attach(self) -> None:
         """Turn `[switch].migrate` off as soon as the attach decision is made.

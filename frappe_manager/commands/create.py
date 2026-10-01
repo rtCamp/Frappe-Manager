@@ -566,6 +566,7 @@ def _add_site_to_bench(
     alias_domains: list[str] | None = None,
     database: DatabaseConfig | None = None,
     credentials: _ExternalCredentials | None = None,
+    set_default_site: bool = False,
 ) -> None:
     """Add `site` to the bench `benchname`, which already exists and may be serving.
 
@@ -634,7 +635,8 @@ def _add_site_to_bench(
         bench.site_manager.create_bench_site(
             site=site,
             db_name=database.name if database.external else schema,
-            set_default=False,
+            # Added sites never claim the bench default on their own; `--default-site` is the ask.
+            set_default=set_default_site,
         )
 
         if apps:
@@ -1165,6 +1167,15 @@ def create(
             rich_help_panel=_PANEL_DATABASE,
         ),
     ] = False,
+    default_site: Annotated[
+        bool,
+        typer.Option(
+            "--default-site",
+            help="Make this site the bench's default, the one bench commands use when none is named. A bench's FIRST site is its default already; this is for the sites added after it.",
+            show_default=False,
+            rich_help_panel=_PANEL_SITE,
+        ),
+    ] = False,
     encryption_key: Annotated[
         str | None,
         typer.Option(
@@ -1248,6 +1259,7 @@ def create(
             alias_domains=alias_domains,
             database=database_config,
             credentials=credentials,
+            set_default_site=default_site,
         )
         return
 
@@ -1361,6 +1373,9 @@ def create(
         bench_config.db_password_generated = credentials.db_password_generated
         bench_config.attach_existing_site = credentials.attach_existing_site
         bench_config.encryption_key = credentials.encryption_key
+    # Outside the credentials block: it is not a credential, and it applies to attach and to a
+    # plain create alike.
+    bench_config.set_default_site = default_site
 
     # Say both names out loud. `fm create shop` makes a bench called `shop` serving a site called
     # `shop.localhost`, and an operator who is told only one of them cannot tell which to type at
