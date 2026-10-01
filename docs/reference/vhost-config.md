@@ -153,14 +153,62 @@ The reporting benefit falls out: `fm info` and `fm maintenance status` ask the s
 is active, rather than each re-deriving it by pattern matching a shared file. That is the single
 derivation rule from `status-surfaces.md`, applied to configuration instead of state.
 
-## Before implementing
+## Verified against a running proxy
 
-Three things to confirm against a running proxy, none of which should be assumed:
+All three preconditions were tested on a live nginx-proxy, not assumed.
 
-1. **nginx tolerates `include .../<domain>.d/*.conf;` when the directory does not exist.** A
-   wildcard matching no files is fine; a missing directory needs checking on the real image.
-2. **The migration is safe on a bench with foreign content.** fm can recognise its own marked
-   blocks and move them into fragments, but that rewrites a file on every existing bench, so
-   add-then-remove byte-exactness has to be demonstrated with an operator's directives present.
-3. **docker-gen ignores `<domain>.d/` directories** sitting beside host files in `vhost.d`. It
-   should, since it only tests for a file named after the host, but it is cheap to verify.
+**A wildcard include of a directory that does not exist is accepted.** With
+`include /etc/nginx/vhost.d/devssl.localhost.d/*.conf;` in place and no such directory,
+`nginx -t` reports the configuration valid. So the bootstrap line can be written before any
+fragment exists, and the last fragment can be removed without leaving a broken config behind.
+
+**Fragments are read, from the exact path, in filename order.** Dropping a file containing an
+invalid directive makes `nginx -t` fail naming that file
+(`unknown directive ... in /etc/nginx/vhost.d/devssl.localhost.d/99-bad.conf:1`), which is positive
+proof the include resolves; removing it restores a valid config. nginx sorts glob matches, so the
+numeric prefixes order the fragments.
+
+**docker-gen ignores a `<domain>.d` directory beside the host files.** The generated
+`conf.d/default.conf` still contains exactly one server block for the domain with the directory
+present.
+
+One trap found while testing, worth knowing before writing fragments: a server level `add_header`
+in a fragment does NOT reach responses produced by a `location` that defines its own `add_header`,
+because nginx replaces rather than merges the set. That is ordinary nginx inheritance, not an
+artefact of the fragment layout, but it means "the header did not appear" is not evidence that a
+fragment was not loaded.
+
+## The missing marker is already losing operator data
+
+Testing the migration precondition, that add-then-remove returns a file with foreign content to its
+exact bytes, found that two of the three marked writers hold that contract and the unmarked one
+destroys data.
+
+Starting from a file an operator wrote:
+
+```nginx
+# operator's own
+client_max_body_size   200m;
+proxy_read_timeout 300;
+```
+
+| writer | add then remove returns the original bytes |
+|---|---|
+| `https-redirect` | yes |
+| `hsts` | yes |
+| `upload-limit` | **no** |
+
+`UploadLimitManager` is content addressed on the directive name rather than on a marker, so it
+treats the operator's `client_max_body_size 200m;` as its own: setting an upload limit silently
+overwrites their value, and removing one DELETES a directive fm never wrote. The operator's
+`proxy_read_timeout` survives; their upload limit does not.
+
+This is the concrete harm the missing marker causes, not a hypothetical. It is also unfixable in
+place without giving that writer a marker, which is the same change the fragment design makes
+unnecessary by giving it a file of its own.
+
+## Remaining before implementation
+
+The mechanism is proven; what is left is the migration itself. Existing benches hold three marked
+blocks and one unmarked directive in a shared file, and moving them into fragments has to preserve
+foreign content exactly, which the two compliant writers already demonstrate is achievable.
