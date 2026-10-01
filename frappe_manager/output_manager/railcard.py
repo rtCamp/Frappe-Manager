@@ -81,8 +81,16 @@ class Card:
         token = "fm.name" if self.active else "fm.name.inactive"
         return f"[{token}]{name_markup}[/{token}]   {self.meta}"
 
-    def _fact_line(self, label: str, value: str, prefix: str) -> str:
+    def _label_width(self) -> int:
+        # The style profile sets a MINIMUM, not a cap: one label longer than it would otherwise
+        # push its own value a column left of every other row, which reads as two words rather
+        # than a label and a value. Widening for the whole card keeps one column.
         width = get_output_style().label_width
+        labels = [label for kind, label, _ in self._rows if kind == "fact"]
+        return max([width, *(len(label) for label in labels)]) if labels else width
+
+    def _fact_line(self, label: str, value: str, prefix: str) -> str:
+        width = self._label_width()
         return f"{prefix}[fm.label]{label:<{width}}[/fm.label] {value}"
 
     def __rich__(self) -> RenderableType:
@@ -98,7 +106,7 @@ class Card:
         rail_token = "fm.rail.active" if self.active else "fm.rail.inactive"
         glyph = style.rail_active if self.active else style.rail_inactive
         rail = f"[{rail_token}]{glyph}[/{rail_token}] " if glyph else "  "
-        width = get_output_style().label_width
+        width = self._label_width()
         lines: list[RenderableType] = [_RailLine("", "", "", self._headline())]
         for kind, label, value in self._rows:
             if kind == "section":

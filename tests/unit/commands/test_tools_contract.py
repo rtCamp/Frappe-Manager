@@ -25,7 +25,7 @@ from frappe_manager.commands.tools import tools_app
 from frappe_manager.commands.tools.disable import disable
 from frappe_manager.commands.tools.enable import enable
 from frappe_manager.commands.tools.status import status
-from frappe_manager.output_manager import set_global_output_handler
+from frappe_manager.output_manager import railcard, set_global_output_handler
 from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.site_manager.bench_config import SiteConfig
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME
@@ -38,6 +38,31 @@ BENCH = "mybench.localhost"
 @contextmanager
 def _null_spinner(*_args, **_kwargs):
     yield
+
+
+class _CardSpy:
+    """Stand-in for railcard.Card recording the facts the command decided on."""
+
+    made: list = []
+
+    def __init__(self, name, meta, active=True, link=None):
+        self.name, self.meta, self.active, self.link = name, meta, active, link
+        self.rows: list[tuple[str, str]] = []
+        _CardSpy.made.append(self)
+
+    def fact(self, label, value):
+        self.rows.append((label, value))
+        return self
+
+    def section(self, title):
+        return self
+
+    def render(self):
+        return f"<rendered {self.name}>"
+
+    @property
+    def facts(self) -> dict:
+        return dict(self.rows)
 
 
 class ToolsWorld:
@@ -116,8 +141,14 @@ class ToolsWorld:
     def run_disable(self, *, site: str | None = None, **kwargs):
         return disable(self._ctx(site), address=BENCH, **kwargs)
 
-    def run_status(self, **kwargs):
-        return status(self._ctx(None), benchname=BENCH, **kwargs)
+    def run_status(self, **kwargs) -> "_CardSpy":
+        """Runs `status()` with `railcard.Card` swapped for `_CardSpy` and returns the one card
+        the command built."""
+        _CardSpy.made = []
+        with patch.object(railcard, "Card", _CardSpy):
+            status(self._ctx(None), benchname=BENCH, **kwargs)
+        (card,) = _CardSpy.made
+        return card
 
 
 @pytest.fixture
@@ -328,24 +359,31 @@ class TestStatus:
         )
         world.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = True
 
-        world.run_status()
+        card = world.run_status()
 
-        out = "\n".join(c.args[0] for c in world.output.data_raw.call_args_list if c.args)
-        assert "containers: configured" in out
-        assert "admin tools: enabled" in out
-        assert "shop.localhost: routed" in out
-        assert "b.example.com: not routed" in out
+        assert card.name == BENCH
+        assert card.meta == "reachable"
+        assert card.active
+        assert card.facts["containers"] == "configured"
+        assert card.facts["admin tools"] == "enabled"
+        site_rows = [(label, value) for label, value in card.rows if label in ("sites", "")]
+        assert site_rows == [
+            ("sites", "shop.localhost  routed"),
+            ("", "b.example.com  not routed"),
+        ]
+        world.output.print_data.assert_called_once()
 
     def test_reports_unconfigured_and_disabled(self, world):
         world.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = False
         world.config.admin_tools = False
         world.config.serves_admin_tools = MagicMock(return_value=False)
 
-        world.run_status()
+        card = world.run_status()
 
-        out = "\n".join(c.args[0] for c in world.output.data_raw.call_args_list if c.args)
-        assert "containers: not configured" in out
-        assert "admin tools: disabled" in out
+        assert card.meta == "not reachable"
+        assert not card.active
+        assert card.facts["containers"] == "not configured"
+        assert card.facts["admin tools"] == "disabled"
 
 
 def test_group_app_is_invokable_standalone_via_cli_runner():

@@ -16,7 +16,7 @@ from frappe_manager.commands.maintenance._helpers import (
     optional_bench_site_callback,
     proxy_paths,
 )
-from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.output_manager import get_global_output_handler, railcard
 from frappe_manager.site_manager.modules.public_scheme import host_proxy_state, public_scheme, public_url
 from frappe_manager.utils.callbacks import bench_site_autocompletion_callback
 
@@ -61,16 +61,30 @@ def status(
     _services, dropins, _html_host_dir, _html_container_dir = proxy_paths(ctx)
 
     if benchname is None:
-        found = 0
+        by_bench: dict[str, list[tuple[str, str]]] = {}
         for domain in _maintenance_domains(dropins):
             text = dropins.fragment_path(domain, "maintenance").read_text()
-            found += 1
-            output.print(
-                f"{domain}: maintenance ON (bench {_extract_bench(text)}, code {_extract_code(text)}, "
-                f"bypass token {_extract_token(text)})"
-            )
-        if not found:
-            output.print("No domain is in maintenance")
+            by_bench.setdefault(_extract_bench(text), []).append((domain, text))
+
+        if not by_bench:
+            # The healthy default across the whole host: nothing anywhere is in maintenance.
+            output.print_data(railcard.Card("maintenance", "none in maintenance", active=True).render())
+            return
+
+        # One card per bench, not one per domain: a host with a dozen benches in maintenance at
+        # once would otherwise be a wall of single-fact cards repeating the same bench name.
+        items = []
+        for bench, entries in sorted(by_bench.items()):
+            count = len(entries)
+            meta = "on" if count == 1 else f"on: {count} domains"
+            card = railcard.Card(bench, f"[fm.status.stopped]{meta}[/fm.status.stopped]", active=False)
+            for domain, text in sorted(entries, key=lambda entry: entry[0]):
+                card.fact(
+                    domain,
+                    f"code {_extract_code(text)} [fm.muted]·[/fm.muted] bypass token {_extract_token(text)}",
+                )
+            items.append(card)
+        output.print_data(railcard.cards(items))
         return
 
     check_bench_migration_required(benchname)
@@ -96,17 +110,35 @@ def status(
                 "custom_vhost": (not on) and _foreign_vhost_content(dropins.vhostd_dir / domain),
             }
         )
-
     if output.wants_structured_data:
         output.print_data(rows)
         return
 
+    on_count = sum(1 for row in rows if row["maintenance"])
+    if on_count == 0:
+        status_word = "off"
+    elif len(rows) == 1:
+        status_word = "on"
+    elif on_count == len(rows):
+        status_word = f"on: {len(rows)} domains"
+    else:
+        status_word = f"on: {on_count}/{len(rows)} domains"
+    # Mirrors bench_meta's own choice to color maintenance with the "stopped" token: ON is the
+    # attention state here (visitors see the maintenance page), not the healthy default.
+    status_token = "fm.status.stopped" if on_count else "fm.status.running"
+    scope = benchname if site is None else f"{benchname}/{site}"
+    card = railcard.Card(scope, f"[{status_token}]{status_word}[/{status_token}]", active=on_count == 0)
     for row in rows:
         if row["maintenance"]:
-            output.print(f"{row['domain']}: maintenance ON (code {row['code']}, bypass: {row['bypass_url']})")
+            card.fact(
+                row["domain"],
+                f"on [fm.muted]·[/fm.muted] code {row['code']} [fm.muted]·[/fm.muted] bypass: {row['bypass_url']}",
+            )
         elif row["custom_vhost"]:
-            # Answer first: this used to read "custom vhost config present", which describes fm's
-            # implementation while leaving the operator's actual question unanswered.
-            output.print(f"{row['domain']}: maintenance off [fm.muted](custom vhost config present)[/fm.muted]")
+            # Answer first, and in words an operator reading "is my site down" actually
+            # understands: not fm's internal "custom vhost config" jargon.
+            card.fact(row["domain"], "off [fm.muted](this domain already has nginx config fm did not write)[/fm.muted]")
         else:
-            output.print(f"{row['domain']}: maintenance off")
+            card.fact(row["domain"], "off")
+    output.print_data(card.render())
+

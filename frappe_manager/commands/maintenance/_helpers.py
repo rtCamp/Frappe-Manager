@@ -235,10 +235,17 @@ def conf_state(dropins: ProxyDropins, domain: str) -> bool:
 
 def _foreign_vhost_content(path: Path) -> bool:
     """Whether a shared vhost.d file carries anything besides fm's own include bootstrap: an
-    operator's hand-written directive must never be reported as, or mistaken for, maintenance."""
+    operator's hand-written directive must never be reported as, or mistaken for, maintenance.
+
+    `.strip()`, unlike `ProxyDropins.remove`'s exact remainder: this is a REPORT read by a human
+    asking "is there custom config here", where the ordinary case -- fm's include block followed
+    by nothing but the blank lines `write_text` leaves behind -- must read as "no". `remove`
+    instead keeps the exact remainder on purpose: whitespace a foreign writer actually left there
+    is still that writer's bytes to preserve, not something a report gets to judge away.
+    """
     if not path.exists():
         return False
-    return bool(_INCLUDE_RE.sub("", path.read_text(), count=1))
+    return bool(_INCLUDE_RE.sub("", path.read_text(), count=1).strip())
 
 
 def _maintenance_domains(dropins: ProxyDropins) -> list[str]:

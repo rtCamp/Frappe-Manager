@@ -94,6 +94,9 @@ def status(ctx: typer.Context, json_results: JsonResultOption = False):
     """
     Show which proxies this host trusts and what is read from them.
     """
+    from frappe_manager.commands.services.info import _trusted_proxies_data
+    from frappe_manager.output_manager import railcard
+
     output = get_global_output_handler()
     if json_results:
         output.set_json_results()
@@ -107,13 +110,24 @@ def status(ctx: typer.Context, json_results: JsonResultOption = False):
         output.print_data({"trusted": configured, "config_path": str(conf_path), "directives": directives})
         return
 
-    if not configured:
-        output.print("No proxies are trusted; fm treats every request as arriving directly.")
-        return
+    # Reuses `fm services info`'s own parser rather than re-deriving ranges/header from
+    # `directives` above, so the two commands can never disagree about what is configured.
+    data = _trusted_proxies_data(conf_path)
+    ranges = data["ranges"]
 
-    output.print(f"Trusted proxies ({conf_path}):")
-    for line in directives:
-        output.print(f"  {line}", emoji_code="")
+    meta = f"{len(ranges)} range(s) trusted" if configured else "no proxies trusted"
+    card = railcard.Card("trusted proxies", meta, active=configured)
+    if configured:
+        for i, cidr in enumerate(ranges):
+            card.fact("ranges" if i == 0 else "", cidr)
+        card.fact("header", data["header"] or "[fm.muted]none[/fm.muted]")
+        card.fact("recursive", "on" if data["recursive"] else "off")
+    else:
+        # Every request is judged on the connection fm received: this is the line that changes
+        # what client IP every bench sees, so the empty state stays unmistakable, not just "none".
+        card.fact("ranges", "[fm.muted]none; fm treats every request as arriving directly[/fm.muted]")
+    card.fact("config", f"[fm.muted][link=file://{conf_path}]{conf_path}[/link][/fm.muted]")
+    output.print_data(card.render())
 
 
 @example(

@@ -288,3 +288,31 @@ def write_htpasswd(path: Path, user: str, password: str) -> bool:
 
 def is_fm_auth_conf(text: str) -> bool:
     return text.startswith(_MARKER)
+
+
+
+def web_auth_conf_path(bench, site: str) -> Path:
+    """Where nginx would need to find SITE's web-surface auth conf for it to actually gate
+    requests, mirroring the path `Bench.ensure_fm_nginx_confs` writes: per-site
+    (`custom/<site>/auth.conf`) when the bench's conf supports one server block per site
+    (`Bench.nginx_conf_serves_per_site`), the single bench-wide `custom/auth.conf` every site
+    falls back to otherwise -- the same fallback `ensure_fm_nginx_confs` and `fm auth enable`'s
+    per-site gate both take, for the same reason.
+    """
+    custom = bench.path / "configs" / "nginx" / "conf" / "custom"
+    if bench.nginx_conf_serves_per_site():
+        return custom / site / SERVER_CONF_NAME
+    return custom / SERVER_CONF_NAME
+
+
+def web_auth_enforced(bench, site: str) -> bool:
+    """Whether nginx is CURRENTLY gating SITE's web surface with an fm-authored basic auth conf --
+    not what `bench_config.toml` records wanting. Same principle `domains_in_maintenance` applies
+    to the maintenance fragment: read what is actually on disk, so a conf hand-removed, never
+    written, or overwritten by something that is not fm's own (`is_fm_auth_conf`) reads as
+    unenforced rather than as whatever fm last intended. This is what `fm auth status` was
+    measured lying about: a conf deleted out from under a bench that still answered unauthenticated
+    200s, reported as a plain `on`.
+    """
+    conf = web_auth_conf_path(bench, site)
+    return conf.is_file() and is_fm_auth_conf(conf.read_text())

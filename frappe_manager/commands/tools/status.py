@@ -3,7 +3,7 @@ from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.commands.arguments import BenchNameArgument, JsonResultOption
-from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.output_manager import get_global_output_handler, railcard
 from frappe_manager.site_manager.site import Bench
 
 
@@ -28,14 +28,14 @@ def status(
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     configured = bench.admin_tools.compose_file_manager.compose_path.exists()
-    enabled = bench.bench_config.admin_tools
+    enabled = bool(bench.bench_config.admin_tools)
 
     if json_result:
         output.print_data(
             {
                 "bench": bench.name,
                 "configured": configured,
-                "enabled": bool(enabled),
+                "enabled": enabled,
                 "sites": {
                     site_name: bench.bench_config.serves_admin_tools(site_name)
                     for site_name in bench.bench_config.site_names
@@ -44,13 +44,18 @@ def status(
         )
         return
 
-    lines = [
-        f"containers: {'configured' if configured else 'not configured'}",
-        f"admin tools: {'enabled' if enabled else 'disabled'}",
-    ]
-    for site_name in bench.bench_config.site_names:
+    # Precondition for reachability, independent of any one site's route: the headline answers
+    # "are the admin tools reachable" with the fact rows below carrying why.
+    reachable = configured and enabled
+    card = railcard.Card(bench.name, "reachable" if reachable else "not reachable", reachable)
+    card.fact("containers", "configured" if configured else "not configured")
+    card.fact("admin tools", "enabled" if enabled else "disabled")
+    # Adminer and Mailpit are ONE container pair per bench; a site's row says whether its
+    # nginx `location` block routes to them, not that the site has its own instance. Grouped
+    # under one "sites" label (like bench_info's url rows) because a site DOMAIN is not a
+    # short fact label, and the label column has no room for one.
+    for i, site_name in enumerate(bench.bench_config.site_names):
         routed = bench.bench_config.serves_admin_tools(site_name)
-        lines.append(f"{site_name}: {'routed' if routed else 'not routed'}")
+        card.fact("sites" if i == 0 else "", f"{site_name}  {'routed' if routed else 'not routed'}")
 
-    for line in lines:
-        output.data_raw(line)
+    output.print_data(card.render())

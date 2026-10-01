@@ -7,7 +7,7 @@ from typer_examples import example
 
 from frappe_manager.commands.arguments import JsonResultOption
 from frappe_manager.commands.ssl.ca.helpers import ca_paths, expiry_note, fingerprint, read_ca
-from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.output_manager import get_global_output_handler, railcard
 from frappe_manager.ssl_manager.trust_store_manager import TrustStoreManager
 
 
@@ -43,31 +43,41 @@ def ca_status(json_results: JsonResultOption = False):
         )
         return
 
+    # The answer this command exists to settle: a CA that exists but nothing trusts is the
+    # failure mode, so `active`/`meta` follow TRUST, not whether the cert file is present.
+    trusted = bool(entries)
+    meta = f"trusted by {len(entries)} store(s)" if trusted else "not trusted on this host"
+    card = railcard.Card("dev ca", meta, active=trusted)
+
+    card.section("certificate")
     if cert is None:
         state = "unreadable" if paths.cert.exists() else "not created yet"
-        output.print(f"CA       : {state}  ({paths.cert})", emoji_code="")
+        card.fact("path", str(paths.cert))
+        card.fact("status", state)
     else:
-        output.print(f"CA       : {paths.cert}", emoji_code="")
-        output.print(f"subject     {cert.subject.rfc4514_string()}", emoji_code="", prefix="  ")
-        output.print(f"sha256      {fingerprint(cert)}", emoji_code="", prefix="  ")
-        output.print(f"expires     {expiry_note(cert)}", emoji_code="", prefix="  ")
-        output.print(f"private key {'present' if paths.key.exists() else 'MISSING'}", emoji_code="", prefix="  ")
+        card.fact("path", str(paths.cert))
+        card.fact("subject", cert.subject.rfc4514_string())
+        card.fact("sha256", fingerprint(cert))
+        card.fact("expires", expiry_note(cert))
+        card.fact("private key", "present" if paths.key.exists() else "[fm.error]MISSING[/fm.error]")
 
+    card.section("trust")
     local = fingerprint(cert) if cert else None
     if entries:
-        output.print(f"Trusted  : {len(entries)} store(s)", emoji_code="")
-        for entry in entries:
+        for i, entry in enumerate(entries):
             # A store holding a hash that is not the CA on disk means the CA was regenerated and
             # the old one is STILL trusted: a signing key nobody tracks any more, which is the
             # one state worth shouting about.
             stale = (
-                "  (a different CA, not the one on disk)"
+                "  [fm.warning](a different CA, not the one on disk)[/fm.warning]"
                 if local and entry.fingerprint and entry.fingerprint != local
                 else ""
             )
-            output.print(f"{entry.store:<28} {entry.location}{stale}", emoji_code="", prefix="  ")
+            card.fact("stores" if i == 0 else "", f"{entry.store}  [fm.muted]{entry.location}[/fm.muted]{stale}")
     else:
-        output.print("Trusted  : no store on this host trusts it", emoji_code="")
+        card.fact("stores", "[fm.muted]none[/fm.muted]")
+
+    output.print_data(card.render())
 
     if paths.sentinel.exists() and not entries:
         output.warning(

@@ -29,7 +29,7 @@ from frappe_manager import TelemetryProviderEnum
 from frappe_manager.commands.telemetry.disable import disable
 from frappe_manager.commands.telemetry.enable import enable
 from frappe_manager.commands.telemetry.status import status
-from frappe_manager.output_manager import set_global_output_handler
+from frappe_manager.output_manager import railcard, set_global_output_handler
 from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.site_manager.bench_config import NewRelicConfig, TelemetryConfig
 from frappe_manager.site_manager.exceptions import BenchNotRunning
@@ -42,6 +42,31 @@ BENCH = "mybench.localhost"
 @contextmanager
 def _null_spinner(*_args, **_kwargs):
     yield
+
+
+class _CardSpy:
+    """Stand-in for railcard.Card recording the facts the command decided on."""
+
+    made: list = []
+
+    def __init__(self, name, meta, active=True, link=None):
+        self.name, self.meta, self.active, self.link = name, meta, active, link
+        self.rows: list[tuple[str, str]] = []
+        _CardSpy.made.append(self)
+
+    def fact(self, label, value):
+        self.rows.append((label, value))
+        return self
+
+    def section(self, title):
+        return self
+
+    def render(self):
+        return f"<rendered {self.name}>"
+
+    @property
+    def facts(self) -> dict:
+        return dict(self.rows)
 
 
 class TelemetryWorld:
@@ -119,8 +144,14 @@ class TelemetryWorld:
     def disable(self):
         return disable(self._ctx(), benchname=BENCH, provider=TelemetryProviderEnum.newrelic)
 
-    def status(self):
-        return status(self._ctx(), benchname=BENCH)
+    def status(self) -> "_CardSpy":
+        """Runs `status()` with `railcard.Card` swapped for `_CardSpy` and returns the one card
+        the command built."""
+        _CardSpy.made = []
+        with patch.object(railcard, "Card", _CardSpy):
+            status(self._ctx(), benchname=BENCH)
+        (card,) = _CardSpy.made
+        return card
 
 
 @pytest.fixture
@@ -243,47 +274,45 @@ class TestDisable:
 
 
 class TestStatus:
-    def _lines(self, world) -> list[str]:
-        return [c.args[0] for c in world.output.data_raw.call_args_list if c.args]
-
     def test_both_halves_must_hold_to_report_as_reporting(self, world):
         world.store(enabled=True, license_key="stored-key")
 
-        world.status()
+        card = world.status()
 
-        assert "newrelic: reporting" in self._lines(world)
+        assert card.name == BENCH
+        assert card.meta == "reporting"
+        assert card.active
 
     def test_enabled_without_a_key_is_not_reporting_and_says_why(self, world):
         """The state that looks fine and sends nothing: the exporter emits no env vars without a
         key, so the wrapper runs plain gunicorn."""
         world.store(enabled=True, license_key=None)
 
-        world.status()
+        card = world.status()
 
-        lines = self._lines(world)
-        assert "newrelic: not reporting" in lines
-        assert any("sends nothing" in line for line in lines)
+        assert card.meta == "not reporting"
+        assert not card.active
+        assert "sends nothing" in card.facts["note"]
 
     def test_a_key_without_the_flag_is_not_reporting(self, world):
         world.store(enabled=False, license_key="stored-key")
 
-        world.status()
+        card = world.status()
 
-        lines = self._lines(world)
-        assert "newrelic: not reporting" in lines
-        assert any("license key:  stored" in line for line in lines)
+        assert card.meta == "not reporting"
+        assert card.facts["license key"] == "stored"
 
     def test_a_seeded_agent_config_is_reported_as_the_users(self, world):
         world.store(enabled=True, license_key="stored-key")
         world.seed_agent_config()
 
-        world.status()
+        card = world.status()
 
-        assert any("agent config: present" in line for line in self._lines(world))
+        assert "present" in card.facts["agent config"]
 
     def test_an_unseeded_agent_config_is_reported_as_absent(self, world):
         world.store(enabled=True, license_key="stored-key")
 
-        world.status()
+        card = world.status()
 
-        assert any("agent config: not seeded" in line for line in self._lines(world))
+        assert card.facts["agent config"] == "not seeded"

@@ -3,7 +3,7 @@ from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.commands.arguments import BenchNameArgument, JsonResultOption
-from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.output_manager import get_global_output_handler, railcard
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.site import host_bench_dir
 
@@ -53,15 +53,17 @@ def status(
         )
         return
 
-    lines = [
-        f"newrelic: {'reporting' if enabled and has_key else 'not reporting'}",
-        f"  enabled:      {'yes' if enabled else 'no'}",
-        f"  license key:  {'stored' if has_key else 'not set'}",
-        f"  agent config: {'present (yours; --force-config overwrites)' if agent_config.is_file() else 'not seeded'}",
-    ]
-
+    # "reporting" is the answer to "is this bench reporting": BOTH enabled and a stored key
+    # must hold, same pair `fm info` derives from, so the two views cannot drift apart.
+    reporting = bool(enabled and has_key)
+    card = railcard.Card(bench.name, "reporting" if reporting else "not reporting", reporting)
+    card.fact("enabled", "yes" if enabled else "no")
+    card.fact("license key", "stored" if has_key else "not set")
+    card.fact(
+        "agent config",
+        "present (yours; --force-config overwrites)" if agent_config.is_file() else "not seeded",
+    )
     if enabled and not has_key:
-        lines.append("  NOTE: enabled without a key sends nothing; pass --license-key to fm telemetry enable.")
+        card.fact("note", "enabled without a key sends nothing; pass --license-key to fm telemetry enable.")
 
-    for line in lines:
-        output.data_raw(line)
+    output.print_data(card.render())

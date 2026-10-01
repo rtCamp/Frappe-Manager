@@ -4,7 +4,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands.arguments import JsonResultOption
-from frappe_manager.commands.auth._helpers import ADDRESS_HELP, print_state, resolve_scope
+from frappe_manager.commands.auth._helpers import ADDRESS_HELP, _web_enforcement, build_auth_card, resolve_scope
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.callbacks import bench_site_autocompletion_callback, bench_site_callback
 
@@ -54,6 +54,11 @@ def status(
         # The EFFECTIVE config, not the stored one: a site with no auth of its own is protected or
         # not by the bench's setting, and a payload reporting `null` there would read as "open".
         effective = stored if stored is not None else (bench.bench_config.auth_for(site) if site else None)
+        # `web` stays what fm RECORDS, so the key does not change meaning under an automation that
+        # already reads it. `web_enforced` is what nginx actually serves, and the two disagree
+        # exactly when the conf backing the record is missing or cannot be rendered: reporting only
+        # the record told a caller a scope was protected while it served 200.
+        enforced = _web_enforcement(bench, site, entry, effective)[0] if effective else False
         output.print_data(
             {
                 "scope": scope,
@@ -61,6 +66,7 @@ def status(
                 "inherited": site is not None and entry is not None and entry.auth is None,
                 "web": bool(effective and effective.web),
                 "tools": bool(effective and getattr(effective, "tools", False)),
+                "web_enforced": enforced,
                 "user": getattr(effective, "user", None),
                 "password": getattr(effective, "password", None),
                 "allow_ips": list(getattr(effective, "allow_ips", None) or []),
@@ -74,19 +80,41 @@ def status(
         if site:
             # Not "unconfigured": the site IS protected or not, by the bench's setting. Report
             # what it actually serves, and say where the answer came from.
-            output.print(f"Basic auth for {site}: inherited from bench '{bench.name}'")
-            print_state(output, bench.bench_config.auth_for(site), hint_when_off=True)
-            output.print(f"  give this site its own with 'fm auth enable {scope} --web'")
+            card = build_auth_card(
+                bench,
+                site,
+                entry,
+                scope,
+                bench.bench_config.auth_for(site),
+                hint_when_off=True,
+                source=f"inherited from bench '{bench.name}'",
+            )
+            card.fact("own auth", f"fm auth enable {scope} --web")
+            output.print_data(card.render())
             return
-        output.print("Basic auth: not configured; bench defaults apply (tools protected, web open)")
-        output.print(f"Protect a surface with 'fm auth enable {bench.name} --web' to mint credentials")
+        from frappe_manager.output_manager import railcard
+
+        # The model defaults, never written to `bench_config.toml`: no [auth] table exists yet, so
+        # there is nothing recorded to check enforcement against -- this is what a bench gets
+        # before `fm auth enable` ever runs, not a state that can drift from what nginx serves.
+        card = railcard.Card(scope, "not configured; bench defaults apply", active=True)
+        card.fact("tools", "protected (default)")
+        card.fact("web", "open (default)")
+        card.fact("mint credentials", f"fm auth enable {bench.name} --web")
+        output.print_data(card.render())
         return
 
-    if site:
-        output.print(f"Basic auth for {site}: its own, overriding bench '{bench.name}'")
-    print_state(output, stored, hint_when_off=True)
+    card = build_auth_card(
+        bench,
+        site,
+        entry,
+        scope,
+        stored,
+        hint_when_off=True,
+        source=f"its own, overriding bench '{bench.name}'" if site else None,
+    )
 
-    if not site:
+    if not site and bench.bench_config.sites_with_own_auth:
         # A bench-level answer that omits a site with its own auth is worse than no answer: the
         # operator asked what this bench protects and was told about the bench's surfaces only, so
         # a protected site read as unprotected unless they already knew to ask for it by name.
@@ -95,7 +123,10 @@ def status(
         # exists: `fm auth disable` leaves the entry in place with `web` off, and "has its own
         # auth" on that reads as protected when the site is deliberately open. A site owns only the
         # web surface -- the admin tools are one container pair for the whole bench.
+        card.section("sites with their own auth")
         for name in bench.bench_config.sites_with_own_auth:
-            entry = bench.bench_config.sites[name]
-            state = "web protected" if entry.auth.web else "web open"
-            output.print(f"  {name}: own auth, {state} ('fm auth status {bench.name}/{name}')")
+            site_entry = bench.bench_config.sites[name]
+            state = "web protected" if site_entry.auth.web else "web open"
+            card.fact(name, state)
+
+    output.print_data(card.render())

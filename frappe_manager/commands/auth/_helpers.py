@@ -7,7 +7,7 @@ import typer
 from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime, WebAuthConfig
-from frappe_manager.site_manager.modules.auth import generate_password, validate_credentials
+from frappe_manager.site_manager.modules.auth import generate_password, validate_credentials, web_auth_enforced
 from frappe_manager.site_manager.modules.realip import validate_cidrs
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
@@ -22,12 +22,21 @@ ADDRESS_HELP = "Bench, or BENCH/SITE for one of its sites. Without a site part t
 
 def surface_summary(web: bool, tools: bool | None) -> str:
     """`tools` is None for a site scope, which has no tools surface to report: there is one
-    Adminer and one Mailpit per bench, so the tools state belongs to the bench line, not a site's."""
-    surfaces = [("web", web)] if tools is None else [("web", web), ("tools", tools)]
-    protected = [name for name, on in surfaces if on]
+    Adminer and one Mailpit per bench, so the tools state belongs to the bench line, not a site's.
+
+    Both ends name BOTH surfaces when there are two: the off state always has ("off on both
+    surfaces (web, tools)"), so an on state that protects only one must say the other is off too --
+    "on for: web" alone let an operator infer tools from its absence, which read as "unknown", not
+    "off"."""
+    if tools is None:
+        return "on for: web" if web else "off on the web surface"
+    protected = [name for name, on in (("web", web), ("tools", tools)) if on]
+    unprotected = [name for name, on in (("web", web), ("tools", tools)) if not on]
     if not protected:
-        return "off on the web surface" if tools is None else "off on both surfaces (web, tools)"
-    return f"on for: {', '.join(protected)}"
+        return "off on both surfaces (web, tools)"
+    if not unprotected:
+        return "on for: web, tools"
+    return f"on for: {', '.join(protected)} ({', '.join(unprotected)} off)"
 
 
 def read_password_from_stdin() -> str:
@@ -38,36 +47,98 @@ def read_password_from_stdin() -> str:
     return sys.stdin.readline().rstrip("\r\n")
 
 
-def print_state(output, config: WebAuthConfig, hint_when_off: bool) -> None:
-    """Surfaces first, then the detail that only means something while a surface
-    is protected: on the all-off state credentials and exemptions are inert, and
-    printing them reads as if something were still enforced. They stay in the
-    config and reappear as soon as a surface is protected again."""
+def _web_enforcement(bench, site: str | None, entry, config: WebAuthConfig) -> tuple[bool, str | None]:
+    """(what nginx is ACTUALLY enforcing on CONFIG's web surface, a note to show when that
+    disagrees with what `bench_config.toml` records). Only ever disagrees recorded-but-not-served:
+    `fm auth status` must not call a scope protected because the config says so when the conf that
+    would gate it is missing, stale, or was never written -- measured live: a deleted
+    `custom/<site>/auth.conf`, reloaded, served 200s while this still said `on`.
+
+    A site's OWN override is a separate failure mode `nginx_conf_serves_per_site` exists for: on a
+    bench whose conf predates one server block per site, nothing renders a per-site file at all
+    (`ensure_fm_nginx_confs` falls back to the bench-wide conf, which never reads a site's entry),
+    so that recorded override cannot be enforced regardless of what the bench-wide conf is doing.
+    """
+    if not config.web:
+        return False, None
+    own_entry = site is not None and entry is not None and getattr(entry, "auth", None) is not None
+    if own_entry and not bench.nginx_conf_serves_per_site():
+        return False, (
+            "recorded, but this bench's nginx conf predates one server block per site so it cannot "
+            "enforce a site's own auth; run 'fm migrate' to re-render it"
+        )
+    check_site = site if site is not None else (bench.bench_config.site_names[0] if bench.bench_config.sites else None)
+    if check_site is None:
+        # Nothing served yet to check against (a --bench-only bench with no [sites] at all): the
+        # record is the only answer there is, and it cannot be wrong about a site that does not exist.
+        return True, None
+    if web_auth_enforced(bench, check_site):
+        return True, None
+    return False, (
+        "recorded, but nginx is not currently serving an fm auth conf for it; re-run 'fm auth enable' to re-apply"
+    )
+
+
+def _fill_credentials(card, config: WebAuthConfig, *, hint_when_off: bool) -> None:
+    """Supporting facts for ONE auth state: credentials per protected surface, then exemptions.
+    Gated on the RECORDED intent (`config.web`/`tools`), not on enforcement -- these are the
+    credentials that take effect once a surface actually serves, useful while repairing a gap
+    `_web_enforcement` just reported.
+
+    On the all-off state credentials and exemptions are inert, and showing them reads as if
+    something were still enforced. They stay in the config and reappear as soon as a surface is
+    protected again.
+    """
     tools = config.tools if isinstance(config, AuthConfig) else None
-    output.print(f"Basic auth {surface_summary(config.web, tools)}")
     if not (config.web or tools):
         if hint_when_off and (config.password or config.allow_ips or config.allow_paths):
-            output.print("  credentials and exemptions stay stored and apply again when a surface is protected")
+            card.fact("stored", "credentials and exemptions stay stored and apply again when a surface is protected")
         return
-    # One credential line per protected surface, because they can now differ. A single line was
+    # One credential fact per protected surface, because they can now differ. A single fact was
     # only ever right while both surfaces shared a file, and it is what made a silent
     # re-credentialling of the tools surface invisible.
     tools_differs = isinstance(config, AuthConfig) and (config.tools_user or config.tools_password)
-    web_label = "  web user" if (tools and tools_differs) else "  user"
+    web_label = "web user" if (tools and tools_differs) else "user"
     if config.web or not tools:
-        output.print(f"{web_label}: {config.user}")
+        card.fact(web_label, config.user)
         if config.password:
-            output.print(f"{web_label.replace('user', 'password')}: {config.password}")
+            card.fact(web_label.replace("user", "password"), config.password)
     if tools and isinstance(config, AuthConfig):
-        label = "  tools user" if tools_differs else "  user"
+        label = "tools user" if tools_differs else "user"
         if not config.web or tools_differs:
-            output.print(f"{label}: {config.effective_tools_user}")
+            card.fact(label, config.effective_tools_user)
             if config.effective_tools_password:
-                output.print(f"{label.replace('user', 'password')}: {config.effective_tools_password}")
+                card.fact(label.replace("user", "password"), config.effective_tools_password)
     if config.allow_ips:
-        output.print(f"  no prompt from: {', '.join(config.allow_ips)}")
+        card.fact("exempt ips", ", ".join(config.allow_ips))
     if config.web and config.allow_paths:
-        output.print(f"  no prompt on: {', '.join(config.allow_paths)}")
+        card.fact("exempt paths", ", ".join(config.allow_paths))
+
+
+def build_auth_card(
+    bench, site: str | None, entry, name: str, config: WebAuthConfig, *, hint_when_off: bool, source: str | None = None
+):
+    """The one `railcard.Card` shape every auth verb renders: `status`, `enable`, and `disable`
+    alike, so writing an auth state and reading it back never disagree in shape.
+
+    The password is shown unconditionally, the same choice `fm info` and `fm services info`
+    already made for every other credential fm's cards carry, and the one this card's own --json
+    payload makes too: hiding it here only while the card happens to also be named `status` would
+    make the two surfaces of the SAME command disagree about what a status check reveals. The
+    repo's actual answer to a password ending up somewhere it should not (a terminal recording) is
+    `just readme-hero`'s enforced post-hoc redaction, not asking any one command to hold back.
+    """
+    from frappe_manager.output_manager import railcard
+
+    enforced_web, web_note = _web_enforcement(bench, site, entry, config)
+    tools = config.tools if isinstance(config, AuthConfig) else None
+    card = railcard.Card(name, surface_summary(enforced_web, tools), active=enforced_web or bool(tools))
+    if source:
+        card.fact("source", source)
+    if web_note:
+        card.fact("web", web_note)
+    _fill_credentials(card, config, hint_when_off=hint_when_off)
+    return card
 
 
 def resolve_scope(ctx, address: str | None, output):
@@ -299,8 +370,6 @@ def apply_auth(
     bench.ensure_fm_nginx_confs()
 
     applied = entry.auth if site else bench.bench_config.auth
-    if site:
-        output.print(f"Basic auth for {site} (its own, overriding bench '{bench.name}')")
 
     # ensure_fm_nginx_confs writes nothing for the tools surface on a bench whose
     # admin tools are off (there are no /adminer/ and /mailpit/ locations to gate), so
@@ -310,4 +379,13 @@ def apply_auth(
             f"Admin tools are disabled on {bench.name}, so nothing enforces the tools surface yet; it applies once you run 'fm tools enable {bench.name}'"
         )
 
-    print_state(output, applied, hint_when_off=False)
+    card = build_auth_card(
+        bench,
+        site,
+        entry,
+        scope,
+        applied,
+        hint_when_off=False,
+        source=f"its own, overriding bench '{bench.name}'" if site else None,
+    )
+    output.print_data(card.render())
