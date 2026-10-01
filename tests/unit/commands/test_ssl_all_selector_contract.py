@@ -235,7 +235,7 @@ def test_list_refuses_a_domain_in_the_address(listing):
     with pytest.raises(typer.Exit) as exc:
         list_certificates(listing.ctx, address=BENCH, standalone=False)
 
-    assert exc.value.exit_code == 1
+    assert exc.value.exit_code == 2
     assert "takes a bench, not a single domain" in listing.errors()
     listing.bench_listing.assert_not_called()
 

@@ -12,6 +12,7 @@ from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateNotDueForRenewalError,
 )
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, prompt_for_bench_selection, resolve_bench_targets
+from frappe_manager.utils.site import resolve_known_name
 
 from .external_helpers import _renew_all_external_certificates, _renew_external_certificate
 from .helpers import get_output_handler
@@ -115,13 +116,17 @@ def renew(
         try:
             if domain and domain != RESERVED_BENCH_NAME:
                 cert_domains = [cert.domain for cert in bench.certificate_manager.certificates]
-                if domain not in cert_domains:
+                # Matched against the certificates this bench HOLDS, which is the set renew acts on
+                # -- a served domain with no certificate is a different refusal, the one below.
+                target = resolve_known_name(domain, cert_domains)
+                if target is None:
                     output.display_error(
                         f"No SSL certificate found for domain '{domain}'.\n"
                         f"Configured certificates: {', '.join(cert_domains) if cert_domains else 'None'}\n"
                         f"To add a certificate, use: fm ssl add {address}/{domain}",
                     )
                     raise typer.Exit(1)
+                domain = target
 
                 with spinner(output, f"Renewing certificate for {domain}"):
                     bench.ssl.renew_certificate(domain, test_ca=test_ca, force=force)

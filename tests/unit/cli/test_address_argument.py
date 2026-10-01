@@ -111,7 +111,7 @@ def test_an_ssl_command_reads_the_second_segment_as_a_domain(benches):
     with patch.object(handler, "display_error") as display_error:
         result = runner.invoke(_app("list", list_certificates), [f"{BENCH}/shop.example.com"], obj={})
 
-    assert result.exit_code == 1
+    assert result.exit_code == 2
     assert "takes a bench, not a single domain" in str(display_error.call_args)
 
 

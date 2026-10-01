@@ -11,6 +11,7 @@ from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.output_manager.context_managers import spinner, temporary_stop
 from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.site_manager.site import Bench
+from frappe_manager.utils.site import resolve_known_name
 
 
 @example(
@@ -70,11 +71,14 @@ def ngrok(
     # refusal can name what the bench actually serves only with the config loaded.
     requested = ctx.obj.get("domain") if ctx.obj else None
     served = list(bench.bench_config.domains)
-    if requested and requested not in served:
-        output.display_error(
-            f"bench '{bench.name}' does not serve '{requested}'. It serves {', '.join(repr(d) for d in served)}."
-        )
-        raise typer.Exit(1)
+    if requested:
+        resolved = resolve_known_name(requested, served)
+        if resolved is None:
+            output.display_error(
+                f"bench '{bench.name}' does not serve '{requested}'. It serves {', '.join(repr(d) for d in served)}."
+            )
+            raise typer.Exit(1)
+        requested = resolved
     tunnel_host = requested or bench.primary_domain
 
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]

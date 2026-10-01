@@ -51,7 +51,7 @@ def list_certificates(
             "'fm ssl list' takes a bench, not a single domain: it reports every certificate the "
             f"bench holds. Use 'fm ssl list {address}'."
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if address == RESERVED_BENCH_NAME:
         _list_all_certificates(ctx)

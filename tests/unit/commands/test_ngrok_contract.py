@@ -282,3 +282,21 @@ def test_an_alias_is_a_legal_tunnel_host():
 
     assert world.exit is None
     world.tunnel.assert_called_once_with("www.b.example.com", OLD_TOKEN)
+
+
+def test_a_bare_label_addresses_the_served_domain():
+    """`BENCH/<name>` resolves the same way here as in `fm update`: exact first, then the
+    `.localhost` form. This command matched verbatim, so `fm ngrok bench/shop` reported a domain
+    the bench plainly serves as one it does not."""
+    run = _run_ngrok(_config(None), domain="shop", served=["shop.localhost"], auth_token="t")
+
+    run.tunnel.assert_called_once()
+    assert run.tunnel.call_args.args[0] == "shop.localhost"
+
+
+def test_a_domain_the_bench_does_not_serve_is_still_refused():
+    """Resolution must not become a way to tunnel to something the bench never serves."""
+    run = _run_ngrok(_config(None), domain="stranger", served=["shop.localhost"], auth_token="t")
+
+    run.tunnel.assert_not_called()
+    assert run.exit is not None
