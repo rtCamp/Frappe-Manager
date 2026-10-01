@@ -8,8 +8,10 @@ read every one of those forms out of it, write the equivalent fragment, and leav
 only the `# fm:include` bootstrap plus whatever foreign content was already there -- without ever
 reloading nginx while both a marker and its fragment could be live at once.
 
-No test touches docker or the network: every services tree lives in `tmp_path`, and the proxy
-reload is swapped for a `Mock()` at the migration's own `_reload_proxy` boundary.
+No test touches docker or the network: every services tree lives in `tmp_path`; the proxy
+reload/recreate decision is swapped for `Mock()`s at the migration's own `_reload_proxy`/
+`_recreate_proxy` boundary, and the handful of tests that exercise those two boundaries
+themselves swap in a fake docker client instead of a real one.
 """
 
 from pathlib import Path
@@ -206,3 +208,88 @@ def test_proxy_is_reloaded_exactly_once_for_the_whole_step(tmp_path, monkeypatch
     migration._convert_proxy_vhostd_to_fragments()
 
     migration._reload_proxy.assert_called_once()
+
+
+def _docker_client(running_service: str | None) -> MagicMock:
+    """A fake docker client whose `compose.is_service_running` reports only `running_service`
+    as up, so `_reload_proxy`/`_recreate_proxy` can be exercised without touching real docker."""
+    client = MagicMock()
+    client.compose.is_service_running.side_effect = lambda name: name == running_service
+    return client
+
+
+def test_a_freshly_added_mount_recreates_the_running_proxy_instead_of_reloading_it(tmp_path, monkeypatch):
+    """This is the regression itself: a reload re-reads config INSIDE the container it already has,
+    where a just-bind-mounted `/etc/nginx/fm.d` does not exist yet, and a wildcard include of a
+    missing directory is valid-and-inert -- so every converted domain would silently lose its
+    entire fm configuration with nothing erroring anywhere. Only a recreate makes the mount real."""
+    services_dir = _setup(tmp_path, monkeypatch)
+    compose_path = services_dir / "docker-compose.yml"
+    doc = {"services": {"nginx-proxy": {"image": "x", "volumes": ["./nginx-proxy/vhostd:/etc/nginx/vhost.d"]}}}
+    compose_path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    (_vhostd(services_dir) / "fresh.test").write_text(MAINTENANCE_BLOCK)
+
+    migration = _migration()
+    migration._reload_proxy = Mock()
+    migration._recreate_proxy = Mock()
+    migration._convert_proxy_vhostd_to_fragments()
+
+    migration._recreate_proxy.assert_called_once()
+    migration._reload_proxy.assert_not_called()
+
+
+def test_a_rerun_against_an_already_mounted_proxy_reloads_instead_of_recreating(tmp_path, monkeypatch):
+    """A rerun, or a fresh install created from the template, already carries the mount;
+    recreating the proxy anyway would drop every bench on the host for a container restart the
+    fix does not need, so a routine rerun must stay on the cheaper reload."""
+    services_dir = _setup(tmp_path, monkeypatch)
+    compose_path = services_dir / "docker-compose.yml"
+    doc = {
+        "services": {
+            "nginx-proxy": {
+                "image": "x",
+                "volumes": ["./nginx-proxy/vhostd:/etc/nginx/vhost.d", "./nginx-proxy/fmd:/etc/nginx/fm.d"],
+            }
+        }
+    }
+    compose_path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    (_vhostd(services_dir) / "again.test").write_text(MAINTENANCE_BLOCK)
+
+    migration = _migration()
+    migration._reload_proxy = Mock()
+    migration._recreate_proxy = Mock()
+    migration._convert_proxy_vhostd_to_fragments()
+
+    migration._reload_proxy.assert_called_once()
+    migration._recreate_proxy.assert_not_called()
+
+
+@pytest.mark.parametrize("service_name", ["nginx-proxy", "global-nginx-proxy"])
+def test_recreate_targets_whichever_proxy_service_name_is_actually_running(tmp_path, monkeypatch, service_name):
+    """This runs before `_service_rename_services`, so a legacy install's proxy is still
+    `global-nginx-proxy`; the recreate must force-recreate whichever of the two names is up."""
+    _setup(tmp_path, monkeypatch)
+    migration = _migration()
+    migration.services_manager.docker = _docker_client(service_name)
+
+    migration._recreate_proxy()
+
+    migration.services_manager.docker.compose.up.assert_called_once_with(
+        services=[service_name], force_recreate=True, stream=False
+    )
+
+
+def test_nothing_recreated_or_reloaded_when_no_proxy_is_running(tmp_path, monkeypatch):
+    """A stopped proxy -- under either service name -- has no running container to recreate or
+    reload; the fragments just apply the next time the proxy starts."""
+    _setup(tmp_path, monkeypatch)
+    migration = _migration()
+    migration.services_manager.docker = _docker_client(running_service=None)
+    nginx_controller = Mock()
+    monkeypatch.setattr("frappe_manager.ssl_manager.nginx_controller.NginxController", nginx_controller)
+
+    migration._recreate_proxy()
+    migration._reload_proxy()
+
+    migration.services_manager.docker.compose.up.assert_not_called()
+    nginx_controller.assert_not_called()

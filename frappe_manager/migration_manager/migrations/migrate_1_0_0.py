@@ -393,7 +393,7 @@ class MigrationV100(MigrationBase):
         compose_path.write_text(yaml.safe_dump(doc, sort_keys=False))
         self.output.print("Updated the global proxy's access-log format")
 
-    def _add_proxy_fmd_mount(self):
+    def _add_proxy_fmd_mount(self) -> bool:
         """Give an existing services compose the `fm.d` mount `ProxyDropins` fragments need.
 
         Same constraint as `_refresh_proxy_log_format` and `_add_postgres_service`:
@@ -401,7 +401,11 @@ class MigrationV100(MigrationBase):
         template, so an existing install would otherwise never grow this mount and every
         fragment `ProxyDropins` writes would sit on the host with nothing inside the container
         to include it. Either service name: this runs before the rename, so a legacy install is
-        still `global-nginx-proxy`.
+        still `global-nginx-proxy`. Returns whether the mount was added, because a new mount only
+        reaches a RUNNING proxy on a container recreate: a reload re-reads config inside the
+        container it already has, where `/etc/nginx/fm.d` does not exist yet, and a wildcard
+        include of a missing directory is valid-and-inert, so every converted domain would
+        silently lose its configuration with nothing failing anywhere.
         """
         from frappe_manager import CLI_SERVICES_DIRECTORY
 
@@ -409,25 +413,26 @@ class MigrationV100(MigrationBase):
 
         compose_path = CLI_SERVICES_DIRECTORY / "docker-compose.yml"
         if not compose_path.exists():
-            return
+            return False
 
         doc = yaml.safe_load(compose_path.read_text()) or {}
         services = doc.get("services")
         if not isinstance(services, dict):
-            return
+            return False
 
         proxy = services.get("nginx-proxy") or services.get("global-nginx-proxy")
         if not isinstance(proxy, dict):
-            return
+            return False
 
         mount = "./nginx-proxy/fmd:/etc/nginx/fm.d"
         volumes = proxy.setdefault("volumes", [])
         if mount in volumes:
-            return
+            return False
 
         volumes.append(mount)
         compose_path.write_text(yaml.safe_dump(doc, sort_keys=False))
         self.output.print("Added the fm.d fragment mount to the global proxy")
+        return True
 
     def _convert_proxy_vhostd_to_fragments(self):
         """Add the `fm.d` mount, then convert every domain's shared `vhostd/<domain>` file from
@@ -448,19 +453,19 @@ class MigrationV100(MigrationBase):
         from frappe_manager import CLI_SERVICES_DIRECTORY
         from frappe_manager.services_manager.proxy_dropins import ProxyDropins
 
-        self._add_proxy_fmd_mount()
+        mount_added = self._add_proxy_fmd_mount()
 
         vhostd_dir = CLI_SERVICES_DIRECTORY / "nginx-proxy" / "vhostd"
-        if not vhostd_dir.exists():
-            return
-
-        dropins = ProxyDropins.for_services_path(CLI_SERVICES_DIRECTORY)
         converted = False
-        for vhost_file in sorted(p for p in vhostd_dir.iterdir() if p.is_file()):
-            if self._convert_vhost_domain(dropins, vhost_file.name, vhost_file):
-                converted = True
+        if vhostd_dir.exists():
+            dropins = ProxyDropins.for_services_path(CLI_SERVICES_DIRECTORY)
+            for vhost_file in sorted(p for p in vhostd_dir.iterdir() if p.is_file()):
+                if self._convert_vhost_domain(dropins, vhost_file.name, vhost_file):
+                    converted = True
 
-        if converted:
+        if mount_added:
+            self._recreate_proxy()
+        elif converted:
             self._reload_proxy()
 
     def _convert_vhost_domain(self, dropins, domain: str, vhost_file: Path) -> bool:
@@ -545,6 +550,22 @@ class MigrationV100(MigrationBase):
                 NginxController(
                     service_name, self.services_manager.compose_file_manager, docker_client, self.output
                 ).reload()
+                return
+
+    def _recreate_proxy(self):
+        """Recreate the proxy so a newly added mount is actually in the container.
+
+        Docker binds mounts at container creation, so the fragments are invisible to a running
+        proxy until it is recreated; a stopped proxy picks them up when it next starts. This
+        drops every bench on the host for the moment the container restarts, which is the price
+        of the mount and is why it happens once, here, rather than on some command's start path.
+        """
+        docker_client = self.services_manager.docker
+        for service_name in ("nginx-proxy", "global-nginx-proxy"):
+            if docker_client.compose.is_service_running(service_name):
+                self.output.change_head("Recreating the global proxy for the fm.d mount")
+                docker_client.compose.up(services=[service_name], force_recreate=True, stream=False)
+                self.output.print("Recreated the global proxy")
                 return
 
     def _add_postgres_service(self):
