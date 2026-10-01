@@ -434,8 +434,12 @@ Each store is asked directly (the keychain, the system CA directories, each brow
 **Usage**:
 
 ```console
-$ fm ssl ca status
+$ fm ssl ca status [OPTIONS]
 ```
+
+**Options**:
+
+* `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
 
 #### Examples
 

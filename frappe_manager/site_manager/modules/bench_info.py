@@ -290,6 +290,22 @@ class BenchInfo:
         except BenchException:
             return default
 
+    def _certificate_rows(self) -> list[dict]:
+        """The certificate rows `fm ssl list` enumerates, for this bench.
+
+        Both the card and the `--json` payload reduce from this, so a summary cannot describe a
+        different set of certificates than the detail command lists. Local import because the row
+        builder lives under `commands/` and single derivation outranks the direction of one import;
+        a bench whose certificates cannot be read reports none rather than failing, since `fm info`
+        is where an operator goes to find out what is wrong.
+        """
+        from frappe_manager.commands.ssl.bench_helpers import _bench_certificate_rows
+
+        try:
+            return [row for row in _bench_certificate_rows(self, set()) if row["status"] != "none"]
+        except Exception:
+            return []
+
     def build_bench_info_data(self) -> dict:
         """Structured facts for ``fm info --json``, gathered independently of ``display_info``'s
         rich card (see ``list_benches_data``/``list_benches_view`` for the shared convention).
@@ -323,6 +339,16 @@ class BenchInfo:
             if ssl_cert.ssl_type == SUPPORTED_SSL_TYPES.le and isinstance(ssl_cert, LetsencryptSSLCertificate):
                 https["challenge_type"] = ssl_cert.challenge_type.value
             https["expires_at"] = self.certificate_manager.get_certificate_expiry().isoformat()
+            # The same reduction the card shows, from the same rows `fm ssl list` enumerates.
+            # Without it the card said "2 certificates" while this payload described one: the exact
+            # drift between two derivations that having one source is meant to prevent.
+            rows = self._certificate_rows()
+            https["count"] = len(rows)
+            https["orphaned"] = sum(1 for row in rows if row.get("orphaned"))
+            soonest = min(
+                (row["days_until_expiry"] for row in rows if row["days_until_expiry"] is not None), default=None
+            )
+            https["days_until_expiry"] = soonest
 
         site_rows = []
         for site in sites:
@@ -608,12 +634,7 @@ class BenchInfo:
             # `fm domain remove`, was invisible in every summary. Local import: this module is
             # under site_manager and the row builder under commands, and single derivation matters
             # more than the direction of one import.
-            from frappe_manager.commands.ssl.bench_helpers import _bench_certificate_rows
-
-            try:
-                rows = [row for row in _bench_certificate_rows(self, set()) if row["status"] != "none"]
-            except Exception:
-                rows = []
+            rows = self._certificate_rows()
 
             ssl_cert = config.get_primary_certificate()
             ssl_service_type = f"{ssl_cert.ssl_type.value}"

@@ -4,6 +4,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
+from frappe_manager.commands.arguments import JsonResultOption
 from frappe_manager.commands.maintenance._helpers import (
     _bench_domains,
     _extract_bench,
@@ -44,6 +45,7 @@ def status(
             callback=optional_bench_site_callback,
         ),
     ] = None,
+    json_results: JsonResultOption = False,
 ):
     """
     Report maintenance state per domain, with the bypass URL.
@@ -52,6 +54,8 @@ def status(
     """
 
     output = get_global_output_handler()
+    if json_results:
+        output.set_json_results()
     benchname = address
     _services, vhostd_dir, _html_host_dir, _html_container_dir = proxy_paths(ctx)
 
@@ -79,16 +83,35 @@ def status(
     domains, domain_ssl, _all_domains = _bench_domains(benchname, site)
 
     front, http_port, https_port = host_proxy_state()
+    rows = []
     for domain in domains:
         path = vhostd_dir / domain
         base = public_url(domain, public_scheme(bool(domain_ssl.get(domain)), front), http_port, https_port)
-        if conf_state(path):
-            text = path.read_text()
-            output.print(
-                f"{domain}: maintenance ON "
-                f"(code {_extract_code(text)}, bypass: {base}/fm-bypass/{_extract_token(text)})"
-            )
-        elif path.exists():
-            output.print(f"{domain}: custom vhost config present (no fm maintenance block)")
+        on = conf_state(path)
+        text = path.read_text() if path.exists() else ""
+        rows.append(
+            {
+                "domain": domain,
+                "maintenance": bool(on),
+                "code": _extract_code(text) if on else None,
+                "bypass_url": f"{base}/fm-bypass/{_extract_token(text)}" if on else None,
+                # A vhost file fm did not write. Worth reporting because it explains why an enable
+                # will merge rather than create, but it is NOT the answer to "is this in
+                # maintenance" and must not lead.
+                "custom_vhost": bool(path.exists() and not on),
+            }
+        )
+
+    if output.wants_structured_data:
+        output.print_data(rows)
+        return
+
+    for row in rows:
+        if row["maintenance"]:
+            output.print(f"{row['domain']}: maintenance ON (code {row['code']}, bypass: {row['bypass_url']})")
+        elif row["custom_vhost"]:
+            # Answer first: this used to read "custom vhost config present", which describes fm's
+            # implementation while leaving the operator's actual question unanswered.
+            output.print(f"{row['domain']}: maintenance off [fm.muted](custom vhost config present)[/fm.muted]")
         else:
-            output.print(f"{domain}: maintenance off")
+            output.print(f"{row['domain']}: maintenance off")

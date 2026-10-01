@@ -314,19 +314,23 @@ $ fm services trusted-proxies COMMAND [ARGS]...
 
 | Command | Description |
 |---|---|
-| [`fm services trusted-proxies show`](#fm-services-trusted-proxies-show) | Show which proxies this host trusts and what is read from them. |
+| [`fm services trusted-proxies status`](#fm-services-trusted-proxies-status) | Show which proxies this host trusts and what is read from them. |
 | [`fm services trusted-proxies set`](#fm-services-trusted-proxies-set) | Trust the proxies in front of fm, so the visitor's address and scheme survive the hop. |
 | [`fm services trusted-proxies clear`](#fm-services-trusted-proxies-clear) | Trust nothing in front of fm. |
 
-### `fm services trusted-proxies show`
+### `fm services trusted-proxies status`
 
 Show which proxies this host trusts and what is read from them.
 
 **Usage**:
 
 ```console
-$ fm services trusted-proxies show
+$ fm services trusted-proxies status [OPTIONS]
 ```
+
+**Options**:
+
+* `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
 
 #### Examples
 
@@ -335,7 +339,7 @@ $ fm services trusted-proxies show
 Prints the rendered configuration, not the setting that produced it, which is what a trust problem needs.
 
 ```bash
-fm services trusted-proxies show
+fm services trusted-proxies status
 ```
 
 ### `fm services trusted-proxies set`
