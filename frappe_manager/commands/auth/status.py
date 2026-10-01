@@ -61,3 +61,18 @@ def status(
     if site:
         output.print(f"Basic auth for {site}: its own, overriding bench '{bench.name}'")
     print_state(output, stored, hint_when_off=True)
+
+    if not site:
+        # A bench-level answer that omits a site with its own auth is worse than no answer: the
+        # operator asked what this bench protects and was told about the bench's surfaces only, so
+        # a protected site read as unprotected unless they already knew to ask for it by name.
+        #
+        # It says whether the site's web surface is actually PROTECTED, not just that an override
+        # exists: `fm auth disable` leaves the entry in place with `web` off, and "has its own
+        # auth" on that reads as protected when the site is deliberately open. A site owns only the
+        # web surface -- the admin tools are one container pair for the whole bench.
+        for name, entry in (bench.bench_config.sites or {}).items():
+            if entry.auth is None:
+                continue
+            state = "web protected" if entry.auth.web else "web open"
+            output.print(f"  {name}: own auth, {state} ('fm auth status {bench.name}/{name}')")

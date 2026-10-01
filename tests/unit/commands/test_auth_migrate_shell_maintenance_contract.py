@@ -62,7 +62,7 @@ from frappe_manager.commands.shell import (
 )
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime, SiteConfig
+from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime, SiteConfig, WebAuthConfig
 from frappe_manager.site_manager.exceptions import BenchNotFoundError
 from frappe_manager.site_manager.modules.realip import PROXY_CONF_FILENAME, build_proxy_realip_conf
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
@@ -276,6 +276,29 @@ def test_status_reports_stored_state_without_writing(out, tmp_path):
     assert "user: alice" in body
     assert "no prompt from: 10.0.0.0/8" in body
     bench.save_bench_config.assert_not_called()
+
+
+def test_bench_status_names_the_sites_that_have_their_own_auth(out, tmp_path):
+    """Asking what a BENCH protects and being told only about the bench's own surfaces reads as
+    "that site is open" when it is password-protected. Measured on a two-site bench: the protected
+    site was invisible unless you already knew to ask for it by name."""
+    bench = _auth_bench(tmp_path, stored=AuthConfig(user="admin", password=PW, web=False, tools=True))
+    bench.bench_config.sites = {
+        # WebAuthConfig, not AuthConfig: a site owns only the web surface, since the admin tools
+        # are one container pair for the whole bench. Using the bench type here hid a crash.
+        "second.localhost": SimpleNamespace(auth=WebAuthConfig(user="s2", password=PW, web=True)),
+        # `fm auth disable` leaves the entry behind with web off, so the line has to say whether the
+        # site is actually protected: "has its own auth" on this one reads as protected when it is open.
+        "disabled.localhost": SimpleNamespace(auth=WebAuthConfig(user="x", password=PW, web=False)),
+        "third.localhost": SimpleNamespace(auth=None),
+    }
+
+    _run_status(bench)
+
+    body = joined(out.print)
+    assert "second.localhost: own auth, web protected" in body
+    assert "disabled.localhost: own auth, web open" in body
+    assert "third.localhost" not in body
 
 
 @pytest.mark.usefixtures("out")
