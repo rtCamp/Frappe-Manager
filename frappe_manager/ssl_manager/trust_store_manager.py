@@ -56,6 +56,10 @@ class TrustStoreEntry:
     location: str
     key: str = ""
     privileged: bool = False
+    # The certificate's sha256, when the store can report one. Separate from `key`, which is
+    # whatever REMOVAL needs and is a path for an NSS database or an anchor file -- comparing that
+    # against the CA's digest marked every Firefox profile as holding "a different CA".
+    fingerprint: str = ""
 
 
 class TrustStoreManager:
@@ -102,7 +106,30 @@ class TrustStoreManager:
             self._print_manual_instructions(ca_cert_path)
 
         self._install_nss(ca_cert_path)
+        self._warn_if_firefox_is_untrusted()
         return installed
+
+    def _warn_if_firefox_is_untrusted(self) -> None:
+        """Firefox reads its OWN NSS database, never the macOS keychain or the Linux CA store.
+
+        `_install_nss` needs `certutil`, which ships with nss and is NOT on a stock macOS. It skips
+        at debug level, so a host with Firefox installed got "browsers will now trust local dev
+        certificates" and then an untrusted-certificate page in Firefox, with nothing said about
+        the one store Firefox actually consults.
+        """
+        if shutil.which("certutil") or not self.nss_profiles_present():
+            return
+
+        self.output.warning(
+            "Firefox keeps its own certificate store and will NOT trust this CA yet: fm needs "
+            "'certutil' to write to it, and it is not installed."
+        )
+        hint = "brew install nss" if sys.platform == "darwin" else "install the 'libnss3-tools' package"
+        self.output.print(
+            f"Run '{hint}', then 'fm ssl ca install' to finish. Chrome and Safari are unaffected -- "
+            "they use the host trust store, which is already done.",
+            emoji_code="",
+        )
 
     def _print_manual_instructions(self, ca_cert_path: Path) -> None:
         """Print how to trust the CA by hand -- on this host, and on any other machine
@@ -235,19 +262,25 @@ class TrustStoreManager:
         """
         nss_paths: list[Path] = []
 
-        ff_mac = Path.home() / "Library" / "Application Support" / "Firefox" / "Profiles"
-        if ff_mac.exists():
-            nss_paths.extend(ff_mac.glob("*.default*"))
-
-        ff_linux = Path.home() / ".mozilla" / "firefox"
-        if ff_linux.exists():
-            nss_paths.extend(ff_linux.glob("*.default*"))
+        # Any profile holding a `cert9.db` IS an NSS database. Globbing `*.default*` matched only
+        # the profile names Firefox picks for itself, so a host whose profiles are named by their
+        # owner -- `7zdh4f4w.stuff` -- had its CA installed nowhere Firefox reads, silently.
+        for profiles_dir in (
+            Path.home() / "Library" / "Application Support" / "Firefox" / "Profiles",
+            Path.home() / ".mozilla" / "firefox",
+        ):
+            if profiles_dir.exists():
+                nss_paths.extend(sorted(p for p in profiles_dir.iterdir() if (p / "cert9.db").is_file()))
 
         chrome_nss = Path.home() / ".pki" / "nssdb"
         if chrome_nss.exists():
             nss_paths.append(chrome_nss)
 
         return nss_paths
+
+    def nss_profiles_present(self) -> bool:
+        """Whether this host has a browser store fm would need `certutil` to reach."""
+        return bool(self._nss_databases())
 
     def _install_nss(self, ca_cert_path: Path) -> None:
         """Best-effort installation into NSS databases (Firefox, Chrome on Linux)."""
@@ -336,7 +369,7 @@ class TrustStoreManager:
         if sys.platform == "darwin":
             keychain = Path.home() / "Library" / "Keychains" / "login.keychain-db"
             for digest in self._macos_hashes():
-                entries.append(TrustStoreEntry(store=MACOS_STORE, location=display_path(keychain), key=digest))
+                entries.append(TrustStoreEntry(store=MACOS_STORE, location=display_path(keychain), key=digest, fingerprint=digest))
 
         if sys.platform.startswith("linux"):
             for dest, label, _ in LINUX_CA_STORES:

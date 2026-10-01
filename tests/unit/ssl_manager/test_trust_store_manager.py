@@ -125,6 +125,10 @@ class TestTrustStoreManagerInstallIsBestEffort:
             patch("frappe_manager.ssl_manager.trust_store_manager.sys.platform", "linux"),
             patch.object(mgr, "_install_linux", side_effect=RuntimeError("sudo: a terminal is required")),
             patch.object(mgr, "_install_nss"),
+            # Pinned, not left to the developer's real home: the Firefox warning fires off
+            # ~/Library and ~/.mozilla, so this assertion otherwise passed or failed depending on
+            # whose machine ran it.
+            patch.object(mgr, "nss_profiles_present", return_value=False),
         ):
             result = mgr.install(ca_cert)  # must not raise
         assert result is False
@@ -318,3 +322,56 @@ class TestTrustStoreManagerNSSProbe:
             found = mgr._nss_databases_with_ca()
 
         assert found == [has_ca_db]
+
+
+class TestFirefoxIsReachable:
+    """Firefox reads its OWN NSS store, never the macOS keychain or the Linux CA store. Two things
+    kept fm out of it on a stock Mac, both silently."""
+
+    def _profile(self, home, name: str):
+        profile = home / "Library" / "Application Support" / "Firefox" / "Profiles" / name
+        profile.mkdir(parents=True)
+        (profile / "cert9.db").write_bytes(b"")
+        return profile
+
+    def test_a_profile_not_named_default_is_still_an_nss_database(self, tmp_path, monkeypatch):
+        """The glob was `*.default*`, which matches only the names Firefox picks for itself. A
+        profile its owner named -- `7zdh4f4w.stuff` -- was skipped, so the CA went nowhere Firefox
+        reads while fm reported success."""
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+        named = self._profile(tmp_path, "7zdh4f4w.stuff")
+
+        assert make_manager()._nss_databases() == [named]
+
+    def test_a_directory_without_a_cert_db_is_not_one(self, tmp_path, monkeypatch):
+        """`cert9.db` is what makes a directory an NSS database; crash reports and locks are not."""
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+        (tmp_path / "Library" / "Application Support" / "Firefox" / "Profiles" / "Crash Reports").mkdir(parents=True)
+
+        assert make_manager()._nss_databases() == []
+
+    def test_a_host_without_certutil_is_told_firefox_will_not_trust_the_ca(self, tmp_path, monkeypatch):
+        """`certutil` ships with nss, not with macOS, so the NSS install skipped at DEBUG level
+        while the operator was told browsers would now trust the CA -- and then Firefox showed an
+        untrusted-certificate page with nothing pointing at the cause."""
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+        self._profile(tmp_path, "abc.default-release")
+        mgr = make_manager()
+
+        with patch("frappe_manager.ssl_manager.trust_store_manager.shutil.which", return_value=None):
+            mgr._warn_if_firefox_is_untrusted()
+
+        said = " ".join(str(c.args[0]) for c in [*mgr.output.warning.call_args_list, *mgr.output.print.call_args_list])
+        assert "Firefox" in said
+        assert "certutil" in said
+
+    def test_nothing_is_said_when_certutil_is_available(self, tmp_path, monkeypatch):
+        """The warning is about a missing tool, not about Firefox existing."""
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+        self._profile(tmp_path, "abc.default-release")
+        mgr = make_manager()
+
+        with patch("frappe_manager.ssl_manager.trust_store_manager.shutil.which", return_value="/usr/bin/certutil"):
+            mgr._warn_if_firefox_is_untrusted()
+
+        mgr.output.warning.assert_not_called()

@@ -162,7 +162,10 @@ class DevCertificateService:
         self.output.change_head("Installing dev CA into system trust store")
         if TrustStoreManager(self.output).install(self.ca_cert_path):
             self.ca_sentinel_path.touch()
-            self.output.print("Dev CA installed — browsers will now trust local dev certificates")
+            # Deliberately not "browsers will now trust ...": Firefox reads its own NSS store, and
+            # on a host without `certutil` it is untouched. TrustStoreManager says so when that is
+            # the case; overstating it here sent people to an untrusted-certificate page.
+            self.output.print("Dev CA installed into this host's trust store")
 
 
     def generate_certificate(self, certificate: SSLCertificate, test_ca: bool = False) -> tuple[Path, Path]:

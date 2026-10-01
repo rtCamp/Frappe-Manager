@@ -1,3 +1,6 @@
+import shutil
+import sys
+
 """`fm ssl ca status`: which stores trust fm's dev CA, asked of the stores themselves."""
 
 from typer_examples import example
@@ -40,7 +43,11 @@ def ca_status():
             # A store holding a hash that is not the CA on disk means the CA was regenerated and
             # the old one is STILL trusted: a signing key nobody tracks any more, which is the
             # one state worth shouting about.
-            stale = "  (a different CA, not the one on disk)" if local and entry.key and entry.key != local else ""
+            stale = (
+                "  (a different CA, not the one on disk)"
+                if local and entry.fingerprint and entry.fingerprint != local
+                else ""
+            )
             output.print(f"{entry.store:<28} {entry.location}{stale}", emoji_code="", prefix="  ")
     else:
         output.print("Trusted  : no store on this host trusts it", emoji_code="")
@@ -54,4 +61,15 @@ def ca_status():
         output.warning(
             "The CA is trusted by this host but its certificate file is gone. "
             "Run 'fm ssl ca remove' to stop trusting a CA you no longer hold."
+        )
+
+    # Firefox never reads the host trust store, so "trusted" above can be true while Firefox shows
+    # an untrusted-certificate page. Reported here because that gap is invisible otherwise: the
+    # NSS install skips silently when `certutil` is absent, which is every stock macOS.
+    manager = TrustStoreManager(output)
+    if manager.nss_profiles_present() and not shutil.which("certutil"):
+        hint = "brew install nss" if sys.platform == "darwin" else "install the 'libnss3-tools' package"
+        output.warning(
+            f"Firefox is installed and keeps its own certificate store, which fm cannot write to "
+            f"without 'certutil'. Run '{hint}', then 'fm ssl ca install'."
         )
