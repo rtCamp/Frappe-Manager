@@ -13,6 +13,7 @@ while changing nothing.
 import typer
 
 from frappe_manager.site_manager.bench_config import NewRelicConfig, TelemetryConfig
+from frappe_manager.site_manager.modules.telemetry_state import telemetry_state
 from frappe_manager.site_manager.site import Bench
 
 
@@ -28,8 +29,9 @@ def describe_newrelic(bench: Bench) -> tuple[bool, bool]:
     monitor anything: the exporter only emits the env vars when both are set, so the wrapper
     falls back to plain gunicorn. Reporting it as simply "enabled" would be a lie.
     """
-    state = newrelic_state(bench)
-    return bool(state and state.enabled), bool(state and state.license_key)
+    # Delegates: `fm info` reports the same pair, and two derivations of "is this bench reporting"
+    # would drift the moment one of them learned about a second provider.
+    return telemetry_state(bench.bench_config, "newrelic")
 
 
 def apply_newrelic(

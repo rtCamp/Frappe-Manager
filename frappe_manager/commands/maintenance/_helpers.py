@@ -8,19 +8,20 @@ import tomlkit
 import typer
 
 from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
+from frappe_manager.site_manager.modules.maintenance_state import BLOCK_BEGIN_PREFIX, has_fm_block
 from frappe_manager.site_manager.modules.public_scheme import host_has_trusted_front, public_scheme
 from frappe_manager.utils.callbacks import bench_site_callback
 
 # Maintenance owns a marked BLOCK inside vhost.d/<domain>, not the whole file:
 # other fm features (upload limits) and hand-written directives share the same
 # jwilder per-domain file and must survive enable/disable untouched.
-_BLOCK_BEGIN_PREFIX = "# fm:maintenance BEGIN"
+_BLOCK_BEGIN_PREFIX = BLOCK_BEGIN_PREFIX
 _BLOCK_END = "# fm:maintenance END"
 _BLOCK_RE = re.compile(r"^# fm:maintenance BEGIN.*?^# fm:maintenance END\n?", re.DOTALL | re.MULTILINE)
 
-
-def _has_fm_block(text: str) -> bool:
-    return _BLOCK_BEGIN_PREFIX in text
+# The detector lives in site_manager so `fm info` can report maintenance without importing a
+# command; this keeps the private name every verb here already uses.
+_has_fm_block = has_fm_block
 
 
 def _strip_fm_block(text: str) -> str:

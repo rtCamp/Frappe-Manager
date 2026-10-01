@@ -71,8 +71,7 @@ def status(
         # exists: `fm auth disable` leaves the entry in place with `web` off, and "has its own
         # auth" on that reads as protected when the site is deliberately open. A site owns only the
         # web surface -- the admin tools are one container pair for the whole bench.
-        for name, entry in (bench.bench_config.sites or {}).items():
-            if entry.auth is None:
-                continue
+        for name in bench.bench_config.sites_with_own_auth:
+            entry = bench.bench_config.sites[name]
             state = "web protected" if entry.auth.web else "web open"
             output.print(f"  {name}: own auth, {state} ('fm auth status {bench.name}/{name}')")

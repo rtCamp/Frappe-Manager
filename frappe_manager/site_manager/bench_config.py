@@ -2533,6 +2533,16 @@ class BenchConfig(BaseModel):
         return [primary, *(s for s in self.sites if s != primary)]
 
     @property
+    def sites_with_own_auth(self) -> list[str]:
+        """Sites carrying their own `[sites."...".auth]`, overriding the bench's.
+
+        One implementation because two commands report it: `fm info` decides whether to print a
+        bench-wide auth line, and `fm auth status` lists the overriding sites by name. Worked out
+        separately, the two could disagree about what an override means on the same bench.
+        """
+        return [name for name, entry in (self.sites or {}).items() if entry.auth is not None]
+
+    @property
     def domains(self) -> list[str]:
         """Every hostname this bench serves: each site's own name, then that site's aliases.
 

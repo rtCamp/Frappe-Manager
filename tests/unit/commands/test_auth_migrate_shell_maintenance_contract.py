@@ -283,7 +283,7 @@ def test_bench_status_names_the_sites_that_have_their_own_auth(out, tmp_path):
     "that site is open" when it is password-protected. Measured on a two-site bench: the protected
     site was invisible unless you already knew to ask for it by name."""
     bench = _auth_bench(tmp_path, stored=AuthConfig(user="admin", password=PW, web=False, tools=True))
-    bench.bench_config.sites = {
+    sites = {
         # WebAuthConfig, not AuthConfig: a site owns only the web surface, since the admin tools
         # are one container pair for the whole bench. Using the bench type here hid a crash.
         "second.localhost": SimpleNamespace(auth=WebAuthConfig(user="s2", password=PW, web=True)),
@@ -292,6 +292,9 @@ def test_bench_status_names_the_sites_that_have_their_own_auth(out, tmp_path):
         "disabled.localhost": SimpleNamespace(auth=WebAuthConfig(user="x", password=PW, web=False)),
         "third.localhost": SimpleNamespace(auth=None),
     }
+    bench.bench_config.sites = sites
+    # The real BenchConfig computes this once so this command and `fm info` cannot disagree.
+    bench.bench_config.sites_with_own_auth = [n for n, e in sites.items() if e.auth is not None]
 
     _run_status(bench)
 

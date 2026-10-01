@@ -15,7 +15,9 @@ from frappe_manager.site_manager.bench_config import (
     resolve_primary_site,
 )
 from frappe_manager.site_manager.exceptions import BenchException
+from frappe_manager.site_manager.modules.maintenance_state import domains_in_maintenance
 from frappe_manager.site_manager.modules.public_scheme import host_proxy_state, public_scheme, public_url
+from frappe_manager.site_manager.modules.telemetry_state import telemetry_state
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.utils.helpers import format_ssl_certificate_time_remaining
@@ -351,6 +353,17 @@ class BenchInfo:
             for p in (self.bench_path / "configs" / "nginx" / "conf" / "conf.d").glob("*.server.conf")
         )
 
+        # Through the same reader `fm maintenance status` uses, so the two cannot disagree. Without
+        # this the headline said `running` for a bench answering 503 to every visitor, which is the
+        # one word an operator reads before concluding the site is fine.
+        try:
+            in_maintenance = domains_in_maintenance(
+                Path(self.services.proxy_storage.dirs.vhostd.host), list(config.domains)
+            )
+        except Exception:
+            # Reporting must survive a proxy fm cannot inspect.
+            in_maintenance = []
+
         apps = [
             {"name": app.get("name"), "ref": app.get("ref"), "commit": app.get("commit")}
             for app in (self.get_bench_apps() or [])
@@ -407,7 +420,7 @@ class BenchInfo:
             "unrouted_sites": unrouted,
         }
 
-        own_auth = [site for site in sites if (config.sites or {}).get(site) and config.sites[site].auth is not None]
+        own_auth = config.sites_with_own_auth
         auth = {
             "bench": self._auth_data(config.auth),
             "sites": {site: self._auth_data(config.sites[site].auth) for site in own_auth},
@@ -482,6 +495,8 @@ class BenchInfo:
             "runtime": config.runtime.value,
             "environment": config.environment_type.value,
             "restart_policy": config.restart_policy.value,
+            "maintenance": in_maintenance,
+            "telemetry": dict(zip(("enabled", "has_license_key"), telemetry_state(config), strict=True)),
             "url": public_url(domain, protocol, http_port, https_port) if sites else None,
             "https": https,
             "dir": str(self.bench_path.absolute()),
@@ -528,6 +543,13 @@ class BenchInfo:
         has_cert = self.has_certificate()
         front, http_port, https_port = host_proxy_state()
         protocol = public_scheme(has_cert, front)
+        # Same shared reader the data builder and `fm maintenance status` use.
+        try:
+            in_maintenance = domains_in_maintenance(
+                Path(self.services.proxy_storage.dirs.vhostd.host), list(config.domains)
+            )
+        except Exception:
+            in_maintenance = []
         active = self.is_running()
 
         # `[sites]` is the record of what this bench serves, so an EMPTY table means zero sites (a
@@ -558,7 +580,11 @@ class BenchInfo:
         card = railcard.Card(
             self.bench_name,
             railcard.bench_meta(
-                active, config.runtime.value, config.environment_type.value, config.restart_policy.value
+                active,
+                config.runtime.value,
+                config.environment_type.value,
+                config.restart_policy.value,
+                maintenance=bool(in_maintenance),
             ),
             active,
             link=public_url(domain, protocol, http_port, https_port),
@@ -576,12 +602,39 @@ class BenchInfo:
         else:
             card.fact("url", public_url(primary, protocol, http_port, https_port))
         if has_cert:
+            # Reduced from the SAME rows `fm ssl list` enumerates, so the summary cannot disagree
+            # with the detail. Deriving its own answer here meant the card reported the primary
+            # site's certificate only: an alias certificate expiring, or one orphaned by
+            # `fm domain remove`, was invisible in every summary. Local import: this module is
+            # under site_manager and the row builder under commands, and single derivation matters
+            # more than the direction of one import.
+            from frappe_manager.commands.ssl.bench_helpers import _bench_certificate_rows
+
+            try:
+                rows = [row for row in _bench_certificate_rows(self, set()) if row["status"] != "none"]
+            except Exception:
+                rows = []
+
             ssl_cert = config.get_primary_certificate()
             ssl_service_type = f"{ssl_cert.ssl_type.value}"
             if ssl_cert.ssl_type == SUPPORTED_SSL_TYPES.le and isinstance(ssl_cert, LetsencryptSSLCertificate):
                 ssl_service_type = f"[{ssl_cert.challenge_type.value}] {ssl_cert.ssl_type.value}"
-            remaining = format_ssl_certificate_time_remaining(self.certificate_manager.get_certificate_expiry())
-            card.fact("https", f"{ssl_service_type.upper()} [fm.muted]·[/fm.muted] {remaining}")
+
+            soonest = min(
+                (row["days_until_expiry"] for row in rows if row["days_until_expiry"] is not None),
+                default=None,
+            )
+            expiry = (
+                format_ssl_certificate_time_remaining(self.certificate_manager.get_certificate_expiry())
+                if soonest is None
+                else f"{soonest} days"
+            )
+            extra = ""
+            if len(rows) > 1:
+                orphaned = sum(1 for row in rows if row.get("orphaned"))
+                counted = f"{len(rows)} certificates" + (f", {orphaned} orphaned" if orphaned else "")
+                extra = f" [fm.muted]·[/fm.muted] {counted} [fm.muted]· fm ssl list {self.bench_name}[/fm.muted]"
+            card.fact("https", f"{ssl_service_type.upper()} [fm.muted]·[/fm.muted] {expiry}{extra}")
         elif front:
             # Public TLS without an fm certificate is a real, ongoing half-state, not "off": the
             # front serves visitors fine while the bench's own calls to itself have no certificate
@@ -670,6 +723,17 @@ class BenchInfo:
             ref = app.get("ref") or "—"
             commit = app.get("commit") or ""
             card.fact(label, f"{app.get('name', '?')}  [fm.muted]{ref}  {commit}[/fm.muted]")
+        # Only when a provider is configured: data leaving the host is headline-relevant, but a
+        # line saying "off" on every ordinary bench is noise. "enabled" without a key monitors
+        # nothing, so it is reported as the half-state it is rather than as reporting.
+        telemetry_enabled, telemetry_has_key = telemetry_state(config)
+        if telemetry_enabled or telemetry_has_key:
+            if telemetry_enabled and telemetry_has_key:
+                card.fact("telemetry", "newrelic [fm.muted]· reporting[/fm.muted]")
+            elif telemetry_enabled:
+                card.fact("telemetry", "newrelic [fm.muted]· enabled, no license key, not reporting[/fm.muted]")
+            else:
+                card.fact("telemetry", "newrelic [fm.muted]· license key stored, not enabled[/fm.muted]")
         if config.runtime == BenchRuntime.image:
             deployments = config.deployments
             image = deployments.current.app_image if deployments and deployments.current else None
@@ -748,7 +812,7 @@ class BenchInfo:
             card.fact("", f"[fm.muted]not served on {', '.join(unrouted)}[/fm.muted]")
 
         # The web surface's auth can be per site; the tools surface's auth is always the bench's.
-        own_auth = [site for site in sites if (config.sites or {}).get(site) and config.sites[site].auth is not None]
+        own_auth = config.sites_with_own_auth
         if not own_auth:
             card.fact("auth", self._auth_fact(config.auth))
         else:
