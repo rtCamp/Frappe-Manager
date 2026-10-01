@@ -66,6 +66,26 @@ def status(
             text = dropins.fragment_path(domain, "maintenance").read_text()
             by_bench.setdefault(_extract_bench(text), []).append((domain, text))
 
+        if output.wants_structured_data:
+            # One flat row per domain, carrying the bench, because a caller asking the host-wide
+            # question is asking WHICH domains and whose. Keys that also exist in the addressed
+            # payload keep their meaning; `bypass_token` rather than `bypass_url` because this
+            # branch has no bench to resolve a scheme or a published port from.
+            output.print_data(
+                [
+                    {
+                        "bench": bench,
+                        "domain": domain,
+                        "maintenance": True,
+                        "code": _extract_code(text),
+                        "bypass_token": _extract_token(text),
+                    }
+                    for bench, entries in sorted(by_bench.items())
+                    for domain, text in sorted(entries, key=lambda entry: entry[0])
+                ]
+            )
+            return
+
         if not by_bench:
             # The healthy default across the whole host: nothing anywhere is in maintenance.
             output.print_data(railcard.Card("maintenance", "none in maintenance", active=True).render())

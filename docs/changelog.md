@@ -80,6 +80,8 @@ This is the 1.0.0 cycle. Versions 0.20.0 and 0.21.0 were never published: their 
 
 - **cli:** Every `fm ... status` command renders as the card `fm info` already uses. There were six of them in five different shapes: bullets, bare `key: value`, an indented block and a prose sentence. Each one now answers its question in the headline and carries the detail as facts, and the card sizes its own label column so a long label no longer pushes its value out of line
 
+- **maintenance:** `fm maintenance status` run with no bench answers `--json` too. It was the last status surface without one, so the host-wide question, which domains are in maintenance and whose, could only be answered by parsing prose. Nothing in maintenance is an empty list, not a card, so a caller can tell it from a failure
+
 - **auth:** `fm auth status` reports what nginx is actually serving, not what fm last recorded. Deleting the conf that gates a site and reloading left the site answering 200 to everyone while status still said the web surface was protected. The card now says the record is not being served and names the command that re-applies it, `--json` gains `web_enforced` beside the recorded `web`, and the on-state names the other surface too rather than leaving it to be inferred
 
 - **maintenance:** `fm maintenance status` stopped reporting every ordinary domain as carrying hand-written nginx config. The check treated the blank lines left after fm's own include block as foreign content, so the one signal that was meant to warn about an operator's config fired on everything

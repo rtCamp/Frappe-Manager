@@ -1846,6 +1846,62 @@ def test_no_bench_with_a_missing_fmd_directory_still_reports_cleanly(out, tmp_pa
     assert "none in maintenance" in render(out.print_data.call_args.args[0])
 
 
+def test_no_bench_json_lists_one_flat_row_per_domain_ordered_by_bench_then_domain(out, tmp_path):
+    """`--json` on the bare form is the only status surface that was missing one: it must carry
+    the bench per row (two benches here, so rows are not collapsed into one), and the rows must
+    come out ordered (bench, then domain) rather than in fragment-walk order, since an unordered
+    payload makes a diff-based consumer flap."""
+    services, dropins, _ = _maint_services(tmp_path)
+    # Inserted out of bench/domain order on purpose: a correct implementation sorts, an
+    # implementation that just walks fragments in disk order would not.
+    dropins.set(
+        "x.localhost", "maintenance", _vhost_conf("zzz-bench", "3" * 32, "/html", 503, 300, [], [], secure_cookie=False)
+    )
+    dropins.set(
+        "b.localhost", "maintenance", _vhost_conf("aaa-bench", "1" * 32, "/html", 404, 300, [], [], secure_cookie=False)
+    )
+    dropins.set(
+        "a.localhost", "maintenance", _vhost_conf("aaa-bench", "2" * 32, "/html", 500, 300, [], [], secure_cookie=False)
+    )
+    r = _run_maintenance_status(services, tmp_path / "benches", address=None, json_results=True)
+    assert r.exit is None
+    assert out.print_data.call_args.args[0] == [
+        {"bench": "aaa-bench", "domain": "a.localhost", "maintenance": True, "code": 500, "bypass_token": "2" * 32},
+        {"bench": "aaa-bench", "domain": "b.localhost", "maintenance": True, "code": 404, "bypass_token": "1" * 32},
+        {"bench": "zzz-bench", "domain": "x.localhost", "maintenance": True, "code": 503, "bypass_token": "3" * 32},
+    ]
+
+
+def test_no_bench_json_with_nothing_in_maintenance_is_an_empty_list_not_a_card(out, tmp_path):
+    """A caller polling this must be able to tell "nothing is in maintenance" from "the command
+    failed"; a card rendered into a JSON consumer is neither. `[]` is placed before the
+    not-by_bench empty-card check specifically so nothing in maintenance still yields `[]`, not
+    the human "none in maintenance" card."""
+    services, dropins, _ = _maint_services(tmp_path)
+    dropins.fmd_dir.mkdir(parents=True)
+    r = _run_maintenance_status(services, tmp_path / "benches", address=None, json_results=True)
+    assert r.exit is None
+    assert out.print_data.call_args.args[0] == []
+
+
+def test_no_bench_without_json_still_renders_cards(out, tmp_path):
+    """Adding the --json payload must not steal the human path: the same bare call with no flag
+    still renders the card-per-bench view, not the flat row list `--json` returns."""
+    services, dropins, _ = _maint_services(tmp_path)
+    dropins.set(
+        "a.localhost", "maintenance", _vhost_conf("bench-a", "a" * 32, "/html", 404, 300, [], [], secure_cookie=False)
+    )
+    r = _run_maintenance_status(services, tmp_path / "benches", address=None, json_results=False)
+    assert r.exit is None
+    payload = out.print_data.call_args.args[0]
+    assert not isinstance(payload, list)
+    body = render(payload)
+    assert "bench-a" in body
+    row = line_for(body, "a.localhost")
+    assert "code 404" in row
+    assert "bypass token " + "a" * 32 in row
+
+
 # --- enable flag guards ----------------------------------------------------- #
 @pytest.mark.parametrize("code", [399, 600, 200, 0])
 def test_a_response_code_outside_the_error_range_is_refused(out, tmp_path, code):
