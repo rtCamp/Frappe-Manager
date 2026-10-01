@@ -14,7 +14,6 @@ from frappe_manager.commands.maintenance._helpers import (
     _extract_token,
     _page_filename,
     _resolve_page_html,
-    _strip_fm_block,
     _vhost_conf,
     conf_state,
     domain_secure_cookie,
@@ -160,7 +159,7 @@ def enable(
         if not _ALLOW_PATH_RE.match(path):
             raise typer.BadParameter(f"--allow-path must be an absolute path like /api/method/ping (optionally ending in *), got {path!r}")
 
-    services, vhostd_dir, html_host_dir, html_container_dir = proxy_paths(ctx)
+    services, dropins, html_host_dir, html_container_dir = proxy_paths(ctx)
 
     site = ctx.obj.get("site") if ctx.obj else None
     domains, domain_ssl, _all_domains = _bench_domains(benchname, site)
@@ -170,7 +169,7 @@ def enable(
     # whole risk is taking down a hostname you did not realise this bench served. An already-live
     # maintenance page is not gated -- re-running to change the message or the allow lists adds no
     # exposure, and gating it would make an idempotent rerun prompt for nothing.
-    if not yes and not all(conf_state(vhostd_dir / domain) for domain in domains):
+    if not yes and not all(conf_state(dropins, domain) for domain in domains):
         output.print(f"This will serve {response_code} to: {', '.join(domains)}")
         choice = output.prompt_ask(
             prompt="Put these domains into maintenance? (default: no)",
@@ -185,35 +184,32 @@ def enable(
     # Reuse the existing token when re-running (idempotent) unless a rotation was requested.
     token = None
     for domain in domains:
-        path = vhostd_dir / domain
-        if conf_state(path) and token is None:
-            token = _extract_token(path.read_text())
+        if conf_state(dropins, domain) and token is None:
+            token = _extract_token(dropins.fragment_path(domain, "maintenance").read_text())
     if rotate_token or token is None:
         token = secrets.token_hex(16)
 
     html_host_dir.mkdir(parents=True, exist_ok=True)
     (html_host_dir / _page_filename(benchname)).write_text(_resolve_page_html(benchname, page, message))
-    vhostd_dir.mkdir(parents=True, exist_ok=True)
     for domain in domains:
-        path = vhostd_dir / domain
         # The Secure flag on the bypass cookie is decided per domain (own certificate) OR
         # host-wide (a trusted front terminates TLS): an alias served over plain http, with no
         # front either, must not be handed a cookie the browser will only ever send back over
         # TLS.
-        block = _vhost_conf(
-            benchname,
-            token,
-            html_container_dir,
-            response_code,
-            retry_after,
-            allow_ip,
-            allow_path,
-            domain_secure_cookie(services, domain_ssl[domain]),
+        dropins.set(
+            domain,
+            "maintenance",
+            _vhost_conf(
+                benchname,
+                token,
+                html_container_dir,
+                response_code,
+                retry_after,
+                allow_ip,
+                allow_path,
+                domain_secure_cookie(services, domain_ssl[domain]),
+            ),
         )
-        # Prepend our block, preserving whatever else shares the file
-        # (upload limits, hand-written directives).
-        remainder = _strip_fm_block(path.read_text()).strip("\n") if path.exists() else ""
-        path.write_text(block + (remainder + "\n" if remainder else ""))
 
     services.nginx_controller.reload()
 

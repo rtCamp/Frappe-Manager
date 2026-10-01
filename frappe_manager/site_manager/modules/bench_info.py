@@ -14,6 +14,7 @@ from frappe_manager.site_manager.bench_config import (
     read_sites_on_disk,
     resolve_primary_site,
 )
+from frappe_manager.services_manager.proxy_dropins import ProxyDropins
 from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.site_manager.modules.maintenance_state import domains_in_maintenance
 from frappe_manager.site_manager.modules.public_scheme import host_proxy_state, public_scheme, public_url
@@ -384,7 +385,8 @@ class BenchInfo:
         # one word an operator reads before concluding the site is fine.
         try:
             in_maintenance = domains_in_maintenance(
-                Path(self.services.proxy_storage.dirs.vhostd.host), list(config.domains)
+                ProxyDropins.for_services_path(Path(self.services.proxy_storage.dirs.vhostd.host).parent.parent),
+                list(config.domains),
             )
         except Exception:
             # Reporting must survive a proxy fm cannot inspect.
@@ -572,7 +574,8 @@ class BenchInfo:
         # Same shared reader the data builder and `fm maintenance status` use.
         try:
             in_maintenance = domains_in_maintenance(
-                Path(self.services.proxy_storage.dirs.vhostd.host), list(config.domains)
+                ProxyDropins.for_services_path(Path(self.services.proxy_storage.dirs.vhostd.host).parent.parent),
+                list(config.domains),
             )
         except Exception:
             in_maintenance = []

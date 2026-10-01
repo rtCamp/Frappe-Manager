@@ -56,6 +56,12 @@ from frappe_manager.utils.network import (
 # fm's own database servers, by compose service name. Each is switched off while no site uses it.
 DATABASE_SERVICES = ("mariadb", "postgres")
 
+# The confd/fm.conf bootstrap that pulls fragments into nginx's http context. `global/` and
+# `standalone/` are reserved for concerns not yet moved to fragments; written unconditionally now,
+# before either directory exists, because nginx accepts a wildcard include of a missing directory
+# (measured) -- so a later move is a write plus a delete, not another migration.
+FM_DROPINS_CONF_FILENAME = "fm.conf"
+
 # Invariants of the rendered services compose file (templates/docker-compose.services*.tmpl),
 # kept here because the rendered file is an artifact an operator reads, not a place to argue in:
 #   * mariadb runs with --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
@@ -507,6 +513,7 @@ class ServicesManager:
         self.fm_headers_path: Path = self.proxy_storage.dirs.confd.host / "fm_headers.conf"
         self.set_frappe_headers_conf()
         self.set_forwarded_trust_conf()
+        self.set_fm_dropins_conf()
 
     def set_frappe_headers_conf(self):
         """Refresh nginx-proxy's fm_headers.conf, but only when its content actually changes.
@@ -554,6 +561,31 @@ class ServicesManager:
         desired = build_proxy_trust_conf(ranges, suffix)
 
         conf_path = confd / PROXY_TRUST_CONF_FILENAME
+        if conf_path.exists() and conf_path.read_text() == desired:
+            return False
+
+        conf_path.write_text(desired)
+        return True
+
+    def set_fm_dropins_conf(self) -> bool:
+        """Refresh confd/fm.conf, the http-context bootstrap for fm.d fragments. True when it changed.
+
+        Unconditional and written on every `init()`/`create()`, like `fm_headers.conf`: both
+        included directories can be empty or absent and nginx still accepts the wildcard include
+        (measured), so there is nothing to gate on. Writing it before any fragment exists is what
+        turns a later move of a concern into `fm.d/global` or `fm.d/standalone` into a write plus
+        a delete, not a compose or template change.
+        """
+        confd = Path(self.proxy_storage.dirs.confd.host)
+        if not confd.exists():
+            return False
+
+        desired = (
+            "include /etc/nginx/fm.d/global/*.conf;\n"
+            "include /etc/nginx/fm.d/standalone/*.conf;\n"
+        )
+
+        conf_path = confd / FM_DROPINS_CONF_FILENAME
         if conf_path.exists() and conf_path.read_text() == desired:
             return False
 
@@ -817,6 +849,7 @@ class ServicesManager:
             "nginx-proxy/confd",
             "nginx-proxy/htpasswd",
             "nginx-proxy/vhostd",
+            "nginx-proxy/fmd",
             "nginx-proxy/html",
             "nginx-proxy/logs",
             "nginx-proxy/run",
@@ -870,6 +903,7 @@ class ServicesManager:
 
         self.set_frappe_headers_conf()
         self.set_forwarded_trust_conf()
+        self.set_fm_dropins_conf()
         self.apply_proxy_ports()
         self.apply_forwarded_trust_env()
 

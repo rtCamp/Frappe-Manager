@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from frappe_manager.services_manager.proxy_dropins import ProxyDropins
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import BenchConfig, DatabaseEngine, Deployment, Deployments
 from frappe_manager.site_manager.bench_service import BenchService
@@ -582,12 +583,18 @@ def _vhostd(bench) -> Path:
 
 
 def test_the_removed_sites_proxy_upload_limit_files_go(tmp_path):
+    """The removed domain's upload-limit fragment, its now-empty fragment directory, and the
+    vhostd include bootstrap (nothing else was holding it open) must all go -- not just the
+    directive, or a later bench pointed at the same domain inherits a stale limit."""
     bench = _removable(tmp_path, {"shop.localhost": "s1", "b.example.com": "s2"})
+    dropins = ProxyDropins.for_services_path(bench.services.path)
     for domain in ("shop.localhost", "b.example.com"):
-        (_vhostd(bench) / domain).write_text("client_max_body_size 50m;\n")
+        dropins.set(domain, "upload-limit", "client_max_body_size 50m;\n")
 
     bench.remove_site("b.example.com", delete_fm_managed_db=True)
 
+    assert not dropins.fragment_path("b.example.com", "upload-limit").exists()
+    assert not (dropins.fmd_dir / "vhost" / "b.example.com").exists()
     assert not (_vhostd(bench) / "b.example.com").exists()
 
 

@@ -24,11 +24,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from frappe_manager.services_manager.proxy_dropins import ProxyDropins
 from frappe_manager.site_manager.bench_config import BenchRuntime
 from frappe_manager.site_manager.modules.bench_docker import BenchDockerOps
-from frappe_manager.site_manager.modules.hsts_manager import HstsManager
 from frappe_manager.site_manager.modules.realip import build_bench_realip_conf
+from frappe_manager.site_manager.modules.upload_limit import upload_limit_conf
 from frappe_manager.site_manager.site import Bench
+from frappe_manager.ssl_manager.proxy_conf import hsts_conf
 
 # `bench.name` reaches these tests as a DOMAIN, not a bench name: the overlay refresh writes one
 # nginx-proxy `vhostd/<domain>` file per entry of `Bench.domains`, which delegates to
@@ -120,6 +122,10 @@ def _bench(path: Path, docker_ops) -> Bench:
 
 def _conf_dir(path: Path) -> Path:
     return path / "configs" / "nginx" / "conf"
+
+
+def _dropins(path: Path) -> ProxyDropins:
+    return ProxyDropins.for_services_path(path / "services")
 
 
 def _break_bench(path: Path) -> Path:
@@ -281,7 +287,8 @@ def test_an_existing_bench_gains_its_upload_limit_on_start(tmp_path):
     bench.start()
 
     assert (conf / "custom" / "upload-limit.conf").read_text() == "client_max_body_size 50m;\n"
-    assert "client_max_body_size 50m;" in (vhostd / DOMAIN).read_text()
+    fragment = _dropins(tmp_path).fragment_path(DOMAIN, "upload-limit")
+    assert fragment.read_text() == "client_max_body_size 50m;\n"
 
 
 def test_the_proxy_is_not_reloaded_when_the_limit_already_matches(tmp_path):
@@ -291,7 +298,9 @@ def test_the_proxy_is_not_reloaded_when_the_limit_already_matches(tmp_path):
     vhostd.mkdir(parents=True)
     # Both halves `start` heals here (upload limit and HSTS) already match, so neither reports a
     # change: only then does "nothing changed" mean what this test asserts.
-    (vhostd / DOMAIN).write_text(HstsManager._block("off") + "\nclient_max_body_size 50m;\n")
+    dropins = _dropins(tmp_path)
+    dropins.set(DOMAIN, "upload-limit", upload_limit_conf("50m"))
+    dropins.set(DOMAIN, "hsts", hsts_conf("off"))
     bench = _bench(tmp_path, _real_ops(tmp_path))
     bench.services.path = tmp_path / "services"
 
@@ -477,7 +486,7 @@ def test_an_existing_bench_gains_its_hsts_override_on_start(tmp_path):
 
     bench.start()
 
-    text = (vhostd / DOMAIN).read_text()
+    text = _dropins(tmp_path).fragment_path(DOMAIN, "hsts").read_text()
     assert "proxy_hide_header Strict-Transport-Security;" in text
     assert "add_header Strict-Transport-Security $fm_hsts_value always;" in text
     assert 'set $fm_hsts_value "max-age=31536000";' in text
@@ -494,7 +503,7 @@ def test_an_off_hsts_value_still_strips_the_bench_header(tmp_path):
 
     bench.start()
 
-    text = (vhostd / DOMAIN).read_text()
+    text = _dropins(tmp_path).fragment_path(DOMAIN, "hsts").read_text()
     assert "proxy_hide_header Strict-Transport-Security;" in text
     assert "add_header Strict-Transport-Security" not in text
 

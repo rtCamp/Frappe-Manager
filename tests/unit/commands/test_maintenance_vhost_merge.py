@@ -1,56 +1,19 @@
-"""Maintenance must share the per-domain vhost.d file with other writers.
-
-jwilder/nginx-proxy has exactly ONE vhost.d/<domain> file, and fm's upload
-limit feature (plus hand-written directives) already lives there. Maintenance
-owns a marked block inside it; enable/disable must never destroy the rest.
+"""Maintenance reads bench_config.toml directly (TLS per domain, aliases per site, the --off
+orphan sweep) rather than through the bench model, so a bench whose on-disk layout the model
+would refuse still gets taken in and out of maintenance correctly.
 """
 
 from importlib import import_module
 from unittest.mock import MagicMock, patch
 
-from frappe_manager.commands.maintenance._helpers import (
-    _bench_domains,
-    _has_fm_block,
-    _strip_fm_block,
-    _vhost_conf,
-)
+from frappe_manager.commands.maintenance._helpers import _bench_domains, _vhost_conf
 from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.services_manager.proxy_dropins import ProxyDropins
 
-# The pure helpers and CLI_BENCHES_DIRECTORY live in the shared helper module; the verbs that
-# read them are separate modules, so a patch has to name the one that owns each symbol.
 maintenance_cmd = import_module("frappe_manager.commands.maintenance._helpers")
 disable_cmd = import_module("frappe_manager.commands.maintenance.disable")
 
 FOREIGN = "client_max_body_size 50m;\n"
-
-
-def _block() -> str:
-    return _vhost_conf("mybench", "a" * 32, "/usr/share/nginx/html", 503, 300, [], [], secure_cookie=False)
-
-
-def test_block_is_detectable_and_strippable():
-    block = _block()
-    assert _has_fm_block(block)
-    assert _strip_fm_block(block).strip() == ""
-
-
-def test_enable_over_foreign_content_preserves_it():
-    # what enable writes when the file already holds an upload limit
-    existing = FOREIGN
-    merged = _block() + _strip_fm_block(existing).strip("\n") + "\n"
-    assert "client_max_body_size 50m;" in merged
-    assert _has_fm_block(merged)
-    # disable removes only the block, leaving the foreign directive
-    remainder = _strip_fm_block(merged).strip("\n")
-    assert remainder == "client_max_body_size 50m;"
-    assert not _has_fm_block(remainder)
-
-
-def test_reenable_replaces_block_without_duplicating_foreign_lines():
-    merged = _block() + FOREIGN
-    remerged = _block() + _strip_fm_block(merged).strip("\n") + "\n"
-    assert remerged.count("client_max_body_size") == 1
-    assert remerged.count("# fm:maintenance BEGIN") == 1
 
 
 def _write_bench_config(root, benchname: str, body: str = "") -> None:
@@ -121,35 +84,33 @@ def test_no_ssl_table_at_all_is_not_tls(tmp_path, monkeypatch):
 
 
 def test_secure_cookie_follows_the_domain():
-    # The per-domain flag has to reach the rendered block, which is what actually
+    # The per-domain flag has to reach the rendered fragment, which is what actually
     # sets Secure on the bypass cookie.
     args = ("mybench", "a" * 32, "/usr/share/nginx/html", 503, 300, [], [])
     assert "; Secure" in _vhost_conf(*args, secure_cookie=True)
     assert "; Secure" not in _vhost_conf(*args, secure_cookie=False)
 
 
-# --------------------------------------------------------------------------- #
-# Domains that left the bench
+# Domains that left the bench:
 #
-# `fm update B --remove-alias x` drops the domain from bench_config.toml but leaves
-# vhost.d/x on disk. Both maintenance paths iterate the CURRENT config, so `--off` used to
-# walk straight past that file: the block stayed live, --status kept listing it, and the
-# next bench to claim the domain inherited the maintenance page and the old bypass token.
-# --------------------------------------------------------------------------- #
+# `fm update B --remove-alias x` drops the domain from bench_config.toml but leaves the
+# fragment on disk. Both maintenance paths iterate the CURRENT config, so `--off` used to
+# walk straight past it: the fragment stayed live, --status kept listing it, and the next
+# bench to claim the domain inherited the maintenance page and the old bypass token.
 
 
 def _maint_env(tmp_path):
-    vhostd = tmp_path / "vhost.d"
-    vhostd.mkdir(parents=True)
+    services_dir = tmp_path / "services"
     benches = tmp_path / "benches"
     services = MagicMock()
-    services.proxy_storage.dirs.vhostd.host = str(vhostd)
+    services.proxy_storage.dirs.vhostd.host = str(services_dir / "nginx-proxy" / "vhostd")
     services.proxy_storage.dirs.html.host = str(tmp_path / "html")
     services.proxy_storage.dirs.html.container = "/usr/share/nginx/html"
-    return services, vhostd, benches
+    dropins = ProxyDropins.for_services_path(services_dir)
+    return services, dropins, benches
 
 
-def _enabled_block(bench: str = "mybench") -> str:
+def _fragment(bench: str = "mybench") -> str:
     return _vhost_conf(bench, "a" * 32, "/usr/share/nginx/html", 503, 300, [], [], secure_cookie=False)
 
 
@@ -167,62 +128,64 @@ def _run_off(services, benches):
     return "\n".join(call.args[0] for call in printed.call_args_list if call.args)
 
 
-def test_off_clears_the_vhost_of_an_alias_that_left_the_bench(tmp_path):
-    services, vhostd, benches = _maint_env(tmp_path)
+def test_off_clears_the_fragment_and_vhost_file_of_an_alias_that_left_the_bench(tmp_path):
+    services, dropins, benches = _maint_env(tmp_path)
     # `alias.example.com` is an alias OF the site `mybench`.
     _write_bench_config(benches, "mybench", '[sites."mybench"]\nalias_domains = ["alias.example.com"]\n')
     for domain in ("mybench", "alias.example.com"):
-        (vhostd / domain).write_text(_enabled_block())
+        dropins.set(domain, "maintenance", _fragment())
     # ... and then `fm update mybench --remove-alias alias.example.com` happened.
     _write_bench_config(benches, "mybench")
 
     reported = _run_off(services, benches)
 
-    assert not (vhostd / "alias.example.com").exists()
-    assert not (vhostd / "mybench").exists()
+    assert "maintenance" not in dropins.active("alias.example.com")
+    assert not (dropins.vhostd_dir / "alias.example.com").exists()
+    assert not (dropins.vhostd_dir / "mybench").exists()
     services.nginx_controller.reload.assert_called_once_with()
     assert "alias.example.com" in reported
 
 
-def test_an_orphaned_vhost_is_the_only_thing_left_and_is_still_a_real_disable(tmp_path):
+def test_an_orphaned_fragment_is_the_only_thing_left_and_is_still_a_real_disable(tmp_path):
     """No current domain is in maintenance, so the loop over the config finds nothing: the
     command must still clean the orphan and reload, not report "was not enabled"."""
-    services, vhostd, benches = _maint_env(tmp_path)
+    services, dropins, benches = _maint_env(tmp_path)
     _write_bench_config(benches, "mybench")
-    (vhostd / "alias.example.com").write_text(_enabled_block())
+    dropins.set("alias.example.com", "maintenance", _fragment())
 
     reported = _run_off(services, benches)
 
-    assert not (vhostd / "alias.example.com").exists()
+    assert "maintenance" not in dropins.active("alias.example.com")
     services.nginx_controller.reload.assert_called_once_with()
     assert "Maintenance was not enabled" not in reported
 
 
 def test_an_orphaned_vhost_keeps_the_directives_maintenance_does_not_own(tmp_path):
-    services, vhostd, benches = _maint_env(tmp_path)
+    services, dropins, benches = _maint_env(tmp_path)
     _write_bench_config(benches, "mybench")
-    (vhostd / "alias.example.com").write_text(_enabled_block() + FOREIGN)
+    dropins.set("alias.example.com", "maintenance", _fragment())
+    vhost_file = dropins.vhostd_dir / "alias.example.com"
+    vhost_file.write_text(vhost_file.read_text() + FOREIGN)
 
     _run_off(services, benches)
 
-    assert (vhostd / "alias.example.com").read_text() == FOREIGN
+    assert vhost_file.read_text() == FOREIGN
 
 
 def test_off_never_touches_a_domain_another_bench_put_into_maintenance(tmp_path):
-    """The sweep is scoped by the bench name the block itself records; a foreign domain in
+    """The sweep is scoped by the bench name the fragment itself records; a foreign domain in
     maintenance is not this bench's leftover."""
-    services, vhostd, benches = _maint_env(tmp_path)
+    services, dropins, benches = _maint_env(tmp_path)
     _write_bench_config(benches, "mybench")
-    (vhostd / "mybench").write_text(_enabled_block())
-    (vhostd / "other.example.com").write_text(_enabled_block("otherbench"))
+    dropins.set("mybench", "maintenance", _fragment())
+    dropins.set("other.example.com", "maintenance", _fragment("otherbench"))
 
     _run_off(services, benches)
 
-    assert _has_fm_block((vhostd / "other.example.com").read_text())
+    assert "maintenance" in dropins.active("other.example.com")
 
 
-# ------------------------- one site of a multi-site bench, not the whole bench
-
+# One site of a multi-site bench, not the whole bench:
 
 TWO_SITES = (
     '[sites."shop.localhost"]\nalias_domains = ["www.shop.example.com"]\n'
@@ -257,7 +220,7 @@ def test_no_site_named_still_means_every_domain_of_the_bench(tmp_path, monkeypat
 
 
 def test_the_full_domain_list_is_returned_even_when_narrowed(tmp_path, monkeypatch):
-    """The `--off` orphan sweep disables any block naming this bench on a domain it no longer
+    """The `--off` orphan sweep disables any fragment naming this bench on a domain it no longer
     serves. Given the NARROWED list it would read a sibling site's live maintenance as an orphan
     and take down a site the operator never mentioned, which is why the third value exists.
     """

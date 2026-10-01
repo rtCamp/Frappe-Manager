@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -8,8 +7,7 @@ from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.commands.maintenance._helpers import (
     _bench_domains,
     _extract_bench,
-    _has_fm_block,
-    _strip_fm_block,
+    _maintenance_domains,
     conf_state,
     proxy_paths,
 )
@@ -50,46 +48,33 @@ def disable(
 
     check_bench_migration_required(benchname)
 
-    services, vhostd_dir, _html_host_dir, _html_container_dir = proxy_paths(ctx)
+    services, dropins, _html_host_dir, _html_container_dir = proxy_paths(ctx)
 
     site = ctx.obj.get("site") if ctx.obj else None
     domains, _domain_ssl, all_domains = _bench_domains(benchname, site)
 
-    def strip(path: Path) -> None:
-        # Remove ONLY the fm block; other directives in the shared
-        # per-domain file (e.g. upload limits) must survive.
-        remainder = _strip_fm_block(path.read_text()).strip("\n")
-        if remainder:
-            path.write_text(remainder + "\n")
-        else:
-            path.unlink()
-
     removed = 0
     for domain in domains:
-        path = vhostd_dir / domain
-        if not conf_state(path):
+        if not conf_state(dropins, domain):
             continue
-        strip(path)
+        dropins.remove(domain, "maintenance")
         removed += 1
 
-    # A domain dropped from the bench (`fm domain remove B/x`) keeps its vhost.d
-    # file, and the loop above only knows the CURRENT bench_config.toml -- so its
-    # maintenance block would stay live: still listed by status, and inherited (page and
-    # bypass token) by whichever bench claims that domain next. Sweep those orphans, which
-    # the block itself names as ours.
+    # A domain dropped from the bench (`fm domain remove B/x`) keeps its fragment, and the loop
+    # above only knows the CURRENT bench_config.toml -- so it would stay live: still listed by
+    # status, and inherited (page and bypass token) by whichever bench claims that domain next.
+    # Sweep those orphans, which the fragment itself names as ours.
     orphans: list[str] = []
-    if vhostd_dir.exists():
-        for conf in sorted(vhostd_dir.iterdir()):
-            # `all_domains`, not `domains`: with a site named, a sibling site's live block is
-            # not an orphan, and disabling it would take a site the operator never mentioned
-            # out of maintenance.
-            if conf.name in all_domains or not conf.is_file():
-                continue
-            text = conf.read_text()
-            if not _has_fm_block(text) or _extract_bench(text) != benchname:
-                continue
-            strip(conf)
-            orphans.append(conf.name)
+    for domain in _maintenance_domains(dropins):
+        # `all_domains`, not `domains`: with a site named, a sibling site's live fragment is not
+        # an orphan, and disabling it would take a site the operator never mentioned out of
+        # maintenance.
+        if domain in all_domains:
+            continue
+        if _extract_bench(dropins.fragment_path(domain, "maintenance").read_text()) != benchname:
+            continue
+        dropins.remove(domain, "maintenance")
+        orphans.append(domain)
     removed += len(orphans)
 
     if not removed:

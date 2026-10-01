@@ -25,6 +25,7 @@ the two oddities noted in the module docstrings of the tests concerned.
 import base64
 from importlib import import_module
 from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -62,6 +63,7 @@ from frappe_manager.commands.shell import (
 )
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.services_manager.proxy_dropins import ProxyDropins
 from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime, SiteConfig, WebAuthConfig
 from frappe_manager.site_manager.exceptions import BenchNotFoundError
 from frappe_manager.site_manager.modules.realip import PROXY_CONF_FILENAME, build_proxy_realip_conf
@@ -1648,13 +1650,15 @@ def test_the_address_callback_validates_an_explicit_bench():
 
 
 def _maint_services(tmp_path):
-    vhostd = tmp_path / "vhost.d"
+    services_dir = tmp_path / "services"
+    vhostd = services_dir / "nginx-proxy" / "vhostd"
     html = tmp_path / "html"
     services = MagicMock()
     services.proxy_storage.dirs.vhostd.host = str(vhostd)
     services.proxy_storage.dirs.html.host = str(html)
     services.proxy_storage.dirs.html.container = "/usr/share/nginx/html"
-    return services, vhostd, html
+    dropins = ProxyDropins.for_services_path(services_dir)
+    return services, dropins, html
 
 
 def _write_bench_config(benches_dir, benchname: str, body: str = "") -> None:
@@ -1709,13 +1713,12 @@ def _run_maintenance_status(services, benches_dir, site=None, **kwargs):
 
 # --- global listing (no bench) -------------------------------------------- #
 def test_no_bench_lists_every_domain_in_maintenance(out, tmp_path):
-    services, vhostd, _ = _maint_services(tmp_path)
-    vhostd.mkdir(parents=True)
-    (vhostd / "a.localhost").write_text(
-        _vhost_conf("bench-a", "a" * 32, "/html", 404, 300, [], [], secure_cookie=False)
+    services, dropins, _ = _maint_services(tmp_path)
+    dropins.set(
+        "a.localhost", "maintenance", _vhost_conf("bench-a", "a" * 32, "/html", 404, 300, [], [], secure_cookie=False)
     )
-    (vhostd / "b.localhost").write_text("client_max_body_size 50m;\n")
-    (vhostd / "sub").mkdir()
+    # Foreign content with no fragment of its own: never a maintenance domain.
+    (dropins.vhostd_dir / "b.localhost").write_text("client_max_body_size 50m;\n")
     r = _run_maintenance_status(services, tmp_path / "benches", address=None)
     assert r.exit is None
     body = joined(out.print)
@@ -1724,14 +1727,14 @@ def test_no_bench_lists_every_domain_in_maintenance(out, tmp_path):
 
 
 def test_no_bench_and_nothing_in_maintenance_says_so(out, tmp_path):
-    services, vhostd, _ = _maint_services(tmp_path)
-    vhostd.mkdir(parents=True)
+    services, dropins, _ = _maint_services(tmp_path)
+    dropins.fmd_dir.mkdir(parents=True)
     r = _run_maintenance_status(services, tmp_path / "benches", address=None)
     assert r.exit is None
     assert texts(out.print) == ["No domain is in maintenance"]
 
 
-def test_no_bench_with_a_missing_vhostd_directory_still_reports_cleanly(out, tmp_path):
+def test_no_bench_with_a_missing_fmd_directory_still_reports_cleanly(out, tmp_path):
     services, _, _ = _maint_services(tmp_path)
     r = _run_maintenance_status(services, tmp_path / "benches", address=None)
     assert r.exit is None
@@ -1810,7 +1813,7 @@ def test_valid_ipv6_and_starred_paths_pass_validation(out, tmp_path):
 
 # --- status per domain ------------------------------------------------------ #
 def test_status_reports_on_off_and_foreign_per_domain_without_reloading(out, tmp_path):
-    services, vhostd, _ = _maint_services(tmp_path)
+    services, dropins, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(
         benches,
@@ -1819,9 +1822,10 @@ def test_status_reports_on_off_and_foreign_per_domain_without_reloading(out, tmp
         '[sites."mybench"]\nalias_domains = ["alias.example.com", "plain.example.com"]\n'
         '\n[[ssl.certificates]]\ndomain = "mybench"\nssl_type = "letsencrypt"\n',
     )
-    vhostd.mkdir(parents=True)
-    (vhostd / "mybench").write_text(_vhost_conf("mybench", "b" * 32, "/html", 404, 300, [], [], secure_cookie=True))
-    (vhostd / "alias.example.com").write_text("client_max_body_size 50m;\n")
+    dropins.set(
+        "mybench", "maintenance", _vhost_conf("mybench", "b" * 32, "/html", 404, 300, [], [], secure_cookie=True)
+    )
+    (dropins.vhostd_dir / "alias.example.com").write_text("client_max_body_size 50m;\n")
     r = _run_maintenance_status(services, benches)
     assert r.exit is None
     assert texts(out.print) == [
@@ -1835,72 +1839,75 @@ def test_status_reports_on_off_and_foreign_per_domain_without_reloading(out, tmp
 
 
 def test_status_uses_http_for_a_domain_without_its_own_certificate(out, tmp_path):
-    services, vhostd, _ = _maint_services(tmp_path)
+    services, dropins, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")
-    vhostd.mkdir(parents=True)
-    (vhostd / "mybench").write_text(_vhost_conf("mybench", "c" * 32, "/html", 503, 300, [], [], secure_cookie=False))
+    dropins.set(
+        "mybench", "maintenance", _vhost_conf("mybench", "c" * 32, "/html", 503, 300, [], [], secure_cookie=False)
+    )
     _run_maintenance_status(services, benches)
     assert "bypass: http://mybench/fm-bypass/" in joined(out.print)
 
 
 # --- disable ----------------------------------------------------------------- #
 def test_disable_when_nothing_is_enabled_reports_it_and_does_not_reload(out, tmp_path):
-    services, vhostd, _ = _maint_services(tmp_path)
+    services, _, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")
-    vhostd.mkdir(parents=True)
     r = _run_maintenance_disable(services, benches)
     assert r.exit is None
     assert texts(out.print) == ["Maintenance was not enabled"]
     services.nginx_controller.reload.assert_not_called()
 
 
-def test_disable_removes_only_the_fm_block_and_keeps_foreign_directives(out, tmp_path):
-    services, vhostd, _ = _maint_services(tmp_path)
+def test_disable_removes_only_the_maintenance_fragment_and_keeps_foreign_directives(out, tmp_path):
+    services, dropins, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")
-    vhostd.mkdir(parents=True)
-    conf = vhostd / "mybench"
-    conf.write_text(
-        _vhost_conf("mybench", "d" * 32, "/html", 503, 300, [], [], secure_cookie=False) + "client_max_body_size 50m;\n"
+    dropins.set(
+        "mybench", "maintenance", _vhost_conf("mybench", "d" * 32, "/html", 503, 300, [], [], secure_cookie=False)
     )
+    vhost_file = dropins.vhostd_dir / "mybench"
+    vhost_file.write_text(vhost_file.read_text() + "client_max_body_size 50m;\n")
     r = _run_maintenance_disable(services, benches)
     assert r.exit is None
-    assert conf.read_text() == "client_max_body_size 50m;\n"
+    assert not dropins.fragment_path("mybench", "maintenance").exists()
+    assert vhost_file.read_text() == "client_max_body_size 50m;\n"
     services.nginx_controller.reload.assert_called_once_with()
     assert "Maintenance disabled for: mybench" in joined(out.print)
 
 
 @pytest.mark.usefixtures("out")
-def test_disable_deletes_the_file_when_only_the_fm_block_was_in_it(tmp_path):
-    services, vhostd, _ = _maint_services(tmp_path)
+def test_disable_deletes_the_vhost_file_when_only_the_fragment_was_in_it(tmp_path):
+    services, dropins, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")
-    vhostd.mkdir(parents=True)
-    conf = vhostd / "mybench"
-    conf.write_text(_vhost_conf("mybench", "e" * 32, "/html", 503, 300, [], [], secure_cookie=False))
+    dropins.set(
+        "mybench", "maintenance", _vhost_conf("mybench", "e" * 32, "/html", 503, 300, [], [], secure_cookie=False)
+    )
     _run_maintenance_disable(services, benches)
-    assert not conf.exists()
+    assert not (dropins.vhostd_dir / "mybench").exists()
+    assert not dropins.fragment_path("mybench", "maintenance").parent.exists()
     services.nginx_controller.reload.assert_called_once_with()
 
 
 def test_disable_reloads_once_for_all_domains(out, tmp_path):
-    services, vhostd, _ = _maint_services(tmp_path)
+    services, dropins, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     # `alias.example.com` is an alias of the site `mybench`.
     _write_bench_config(benches, "mybench", '[sites."mybench"]\nalias_domains = ["alias.example.com"]\n')
-    vhostd.mkdir(parents=True)
     for domain in ("mybench", "alias.example.com"):
-        (vhostd / domain).write_text(_vhost_conf("mybench", "f" * 32, "/html", 503, 300, [], [], secure_cookie=False))
+        dropins.set(
+            domain, "maintenance", _vhost_conf("mybench", "f" * 32, "/html", 503, 300, [], [], secure_cookie=False)
+        )
     _run_maintenance_disable(services, benches)
     services.nginx_controller.reload.assert_called_once_with()
     assert "Maintenance disabled for: mybench, alias.example.com" in joined(out.print)
 
 
 # --- enable ------------------------------------------------------------------- #
-def test_enable_writes_the_page_and_block_for_every_domain_then_reloads(out, tmp_path):
-    services, vhostd, html = _maint_services(tmp_path)
+def test_enable_writes_the_page_and_fragment_for_every_domain_then_reloads(out, tmp_path):
+    services, dropins, html = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     # `alias.example.com` is an alias of the site `mybench`.
     _write_bench_config(benches, "mybench", '[sites."mybench"]\nalias_domains = ["alias.example.com"]\n')
@@ -1908,8 +1915,9 @@ def test_enable_writes_the_page_and_block_for_every_domain_then_reloads(out, tmp
     assert r.exit is None
     assert (html / "fm-maintenance-mybench.html").is_file()
     for domain in ("mybench", "alias.example.com"):
-        text = (vhostd / domain).read_text()
-        assert "# fm:maintenance BEGIN (bench: mybench)" in text
+        assert "maintenance" in dropins.active(domain)
+        text = dropins.fragment_path(domain, "maintenance").read_text()
+        assert "(bench: mybench)" in text
         assert "return 404;" in text
         assert 'if ($remote_addr = "203.0.113.7")' in text
         assert 'if ($uri ~ "^/hook")' in text
@@ -1921,29 +1929,16 @@ def test_enable_writes_the_page_and_block_for_every_domain_then_reloads(out, tmp
     assert "/fm-bypass/off" in body
 
 
-@pytest.mark.usefixtures("out")
-def test_enable_prepends_its_block_and_preserves_foreign_directives(tmp_path):
-    services, vhostd, _ = _maint_services(tmp_path)
-    benches = tmp_path / "benches"
-    _write_bench_config(benches, "mybench")
-    vhostd.mkdir(parents=True)
-    (vhostd / "mybench").write_text("client_max_body_size 50m;\n")
-    _run_maintenance_enable(services, benches)
-    text = (vhostd / "mybench").read_text()
-    assert text.startswith("# fm:maintenance BEGIN")
-    assert text.endswith("client_max_body_size 50m;\n")
-    assert text.count("# fm:maintenance BEGIN") == 1
-
-
 def test_re_enabling_reuses_the_existing_bypass_token(out, tmp_path):
-    services, vhostd, _ = _maint_services(tmp_path)
+    services, dropins, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")
-    vhostd.mkdir(parents=True)
     token = "1" * 32
-    (vhostd / "mybench").write_text(_vhost_conf("mybench", token, "/html", 503, 300, [], [], secure_cookie=False))
+    dropins.set(
+        "mybench", "maintenance", _vhost_conf("mybench", token, "/html", 503, 300, [], [], secure_cookie=False)
+    )
     _run_maintenance_enable(services, benches, response_code=404)
-    text = (vhostd / "mybench").read_text()
+    text = dropins.fragment_path("mybench", "maintenance").read_text()
     assert _extract_token(text) == token
     assert _extract_code(text) == 404
     assert f"/fm-bypass/{token}" in joined(out.print)
@@ -1951,29 +1946,30 @@ def test_re_enabling_reuses_the_existing_bypass_token(out, tmp_path):
 
 @pytest.mark.usefixtures("out")
 def test_rotate_token_replaces_the_existing_token(tmp_path):
-    services, vhostd, _ = _maint_services(tmp_path)
+    services, dropins, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")
-    vhostd.mkdir(parents=True)
     token = "2" * 32
-    (vhostd / "mybench").write_text(_vhost_conf("mybench", token, "/html", 503, 300, [], [], secure_cookie=False))
+    dropins.set(
+        "mybench", "maintenance", _vhost_conf("mybench", token, "/html", 503, 300, [], [], secure_cookie=False)
+    )
     _run_maintenance_enable(services, benches, rotate_token=True)
-    assert _extract_token((vhostd / "mybench").read_text()) != token
+    assert _extract_token(dropins.fragment_path("mybench", "maintenance").read_text()) != token
 
 
 @pytest.mark.usefixtures("out")
 def test_a_fresh_enable_mints_a_token(tmp_path):
-    services, vhostd, _ = _maint_services(tmp_path)
+    services, dropins, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")
     with patch.object(maint_enable_mod.secrets, "token_hex", return_value="3" * 32) as gen:
         _run_maintenance_enable(services, benches)
     gen.assert_called_once_with(16)
-    assert _extract_token((vhostd / "mybench").read_text()) == "3" * 32
+    assert _extract_token(dropins.fragment_path("mybench", "maintenance").read_text()) == "3" * 32
 
 
 def test_the_bypass_cookie_gets_secure_only_on_the_domains_that_have_tls(out, tmp_path):
-    services, vhostd, _ = _maint_services(tmp_path)
+    services, dropins, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(
         benches,
@@ -1983,8 +1979,8 @@ def test_the_bypass_cookie_gets_secure_only_on_the_domains_that_have_tls(out, tm
         '\n[[ssl.certificates]]\ndomain = "mybench"\nssl_type = "letsencrypt"\n',
     )
     _run_maintenance_enable(services, benches)
-    assert "; Secure" in (vhostd / "mybench").read_text()
-    assert "; Secure" not in (vhostd / "plain.example.com").read_text()
+    assert "; Secure" in dropins.fragment_path("mybench", "maintenance").read_text()
+    assert "; Secure" not in dropins.fragment_path("plain.example.com", "maintenance").read_text()
     assert "Bypass (sets a cookie so you see the real site): https://mybench/fm-bypass/" in joined(out.print)
 
 
@@ -1992,7 +1988,7 @@ def test_the_bypass_cookie_is_secure_behind_a_trusted_front_with_no_fm_certifica
     """notes/proxy-front-design.md #4.5: the public connection can be TLS via a trusted front
     holding the certificate instead of fm; the Secure flag must follow `public_scheme` (cert OR
     trusted front), not certificate presence alone."""
-    services, vhostd, _ = _maint_services(tmp_path)
+    services, dropins, _ = _maint_services(tmp_path)
     confd = tmp_path / "confd"
     confd.mkdir()
     (confd / PROXY_CONF_FILENAME).write_text(
@@ -2002,7 +1998,7 @@ def test_the_bypass_cookie_is_secure_behind_a_trusted_front_with_no_fm_certifica
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")  # no [[ssl.certificates]] entry at all
     _run_maintenance_enable(services, benches)
-    assert "; Secure" in (vhostd / "mybench").read_text()
+    assert "; Secure" in dropins.fragment_path("mybench", "maintenance").read_text()
 
 
 def test_enable_omits_the_allow_list_lines_when_no_exemption_was_given(out, tmp_path):
@@ -2013,6 +2009,19 @@ def test_enable_omits_the_allow_list_lines_when_no_exemption_was_given(out, tmp_
     body = joined(out.print)
     assert "Allowed IPs" not in body
     assert "Allowed paths" not in body
+
+
+def test_the_maintenance_fragment_sorts_before_https_redirect():
+    """The maintenance fragment's /api/ branch uses `rewrite ... last`, not `return <code>`, so it
+    never re-enters through `error_page` the way a plain `return` does (see `_vhost_conf`'s
+    docstring). ProxyDropins.active() and the shared nginx `include` both apply fragments in
+    filename order, so if https-redirect's `return 301` sorted first, a plain-HTTP /api/ request
+    would be redirected before maintenance's rewrite ever ran, trading the maintenance JSON body
+    for a 301. This pins the filenames the two concerns actually produce, not the ORDER table."""
+    dropins = ProxyDropins(Path("/vhostd"), Path("/fmd"))
+    maintenance_name = dropins.fragment_path("example.com", "maintenance").name
+    https_redirect_name = dropins.fragment_path("example.com", "https-redirect").name
+    assert maintenance_name < https_redirect_name
 
 
 # --- page resolution ---------------------------------------------------------- #
@@ -2094,6 +2103,7 @@ def test_the_bypass_url_and_the_page_path_carry_the_token_and_bench_name():
     assert "location = /fm-bypass/" + "9" * 32 + " {" in conf
     assert "try_files /fm-maintenance-mybench.html =502;" in conf
     assert "root /usr/share/nginx/html;" in conf
+
 
 # --- the site half of the address ------------------------------------------ #
 def test_tools_with_a_site_part_is_refused(out, tmp_path):

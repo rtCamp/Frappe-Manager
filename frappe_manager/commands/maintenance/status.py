@@ -10,7 +10,8 @@ from frappe_manager.commands.maintenance._helpers import (
     _extract_bench,
     _extract_code,
     _extract_token,
-    _has_fm_block,
+    _foreign_vhost_content,
+    _maintenance_domains,
     conf_state,
     optional_bench_site_callback,
     proxy_paths,
@@ -57,22 +58,17 @@ def status(
     if json_results:
         output.set_json_results()
     benchname = address
-    _services, vhostd_dir, _html_host_dir, _html_container_dir = proxy_paths(ctx)
+    _services, dropins, _html_host_dir, _html_container_dir = proxy_paths(ctx)
 
     if benchname is None:
         found = 0
-        if vhostd_dir.exists():
-            for conf in sorted(vhostd_dir.iterdir()):
-                if not conf.is_file():
-                    continue
-                text = conf.read_text()
-                if not _has_fm_block(text):
-                    continue
-                found += 1
-                output.print(
-                    f"{conf.name}: maintenance ON (bench {_extract_bench(text)}, code {_extract_code(text)}, "
-                    f"bypass token {_extract_token(text)})"
-                )
+        for domain in _maintenance_domains(dropins):
+            text = dropins.fragment_path(domain, "maintenance").read_text()
+            found += 1
+            output.print(
+                f"{domain}: maintenance ON (bench {_extract_bench(text)}, code {_extract_code(text)}, "
+                f"bypass token {_extract_token(text)})"
+            )
         if not found:
             output.print("No domain is in maintenance")
         return
@@ -85,20 +81,19 @@ def status(
     front, http_port, https_port = host_proxy_state()
     rows = []
     for domain in domains:
-        path = vhostd_dir / domain
         base = public_url(domain, public_scheme(bool(domain_ssl.get(domain)), front), http_port, https_port)
-        on = conf_state(path)
-        text = path.read_text() if path.exists() else ""
+        on = conf_state(dropins, domain)
+        text = dropins.fragment_path(domain, "maintenance").read_text() if on else ""
         rows.append(
             {
                 "domain": domain,
                 "maintenance": bool(on),
                 "code": _extract_code(text) if on else None,
                 "bypass_url": f"{base}/fm-bypass/{_extract_token(text)}" if on else None,
-                # A vhost file fm did not write. Worth reporting because it explains why an enable
-                # will merge rather than create, but it is NOT the answer to "is this in
+                # A vhost.d file fm did not write. Worth reporting because it explains why an
+                # enable will merge rather than create, but it is NOT the answer to "is this in
                 # maintenance" and must not lead.
-                "custom_vhost": bool(path.exists() and not on),
+                "custom_vhost": (not on) and _foreign_vhost_content(dropins.vhostd_dir / domain),
             }
         )
 

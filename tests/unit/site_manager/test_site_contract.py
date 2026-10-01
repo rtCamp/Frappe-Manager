@@ -40,6 +40,7 @@ import pytest
 from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
+from frappe_manager.services_manager.proxy_dropins import ORDER, ProxyDropins
 from frappe_manager.site_manager.bench_config import (
     AuthConfig,
     BenchConfig,
@@ -63,9 +64,10 @@ from frappe_manager.site_manager.modules.auth import (
     htpasswd_name,
     tools_htpasswd_name,
 )
-from frappe_manager.site_manager.modules.hsts_manager import HstsManager
 from frappe_manager.site_manager.modules.realip import build_bench_realip_conf
+from frappe_manager.site_manager.modules.upload_limit import domains_needing_upload_limit, upload_limit_conf
 from frappe_manager.site_manager.site import Bench, SiteSchema
+from frappe_manager.ssl_manager.proxy_conf import hsts_conf
 
 SITE = "test.localhost"
 SUBNET = "10.20.0.0/16"
@@ -1237,10 +1239,12 @@ class TestUpdateUploadLimit:
         assert bench.bench_config.upload_limit == "100M"
         custom = harness.path / "configs" / "nginx" / "conf" / "custom" / "upload-limit.conf"
         assert custom.read_text() == "client_max_body_size 100m;\n"
-        # Both hostnames the bench serves carry the cap: the site's own name and its alias. The
-        # directive is appended to whatever vhost fragment is already there, hence the substring.
-        assert "client_max_body_size 100m;" in (vhostd / SITE).read_text()
-        assert "client_max_body_size 100m;" in (vhostd / "alias.example.com").read_text()
+        # Both hostnames the bench serves get their own proxy-side upload-limit fragment: the
+        # site's own name and its alias. A domain with no vhost entry gets nginx-proxy's 1M default.
+        fmd = harness.services.path / "nginx-proxy" / "fmd" / "vhost"
+        prefix = f"{ORDER['upload-limit']:02d}-upload-limit.conf"
+        assert (fmd / SITE / prefix).read_text() == "client_max_body_size 100m;\n"
+        assert (fmd / "alias.example.com" / prefix).read_text() == "client_max_body_size 100m;\n"
         bench.bench_nginx_controller.reload.assert_called()
         harness.services.nginx_controller.reload.assert_called_once_with()
 
@@ -1266,13 +1270,21 @@ class TestUpdateUploadLimit:
         harness.services.is_service_running.return_value = False
         shutil.rmtree(harness.services.path / "nginx-proxy" / "vhostd")
 
-        with (
-            patch.object(BenchConfig, "export_to_compose_inputs", return_value={}),
-            patch("frappe_manager.site_manager.site.UploadLimitManager") as mgr,
-        ):
+        with patch.object(BenchConfig, "export_to_compose_inputs", return_value={}):
             bench.update_upload_limit("50M")
 
-        mgr.assert_not_called()
+        # No fragment is written for a proxy that has not been provisioned with a vhostd dir yet.
+        assert not (harness.services.path / "nginx-proxy" / "fmd").exists()
+
+
+class TestUploadLimitWildcardDeduplication:
+    """A `*.example.com` wildcard already covers its non-wildcard subdomains via nginx's own
+    matching; writing a redundant per-subdomain fragment would mean nginx receives the same
+    `client_max_body_size` directive twice for a request to a covered name."""
+
+    def test_a_domain_covered_by_a_wildcard_is_skipped(self):
+        domains = ["*.example.com", "a.example.com", "other.net"]
+        assert domains_needing_upload_limit(domains) == ["*.example.com", "other.net"]
 
 
 class TestRemoveBench:
@@ -1356,12 +1368,12 @@ class TestRemoveBench:
 
 
 class TestRemoveBenchClearsProxyVhostdEntries:
-    """BUG: `remove_bench` stripped only the HTTPS-redirect block (via `remove_certificate`) and
-    left the upload-limit directive and HSTS block behind in every domain's `vhost.d/<domain>`
-    file. `remove_site` already cleaned both up for a site leaving a still-running bench
-    (`_remove_proxy_upload_limits`/`_remove_proxy_hsts`); `remove_bench` never called either, so a
-    domain later pointed at another bench silently inherited a stale cap and header override from
-    a bench that no longer existed.
+    """BUG: `remove_bench` stripped only the HTTPS-redirect fragment (via `remove_certificate`)
+    and left the upload-limit and HSTS fragments behind for every domain. `remove_site` already
+    cleaned both up for a site leaving a still-running bench (`_remove_proxy_upload_limits`/
+    `_remove_proxy_hsts`); `remove_bench` never called either, so a domain later pointed at
+    another bench silently inherited a stale cap and header override from a bench that no
+    longer existed.
     """
 
     def _removable(self, harness):
@@ -1376,21 +1388,27 @@ class TestRemoveBenchClearsProxyVhostdEntries:
         bench = self._removable(harness)
         bench.bench_config.sites = {SITE: SiteConfig(alias_domains=["alias.example.com"])}
         vhostd = harness.services.path / "nginx-proxy" / "vhostd"
+        fmd = harness.services.path / "nginx-proxy" / "fmd" / "vhost"
+        dropins = ProxyDropins.for_services_path(harness.services.path)
         for domain in (SITE, "alias.example.com"):
-            (vhostd / domain).write_text("client_max_body_size 50m;\n" + HstsManager._block("max-age=31536000"))
+            dropins.set(domain, "upload-limit", upload_limit_conf("50m"))
+            dropins.set(domain, "hsts", hsts_conf("max-age=31536000"))
 
         assert bench.remove_bench() is True
 
         assert not (vhostd / SITE).exists()
         assert not (vhostd / "alias.example.com").exists()
+        assert not (fmd / SITE).exists()
+        assert not (fmd / "alias.example.com").exists()
 
     def test_a_hand_written_directive_survives_in_the_shared_file(self, harness):
-        """The file is SHARED with foreign content; only fm's own directives are removed."""
+        """The file is SHARED with foreign content; only fm's own fragments are removed."""
         bench = self._removable(harness)
         vhostd = harness.services.path / "nginx-proxy" / "vhostd"
-        (vhostd / SITE).write_text(
-            "client_max_body_size 50m;\n" + HstsManager._block("max-age=31536000") + "allow 10.0.0.0/8;\n"
-        )
+        (vhostd / SITE).write_text("allow 10.0.0.0/8;\n")
+        dropins = ProxyDropins.for_services_path(harness.services.path)
+        dropins.set(SITE, "upload-limit", upload_limit_conf("50m"))
+        dropins.set(SITE, "hsts", hsts_conf("max-age=31536000"))
 
         assert bench.remove_bench() is True
 

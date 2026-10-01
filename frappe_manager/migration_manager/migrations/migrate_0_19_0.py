@@ -421,10 +421,19 @@ class MigrationV0190(MigrationBase):
         return "50M"
 
     def _write_upload_limit_vhostd(self, bench: MigrationBench, upload_limit: str):
-        """Write nginx-proxy vhost.d files for upload limit."""
-        from frappe_manager.site_manager.modules.upload_limit_manager import UploadLimitManager
+        """Write nginx-proxy vhost.d fragments for upload limit.
 
-        vhostd_dir = bench.path.parent.parent / "services" / "nginx-proxy" / "vhostd"
+        RULE this is an instance of: a bench-tier migration writes fragments, never markers.
+        `fm migrate` refuses to run a bench migration while the services tier is behind, so by
+        the time this ever runs the 1.0.0 services migration has ALWAYS already converted every
+        vhost.d file to fragments; a marker written here would strand an unmarked directive
+        behind it with no migration left downstream to adopt it.
+        """
+        from frappe_manager.services_manager.proxy_dropins import ProxyDropins
+        from frappe_manager.site_manager.modules.upload_limit import domains_needing_upload_limit, upload_limit_conf
+
+        services_path = bench.path.parent.parent / "services"
+        vhostd_dir = services_path / "nginx-proxy" / "vhostd"
 
         if not vhostd_dir.exists():
             self.output.print("Warning: nginx-proxy vhostd directory not found, skipping upload limit config")
@@ -444,9 +453,12 @@ class MigrationV0190(MigrationBase):
             if vhost_file.exists():
                 self.backup_manager.backup(vhost_file, bench_name=bench.name)
 
-        upload_mgr = UploadLimitManager(vhostd_dir)
-        upload_mgr.set_upload_limit_for_domains(domains, upload_limit.lower())
-        self.output.print(f"Set upload limit ({upload_limit}) for {len(domains)} domain(s)")
+        dropins = ProxyDropins.for_services_path(services_path)
+        size = upload_limit.lower()
+        written = domains_needing_upload_limit(domains)
+        for domain in written:
+            dropins.set(domain, "upload-limit", upload_limit_conf(size))
+        self.output.print(f"Set upload limit ({upload_limit}) for {len(written)} domain(s)")
 
     def _write_upload_limit_site_config(self, bench: MigrationBench, upload_limit: str):
         """Update site_config.json max_file_size to match upload_limit (only if not already set)."""

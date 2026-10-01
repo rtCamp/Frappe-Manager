@@ -18,6 +18,7 @@ from frappe_manager.logger import get_logger, set_context
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.services_manager.proxy_dropins import ProxyDropins
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import (
     AuthConfig,
@@ -47,11 +48,11 @@ from frappe_manager.site_manager.modules.bench_ssl import BenchSSL
 from frappe_manager.site_manager.modules.bench_supervisor import BenchSupervisor
 from frappe_manager.site_manager.modules.bench_workers import BenchWorkerCoordinator, BenchWorkers
 from frappe_manager.site_manager.modules.db_tls import remove_site_tls
-from frappe_manager.site_manager.modules.hsts_manager import HstsManager
-from frappe_manager.site_manager.modules.upload_limit_manager import UploadLimitManager
+from frappe_manager.site_manager.modules.upload_limit import domains_needing_upload_limit, upload_limit_conf
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkManager
 from frappe_manager.ssl_manager.nginx_controller import NginxController
+from frappe_manager.ssl_manager.proxy_conf import hsts_conf
 from frappe_manager.ssl_manager.proxy_storage import ProxyStoragePaths
 from frappe_manager.ssl_manager.service_factory import create_certificate_service
 from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
@@ -711,11 +712,11 @@ class Bench:
                 self.ensure_fm_nginx_confs()
                 # The proxy vhost entry is the other half, and it is the binding one: a bench with
                 # no entry gets the proxy's 1M default and answers 413 however permissive its own
-                # nginx conf is, and no HSTS override strips the bench's own hardcoded header
-                # (see `HstsManager`). Existing benches have neither at all, so this is what heals
-                # them without a migration. Both run unconditionally (never short-circuited by the
-                # other) so that a change to just one is not missed; reload only when something
-                # actually changed, because the proxy is shared by every bench.
+                # nginx conf is, and no HSTS override strips the bench's own hardcoded header (see
+                # `hsts_conf`, written via `ProxyDropins`). Existing benches have neither at all, so
+                # this is what heals them without a migration. Both run unconditionally (never
+                # short-circuited by the other) so that a change to just one is not missed; reload
+                # only when something actually changed, because the proxy is shared by every bench.
                 upload_limit_changed = self.apply_upload_limit()
                 hsts_changed = self.apply_hsts()
                 if (upload_limit_changed or hsts_changed) and self.services.is_service_running(
@@ -1403,38 +1404,35 @@ class Bench:
         return True
 
     def _remove_proxy_upload_limits(self, domains: set[str]) -> None:
-        """Drop the removed site's `vhost.d/<domain>` upload-limit directives.
+        """Drop the removed site's upload-limit drop-in fragments.
 
-        `apply_upload_limit` writes one file per served domain, and nothing used to take them away:
-        the files outlived the site, so a domain later pointed at another bench inherited a stale
-        `client_max_body_size` from a site that no longer exists. The manager only unlinks the file
-        when removing the directive empties it, so a hand-written vhost entry survives.
+        `apply_upload_limit` writes one fragment per served domain, and nothing used to take them
+        away: they outlived the site, so a domain later pointed at another bench inherited a stale
+        `client_max_body_size` from a site that no longer exists.
         """
-        vhostd_dir = self.services.path / "nginx-proxy" / "vhostd"
-        if not vhostd_dir.exists():
+        dropins = ProxyDropins.for_services_path(self.services.path)
+        if not dropins.vhostd_dir.exists():
             return
-        manager = UploadLimitManager(vhostd_dir)
         for domain in sorted(domains):
             try:
-                manager.remove_upload_limit(domain)
+                dropins.remove(domain, "upload-limit")
             except Exception as e:
                 self.output.warning(f"Could not clear the proxy upload limit for {domain}: {e}")
 
     def _remove_proxy_hsts(self, domains: set[str]) -> None:
-        """Drop the removed site's `vhost.d/<domain>` HSTS override (see `apply_hsts`).
+        """Drop the removed site's HSTS drop-in fragments (see `apply_hsts`).
 
         Same shape as `_remove_proxy_upload_limits`, for the same reason: `apply_hsts` writes one
-        block per served domain, and without this it outlived the site, so a domain later pointed
-        at another bench inherited a stale header override -- an `off` from a site that no longer
-        exists silently muting a header the NEW site's config asks for, or the reverse.
+        fragment per served domain, and without this it outlived the site, so a domain later
+        pointed at another bench inherited a stale header override -- an `off` from a site that no
+        longer exists silently muting a header the NEW site's config asks for, or the reverse.
         """
-        vhostd_dir = self.services.path / "nginx-proxy" / "vhostd"
-        if not vhostd_dir.exists():
+        dropins = ProxyDropins.for_services_path(self.services.path)
+        if not dropins.vhostd_dir.exists():
             return
-        manager = HstsManager(vhostd_dir)
         for domain in sorted(domains):
             try:
-                manager.remove_hsts(domain)
+                dropins.remove(domain, "hsts")
             except Exception as e:
                 self.output.warning(f"Could not clear the proxy HSTS override for {domain}: {e}")
 
@@ -1521,10 +1519,10 @@ class Bench:
                 except Exception as e:
                     self.output.warning(str(e))
 
-                # `remove_certificate` only strips the HTTPS-redirect block it owns
-                # (`VhostConfigManager`); the upload-limit directive and HSTS override each site
-                # picked up over its life (`apply_upload_limit`, `apply_hsts`) are separate marked
-                # regions in the same shared `vhost.d/<domain>` file and neither is cleared by it.
+                # `remove_certificate` only strips the https-redirect fragment it owns
+                # (`ProxyDropins`, concern `https-redirect`); the upload-limit directive and HSTS
+                # override each site picked up over its life (`apply_upload_limit`, `apply_hsts`)
+                # are separate fragments for the same domain and neither is cleared by it.
                 # `remove_site` already does this for one site leaving the bench; a bench going
                 # away entirely needs it for every domain it ever served, or a domain later
                 # repointed at another bench silently inherits this one's stale cap and header
@@ -1917,14 +1915,11 @@ class Bench:
         # The global proxy caps the request before bench nginx ever sees it, so the bench conf alone
         # is not enough: whichever limit is lower wins, and a bench with no vhost entry at all gets
         # the proxy's own 1M default no matter what its own nginx allows.
-        vhostd_dir = self.services.path / "nginx-proxy" / "vhostd"
-        if vhostd_dir.exists():
-            domains = self.domains
-            before = {d: (vhostd_dir / d).read_text() if (vhostd_dir / d).is_file() else None for d in domains}
-            UploadLimitManager(vhostd_dir).set_upload_limit_for_domains(domains, upload_limit.lower())
-            for domain, previous in before.items():
-                path = vhostd_dir / domain
-                if path.is_file() and path.read_text() != previous:
+        dropins = ProxyDropins.for_services_path(self.services.path)
+        if dropins.vhostd_dir.exists():
+            size = upload_limit.lower()
+            for domain in domains_needing_upload_limit(self.domains):
+                if dropins.set(domain, "upload-limit", upload_limit_conf(size)):
                     changed = True
 
         return changed
@@ -1939,22 +1934,21 @@ class Bench:
         same reason -- create, ``fm start`` and site-add all need it live from the moment a
         domain becomes reachable, not just after whatever later start happens to heal it.
 
-        Idempotent (``HstsManager.set_hsts`` only writes when the block actually changed) and a
+        Idempotent (``ProxyDropins.set`` only writes when the fragment actually changed) and a
         no-op before the proxy's vhostd dir exists, which is what a not-yet-provisioned services
         dir looks like.
 
         Returns True when something on disk changed, so a caller can reload the global proxy only
         when it needs to -- the proxy is shared by every bench.
         """
-        vhostd_dir = self.services.path / "nginx-proxy" / "vhostd"
-        if not vhostd_dir.exists():
+        dropins = ProxyDropins.for_services_path(self.services.path)
+        if not dropins.vhostd_dir.exists():
             return False
 
         hsts_value = self.bench_config.get_primary_certificate().hsts
-        manager = HstsManager(vhostd_dir)
         changed = False
         for domain in self.domains:
-            if manager.set_hsts(domain, hsts_value):
+            if dropins.set(domain, "hsts", hsts_conf(hsts_value)):
                 changed = True
         return changed
 
@@ -1980,7 +1974,7 @@ class Bench:
         # once if it changed. Compose is deliberately NOT regenerated, though `upload_limit` DOES
         # reach one compose input (`export_to_compose_inputs` puts it in the nginx service's
         # CLIENT_MAX_BODY_SIZE): nothing consumes that variable. Enforcement is the three writes
-        # below -- the proxy's `vhost.d/<domain>` directive (UploadLimitManager), the bench's own
+        # below -- the proxy's `vhost.d/<domain>` fragment (ProxyDropins, concern `upload-limit`), the bench's own
         # `custom/upload-limit.conf`, and `max_file_size` in site_config -- so regenerating compose
         # to refresh a variable no template reads would only mark nginx dirty for the next
         # `compose up`, buying a container recreate for nothing.

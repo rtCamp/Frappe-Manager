@@ -11,11 +11,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from frappe_manager.services_manager.proxy_dropins import INCLUDE_BEGIN, ProxyDropins
 from frappe_manager.ssl_manager.certificate import DevCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateNotDueForRenewalError,
     SSLCertificateNotFoundError,
 )
+from frappe_manager.ssl_manager.proxy_conf import https_redirect_conf
 from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 from frappe_manager.utils.config_keys import collect_unknown_keys
 
@@ -271,19 +273,15 @@ class TestSSLCertificateManagerNeedsRenewal:
 class TestSSLCertificateManagerAddCertificate:
     """Tests for SSLCertificateManager.add_certificate method."""
 
-    def test_add_certificate_success(self, mocker, ssl_certificate_manager, mock_letsencrypt_certificate_http01):
-        """Test successful certificate addition."""
-        # Mock the service
+    def test_add_certificate_success(
+        self, mocker, tmp_path, ssl_certificate_manager, mock_letsencrypt_certificate_http01
+    ):
+        """Adding a certificate writes a 40-https-redirect.conf fragment and the include bootstrap for its domain."""
         mock_service = MagicMock()
         mock_service.generate_certificate.return_value = (Path("/key.pem"), Path("/fullchain.pem"))
-
-        # Mock service factory
         ssl_certificate_manager.service_factory = MagicMock(return_value=mock_service)
+        ssl_certificate_manager.dropins = ProxyDropins.for_services_path(tmp_path)
 
-        # Mock vhost manager
-        ssl_certificate_manager.vhost_manager = MagicMock()
-
-        # Add new certificate
         new_cert = mock_letsencrypt_certificate_http01
         new_cert.domain = "new-domain.com"
 
@@ -293,14 +291,12 @@ class TestSSLCertificateManagerAddCertificate:
         assert "new-domain.com" in ssl_certificate_manager.services
 
         mock_service.generate_certificate.assert_called_once_with(new_cert, test_ca=False)
-
-        # Verify symlinks were created
         ssl_certificate_manager.link_manager.link_certificate.assert_called_once()
 
-        # Verify vhost redirect was enabled
-        ssl_certificate_manager.vhost_manager.enable_https_redirect.assert_called_once_with("new-domain.com")
+        fragment = tmp_path / "nginx-proxy" / "fmd" / "vhost" / "new-domain.com" / "40-https-redirect.conf"
+        assert fragment.read_text() == https_redirect_conf()
+        assert INCLUDE_BEGIN in (tmp_path / "nginx-proxy" / "vhostd" / "new-domain.com").read_text()
 
-        # Verify nginx was restarted
         ssl_certificate_manager.nginx_controller.restart.assert_called_once()
 
     def test_add_certificate_raises_if_domain_exists(
@@ -336,7 +332,6 @@ class TestSSLCertificateManagerAddCertificate:
         mock_service.generate_certificate.return_value = (key_path, fullchain_path)
 
         ssl_certificate_manager.service_factory = MagicMock(return_value=mock_service)
-        ssl_certificate_manager.vhost_manager = MagicMock()
         ssl_certificate_manager.storage_config.ssl_dir = tmp_path / "ssl"
 
         new_cert = mock_letsencrypt_certificate_http01
@@ -360,7 +355,6 @@ class TestSSLCertificateManagerAddCertificate:
         mock_service.generate_certificate.return_value = (Path("/key.pem"), Path("/fullchain.pem"))
 
         ssl_certificate_manager.service_factory = MagicMock(return_value=mock_service)
-        ssl_certificate_manager.vhost_manager = MagicMock()
 
         # Set up callback
         mock_callback = MagicMock()
@@ -390,7 +384,6 @@ class TestSSLCertificateManagerAddCertificate:
         mock_service = MagicMock()
         mock_service.generate_certificate.return_value = (Path("/key.pem"), Path("/fullchain.pem"))
         ssl_certificate_manager.service_factory = MagicMock(return_value=mock_service)
-        ssl_certificate_manager.vhost_manager = MagicMock()
 
         ssl_certificate_manager.add_certificate(stray_cert)
 
@@ -402,35 +395,27 @@ class TestSSLCertificateManagerAddCertificate:
 class TestSSLCertificateManagerRemoveCertificate:
     """Tests for SSLCertificateManager.remove_certificate_by_domain method."""
 
-    def test_remove_certificate_success(self, ssl_certificate_manager):
-        """Test successful certificate removal."""
+    def test_remove_certificate_success(self, tmp_path, ssl_certificate_manager):
+        """Removing a certificate deletes its 40-https-redirect.conf fragment."""
         domain = ssl_certificate_manager.certificates[0].domain
 
-        # Mock the service
         mock_service = MagicMock()
         ssl_certificate_manager.services[domain] = mock_service
 
-        # Mock vhost manager
-        ssl_certificate_manager.vhost_manager = MagicMock()
+        ssl_certificate_manager.dropins = ProxyDropins.for_services_path(tmp_path)
+        ssl_certificate_manager.dropins.set(domain, "https-redirect", https_redirect_conf())
+        fragment = tmp_path / "nginx-proxy" / "fmd" / "vhost" / domain / "40-https-redirect.conf"
+        assert fragment.exists()
 
         ssl_certificate_manager.remove_certificate_by_domain(domain)
 
-        # Verify certificate was removed from list
         assert len(ssl_certificate_manager.certificates) == 0
-
-        # Verify service was removed
         assert domain not in ssl_certificate_manager.services
-
-        # Verify symlinks were removed
         ssl_certificate_manager.link_manager.unlink_certificate.assert_called_once_with(domain, alias_domains=None)
 
-        # Verify vhost redirect was disabled
-        ssl_certificate_manager.vhost_manager.disable_https_redirect.assert_called_once_with(domain)
+        assert not fragment.exists()
 
-        # Verify service remove was called
         mock_service.remove_certificate.assert_called_once()
-
-        # Verify nginx was restarted
         ssl_certificate_manager.nginx_controller.restart.assert_called_once()
 
     def test_remove_certificate_raises_if_not_found(self, ssl_certificate_manager):
@@ -444,7 +429,6 @@ class TestSSLCertificateManagerRemoveCertificate:
 
         mock_service = MagicMock()
         ssl_certificate_manager.services[domain] = mock_service
-        ssl_certificate_manager.vhost_manager = MagicMock()
 
         # Set up callback
         mock_callback = MagicMock()
@@ -899,30 +883,22 @@ class TestSSLCertificateManagerRenewAllCertificates:
 class TestSSLCertificateManagerRemoveCertificateMethod:
     """Tests for SSLCertificateManager.remove_certificate method (file removal only)."""
 
-    def test_remove_certificate_primary_domain(self, ssl_certificate_manager):
+    def test_remove_certificate_primary_domain(self, tmp_path, ssl_certificate_manager):
         """Test removing primary certificate files using remove_certificate method."""
         domain = ssl_certificate_manager.certificates[0].domain
 
         mock_service = MagicMock()
         ssl_certificate_manager.services[domain] = mock_service
-        ssl_certificate_manager.vhost_manager = MagicMock()
+        ssl_certificate_manager.dropins = ProxyDropins.for_services_path(tmp_path)
+        ssl_certificate_manager.dropins.set(domain, "https-redirect", https_redirect_conf())
+        fragment = tmp_path / "nginx-proxy" / "fmd" / "vhost" / domain / "40-https-redirect.conf"
 
-        # Call without domain parameter (should use primary)
         ssl_certificate_manager.remove_certificate()
 
-        # Verify certificate is still in list (remove_certificate only removes files, not from list)
         assert len(ssl_certificate_manager.certificates) == 1
-
-        # Verify symlinks were removed
         ssl_certificate_manager.link_manager.unlink_certificate.assert_called_once()
-
-        # Verify vhost redirect was disabled
-        ssl_certificate_manager.vhost_manager.disable_https_redirect.assert_called_once_with(domain)
-
-        # Verify service remove was called
+        assert not fragment.exists()
         mock_service.remove_certificate.assert_called_once()
-
-        # Verify nginx was restarted
         ssl_certificate_manager.nginx_controller.restart.assert_called_once()
 
     def test_remove_certificate_specific_domain(self, ssl_certificate_manager, mock_letsencrypt_certificate_http01):
@@ -938,7 +914,6 @@ class TestSSLCertificateManagerRemoveCertificateMethod:
         mock_service2 = MagicMock()
         ssl_certificate_manager.services[domain1] = mock_service1
         ssl_certificate_manager.services["second.com"] = mock_service2
-        ssl_certificate_manager.vhost_manager = MagicMock()
 
         # Remove second domain
         ssl_certificate_manager.remove_certificate(domain="second.com")
@@ -962,15 +937,16 @@ class TestSSLCertificateManagerRemoveCertificateMethod:
         with pytest.raises(SSLCertificateNotFoundError):
             ssl_certificate_manager.remove_certificate(domain="nonexistent.com")
 
-    def test_remove_certificate_disables_vhost_redirect(self, ssl_certificate_manager):
-        """Test that remove_certificate disables HTTPS redirect."""
+    def test_remove_certificate_removes_https_redirect_fragment(self, tmp_path, ssl_certificate_manager):
+        """remove_certificate deletes the domain's https-redirect fragment."""
         domain = ssl_certificate_manager.certificates[0].domain
 
         mock_service = MagicMock()
         ssl_certificate_manager.services[domain] = mock_service
-        ssl_certificate_manager.vhost_manager = MagicMock()
+        ssl_certificate_manager.dropins = ProxyDropins.for_services_path(tmp_path)
+        ssl_certificate_manager.dropins.set(domain, "https-redirect", https_redirect_conf())
+        fragment = tmp_path / "nginx-proxy" / "fmd" / "vhost" / domain / "40-https-redirect.conf"
 
         ssl_certificate_manager.remove_certificate(domain=domain)
 
-        # Verify vhost redirect was disabled
-        ssl_certificate_manager.vhost_manager.disable_https_redirect.assert_called_once_with(domain)
+        assert not fragment.exists()

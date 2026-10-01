@@ -5,7 +5,7 @@ fm issues nothing here: the operator is the certificate authority. `generate_cer
 validates the `--cert`/`--key`/`--ca` files supplied at `fm ssl add --custom` time and copies
 their bytes into the same `<ssl_dir>/custom/<domain>/` layout every other certificate type uses
 (see DevCertificateService), so the rest of the pipeline -- CertificateLinkManager,
-VhostConfigManager, nginx reload -- needs no special-casing for this type.
+ProxyDropins, nginx reload -- needs no special-casing for this type.
 """
 
 import shutil

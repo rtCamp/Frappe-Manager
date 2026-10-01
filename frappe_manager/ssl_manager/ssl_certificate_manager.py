@@ -19,6 +19,7 @@ from pathlib import Path
 from frappe_manager import SSL_RENEW_BEFORE_DAYS
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
+from frappe_manager.services_manager.proxy_dropins import ProxyDropins
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateManualRenewalRequired,
@@ -27,9 +28,9 @@ from frappe_manager.ssl_manager.certificate_exceptions import (
 )
 from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkManager
 from frappe_manager.ssl_manager.nginx_controller import NginxController
+from frappe_manager.ssl_manager.proxy_conf import https_redirect_conf
 from frappe_manager.ssl_manager.ssl_certificate_service import SSLCertificateService
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
-from frappe_manager.ssl_manager.vhost_config_manager import VhostConfigManager
 from frappe_manager.utils.config_keys import declared_field
 from frappe_manager.utils.helpers import get_certificate_expiry_date
 
@@ -72,7 +73,7 @@ class SSLCertificateManager:
         service_factory: Factory function to create certificate services
         link_manager: Manages symlinks between cert files and nginx-proxy
         nginx_controller: Controls nginx service operations
-        vhost_manager: Manages per-domain HTTPS redirect configuration
+        dropins: Writes/removes per-domain nginx-proxy vhost.d fragments (ProxyDropins)
         storage_config: Storage configuration for SSL operations
         config_save_callback: Callback to persist config changes to bench_config.toml
         output_handler: Output handler for user-facing messages
@@ -126,7 +127,7 @@ class SSLCertificateManager:
         self.nginx_controller = nginx_controller
         self.config_save_callback = config_save_callback
 
-        self.vhost_manager = VhostConfigManager(storage_config.vhostd_dir)
+        self.dropins = ProxyDropins.for_services_path(storage_config.vhostd_dir.parent.parent)
 
         self.services: dict[str, SSLCertificateService] = {}
         for cert in self.certificates:
@@ -211,7 +212,7 @@ class SSLCertificateManager:
                     alias_domains=None,
                 )
 
-                self.vhost_manager.enable_https_redirect(certificate.domain)
+                self.dropins.set(certificate.domain, "https-redirect", https_redirect_conf())
                 self.output_handler.print(f"Created vhost.d redirect config for {certificate.domain}")
                 self.logger.debug("Enabled HTTPS redirect", extra_fields={"domain": certificate.domain})
 
@@ -245,7 +246,7 @@ class SSLCertificateManager:
         self.logger.debug("Unlinking certificate symlinks", extra_fields={"domain": domain})
         self.link_manager.unlink_certificate(domain, alias_domains=None)
 
-        self.vhost_manager.disable_https_redirect(domain)
+        self.dropins.remove(domain, "https-redirect")
         self.logger.debug("Disabled HTTPS redirect", extra_fields={"domain": domain})
 
         self.logger.debug("Removing certificate files", extra_fields={"domain": domain})
@@ -438,7 +439,7 @@ class SSLCertificateManager:
                 alias_domains=None,
             )
 
-            self.vhost_manager.enable_https_redirect(certificate.domain)
+            self.dropins.set(certificate.domain, "https-redirect", https_redirect_conf())
             self.output_handler.print(f"Created vhost.d redirect config for {certificate.domain}")
 
         self.nginx_controller.restart()
@@ -660,7 +661,7 @@ class SSLCertificateManager:
 
         self.link_manager.unlink_certificate(certificate.domain, None)
 
-        self.vhost_manager.disable_https_redirect(certificate.domain)
+        self.dropins.remove(certificate.domain, "https-redirect")
 
         service.remove_certificate(certificate)
 
@@ -700,7 +701,7 @@ class SSLCertificateManager:
                     self.output_handler.warning(f"Failed to remove symlinks for {certificate.domain}: {e}")
 
                 try:
-                    self.vhost_manager.disable_https_redirect(certificate.domain)
+                    self.dropins.remove(certificate.domain, "https-redirect")
                 except Exception as e:
                     self.output_handler.warning(f"Failed to remove vhost config for {certificate.domain}: {e}")
 

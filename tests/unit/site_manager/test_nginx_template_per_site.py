@@ -113,8 +113,8 @@ def test_no_block_ever_hardcodes_an_hsts_header(render):
     """BUG: this server only ever speaks plain HTTP (`listen 80`); TLS is terminated by the
     global nginx-proxy in front of it. A hardcoded `Strict-Transport-Security` here reached the
     browser through the proxy regardless of the operator's `hsts` config -- "off" included --
-    because nothing downstream stripped it. `HstsManager` now owns this header, on the proxy
-    side, where TLS is actually terminated (frappe_manager/site_manager/modules/hsts_manager.py).
+    because nothing downstream stripped it. `hsts_conf` now owns this header, written as a proxy
+    drop-in fragment by `ProxyDropins` (frappe_manager/ssl_manager/proxy_conf.py).
     """
     conf = render(TWO_SITES)
 

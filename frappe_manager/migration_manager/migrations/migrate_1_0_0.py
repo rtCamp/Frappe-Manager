@@ -95,6 +95,7 @@ import gzip
 import json
 import os
 import platform
+import re
 import shutil
 from collections.abc import MutableMapping, MutableSequence
 from pathlib import Path
@@ -179,6 +180,28 @@ NEW_KEY_TO_OLD_NETWORK = {
     "frontend-network": "fm-global-frontend-network",
     "backend-network": "fm-global-backend-network",
 }
+
+# Real benches deployed before fm's vhost.d BLOCK markers existed hold this exact unmarked text
+# as the whole vhost.d file body (`_LEGACY_RE` below is `re.escape()` of it) -- the three comment
+# lines are a content-addressed identifier and must survive verbatim even though the body fm now
+# writes moved to `$fm_client_scheme`/`$fm_https_suffix` (notes/proxy-front-design.md #4.2). One
+# character of drift here breaks legacy-block removal on every one of them.
+_LEGACY_HTTPS_REDIRECT_CONFIG = """# Enable HTTPS redirect for this domain only
+# This domain has a valid SSL certificate
+# Internal service API calls allowed over HTTP (Cookie header lost on redirect)
+set $redirect_to_https 0;
+if ($scheme = http) {
+    set $redirect_to_https 1;
+}
+if ($uri ~ ^/api/method/frappe\\.realtime\\.) {
+    set $redirect_to_https 0;
+}
+if ($redirect_to_https = 1) {
+    return 301 https://$host$request_uri;
+}
+"""
+
+_LEGACY_RE = re.compile(re.escape(_LEGACY_HTTPS_REDIRECT_CONFIG.strip("\n")) + r"\n?")
 
 
 def rewrite_global_db_service(engine: MutableMapping, image: str = MARIADB_IMAGE) -> None:
@@ -327,6 +350,7 @@ class MigrationV100(MigrationBase):
         # environment into the running proxy. Docker reads env once, at container creation, so a
         # write after it would sit on disk until some later, unrelated recreate.
         self._refresh_proxy_log_format()
+        self._convert_proxy_vhostd_to_fragments()
         self._service_rename_services()
         self._add_postgres_service()
 
@@ -368,6 +392,160 @@ class MigrationV100(MigrationBase):
         environment["LOG_FORMAT_ESCAPE"] = "json"
         compose_path.write_text(yaml.safe_dump(doc, sort_keys=False))
         self.output.print("Updated the global proxy's access-log format")
+
+    def _add_proxy_fmd_mount(self):
+        """Give an existing services compose the `fm.d` mount `ProxyDropins` fragments need.
+
+        Same constraint as `_refresh_proxy_log_format` and `_add_postgres_service`:
+        `generate_compose` applies onto the file already on disk and never re-renders from the
+        template, so an existing install would otherwise never grow this mount and every
+        fragment `ProxyDropins` writes would sit on the host with nothing inside the container
+        to include it. Either service name: this runs before the rename, so a legacy install is
+        still `global-nginx-proxy`.
+        """
+        from frappe_manager import CLI_SERVICES_DIRECTORY
+
+        (CLI_SERVICES_DIRECTORY / "nginx-proxy" / "fmd").mkdir(parents=True, exist_ok=True)
+
+        compose_path = CLI_SERVICES_DIRECTORY / "docker-compose.yml"
+        if not compose_path.exists():
+            return
+
+        doc = yaml.safe_load(compose_path.read_text()) or {}
+        services = doc.get("services")
+        if not isinstance(services, dict):
+            return
+
+        proxy = services.get("nginx-proxy") or services.get("global-nginx-proxy")
+        if not isinstance(proxy, dict):
+            return
+
+        mount = "./nginx-proxy/fmd:/etc/nginx/fm.d"
+        volumes = proxy.setdefault("volumes", [])
+        if mount in volumes:
+            return
+
+        volumes.append(mount)
+        compose_path.write_text(yaml.safe_dump(doc, sort_keys=False))
+        self.output.print("Added the fm.d fragment mount to the global proxy")
+
+    def _convert_proxy_vhostd_to_fragments(self):
+        """Add the `fm.d` mount, then convert every domain's shared `vhostd/<domain>` file from
+        `# fm:<name> BEGIN/END` marked blocks (plus the legacy unmarked upload-limit directive
+        and the pre-marker legacy https-redirect text) into `ProxyDropins` fragments.
+
+        Per domain the write order is fixed and must not be reversed: each fragment is written
+        FIRST, while the old marker/legacy text is still the only record of the setting, so a
+        crash between writing a fragment and rewriting vhost.d just leaves the marker for a
+        rerun to find and redo, idempotently. Only then does vhost.d get its one rewrite that
+        strips the old markers/legacy text and prepends the `# fm:include` bootstrap. Doing it
+        the other way -- or reloading per domain instead of once at the very end -- risks a
+        moment where a marked `# fm:maintenance` block and its fragment are BOTH live, which
+        duplicates `location = /fm-maintenance-page` and makes nginx refuse to start, taking
+        every bench on the host down. One reload at the end, not per domain, is what keeps that
+        window from ever reaching a running nginx.
+        """
+        from frappe_manager import CLI_SERVICES_DIRECTORY
+        from frappe_manager.services_manager.proxy_dropins import ProxyDropins
+
+        self._add_proxy_fmd_mount()
+
+        vhostd_dir = CLI_SERVICES_DIRECTORY / "nginx-proxy" / "vhostd"
+        if not vhostd_dir.exists():
+            return
+
+        dropins = ProxyDropins.for_services_path(CLI_SERVICES_DIRECTORY)
+        converted = False
+        for vhost_file in sorted(p for p in vhostd_dir.iterdir() if p.is_file()):
+            if self._convert_vhost_domain(dropins, vhost_file.name, vhost_file):
+                converted = True
+
+        if converted:
+            self._reload_proxy()
+
+    def _convert_vhost_domain(self, dropins, domain: str, vhost_file: Path) -> bool:
+        """Convert one domain's vhost.d file; returns whether it held anything to convert.
+
+        The maintenance fragment carries the old block's BODY verbatim (markers excluded): it
+        already holds the bypass token and allow-lists, which this migration has no business
+        re-rendering. https-redirect and hsts are re-rendered from their current content
+        functions instead, since their old bodies carry no per-domain data beyond, for hsts, the
+        STS value extracted below.
+        """
+        from frappe_manager.services_manager.proxy_dropins import INCLUDE_BEGIN, INCLUDE_END
+        from frappe_manager.site_manager.modules.upload_limit import upload_limit_conf
+        from frappe_manager.ssl_manager.proxy_conf import hsts_conf, https_redirect_conf
+
+        maintenance_re = re.compile(
+            r"^# fm:maintenance BEGIN.*?\n(.*?)^# fm:maintenance END\n?", re.DOTALL | re.MULTILINE
+        )
+        https_redirect_re = re.compile(
+            r"^# fm:https-redirect BEGIN.*?^# fm:https-redirect END\n?", re.DOTALL | re.MULTILINE
+        )
+        hsts_re = re.compile(r"^# fm:hsts BEGIN.*?\n(.*?)^# fm:hsts END\n?", re.DOTALL | re.MULTILINE)
+        hsts_value_re = re.compile(r'    set \$fm_hsts_value "([^"]*)";')
+        upload_limit_re = re.compile(r"client_max_body_size\s+([^;]+);\n?")
+        bootstrap_re = re.compile(re.escape(INCLUDE_BEGIN) + r".*?" + re.escape(INCLUDE_END) + r"\n?", re.DOTALL)
+
+        text = vhost_file.read_text()
+        fragments: dict[str, str] = {}
+
+        match = maintenance_re.search(text)
+        if match:
+            fragments["maintenance"] = match.group(1)
+            text = maintenance_re.sub("", text, count=1)
+
+        if https_redirect_re.search(text):
+            fragments["https-redirect"] = https_redirect_conf()
+            text = https_redirect_re.sub("", text, count=1)
+        elif _LEGACY_RE.search(text):
+            fragments["https-redirect"] = https_redirect_conf()
+            text = _LEGACY_RE.sub("", text, count=1)
+
+        match = hsts_re.search(text)
+        if match:
+            value_match = hsts_value_re.search(match.group(1))
+            fragments["hsts"] = hsts_conf(value_match.group(1) if value_match else "off")
+            text = hsts_re.sub("", text, count=1)
+
+        match = upload_limit_re.search(text)
+        if match:
+            fragments["upload-limit"] = upload_limit_conf(match.group(1).strip())
+            text = upload_limit_re.sub("", text, count=1)
+
+        if not fragments:
+            return False
+
+        self.backup_manager.backup(vhost_file)
+
+        for name, content in fragments.items():
+            dropins.set(domain, name, content)
+
+        # `dropins.set()` above already ensured the bootstrap, but against the file as it stood
+        # before this rewrite (old markers still in it); re-read it for the bootstrap it just
+        # wrote and pair that with `text`, which already holds the fully stripped remainder.
+        current = vhost_file.read_text()
+        bootstrap_match = bootstrap_re.search(current)
+        bootstrap = bootstrap_match.group(0) if bootstrap_match else ""
+        vhost_file.write_text(bootstrap + text)
+        return True
+
+    def _reload_proxy(self):
+        """Reload whichever proxy service name is currently running.
+
+        This runs before `_service_rename_services`, so a legacy install may still be
+        `global-nginx-proxy`; a stopped proxy (nothing running under either name) has nothing to
+        reload and the converted fragments simply apply the next time it starts.
+        """
+        from frappe_manager.ssl_manager.nginx_controller import NginxController
+
+        docker_client = self.services_manager.docker
+        for service_name in ("nginx-proxy", "global-nginx-proxy"):
+            if docker_client.compose.is_service_running(service_name):
+                NginxController(
+                    service_name, self.services_manager.compose_file_manager, docker_client, self.output
+                ).reload()
+                return
 
     def _add_postgres_service(self):
         """Give an existing services compose the `postgres` service, switched off.

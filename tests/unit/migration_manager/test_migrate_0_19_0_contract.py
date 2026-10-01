@@ -869,35 +869,40 @@ class TestResolveUploadLimit:
 
 
 class TestWriteUploadLimitVhostd:
-    def _vhostd(self, bench):
-        d = bench.path.parent.parent / "services" / "nginx-proxy" / "vhostd"
-        d.mkdir(parents=True)
-        return d
+    def _services_path(self, bench):
+        services_path = bench.path.parent.parent / "services"
+        (services_path / "nginx-proxy" / "vhostd").mkdir(parents=True)
+        return services_path
+
+    def _fragment(self, services_path, domain):
+        return services_path / "nginx-proxy" / "fmd" / "vhost" / domain / "10-upload-limit.conf"
 
     def test_missing_vhostd_dir_warns_and_writes_nothing(self, migration, bench):
         migration._write_upload_limit_vhostd(bench, "50M")
         assert any("nginx-proxy vhostd directory not found" in m for m in printed(migration))
         migration.backup_manager.backup.assert_not_called()
 
-    def test_writes_lowercase_directive_for_the_bench_domain(self, migration, bench):
-        vhostd = self._vhostd(bench)
+    def test_writes_lowercase_directive_fragment_for_the_bench_domain(self, migration, bench):
+        services_path = self._services_path(bench)
         migration._write_upload_limit_vhostd(bench, "200M")
-        assert "client_max_body_size 200m;" in (vhostd / "test-bench").read_text()
+        assert self._fragment(services_path, "test-bench").read_text() == "client_max_body_size 200m;\n"
         assert "Set upload limit (200M) for 1 domain(s)" in printed(migration)
 
     def test_alias_domains_are_included(self, migration, bench):
-        vhostd = self._vhostd(bench)
+        services_path = self._services_path(bench)
         (bench.path / "bench_config.toml").write_text('alias_domains = ["a.test", "b.test"]\n')
 
         migration._write_upload_limit_vhostd(bench, "50M")
 
-        assert (vhostd / "a.test").exists()
-        assert (vhostd / "b.test").exists()
+        assert self._fragment(services_path, "a.test").exists()
+        assert self._fragment(services_path, "b.test").exists()
         assert "Set upload limit (50M) for 3 domain(s)" in printed(migration)
 
     def test_existing_vhost_files_are_backed_up_before_modification(self, migration, bench):
-        vhostd = self._vhostd(bench)
-        (vhostd / "test-bench").write_text("client_max_body_size 10m;\n")
+        services_path = self._services_path(bench)
+        vhostd = services_path / "nginx-proxy" / "vhostd"
+        vhostd.mkdir(parents=True, exist_ok=True)
+        (vhostd / "test-bench").write_text("# fm:include BEGIN\ninclude foo;\n# fm:include END\n")
         (bench.path / "bench_config.toml").write_text('alias_domains = ["fresh.test"]\n')
 
         migration._write_upload_limit_vhostd(bench, "50M")
@@ -906,21 +911,20 @@ class TestWriteUploadLimitVhostd:
         assert backed == [vhostd / "test-bench"], "only pre-existing vhost files are backed up"
         assert migration.backup_manager.backup.call_args_list[0].kwargs["bench_name"] == "test-bench"
 
-    def test_existing_directive_is_replaced_not_duplicated(self, migration, bench):
-        vhostd = self._vhostd(bench)
-        (vhostd / "test-bench").write_text("client_max_body_size 10m;\n")
-
-        migration._write_upload_limit_vhostd(bench, "50M")
-
-        content = (vhostd / "test-bench").read_text()
-        assert content.count("client_max_body_size") == 1
-        assert "50m" in content
-
     def test_empty_alias_domains_list_adds_nothing(self, migration, bench):
-        self._vhostd(bench)
+        self._services_path(bench)
         (bench.path / "bench_config.toml").write_text("alias_domains = []\n")
         migration._write_upload_limit_vhostd(bench, "50M")
         assert "Set upload limit (50M) for 1 domain(s)" in printed(migration)
+
+    def test_writes_a_fragment_never_a_marker(self, migration, bench):
+        """RULE: a bench-tier migration writes fragments, never a `# fm:<name>` marker, because
+        the services tier has always already converted the vhost.d file to the bootstrap form
+        by the time a bench migration runs."""
+        services_path = self._services_path(bench)
+        migration._write_upload_limit_vhostd(bench, "50M")
+        content = (services_path / "nginx-proxy" / "vhostd" / "test-bench").read_text()
+        assert content == "# fm:include BEGIN\ninclude /etc/nginx/fm.d/vhost/test-bench/*.conf;\n# fm:include END\n"
 
 
 class TestWriteUploadLimitSiteConfig:
@@ -2224,7 +2228,8 @@ class TestMigrateBenchEndToEndOnFakeTree:
         assert (
             bench.path / "configs" / "nginx" / "conf" / "custom" / "upload-limit.conf"
         ).read_text() == "client_max_body_size 50m;\n"
-        assert "client_max_body_size 50m;" in (vhostd / "test-bench").read_text()
+        fragment = vhostd.parent / "fmd" / "vhost" / "test-bench" / "10-upload-limit.conf"
+        assert fragment.read_text() == "client_max_body_size 50m;\n"
         site_config = json.loads(
             (bench.path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json").read_text()
         )

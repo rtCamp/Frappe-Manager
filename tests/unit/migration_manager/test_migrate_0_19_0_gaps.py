@@ -135,7 +135,8 @@ class TestNonWholeMebibyteUploadLimit:
         migration.migrate_bench(bench)
 
         assert (bench.path / "docker-compose.yml").read_text() == compose_after("24m")
-        assert (vhostd / "test-bench").read_text() == "\nclient_max_body_size 24m;\n"
+        fragment = vhostd.parent / "fmd" / "vhost" / "test-bench" / "10-upload-limit.conf"
+        assert fragment.read_text() == "client_max_body_size 24m;\n"
         assert (
             bench.path / "configs" / "nginx" / "conf" / "custom" / "upload-limit.conf"
         ).read_text() == "client_max_body_size 24m;\n"
