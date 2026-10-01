@@ -7,6 +7,7 @@ import pkgutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.logger import get_logger
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.utils.helpers import capture_and_format_exception
@@ -44,6 +45,13 @@ class MigrationDiscovery:
 
         Returns:
             Sorted list of migration instances to execute
+
+        Raises:
+            FrappeManagerException: A migration module failed to import or instantiate. Raised
+                rather than skipped, because a module that fails to load inside fm's own
+                package is a broken install, not a migration to route around -- skipping it
+                here previously let the whole tier get stamped as migrated with none of its
+                work done.
         """
         migrations = []
 
@@ -56,12 +64,14 @@ class MigrationDiscovery:
                     if self._should_include_migration(migration_instance, from_version, to_version):
                         migrations.append(migration_instance)
 
-            except Exception:
+            except Exception as e:
                 exception_str = capture_and_format_exception()
                 self.logger.error(f"Failed to register migration {module_name}: {exception_str}")
-                self.output.warning(
-                    f"Skipping migration module '{module_name}' due to load failure. Check logs for details.",
-                )
+                raise FrappeManagerException(
+                    f"Migration module '{module_name}' failed to load: {e}. This is a broken fm "
+                    f"installation, not a problem with your benches or config; reinstall fm "
+                    f"(uv tool install --force frappe-manager) and try again."
+                ) from e
 
         return sorted(migrations, key=lambda m: m.version)
 

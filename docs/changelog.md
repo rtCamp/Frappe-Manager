@@ -80,6 +80,12 @@ This is the 1.0.0 cycle. Versions 0.20.0 and 0.21.0 were never published: their 
 
 ### Bug Fixes
 
+- **migrate:** The v1.0.0 migration runs at all. It imported PyYAML, which fm does not depend on, so on any clean install the module failed to load, discovery skipped it with a warning, and the command then reported success and stamped the version as migrated with none of the work done. Found by installing fm on a clean host
+
+- **migrate:** A migration module that cannot be loaded now aborts the run instead of being skipped. A skipped migration is indistinguishable, to every later command, from one that ran: the version gets stamped, and `fm migrate` refusing while the services tier is behind is defeated because the tier claims it is current
+
+- **nginx:** fm removes a hand-written `client_max_body_size` from a domain's shared vhost file when it writes its own, and says what it removed. A second copy of that directive in one server context is fatal to nginx, and it is fatal even across two included files, so leaving the operator's copy in place took down every bench on the host rather than just that domain
+
 - **domain:** `fm domain remove` takes the domain's proxy configuration with it. The upload limit and HSTS drop-ins keyed by that hostname outlived the domain, so a hostname later added to a DIFFERENT bench silently inherited the removed bench's limits. Same orphan rule the command already applied to the domain's certificate
 
 - **migrate:** The services migration recreates the global proxy when it adds the `fm.d` mount, rather than reloading it. A reload re-reads configuration inside the container it already has, and docker binds mounts at container creation, so `/etc/nginx/fm.d` was not there to read: a wildcard include of a missing directory is valid and silently inert, so every domain the migration had just converted lost its entire configuration with nothing failing anywhere. A bench serving a 301 to HTTPS answered 200 in plain HTTP afterwards

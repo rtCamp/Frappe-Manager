@@ -48,7 +48,11 @@ from frappe_manager.site_manager.modules.bench_ssl import BenchSSL
 from frappe_manager.site_manager.modules.bench_supervisor import BenchSupervisor
 from frappe_manager.site_manager.modules.bench_workers import BenchWorkerCoordinator, BenchWorkers
 from frappe_manager.site_manager.modules.db_tls import remove_site_tls
-from frappe_manager.site_manager.modules.upload_limit import domains_needing_upload_limit, upload_limit_conf
+from frappe_manager.site_manager.modules.upload_limit import (
+    claim_foreign_upload_limit,
+    domains_needing_upload_limit,
+    upload_limit_conf,
+)
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkManager
 from frappe_manager.ssl_manager.nginx_controller import NginxController
@@ -1919,6 +1923,18 @@ class Bench:
         if dropins.vhostd_dir.exists():
             size = upload_limit.lower()
             for domain in domains_needing_upload_limit(self.domains):
+                # An operator's own directive in this shared file and fm's fragment below cannot
+                # coexist in the same nginx server context -- a second `client_max_body_size` is
+                # fatal on the next reload even across `include`d files -- so it is claimed (never
+                # silently dropped: said out loud) before fm's own copy goes in.
+                removed = claim_foreign_upload_limit(dropins.vhostd_dir / domain)
+                if removed is not None:
+                    changed = True
+                    self.output.warning(
+                        f"Removed a hand-written client_max_body_size ({removed}) for {domain} from "
+                        "the shared proxy config; a second copy in the same context is fatal to nginx. "
+                        "Set it with `fm update --upload-limit` instead so fm manages it."
+                    )
                 if dropins.set(domain, "upload-limit", upload_limit_conf(size)):
                     changed = True
 

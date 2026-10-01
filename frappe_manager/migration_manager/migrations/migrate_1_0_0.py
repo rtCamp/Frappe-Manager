@@ -92,6 +92,7 @@ admin-tools/config work, since the rename ran last.
 
 import contextlib
 import gzip
+import io
 import json
 import os
 import platform
@@ -102,7 +103,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import tomlkit
-import yaml
 from ruamel.yaml import YAML
 
 from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_FM_CONFIG_PATH, MARIADB_IMAGE
@@ -125,6 +125,20 @@ from frappe_manager.utils import toml_document
 from frappe_manager.utils.docker import run_command_with_exit_code
 from frappe_manager.utils.helpers import get_template_path
 from frappe_manager.utils.site import host_bench_dir
+
+
+# fm depends on ruamel-yaml, not PyYAML: a PyYAML dependency here would make this whole module
+# unimportable on a clean install, which the discovery layer turns into a silently skipped
+# migration rather than an error.
+def _load_yaml(text: str):
+    return YAML().load(text) or {}
+
+
+def _dump_yaml(doc) -> str:
+    buffer = io.StringIO()
+    YAML().dump(doc, buffer)
+    return buffer.getvalue()
+
 
 # Dropped from the engine command list: it was only ever needed on MariaDB
 # 10.6.1 to 10.6.5, where innodb_read_only_compressed defaulted to ON and frappe's
@@ -370,7 +384,7 @@ class MigrationV100(MigrationBase):
         if not compose_path.exists():
             return
 
-        doc = yaml.safe_load(compose_path.read_text()) or {}
+        doc = _load_yaml(compose_path.read_text())
         services = doc.get("services")
         if not isinstance(services, dict):
             return
@@ -390,7 +404,7 @@ class MigrationV100(MigrationBase):
 
         environment["LOG_FORMAT"] = desired
         environment["LOG_FORMAT_ESCAPE"] = "json"
-        compose_path.write_text(yaml.safe_dump(doc, sort_keys=False))
+        compose_path.write_text(_dump_yaml(doc))
         self.output.print("Updated the global proxy's access-log format")
 
     def _add_proxy_fmd_mount(self) -> bool:
@@ -415,7 +429,7 @@ class MigrationV100(MigrationBase):
         if not compose_path.exists():
             return False
 
-        doc = yaml.safe_load(compose_path.read_text()) or {}
+        doc = _load_yaml(compose_path.read_text())
         services = doc.get("services")
         if not isinstance(services, dict):
             return False
@@ -430,7 +444,7 @@ class MigrationV100(MigrationBase):
             return False
 
         volumes.append(mount)
-        compose_path.write_text(yaml.safe_dump(doc, sort_keys=False))
+        compose_path.write_text(_dump_yaml(doc))
         self.output.print("Added the fm.d fragment mount to the global proxy")
         return True
 
@@ -587,7 +601,7 @@ class MigrationV100(MigrationBase):
         if not compose_path.exists():
             return
 
-        doc = yaml.safe_load(compose_path.read_text()) or {}
+        doc = _load_yaml(compose_path.read_text())
         services = doc.get("services")
         if not isinstance(services, dict) or "postgres" in services:
             return
@@ -597,7 +611,7 @@ class MigrationV100(MigrationBase):
             if platform.system() == "Darwin"
             else "docker-compose.services.tmpl"
         )
-        template = yaml.safe_load(get_template_path(template_name).read_text())
+        template = _load_yaml(get_template_path(template_name).read_text())
         service = template["services"]["postgres"]
         # The template carries USER placeholders that only `ServicesManager.generate_compose`
         # substitutes, and it is not on this path: copying the service verbatim left
@@ -623,7 +637,7 @@ class MigrationV100(MigrationBase):
         if "volumes" in template and platform.system() == "Darwin":
             doc.setdefault("volumes", {})["postgres-data"] = template["volumes"]["postgres-data"]
 
-        compose_path.write_text(yaml.safe_dump(doc, sort_keys=False))
+        compose_path.write_text(_dump_yaml(doc))
         self.output.print("Added the postgres service to the global services (switched off)")
 
     def undo_services_migrate(self):

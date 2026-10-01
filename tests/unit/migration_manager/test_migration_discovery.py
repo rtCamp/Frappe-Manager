@@ -18,6 +18,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.migration_manager.migration_discovery import MigrationDiscovery
 from frappe_manager.migration_manager.version import Version
 
@@ -144,3 +145,55 @@ class TestShouldIncludeMigrationBoundaries:
         )
 
         assert result is expected
+
+
+class TestDiscoveryAbortsOnLoadFailure:
+    """A migration module that fails to import must abort discovery, not be skipped.
+
+    Before this fix the load failure was caught, logged, and swallowed: discovery returned
+    whatever modules DID import, the caller ran those, and stamped the target version as
+    migrated regardless. On a real host this skipped the entire v1.0.0 migration module (a
+    missing PyYAML import) and still reported the services tier as migrated -- which defeats
+    fm's own upgrade gate, since every later command sees the tier as current and never retries.
+    """
+
+    def _discover_with_one_broken_module(self, discovery, broken_module: str, broken_exc: Exception):
+        modules = {"migrate_0_19_0": SimpleNamespace(M=make_migration_class("0.19.0"))}
+
+        def fake_import(rel, _pkg=None):
+            name = rel.rsplit(".", 1)[-1]
+            if name == broken_module:
+                raise broken_exc
+            return modules[name]
+
+        with (
+            patch(
+                f"{DISCOVERY_MODULE}.pkgutil.iter_modules",
+                return_value=[(None, "migrate_0_19_0", False), (None, broken_module, False)],
+            ),
+            patch(f"{DISCOVERY_MODULE}.importlib.import_module", side_effect=fake_import),
+        ):
+            discovery.discover_migrations(
+                from_version=Version("0.18.0"),
+                to_version=Version("1.0.0"),
+                migration_executor=Mock(),
+            )
+
+    def test_broken_module_aborts_instead_of_returning_the_modules_that_did_load(self, discovery):
+        with pytest.raises(FrappeManagerException, match="migrate_1_0_0"):
+            self._discover_with_one_broken_module(
+                discovery, "migrate_1_0_0", ModuleNotFoundError("No module named 'yaml'")
+            )
+
+    def test_broken_module_error_carries_the_underlying_cause(self, discovery):
+        """The operator needs the real reason (e.g. the missing module), not just a name."""
+        with pytest.raises(FrappeManagerException, match="No module named 'yaml'"):
+            self._discover_with_one_broken_module(
+                discovery, "migrate_1_0_0", ModuleNotFoundError("No module named 'yaml'")
+            )
+
+    def test_all_modules_importable_is_unaffected(self, discovery):
+        """The happy path -- nothing broken -- still returns every migration, sorted."""
+        selected = discover(discovery, ["1.0.0", "0.19.0"], from_version="0.18.0", to_version="1.0.0")
+
+        assert selected == ["0.19.0", "1.0.0"]
