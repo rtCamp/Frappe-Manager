@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from frappe_manager.docker import DockerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.services_manager.proxy_dropins import ProxyDropins
 from frappe_manager.site_manager.bench_config import (
     AuthConfig,
     BenchRuntime,
@@ -14,7 +15,6 @@ from frappe_manager.site_manager.bench_config import (
     read_sites_on_disk,
     resolve_primary_site,
 )
-from frappe_manager.services_manager.proxy_dropins import ProxyDropins
 from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.site_manager.modules.maintenance_state import domains_in_maintenance
 from frappe_manager.site_manager.modules.public_scheme import host_proxy_state, public_scheme, public_url
@@ -686,12 +686,13 @@ class BenchInfo:
         # printed no row at all.
         engines = {site: config.get_database(site).type.value for site in sites}
         own_upload_sites = set(config.sites_with_own_upload_limit())
-        if sites and (
+        per_site_rows = bool(sites) and (
             len(sites) > 1
             or config.get_database_config(sites[0]) is not None
             or engines[sites[0]] != "mariadb"
             or bool(own_upload_sites)
-        ):
+        )
+        if per_site_rows:
             for i, site in enumerate(sites):
                 database = config.get_database_config(site)
                 where = (
@@ -707,6 +708,11 @@ class BenchInfo:
                 upload = f"  [fm.muted]· upload {limit} ({owns_limit})[/fm.muted]"
                 url = public_url(site, protocol, http_port, https_port)
                 card.fact("sites" if i == 0 else "", f"{url}  [fm.muted]{where}[/fm.muted]{marker}{upload}")
+        elif sites:
+            # No per-site row rendered, so nothing above has named the limit. It is still the number
+            # that decides whether an upload is refused, and an operator who cannot see it anywhere
+            # has no way to tell why a 413 happened.
+            card.fact("uploads", f"[fm.muted]up to {config.effective_upload_limit(sites[0])}[/fm.muted]")
 
         # Site directories on disk that `[sites]` does not record (someone ran `bench new-site` by hand
         # inside `fm shell`). Reported, never acted on: fm only destroys a schema it wrote down. Two rows,

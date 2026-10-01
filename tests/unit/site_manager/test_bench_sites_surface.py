@@ -281,6 +281,17 @@ def test_a_one_site_bench_prints_the_url_it_always_has_and_no_per_site_rows(tmp_
     info.output.print_data.assert_called_once_with(f"<rendered {BENCH}>")
 
 
+def test_a_plain_single_site_bench_still_shows_its_upload_limit(tmp_path, card_spy):
+    """The single-site, fm's-own-mariadb, inherited-limit case prints no per-site row at all.
+    Without a bench-level fact standing in for it, the number that decides whether an upload is
+    refused appears nowhere on the card an operator reads, and a 413 is unexplainable."""
+    config = _config(tmp_path, sites={SITE: None})
+    card, _ = _info_card(tmp_path, config, site_config={SITE: {}})
+
+    assert "sites" not in card.facts
+    assert card.facts["uploads"] == "[fm.muted]up to 50M[/fm.muted]"
+
+
 def test_a_single_ordinary_site_with_its_own_upload_limit_still_gets_a_row(tmp_path, card_spy):
     """The single-site, fm's-own-mariadb case above prints no per-site rows at all. The one thing
     that must still force the row is a site's own upload limit: otherwise the override it
@@ -314,6 +325,17 @@ def test_card_and_json_payload_agree_on_each_sites_effective_upload_limit(tmp_pa
     assert "upload 50M (inherited)" in rows[1]
 
 
+def test_the_bench_level_uploads_fact_matches_the_json_payload_for_a_single_site(tmp_path, card_spy):
+    """The bench-level `uploads` fact and `--json` must agree on a single site's effective limit,
+    exactly like the per-site row case above: the card and the payload read the same precedence
+    rule, and a hand-derived copy here is how the two would drift."""
+    config = _config(tmp_path, sites={SITE: None})
+    card, info = _info_card(tmp_path, config, site_config={SITE: {}})
+
+    data = info.build_bench_info_data()
+    assert card.facts["uploads"] == f"[fm.muted]up to {data['sites'][0]['upload_limit']}[/fm.muted]"
+
+
 def test_a_two_site_bench_lists_every_site_and_marks_the_primary(tmp_path, card_spy):
     config = _config(tmp_path, sites={SITE: None, OTHER: None})
     card, _ = _info_card(tmp_path, config, site_config={SITE: {}})
@@ -325,6 +347,17 @@ def test_a_two_site_bench_lists_every_site_and_marks_the_primary(tmp_path, card_
     ]
     # The primary's own line is unchanged: the rows are an addition, not a replacement.
     assert card.facts["url"] == f"http://{SITE}"
+
+
+def test_a_bench_with_per_site_rows_does_not_also_emit_the_bench_level_uploads_fact(tmp_path, card_spy):
+    """Per-site rows already state each site's own limit with its own scope. A bench-level
+    `uploads` fact alongside them would state the same number again under a different scope, and
+    an operator reading the card would not know which one actually governs."""
+    config = _config(tmp_path, sites={SITE: None, OTHER: None})
+    card, _ = _info_card(tmp_path, config, site_config={SITE: {}})
+
+    assert card.labelled("sites")
+    assert "uploads" not in card.facts
 
 
 def test_a_site_on_someone_elses_server_names_that_server(tmp_path, card_spy):
