@@ -1827,7 +1827,7 @@ def test_no_bench_lists_every_domain_in_maintenance(out, tmp_path):
     assert "bench-a" in body
     row = line_for(body, "a.localhost")
     assert "code 404" in row
-    assert "bypass token " + "a" * 32 in row
+    assert "a" * 32 in body  # the bypass URL carries the token
     assert "b.localhost" not in body
 
 
@@ -1844,6 +1844,20 @@ def test_no_bench_with_a_missing_fmd_directory_still_reports_cleanly(out, tmp_pa
     r = _run_maintenance_status(services, tmp_path / "benches", address=None)
     assert r.exit is None
     assert "none in maintenance" in render(out.print_data.call_args.args[0])
+
+
+def _bare_row(bench: str, domain: str, code: int, token: str) -> dict:
+    """One row of the bare listing's payload. The bypass URLs are built from the fragment's own
+    `Secure` flag, so an http domain must not be reported with an https bypass link."""
+    return {
+        "bench": bench,
+        "domain": domain,
+        "maintenance": True,
+        "code": code,
+        "bypass_token": token,
+        "bypass_url": f"http://{domain}/fm-bypass/{token}",
+        "bypass_off_url": f"http://{domain}/fm-bypass/off",
+    }
 
 
 def test_no_bench_json_lists_one_flat_row_per_domain_ordered_by_bench_then_domain(out, tmp_path):
@@ -1866,9 +1880,9 @@ def test_no_bench_json_lists_one_flat_row_per_domain_ordered_by_bench_then_domai
     r = _run_maintenance_status(services, tmp_path / "benches", address=None, json_results=True)
     assert r.exit is None
     assert out.print_data.call_args.args[0] == [
-        {"bench": "aaa-bench", "domain": "a.localhost", "maintenance": True, "code": 500, "bypass_token": "2" * 32},
-        {"bench": "aaa-bench", "domain": "b.localhost", "maintenance": True, "code": 404, "bypass_token": "1" * 32},
-        {"bench": "zzz-bench", "domain": "x.localhost", "maintenance": True, "code": 503, "bypass_token": "3" * 32},
+        _bare_row("aaa-bench", "a.localhost", 500, "2" * 32),
+        _bare_row("aaa-bench", "b.localhost", 404, "1" * 32),
+        _bare_row("zzz-bench", "x.localhost", 503, "3" * 32),
     ]
 
 
@@ -1899,7 +1913,7 @@ def test_no_bench_without_json_still_renders_cards(out, tmp_path):
     assert "bench-a" in body
     row = line_for(body, "a.localhost")
     assert "code 404" in row
-    assert "bypass token " + "a" * 32 in row
+    assert "a" * 32 in body  # the bypass URL carries the token
 
 
 # --- enable flag guards ----------------------------------------------------- #
@@ -1998,7 +2012,8 @@ def test_status_reports_on_off_and_foreign_per_domain_without_reloading(out, tmp
     assert "mybench" in body
     assert "on: 1/4 domains" in body
     on_row = line_for(body, "code 404")
-    assert "bypass: https://mybench/fm-bypass/" + "b" * 32 in on_row
+    assert "https://mybench/fm-bypass/" + "b" * 32 in body
+    assert "https://mybench/fm-bypass/off" in body  # status must also name the way OUT
     foreign_row = line_for(body, "alias.example.com")
     # Answer first, in words that mean something to an operator -- not fm's "vhost" jargon.
     assert "off" in foreign_row
@@ -2020,7 +2035,7 @@ def test_status_uses_http_for_a_domain_without_its_own_certificate(out, tmp_path
         "mybench", "maintenance", _vhost_conf("mybench", "c" * 32, "/html", 503, 300, [], [], secure_cookie=False)
     )
     _run_maintenance_status(services, benches)
-    assert "bypass: http://mybench/fm-bypass/" in render(out.print_data.call_args.args[0])
+    assert "http://mybench/fm-bypass/" in render(out.print_data.call_args.args[0])
 
 
 # --- disable ----------------------------------------------------------------- #

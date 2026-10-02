@@ -188,6 +188,17 @@ def _extract_bench(conf_text: str) -> str:
     return match.group(1) if match else "?"
 
 
+def _extract_scheme(conf_text: str) -> str:
+    """The scheme this domain was served over when maintenance was enabled.
+
+    Read back out of the fragment's own `Secure` cookie attribute, which `_vhost_conf` sets from
+    the domain's TLS state. That makes a usable bypass URL buildable from the fragment ALONE, with
+    no bench config to load, which is what the host-wide listing has and the addressed form does
+    not need.
+    """
+    return "https" if "; Secure" in conf_text else "http"
+
+
 def _resolve_page_html(benchname: str, page: Path | None, message: str | None) -> str:
     """Custom page resolution, first match wins: --page file, --message into
     the built-in template, the bench's conventioned maintenance.html, then the

@@ -80,6 +80,8 @@ This is the 1.0.0 cycle. Versions 0.20.0 and 0.21.0 were never published: their 
 
 - **cli:** Every `fm ... status` command renders as the card `fm info` already uses. There were six of them in five different shapes: bullets, bare `key: value`, an indented block and a prose sentence. Each one now answers its question in the headline and carries the detail as facts, and the card sizes its own label column so a long label no longer pushes its value out of line
 
+- **maintenance:** `fm maintenance status` names the way OUT of a bypass, not just the way in. `fm maintenance enable` prints both URLs once; status is what an operator runs after that output is gone, and it gave the bypass link alone, leaving them holding a cookie with no documented way to drop it. The host-wide listing printed a bare token with no URL at all; it now builds real links from the fragment's own `Secure` flag, so an http domain is not advertised over https
+
 - **maintenance:** `fm maintenance status` run with no bench answers `--json` too. It was the last status surface without one, so the host-wide question, which domains are in maintenance and whose, could only be answered by parsing prose. Nothing in maintenance is an empty list, not a card, so a caller can tell it from a failure
 
 - **auth:** `fm auth status` reports what nginx is actually serving, not what fm last recorded. Deleting the conf that gates a site and reloading left the site answering 200 to everyone while status still said the web surface was protected. The card now says the record is not being served and names the command that re-applies it, `--json` gains `web_enforced` beside the recorded `web`, and the on-state names the other surface too rather than leaving it to be inferred

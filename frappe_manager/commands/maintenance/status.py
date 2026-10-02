@@ -9,6 +9,7 @@ from frappe_manager.commands.maintenance._helpers import (
     _bench_domains,
     _extract_bench,
     _extract_code,
+    _extract_scheme,
     _extract_token,
     _foreign_vhost_content,
     _maintenance_domains,
@@ -68,9 +69,8 @@ def status(
 
         if output.wants_structured_data:
             # One flat row per domain, carrying the bench, because a caller asking the host-wide
-            # question is asking WHICH domains and whose. Keys that also exist in the addressed
-            # payload keep their meaning; `bypass_token` rather than `bypass_url` because this
-            # branch has no bench to resolve a scheme or a published port from.
+            # question is asking WHICH domains and whose. Keys shared with the addressed payload
+            # keep their meaning.
             output.print_data(
                 [
                     {
@@ -79,6 +79,8 @@ def status(
                         "maintenance": True,
                         "code": _extract_code(text),
                         "bypass_token": _extract_token(text),
+                        "bypass_url": f"{_extract_scheme(text)}://{domain}/fm-bypass/{_extract_token(text)}",
+                        "bypass_off_url": f"{_extract_scheme(text)}://{domain}/fm-bypass/off",
                     }
                     for bench, entries in sorted(by_bench.items())
                     for domain, text in sorted(entries, key=lambda entry: entry[0])
@@ -99,10 +101,10 @@ def status(
             meta = "on" if count == 1 else f"on: {count} domains"
             card = railcard.Card(bench, f"[fm.status.stopped]{meta}[/fm.status.stopped]", active=False)
             for domain, text in sorted(entries, key=lambda entry: entry[0]):
-                card.fact(
-                    domain,
-                    f"code {_extract_code(text)} [fm.muted]·[/fm.muted] bypass token {_extract_token(text)}",
-                )
+                scheme = _extract_scheme(text)
+                card.fact(domain, f"code {_extract_code(text)}")
+                card.fact("", f"[fm.muted]bypass[/fm.muted] {scheme}://{domain}/fm-bypass/{_extract_token(text)}")
+                card.fact("", f"[fm.muted]drop it[/fm.muted] {scheme}://{domain}/fm-bypass/off")
             items.append(card)
         output.print_data(railcard.cards(items))
         return
@@ -124,6 +126,10 @@ def status(
                 "maintenance": bool(on),
                 "code": _extract_code(text) if on else None,
                 "bypass_url": f"{base}/fm-bypass/{_extract_token(text)}" if on else None,
+                # The way OUT, beside the way in. `fm maintenance enable` prints both and status is
+                # what an operator runs once that output is gone, so omitting it left them holding
+                # a cookie with no documented way to drop it.
+                "bypass_off_url": f"{base}/fm-bypass/off" if on else None,
                 # A vhost.d file fm did not write. Worth reporting because it explains why an
                 # enable will merge rather than create, but it is NOT the answer to "is this in
                 # maintenance" and must not lead.
@@ -133,7 +139,6 @@ def status(
     if output.wants_structured_data:
         output.print_data(rows)
         return
-
     on_count = sum(1 for row in rows if row["maintenance"])
     if on_count == 0:
         status_word = "off"
@@ -152,8 +157,10 @@ def status(
         if row["maintenance"]:
             card.fact(
                 row["domain"],
-                f"on [fm.muted]·[/fm.muted] code {row['code']} [fm.muted]·[/fm.muted] bypass: {row['bypass_url']}",
+                f"on [fm.muted]·[/fm.muted] code {row['code']}",
             )
+            card.fact("", f"[fm.muted]bypass[/fm.muted] {row['bypass_url']}")
+            card.fact("", f"[fm.muted]drop it[/fm.muted] {row['bypass_off_url']}")
         elif row["custom_vhost"]:
             # Answer first, and in words an operator reading "is my site down" actually
             # understands: not fm's internal "custom vhost config" jargon.
