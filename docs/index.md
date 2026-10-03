@@ -41,11 +41,11 @@ It replaces the hand-rolled stack most Frappe developers end up maintaining: a b
 
     Add ERPNext, HRMS, or any custom app with `--apps`, at create time or later on a running `mount` bench. Pin each one to a branch, tag, or commit.
 
--   :lucide-wrench:{ .lg .middle } &nbsp; **[Admin tools included](guides/admin-tools.md)**
+-   :lucide-wrench:{ .lg .middle } &nbsp; **[Admin tools, on request](guides/admin-tools.md)**
 
     ---
 
-    Read outgoing mail in Mailpit and browse the database in Adminer, path-routed under the bench URL behind basic auth. On by default for `dev` benches.
+    Read outgoing mail in Mailpit and browse the database in Adminer, path-routed under the bench URL behind basic auth. Off by default; turn them on with `fm tools enable BENCH`.
 
 -   :lucide-ship:{ .lg .middle } &nbsp; **[Ship immutable deploys](deploy/index.md)**
 

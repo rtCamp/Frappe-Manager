@@ -1646,14 +1646,27 @@ def test_the_tools_row_says_so_when_no_site_routes_them(tmp_path, card_spy):
 
 
 def test_the_auth_row_is_unchanged_when_no_site_has_its_own(tmp_path, card_spy):
-    info = _displayable(
-        tmp_path,
-        bench_config=_config(sites={SITE: None, SECOND_SITE: None}, auth=AuthConfig(web=True, password="bp")),
-    )
+    config = _config(sites={SITE: None, SECOND_SITE: None}, auth=AuthConfig(web=True, password="bp"))
+    # The tools surface is only a surface when the bench actually serves Adminer and Mailpit.
+    config.admin_tools = True
+    info = _displayable(tmp_path, bench_config=config)
     info.display_info()
 
     (card,) = card_spy.made
     assert card.labelled("auth") == ["[fm.ok]web + tools[/fm.ok]  [fm.muted]·[/fm.muted] admin [fm.muted]/[/fm.muted] [fm.secret]bp[/fm.secret]"]
+
+
+def test_the_tools_surface_is_not_reported_on_a_bench_that_serves_no_admin_tools(tmp_path, card_spy):
+    """`AuthConfig.tools` defaults on, but a bench with no Adminer and no Mailpit has nothing for it
+    to protect and mints no password for it. Reporting it as protected described an intent as state
+    and sent the reader looking for a credential that was never going to exist."""
+    config = _config(sites={SITE: None}, auth=AuthConfig(web=True, password="bp"))
+    config.admin_tools = False
+    info = _displayable(tmp_path, bench_config=config)
+    info.display_info()
+
+    (card,) = card_spy.made
+    assert "tools" not in card.labelled("auth")[0]
 
 
 def test_a_site_with_its_own_auth_gets_its_own_row(tmp_path, card_spy):
@@ -1661,6 +1674,7 @@ def test_a_site_with_its_own_auth_gets_its_own_row(tmp_path, card_spy):
     thing per-site credentials exist to prevent."""
     config = _config(sites={SITE: None, SECOND_SITE: None}, auth=AuthConfig(web=True, password="bench-pw"))
     config.sites[SECOND_SITE].auth = WebAuthConfig(web=True, user="customer", password="site-pw")
+    config.admin_tools = True
     info = _displayable(tmp_path, bench_config=config)
     info.display_info()
 

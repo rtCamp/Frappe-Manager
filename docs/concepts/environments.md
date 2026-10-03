@@ -1,6 +1,6 @@
 # Environments: dev vs prod
 
-The environment is the **second axis** of a bench: it controls **how the web process runs** (`dev` uses Frappe's auto-reloading development server, `prod` uses Gunicorn), plus the convenience defaults that come with each (restart policy at create time, admin tools, developer mode).
+The environment is the **second axis** of a bench: it controls **how the web process runs** (`dev` uses Frappe's auto-reloading development server, `prod` uses Gunicorn), plus the convenience defaults that come with each (restart policy at create time, developer mode). Admin tools are a separate, create-time default of their own: off on every environment; see [below](#4-admin-tools-mailpit-and-adminer).
 
 !!! note "Runtime comes first"
     The environment does not decide where your code lives; that's the [runtime (mount vs image)](runtimes.md). A `prod` bench can still be fully editable (`mount`), and an immutable `image` bench can run `dev`. Read [Concepts](index.md) first if you haven't.
@@ -32,7 +32,6 @@ fm update mybench --environment dev
 | **Web server** | Werkzeug (single-threaded) | Gunicorn (multi-worker) |
 | **Restart on crash** | ❌ supervisord leaves the process down | ✅ supervisord restarts the web process |
 | **Hot-reload** | ✅ Assets + Python | ❌ Disabled |
-| **Admin tools at create** | ✅ Mailpit, Adminer | ❌ Disabled |
 | **Performance** | Slower (for DX) | Optimized for load |
 | **Use for** | Local development | Staging, production servers |
 
@@ -109,16 +108,16 @@ fm update mybench --developer-mode disable
 
 ---
 
-### 4. Admin tools (Mailpit & Adminer)
+### 4. Admin tools (Mailpit and Adminer)
 
 | Tool | Purpose | Access URL |
 |------|---------|------------|
 | **Mailpit** | Email testing (catches all outgoing emails) | `http://mybench.localhost/mailpit` |
 | **Adminer** | Database web UI | `http://mybench.localhost/adminer` |
 
-Both are enabled at create time on `dev` benches and disabled on `prod` ones. These are **create-time defaults** (switching environments later does not enable or disable admin tools); see the [`admin_tools` reference](../reference/configuration.md#admin-tools).
+Off by default on both `dev` and `prod` benches: Adminer is a full database console routed on the bench's own hostname, and a dev bench is not always a laptop, so `fm create` never turns it on for you, not even with `--environment dev`. This is a **create-time default** (existing benches keep whatever `admin_tools` they recorded); see the [`admin_tools` reference](../reference/configuration.md#admin-tools).
 
-You can toggle admin tools **independently** of the environment:
+Turn them on explicitly:
 
 ```bash
 fm tools enable mybench
@@ -168,7 +167,7 @@ fm start mybench --sync-dev-packages
 
 ## When to use each environment
 
-Use `dev` on your own machine, where you are editing app code and want the asset watcher, browser tracebacks and the admin tools. Use `prod` anywhere the bench is reachable by other people: multi-worker serving, containers that come back after a crash or reboot, and no debug surface.
+Use `dev` on your own machine, where you are editing app code and want the asset watcher and browser tracebacks; enable the admin tools with `fm tools enable` if you want Mailpit and Adminer too. Use `prod` anywhere the bench is reachable by other people: multi-worker serving, containers that come back after a crash or reboot, and no debug surface.
 
 !!! tip "Staging servers"
     For staging that mirrors production, run `prod` with `--developer-mode enable` if you need detailed error tracebacks during testing.

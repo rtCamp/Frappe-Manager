@@ -267,12 +267,17 @@ def _derive_create_defaults(bc: BenchConfig, *, db_name: str) -> bool:
     apps_from_user = bool(bc.apps_list)
 
     # An image bench can never carry developer mode (refused above when asked for). A dev bench gets
-    # it, and the admin tools with it; prod honours whatever was passed.
+    # it; prod honours whatever was passed.
+    #
+    # Admin tools are NOT turned on with it. Adminer is a database console routed on the bench's own
+    # hostname, and a dev bench is not always a laptop -- `--environment dev` on a reachable host
+    # published one to anyone who guessed the path. Turning them on also minted a basic auth
+    # password nobody asked for, which surfaced only as a confusing `fm info` row. `fm tools enable`
+    # is the one way in, and create names it on the way out.
     if bc.runtime == BenchRuntime.image:
         bc.developer_mode = False
     elif bc.environment_type == FMBenchEnvType.dev:
         bc.developer_mode = True
-        bc.admin_tools = True
 
     # A seeded workspace already contains its own frappe, and injecting a default would clobber it.
     # There, --apps entries are per-app overrides used verbatim.

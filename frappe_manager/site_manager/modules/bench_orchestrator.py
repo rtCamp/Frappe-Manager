@@ -243,6 +243,15 @@ class BenchOrchestrator:
         if apps_installed:
             bench.info()
 
+            # Adminer and Mailpit are no longer turned on with a dev bench: Adminer is a database
+            # console on the bench's own hostname, and `--environment dev` is not always a laptop.
+            # Naming the command here is the whole cost of that default, so it is not optional.
+            if not bench.bench_config.admin_tools:
+                self.output.print(
+                    f"Database console and mail catcher are off. Turn them on with 'fm tools enable {bench.name}'.",
+                    emoji_code="",
+                )
+
             if ".localhost" not in bench.primary_domain:
                 self.output.print(
                     "Please note that You will have to add a host entry to your system's hosts file to access the bench locally.",

@@ -178,26 +178,35 @@ class BenchInfo:
         return f"{label} {shown}" + (f" +{extra}" if extra > 0 else "")
 
     @classmethod
-    def _auth_fact(cls, auth: AuthConfig | WebAuthConfig | None) -> str:
+    def _auth_fact(cls, auth: AuthConfig | WebAuthConfig | None, admin_tools: bool = True) -> str:
         """Basic auth summary: which nginx surfaces prompt, the credentials, the allow lists.
 
-        ``None`` is a config written before ``[auth]`` existed, so the model defaults
-        apply (tools prompt, web does not, password minted on the next start).
+        ``None`` is a config with no ``[auth]`` table, which is every bench `fm create` makes, so
+        the model defaults apply.
+
+        ``admin_tools`` gates the tools surface, mirroring ``tools_wanted`` in
+        ``ensure_fm_nginx_confs``: ``AuthConfig.tools`` defaults on, but a bench serving no Adminer
+        and no Mailpit has nothing for it to protect and mints no password. Reporting it as a
+        protected surface described an intent as if it were state, and sent the reader looking for
+        a credential that was never going to exist.
 
         A site's own auth is a :class:`WebAuthConfig`, which has no ``tools``: there is one Adminer
         and one Mailpit per bench, so that surface is only ever the bench's and is reported on the
         bench's row.
         """
         auth = auth or AuthConfig()
-        tools = auth.tools if isinstance(auth, AuthConfig) else None
+        tools = auth.tools if (isinstance(auth, AuthConfig) and admin_tools) else None
         pairs = (("web", auth.web),) if tools is None else (("web", auth.web), ("tools", tools))
         surfaces = [name for name, enabled in pairs if enabled]
         if not surfaces:
             return "[fm.muted]off[/fm.muted]"
-        if auth.password:
-            creds = f"{auth.user} [fm.muted]/[/fm.muted] [fm.secret]{auth.password}[/fm.secret]"
-        else:
-            creds = f"{auth.user} [fm.muted]/ password minted on next start[/fm.muted]"
+        shown = cls._surface_credentials(auth, surfaces)
+        creds = " [fm.muted]·[/fm.muted] ".join(
+            f"{prefix}{user} [fm.muted]/[/fm.muted] [fm.secret]{password}[/fm.secret]"
+            if password
+            else f"{prefix}{user} [fm.muted]/ password minted on next start[/fm.muted]"
+            for prefix, user, password in shown
+        )
         extras = [
             part
             for part in (cls._compact_list("allow", auth.allow_ips), cls._compact_list("open", auth.allow_paths))
@@ -206,18 +215,46 @@ class BenchInfo:
         tail = f"  [fm.muted]· {' · '.join(extras)}[/fm.muted]" if extras else ""
         return f"[fm.ok]{' + '.join(surfaces)}[/fm.ok]  [fm.muted]·[/fm.muted] {creds}{tail}"
 
+    @staticmethod
+    def _surface_credentials(auth, surfaces: list[str]) -> list[tuple[str, str, str | None]]:
+        """The credential belonging to each reported surface, as (prefix, user, password).
+
+        The two surfaces can carry DIFFERENT credentials, and reading only `auth.password` reported
+        a tools-only bench as having none while `tools_password` was minted and Adminer was already
+        answering 401. One pair is shown when both surfaces share it; otherwise each is labelled,
+        because a single pair would read as if one password opened both.
+        """
+        web = (auth.user, auth.password) if "web" in surfaces else None
+        tools = (
+            (auth.effective_tools_user, auth.effective_tools_password)
+            if "tools" in surfaces and isinstance(auth, AuthConfig)
+            else None
+        )
+        if web and tools and web != tools:
+            return [("[fm.muted]web[/fm.muted] ", *web), ("[fm.muted]tools[/fm.muted] ", *tools)]
+        return [("", *(web or tools))]
+
     @classmethod
-    def _auth_data(cls, auth: AuthConfig | WebAuthConfig | None) -> dict:
-        """Structured counterpart of ``_auth_fact``: same facts, no markup, for ``fm info --json``."""
+    def _auth_data(cls, auth: AuthConfig | WebAuthConfig | None, admin_tools: bool = True) -> dict:
+        """Structured counterpart of ``_auth_fact``: same facts, no markup, for ``fm info --json``.
+
+        Gated on ``admin_tools`` for the same reason, so the card and the payload cannot disagree
+        about whether the tools surface is a surface at all."""
         auth = auth or AuthConfig()
-        tools = auth.tools if isinstance(auth, AuthConfig) else None
+        tools = auth.tools if (isinstance(auth, AuthConfig) and admin_tools) else None
         pairs = (("web", auth.web),) if tools is None else (("web", auth.web), ("tools", tools))
         surfaces = [name for name, enabled in pairs if enabled]
+        shown = cls._surface_credentials(auth, surfaces) if surfaces else []
         return {
             "surfaces": surfaces,
-            "user": auth.user if surfaces else None,
-            "password": auth.password if surfaces else None,
-            "password_pending": bool(surfaces) and not auth.password,
+            "user": shown[0][1] if shown else None,
+            "password": shown[0][2] if shown else None,
+            # Per surface, because the two can differ and a single pair read as if one password
+            # opened both. Absent when they share one.
+            "credentials": [{"surface": p.strip() or s, "user": u, "password": pw} for (p, u, pw), s in zip(shown, surfaces)]
+            if len(shown) > 1
+            else [],
+            "password_pending": bool(shown) and any(pw is None for _, _, pw in shown),
             "allow_ips": list(auth.allow_ips) if surfaces else [],
             "allow_paths": list(auth.allow_paths) if surfaces else [],
         }
@@ -455,7 +492,7 @@ class BenchInfo:
 
         own_auth = config.sites_with_own_auth
         auth = {
-            "bench": self._auth_data(config.auth),
+            "bench": self._auth_data(config.auth, config.admin_tools),
             "sites": {site: self._auth_data(config.sites[site].auth) for site in own_auth},
         }
 
@@ -864,10 +901,10 @@ class BenchInfo:
         # The web surface's auth can be per site; the tools surface's auth is always the bench's.
         own_auth = config.sites_with_own_auth
         if not own_auth:
-            card.fact("auth", self._auth_fact(config.auth))
+            card.fact("auth", self._auth_fact(config.auth, config.admin_tools))
         else:
             # A single row would report one site's password as if it opened the others.
-            card.fact("auth", f"[fm.muted]bench[/fm.muted]  {self._auth_fact(config.auth)}")
+            card.fact("auth", f"[fm.muted]bench[/fm.muted]  {self._auth_fact(config.auth, config.admin_tools)}")
             for site in own_auth:
                 card.fact("", f"[fm.muted]{site}[/fm.muted]  {self._auth_fact(config.sites[site].auth)}")
 

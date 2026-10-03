@@ -303,11 +303,11 @@ developer_mode = true
 
 ### `admin_tools` {#admin-tools}
 
-**Default:** `true` (dev environment), `false` (prod environment)  
+**Default:** `false` (every environment, at create time)  
 **Type:** `boolean`  
 **File key:** `admin_tools`
 
-Enable Mailpit (email testing) and Adminer (database UI) containers. Protected by HTTP Basic Auth when enabled.
+Enable Mailpit (email testing) and Adminer (database UI) containers. Off by default: Adminer is a full database console routed on the bench's own hostname, and a dev bench is not always a laptop, so `fm create` never turns it on for you, even with `--environment dev`. Protected by HTTP Basic Auth when enabled.
 
 ```toml
 admin_tools = true
@@ -330,7 +330,7 @@ admin_tools = true
 **Type:** `"dev" | "prod"`  
 **File key:** `environment` (legacy key `environment_type` is still read)
 
-Environment profile determining web server, restart policy, and default settings for `developer_mode` and `admin_tools`.
+Environment profile determining web server, restart policy, and the default setting for `developer_mode`.
 
 ```toml
 environment = "prod"
@@ -341,11 +341,10 @@ environment = "prod"
 | Web server | Frappe dev server (Werkzeug, hot reload) | Gunicorn (`gthread`, workers = min(CPU cores, RAM/256MB)) |
 | Restart policy | `no` (manual start) | `unless-stopped` (auto-recovery) |
 | Developer mode | ON by default | OFF by default |
-| Admin tools | ON by default | OFF by default |
 | Logs | `web.dev.log` (single file) | `web.log` + `web.error.log` (split) |
 
 !!! warning "Switching recreates only the frappe container"
-    `fm update -e` recreates the frappe web container alone: workers, nginx, Redis and MariaDB keep running. `developer_mode` and `admin_tools` are left exactly as they are, so the defaults in the table above apply at create time only; change them afterwards with `--developer-mode` or `fm tools enable|disable`.
+    `fm update -e` recreates the frappe web container alone: workers, nginx, Redis and MariaDB keep running. `developer_mode` is left exactly as it is, so the default in the table above applies at create time only; change it afterwards with `--developer-mode`. `admin_tools` is unrelated to environment entirely now; see [`admin_tools`](#admin-tools) and `fm tools enable|disable`.
 
 **Change via:** `fm update BENCH --environment dev|prod`
 

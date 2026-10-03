@@ -74,9 +74,29 @@ def test_config_supplies_fields_when_no_flags():
 
 
 def test_explicit_flag_overrides_config():
-    # --environment dev beats config's prod, and dev forces developer/admin tools.
+    # --environment dev beats config's prod and forces developer mode. It does NOT turn the admin
+    # tools on: Adminer is a database console on the bench's own hostname, and a dev bench is not
+    # always a laptop. `fm tools enable` is the only way in.
     bc, _ = _build([_CFG], environment=FMBenchEnvType.dev)
     assert bc.environment_type == FMBenchEnvType.dev
+    assert bc.developer_mode is True
+    assert bc.admin_tools is False
+
+
+def test_an_explicit_admin_tools_request_survives_a_dev_environment():
+    # Dev stopped defaulting admin tools on, but the capability is still there: an operator who
+    # explicitly asked for them in the config still gets them on a dev bench. The change removed a
+    # DEFAULT, not the feature -- there is no create flag for this, only the config key.
+    cfg = """
+environment = "prod"
+image = "ghcr.io/acme/app"
+admin_tools = true
+[[apps]]
+name = "frappe"
+repo = "frappe/frappe"
+ref = "version-15"
+"""
+    bc, _ = _build([cfg], environment=FMBenchEnvType.dev)
     assert bc.developer_mode is True
     assert bc.admin_tools is True
 

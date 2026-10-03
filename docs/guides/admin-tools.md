@@ -30,7 +30,7 @@ Adminer opens on one-click login cards rather than a blank login form: one per s
     `db_socket` silently overrides `db_host` and `db_port` for Frappe, and the Adminer container can never reach a unix socket that belongs to a different container. Without `db_host` set too, the fallback the other cards use would point this one at the bench's shared `mariadb`: a different, real, writable database, and a button aimed at the wrong one is worse than no button. Set `db_host` alongside `db_socket` to name a TCP endpoint Adminer can actually dial, and the card comes back.
 
 !!! warning
-    Admin tools are enabled on `dev` benches and disabled on `prod` benches at create time. `fm update --environment` does not toggle them: disable explicitly before going live.
+    Admin tools are off by default at create time, on every environment: `fm create --environment dev` does not turn them on. Adminer is a full database console routed on the bench's own hostname, and a dev bench is not always a laptop, so turning it on automatically would have published that console to anyone who reached the host, and minted a basic auth password nobody asked for. `fm tools enable BENCH` is the one way in. `fm update --environment` never toggles them either way.
 
 ## Serving them from some hostnames only
 

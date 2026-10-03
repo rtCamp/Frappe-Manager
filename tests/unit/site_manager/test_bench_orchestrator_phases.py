@@ -650,6 +650,33 @@ def test_a_public_domain_is_told_to_edit_the_hosts_file(tmp_path):
     assert "hosts file" in printed
 
 
+def test_a_bench_without_admin_tools_is_told_how_to_turn_them_on(tmp_path):
+    """Adminer is a database console on the bench's own hostname, and a dev bench is not always a
+    laptop: `admin_tools` defaults off now, so naming the escape hatch is the whole cost of that
+    default."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+    assert harness.config.admin_tools is False
+
+    harness.reraising_orchestrator().create_bench()
+
+    printed = " ".join(str(call) for call in harness.output.print.call_args_list)
+    assert "fm tools enable" in printed
+    assert SITE in printed
+
+
+def test_a_bench_with_admin_tools_already_on_gets_no_hint(tmp_path):
+    """The hint is for the off default; a bench that explicitly asked for the tools already has
+    them, so repeating the command back would be noise."""
+    config = _config(tmp_path)
+    config.admin_tools = True
+    harness = _Harness(config, tmp_path)
+
+    harness.reraising_orchestrator().create_bench()
+
+    printed = " ".join(str(call) for call in harness.output.print.call_args_list)
+    assert "fm tools enable" not in printed
+
+
 def test_a_failed_phase_six_offers_to_remove_the_bench(tmp_path):
     """A create whose apps did not install offers to tear the bench down, then RAISES so the command
     exits nonzero. It used to fall off the end of the try and exit 0, leaving the operator a
