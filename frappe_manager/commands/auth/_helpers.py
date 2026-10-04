@@ -298,7 +298,11 @@ def apply_auth(
     # An explicit --user/--password still wins, and a site that already has an entry keeps its own.
     baseline = WebAuthConfig() if (site and stored is None) else current
 
-    new_user = user if user is not None else baseline.user
+    # Minted on the FIRST record only, never on a scope that already has one: re-credentialling an
+    # existing entry would lock out whoever holds it. Keyed on `stored is None` rather than on the
+    # value, because a stored "admin" and the model's own default are indistinguishable here.
+    minting_user = user is None and stored is None
+    new_user = user if user is not None else (generate_password(12) if minting_user else baseline.user)
     new_password = baseline.password
     if password is not None:
         new_password = password

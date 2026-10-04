@@ -90,6 +90,10 @@ This is the 1.0.0 cycle. Versions 0.20.0 and 0.21.0 were never published: their 
 
 - **maintenance:** `fm maintenance status` stopped reporting every ordinary domain as carrying hand-written nginx config. The check treated the blank lines left after fm's own include block as foreign content, so the one signal that was meant to warn about an operator's config fired on everything
 
+- **create:** Every site gets a random Administrator password, recorded in its own `site_config.json`. `--admin-pass` defaulted to the literal `admin`, so a site's login page answered to `Administrator` / `admin` unless someone passed otherwise, which is reachable by anyone who can see the site. Worse, `fm create BENCH/SITE` ignored the flag entirely and gave every site after the first that same literal while recording nothing. The flag is now honoured on both paths, moves to the Site panel because it describes the site being created, and `fm info` reports what each site recorded or says nothing is recorded rather than naming a password that will not work
+
+- **auth:** The basic auth username is minted too, on the first `fm auth enable` for a scope. An existing record keeps its username: re-credentialling one would lock out whoever holds it. `--user` still wins
+
 - **config:** The upload limit is a per-site property. `[sites."<site>"].upload_limit` sets one site's limit and the bench's `upload_limit` is the default every site without its own inherits. `fm update BENCH/SITE --upload-limit` sets that site; `fm update BENCH --upload-limit` sets the default and leaves sites that set their own alone, naming them. Naming a site used to be accepted and then silently ignored, changing the whole bench. All three enforcement points follow the site: the shared proxy's per-domain drop-in, the bench nginx conf (now `custom/<site>/upload-limit.conf`, since one shared file cannot carry a per-site value and a second `client_max_body_size` in one server context is fatal to nginx), and Frappe's own `max_file_size`
 
 ### Bug Fixes

@@ -311,24 +311,26 @@ class BenchInfo:
         return [p for p in [bench_prod_server_log_path_stderr, bench_prod_server_log_path_stdout] if p.exists()]
 
     def _admin_password_for(self, site: str | None, config) -> str:
-        """One site's recorded Administrator password, or the bench default labelled as such.
+        """One site's recorded Administrator password, or a plain statement that none is recorded.
 
-        No site means no config to read: a bench with no `[sites]` entry, or one whose primary
-        cannot be named. A recorded site can also have no directory yet. The bench's `admin_pass` is
-        then all fm has, and calling it "(default)" is the honest label because it is what the next
-        site created will get rather than a password known to work.
+        There is no bench-wide default to fall back to any more: the password is minted per SITE by
+        whatever creates it and recorded in that site's own `site_config.json`. The old fallback
+        printed `admin (default)`, which stopped being true the moment sites stopped sharing one
+        literal, and a report that names a password nobody can log in with is worse than one that
+        admits it does not know.
 
-        Sites added by `fm create BENCH/SITE` currently record nothing, so they read as the default
-        too. That is accurate: `_add_site_to_bench` never writes `admin_password`, and the site was
-        created with the bench's value.
+        `admin_pass` is still read, because `--admin-pass` supplies one for the current run and a
+        hand-written bench_config.toml may name one, but it is never invented.
         """
-        default = config.admin_pass + " (default)"
-        if not site:
-            return default
-        try:
-            return self.get_site_config(site).get("admin_password", default)
-        except BenchException:
-            return default
+        not_recorded = "[fm.muted]not recorded[/fm.muted]"
+        if site:
+            try:
+                recorded = self.get_site_config(site).get("admin_password")
+            except BenchException:
+                recorded = None
+            if recorded:
+                return recorded
+        return config.admin_pass or not_recorded
 
     def _certificate_rows(self) -> list[dict]:
         """The certificate rows `fm ssl list` enumerates, for this bench.

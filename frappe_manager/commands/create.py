@@ -41,6 +41,7 @@ from frappe_manager.site_manager.bench_config import (
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.deploy_config_overlay import ConfigOverlayError, merge_overlays
 from frappe_manager.site_manager.domain_conflict import DomainConflictError, validate_domains_unique
+from frappe_manager.site_manager.modules.auth import generate_password
 from frappe_manager.site_manager.modules.compose_shape import unsupported_redis_scheme
 from frappe_manager.utils.callbacks import (
     alias_domains_validation_callback,
@@ -278,6 +279,13 @@ def _derive_create_defaults(bc: BenchConfig, *, db_name: str) -> bool:
         bc.developer_mode = False
     elif bc.environment_type == FMBenchEnvType.dev:
         bc.developer_mode = True
+
+    # Minted here, not in the flag overlay: the overlay only applies flags the operator actually
+    # passed, so a value put there for an omitted `--admin-pass` is dropped and `bench new-site`
+    # runs with no `--admin-password` at all, where Frappe falls back to an interactive getpass and
+    # the create dies with no tty. Create-time policy is where a value nobody supplied belongs.
+    if bc.admin_pass is None:
+        bc.admin_pass = generate_password()
 
     # A seeded workspace already contains its own frappe, and injecting a default would clobber it.
     # There, --apps entries are per-app overrides used verbatim.
@@ -572,6 +580,7 @@ def _add_site_to_bench(
     database: DatabaseConfig | None = None,
     credentials: _ExternalCredentials | None = None,
     set_default_site: bool = False,
+    admin_pass: str | None = None,
 ) -> None:
     """Add `site` to the bench `benchname`, which already exists and may be serving.
 
@@ -637,12 +646,18 @@ def _add_site_to_bench(
         bench.orchestrator.prepare_site_database(site)
 
         output.change_head(f"Creating site {site}")
+        # Minted here, not inherited: an added site used to fall through to the bench's own
+        # `admin_pass`, which is never persisted, so every site after the first was created with
+        # whatever literal that field defaulted to and recorded nothing.
+        site_admin_pass = admin_pass or generate_password()
         bench.site_manager.create_bench_site(
             site=site,
             db_name=database.name if database.external else schema,
+            admin_pass=site_admin_pass,
             # Added sites never claim the bench default on their own; `--default-site` is the ask.
             set_default=set_default_site,
         )
+        bench.set_bench_site_config(site, {"admin_password": site_admin_pass})
 
         if apps:
             output.change_head(f"Installing apps into {site}")
@@ -1044,12 +1059,13 @@ def create(
         ),
     ] = None,
     admin_pass: Annotated[
-        str,
+        str | None,
         typer.Option(
-            help="Administrator password for sites created on this bench.",
-            rich_help_panel=_PANEL_BENCH,
+            help="Administrator password for the site being created. A random one is minted when this is omitted, and recorded in that site's own site_config.json.",
+            show_default=False,
+            rich_help_panel=_PANEL_SITE,
         ),
-    ] = "admin",
+    ] = None,
     allow_domain_conflicts: Annotated[
         bool,
         typer.Option(
@@ -1258,6 +1274,7 @@ def create(
             # not be swept into this kwarg name, or `fm create BENCH/SITE` raises TypeError.
             benchname=address,
             site=added_site,
+            admin_pass=admin_pass,
             services_manager=services_manager,
             verbose=verbose,
             apps=cast("list[AppConfig]", apps),

@@ -103,10 +103,16 @@ def container_tools_htpasswd_path(bench_name: str) -> str:
     return f"/etc/nginx/http_auth/{tools_htpasswd_name(bench_name)}"
 
 
-def generate_password() -> str:
+def generate_password(length: int = 22) -> str:
+    """A urlsafe token of exactly `length` characters.
+
+    The default is what `token_urlsafe(16)` already produced, so an unparameterised call is
+    unchanged. The alphabet is `[A-Za-z0-9_-]`, which carries no `:` and no whitespace, so a
+    generated value is a legal username by `validate_credentials` as well as a password.
+    """
     import secrets
 
-    return secrets.token_urlsafe(16)
+    return secrets.token_urlsafe(length)[:length]
 
 
 def validate_credentials(user: str, password: str) -> None:

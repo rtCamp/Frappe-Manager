@@ -540,7 +540,7 @@ def test_display_info_marks_the_bench_config_password_as_default(tmp_path, card_
     info.display_info()
 
     (card,) = card_spy.made
-    assert card.facts["frappe"].endswith("admin-pass (default)")
+    assert card.facts["frappe"].endswith("admin-pass")
 
 
 def test_display_info_db_facts_fall_back_to_na_and_carry_no_root_credentials(tmp_path, card_spy):
@@ -1586,10 +1586,11 @@ def test_the_credential_rows_keep_one_label_and_the_fourteen_char_column(tmp_pat
     assert all(len(label) <= 14 for label in labels)
 
 
-def test_a_site_with_no_recorded_password_reads_as_the_bench_default(tmp_path, card_spy):
-    """`fm create BENCH/SITE` records no `admin_password`, so the added site legitimately shows the
-    bench's value. Labelling it "(default)" is honest: it is what the site was created with, not a
-    password fm watched work."""
+def test_a_site_with_no_recorded_password_reads_the_one_supplied_this_run(tmp_path, card_spy):
+    """A site whose `site_config.json` records nothing falls back to the password supplied for this
+    run (`--admin-pass`), which IS what it was created with. There is no bench-wide default behind
+    that any more: `fm create BENCH/SITE` now mints per site and records it, so nothing is labelled
+    "(default)", and a site with neither reads as not recorded rather than naming a wrong one."""
     d = _sites_dir(tmp_path) / SECOND_SITE
     d.mkdir(exist_ok=True)
     (d / "site_config.json").write_text(json.dumps({}))
@@ -1597,7 +1598,7 @@ def test_a_site_with_no_recorded_password_reads_as_the_bench_default(tmp_path, c
     info.display_info()
 
     (card,) = card_spy.made
-    assert card.labelled("frappe")[1].endswith("admin-pass (default)")
+    assert card.labelled("frappe")[1].endswith("admin-pass")
 
 
 # ------------------------- per-site tool routing and auth on the card

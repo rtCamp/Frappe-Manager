@@ -105,10 +105,22 @@ class TestScopeIsReadable:
 # ------------------------- scope derived from where the value lands
 
 
+# `admin_pass` is a `BenchConfig` field by storage only: it is in `NOT_WRITTEN_TO_DISK`, carries a
+# value for the current run alone, and names the Administrator password of the SITE being created,
+# which each site now mints and records in its own site_config.json. Nothing bench-wide holds it,
+# so it belongs in a Site panel. Keep this to the one entry: every other `_FLAG_TO_CONFIG` name is
+# genuinely bench data, and a growing list here would mean the rule had stopped meaning anything.
+_NOT_BENCH_SCOPED = {"admin_pass"}
+
+
 def test_every_bench_config_flag_of_create_sits_in_a_bench_panel():
     """`_FLAG_TO_CONFIG` values are top-level `BenchConfig` paths; nothing there is per-site."""
     panels = {o.name: _panel(o) for o in _options("create")}
-    wrong = {name: panels[name] for name in _FLAG_TO_CONFIG if name in panels and not panels[name].startswith(BENCH_PREFIX)}
+    wrong = {
+        name: panels[name]
+        for name in _FLAG_TO_CONFIG
+        if name in panels and name not in _NOT_BENCH_SCOPED and not panels[name].startswith(BENCH_PREFIX)
+    }
     assert not wrong, f"bench-config flags outside a Bench panel: {wrong}"
 
 

@@ -396,7 +396,7 @@ def test_a_bench_with_no_site_prints_a_card_that_says_so(tmp_path, card_spy):
     assert card.facts["url"] == "[fm.muted]no site recorded in bench_config.toml[/fm.muted]"
     assert "sites" not in card.facts
     # The rest of the card is intact: this bench still has a runtime, a database server, a dir.
-    assert card.facts["frappe"].endswith("(default)")
+    assert "not recorded" in card.facts["frappe"]
     info.output.print_data.assert_called_once_with(f"<rendered {BENCH}>")
 
 
@@ -425,7 +425,7 @@ def test_a_recorded_site_with_no_directory_yet_does_not_stop_the_card(tmp_path, 
     card, _ = _info_card(tmp_path, config)
 
     assert card.facts["url"] == f"http://{SITE}"
-    assert card.facts["frappe"].endswith("(default)")
+    assert "not recorded" in card.facts["frappe"]
 
 
 def test_frappes_own_admin_password_still_wins_when_the_site_config_is_there(tmp_path, card_spy):

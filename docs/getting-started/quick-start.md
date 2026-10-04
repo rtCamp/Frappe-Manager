@@ -22,9 +22,13 @@ The bench name is also its domain. A bare name has no dot in it, so fm appends `
 
 ## Open the site
 
-Visit `http://mybench.localhost` and log in as `Administrator` with the password `admin`.
+Visit `http://mybench.localhost` and log in as `Administrator`. fm mints a random password for each site it creates and records it, so read it off the card:
 
-Change that password before the bench holds anything you care about. `bench set-admin-password` is a Frappe command, so run it inside the bench:
+```bash
+fm info mybench
+```
+
+Pick your own instead with `fm create mybench --admin-pass 'your-password'`, or change it later with Frappe's own command inside the bench:
 
 ```bash
 fm shell mybench -c "bench set-admin-password 'a-better-password'"

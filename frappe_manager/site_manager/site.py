@@ -1773,6 +1773,8 @@ class Bench:
 
     def reset(self, admin_password: str | None = None, site: str | None = None):
         """Reinstall one site: drop its schema and recreate it empty. None means the bench's own."""
+        from frappe_manager.site_manager.modules.auth import generate_password
+
         target = site or self.site_name
         admin_pass = None
 
@@ -1792,10 +1794,11 @@ class Bench:
                     self.output.print("Using admin_password defined in common_site_config.json")
 
         if not admin_pass:
-            admin_pass = self.output.prompt_ask(
-                prompt=f"Please enter admin password for site {target}",
-                required_flag="--admin-pass",
-            )
+            # Nothing recorded anywhere, and a reinstall replaces the password regardless: minting
+            # one is the same answer the prompt was asking the operator to invent, without stopping
+            # a recovery path to ask. `--admin-pass` still wins.
+            admin_pass = generate_password()
+            self.output.print(f"No admin password recorded; minted one for {target}: {admin_pass}")
 
         self.output.change_head(f"Resetting bench site {target}")
 

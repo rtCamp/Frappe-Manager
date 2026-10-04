@@ -38,7 +38,7 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `--config TEXT`: TOML base config: file path or inline. Explicit flags win; later --config wins.
 * `--redis-cache TEXT`: External redis URL for the framework cache, e.g. redis://r.example:6379/0. Independent of the queue: either side may stay on fm's own container.
 * `--redis-queue TEXT`: External redis URL for the queue and realtime. Use a different logical index from --redis-cache: a restore mass-deletes the cache index.
-* `--admin-pass TEXT`: Administrator password for sites created on this bench.  [default: admin]
+* `--admin-pass TEXT`: Administrator password for the site being created. A random one is minted when this is omitted, and recorded in that site's own site_config.json.
 * `--allow-domain-conflicts`: Skip the domain uniqueness check.  [default: false]
 * `--alias-domains TEXT`: Extra domains THIS SITE answers on (comma-separated). Certificates come from 'fm ssl add'.
 * `--db-type [mariadb|postgres]`: Database engine for this site: mariadb or postgres. Without --db-host it is fm's own server for that engine.  [default: mariadb]

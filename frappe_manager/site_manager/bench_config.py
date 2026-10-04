@@ -1893,7 +1893,11 @@ class BenchConfig(BaseModel):
 
     upload_limit: str = Field(default="50M", description="Maximum upload size (e.g., '50M', '100M', '500M', '1G')")
 
-    admin_pass: str = Field("admin", description="The admin password")
+    # No default: the Administrator password is minted per SITE by whatever creates it and recorded
+    # in that site's own site_config.json, never here (this field is in NOT_WRITTEN_TO_DISK). A
+    # literal default is what shipped `Administrator / admin` on every site `fm create BENCH/SITE`
+    # made, because a caller that forgot to pass one silently got it.
+    admin_pass: str | None = Field(None, description="Administrator password supplied for this run, never persisted")
     root_path: Path = Field(..., description="The root path")
     apps_list: list["AppConfig"] = Field(default=[], description="List of apps")
     userid: int = Field(default_factory=os.getuid, description="The user ID of the current process")
@@ -2289,7 +2293,7 @@ class BenchConfig(BaseModel):
             "dns_providers": dns_providers_dict if dns_providers_dict else None,
             "upload_limit": data.get("upload_limit", "50M"),
             "auth": AuthConfig(**dict(data["auth"])) if data.get("auth") else None,
-            "admin_pass": data.get("admin_pass", "admin"),
+            "admin_pass": data.get("admin_pass"),
             "apps_list": apps_list,
             "github_token": data.get("github_token", None),
             "python_version": data.get("python_version", None),

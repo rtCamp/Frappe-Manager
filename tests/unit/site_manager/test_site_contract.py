@@ -1853,14 +1853,15 @@ class TestReset:
         bench.reset()
         bench.site_manager.reset_bench_site.assert_called_once_with("from-common", site=SITE)
 
-    def test_with_nothing_stored_the_user_is_prompted(self, harness):
+    def test_with_nothing_stored_a_password_is_minted_and_named(self, harness):
+        """A reinstall replaces the password regardless, so stopping a recovery path to ask the
+        operator to invent one bought nothing. It is minted, used, and printed so they can log in."""
         bench = self._resettable(harness)
-        bench.output.prompt_ask.return_value = "typed"
         bench.reset()
-        bench.site_manager.reset_bench_site.assert_called_once_with("typed", site=SITE)
-        assert bench.output.prompt_ask.call_args.kwargs["required_flag"] == "--admin-pass"
-        # The password being asked for belongs to a SITE, so the prompt names one.
-        assert SITE in str(bench.output.prompt_ask.call_args.kwargs["prompt"])
+        bench.output.prompt_ask.assert_not_called()
+        minted = bench.site_manager.reset_bench_site.call_args.args[0]
+        assert minted
+        assert minted in " ".join(str(c.args[0]) for c in bench.output.print.call_args_list if c.args)
 
     def test_the_password_used_is_written_back_into_site_config(self, harness):
         bench = self._resettable(harness)

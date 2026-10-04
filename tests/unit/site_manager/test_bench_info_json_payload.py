@@ -115,7 +115,7 @@ def test_service_state_is_the_raw_string_not_a_rendered_dot(tmp_path):
 def test_admin_and_database_credentials_are_plain_fields_per_site(tmp_path):
     data = _info(tmp_path).build_bench_info_data()
     assert data["admin_credentials"] == [
-        {"site": SITE, "user": "administrator", "password": f"{ADMIN_PW} (default)"}
+        {"site": SITE, "user": "administrator", "password": ADMIN_PW}
     ]
     assert data["database_credentials"] == [{"site": SITE, "name": "db", "password": "dbpass"}]
 
