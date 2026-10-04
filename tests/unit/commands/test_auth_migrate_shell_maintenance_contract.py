@@ -686,6 +686,38 @@ def test_an_explicit_password_wins_over_minting(tmp_path):
 
 
 @pytest.mark.usefixtures("out")
+def test_the_first_enable_mints_a_username_that_is_not_admin(tmp_path):
+    """Keyed on `stored is None`, not on a value: a stored "admin" and the model's own default are
+    indistinguishable, so only a scope with nothing recorded at all triggers minting."""
+    bench = _auth_bench(tmp_path, stored=None)
+    _run_enable(bench, tools=True)
+    user = _saved(bench).user
+    assert user != "admin"
+    assert len(user) == 12
+
+
+@pytest.mark.usefixtures("out")
+def test_a_second_enable_keeps_the_username_it_already_has(tmp_path):
+    """Re-credentialling an existing record would lock out whoever holds the current username, so
+    only the FIRST enable for a scope mints one; every later enable on the same scope keeps what
+    is already stored."""
+    bench = _auth_bench(tmp_path, stored=AuthConfig(user="jf3k9qr2mzap", password=OLD_PW, web=False, tools=False))
+    with patch.object(auth_helpers_mod, "generate_password", wraps=auth_helpers_mod.generate_password) as gen:
+        _run_enable(bench, rotate=True)
+    assert _saved(bench).user == "jf3k9qr2mzap"
+    # The only call is the password rotation (no args); a second, 12-arg call would mean the
+    # username got re-minted too.
+    gen.assert_called_once_with()
+
+
+@pytest.mark.usefixtures("out")
+def test_an_explicit_user_wins_over_minting_on_the_first_enable(tmp_path):
+    bench = _auth_bench(tmp_path, stored=None)
+    _run_enable(bench, tools=True, user="alice")
+    assert _saved(bench).user == "alice"
+
+
+@pytest.mark.usefixtures("out")
 def test_protecting_the_web_surface_leaves_the_tools_credential_alone(tmp_path):
     """Measured on a live bench: enabling web auth re-credentialled an already-protected tools
     surface, so whoever held the tools password got a 401 with nothing saying why. The credential

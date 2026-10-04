@@ -17,6 +17,7 @@ from frappe_manager.site_manager.modules.auth import (
     build_server_auth_conf,
     build_tools_auth_block,
     container_htpasswd_path,
+    generate_password,
     is_fm_auth_conf,
     validate_credentials,
     write_htpasswd,
@@ -183,6 +184,27 @@ def test_validate_credentials_rejects_unusable_input_naming_the_field(user, pass
     # Authorization header, locking the bench out with no error at request time.
     with pytest.raises(ValueError, match=field):
         validate_credentials(user, password)
+
+
+def test_generate_password_defaults_to_twenty_two_characters():
+    # 22 is what `token_urlsafe(16)` already produced, so an unparameterised call keeps minting
+    # passwords the same length operators are used to seeing.
+    assert len(generate_password()) == 22
+
+
+def test_generate_password_honours_an_explicit_length():
+    assert len(generate_password(12)) == 12
+
+
+def test_generate_password_output_is_free_of_colons_and_whitespace():
+    # A minted value feeds both the password and (via `commands/auth/_helpers.py`) the minted
+    # username, and `validate_credentials` rejects `:` and whitespace because `:` separates user
+    # from hash in the htpasswd file; a generator that could emit either would silently corrupt it.
+    password = generate_password()
+    assert ":" not in password
+    assert not any(ch.isspace() for ch in password)
+    validate_credentials("someuser", password)
+    validate_credentials(password, "somepassword")
 
 
 def test_write_htpasswd_creates_a_verifiable_file(tmp_path):

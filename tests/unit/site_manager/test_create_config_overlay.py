@@ -17,6 +17,7 @@ import typer
 
 from frappe_manager.commands.create import (
     _FLAG_TO_CONFIG,
+    _derive_create_defaults,
     _flag_overlay,
     bench_config_from_inputs,
     create,
@@ -263,3 +264,49 @@ def test_alias_domains_is_a_real_flag_that_deliberately_is_not_mapped():
     assert bc.sites["x.localhost"].alias_domains == ["www.example.com"]
     assert bc.domains == ["x.localhost", "www.example.com"]
     assert bc.get_site_mappings() == {"x.localhost": "x.localhost", "www.example.com": "x.localhost"}
+
+
+# --------------------------------------------------------------- admin password minting
+#
+# The Administrator password used to default to the literal "admin" whenever nothing else supplied
+# one: every freshly created site's login page answered to `Administrator` / `admin`, a credential
+# anyone who can see the site can simply try. Create-time policy now mints a real one instead -- but
+# never for an attach, which runs no `new-site` and so sets no password on the attached site at all.
+
+
+def test_a_plain_create_mints_an_administrator_password():
+    """No `--admin-pass` and no `--config` admin_pass: the policy must still leave the site with a
+    real, non-default password rather than falling through to the old "admin" literal."""
+    bc, _ = _build([_CFG])
+
+    assert bc.admin_pass is not None
+    assert bc.admin_pass != "admin"
+
+
+def test_an_explicit_admin_pass_overlay_wins_over_minting():
+    """`--admin-pass` reaches `BenchConfig` through the same flag-overlay seam as every other
+    mapped flag, and a value already present is what stops the mint line from running at all."""
+    bc, _ = _build([_CFG], admin_pass="operator-chosen-secret")
+
+    assert bc.admin_pass == "operator-chosen-secret"
+
+
+def test_an_attach_mints_no_administrator_password():
+    """`_attach_existing_site` deliberately never writes `admin_password` into the attached site's
+    site_config.json: fm did not set that site's password, so it has none to report. Minting one
+    here would put a random value where `fm info` reads, naming a password that does not open the
+    site -- the same reason that write is refused downstream, exercised directly on the create-time
+    policy function rather than through the flag-overlay seam (attach is a credential, never a
+    mapped `--config`/flag field)."""
+    bc = BenchConfig(
+        name="attached.localhost",
+        developer_mode=False,
+        admin_tools=False,
+        environment_type=FMBenchEnvType.prod,
+        root_path=_ROOT,
+        attach_existing_site=True,
+    )
+
+    _derive_create_defaults(bc, db_name="fm_attached_deadbeef")
+
+    assert bc.admin_pass is None

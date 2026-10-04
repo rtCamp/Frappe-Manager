@@ -120,6 +120,19 @@ def test_admin_and_database_credentials_are_plain_fields_per_site(tmp_path):
     assert data["database_credentials"] == [{"site": SITE, "name": "db", "password": "dbpass"}]
 
 
+def test_with_no_recorded_password_the_payload_carries_none_not_a_markup_phrase(tmp_path):
+    """The card and the payload share `_admin_password_for`; only `_shown_admin_password` renders
+    the "not recorded" phrase, and only for the card. A site the builder finds no password for must
+    yield None (JSON null) here, never the literal `"[fm.muted]not recorded[/fm.muted]"` string --
+    markup leaking into a machine-readable payload is invisible until something tries to parse it."""
+    import json
+
+    info = _info(tmp_path, bench_config=_config(admin_pass=None))
+    data = info.build_bench_info_data()
+    assert data["admin_credentials"] == [{"site": SITE, "user": "administrator", "password": None}]
+    assert "not recorded" not in json.dumps(data)
+
+
 def test_site_row_without_its_own_limit_reports_the_bench_default_as_inherited(tmp_path):
     data = _info(tmp_path).build_bench_info_data()
     assert data["sites"] == [

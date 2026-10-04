@@ -62,13 +62,14 @@ def run(bench, monkeypatch):
     monkeypatch.setattr(create_mod, "BenchService", lambda *_a, **_kw: service)
     monkeypatch.setattr(create_mod, "get_global_output_handler", MagicMock)
 
-    def _run(apps: tuple[str, ...] = ("erpnext",)):
+    def _run(apps: tuple[str, ...] = ("erpnext",), admin_pass: str | None = None):
         _add_site_to_bench(
             benchname=BENCH,
             site=SECOND,
             services_manager=MagicMock(),
             verbose=False,
             apps=list(apps),
+            admin_pass=admin_pass,
         )
 
     return _run
@@ -173,3 +174,39 @@ def test_a_failed_app_install_also_leaves_the_bench_alone(run, bench, events):
 
     bench.remove_bench.assert_not_called()
     assert "publish" not in events
+
+
+# ------------------------------------------------------------------------ the admin password
+
+
+def test_the_added_site_gets_its_own_minted_admin_password(run, bench):
+    """An added site used to fall through to the bench's own `admin_pass`, which is never
+    persisted, so every site after the first was created with whatever literal that field
+    defaulted to -- every added site's login answered to `admin`. The site now gets a password of
+    its own, minted fresh and never equal to the bench-level value."""
+    bench.bench_config.admin_pass = "bench-level-literal"
+
+    run()
+
+    created_pass = bench.site_manager.create_bench_site.call_args.kwargs["admin_pass"]
+    assert created_pass is not None
+    assert created_pass != "bench-level-literal"
+
+
+def test_the_added_sites_minted_password_is_recorded(run, bench):
+    """Previously nothing was recorded for an added site at all. The exact value handed to
+    `create_bench_site` must be the one written to the new site's own `site_config.json`, or `fm
+    info` would report a password that does not open the site."""
+    run()
+
+    created_pass = bench.site_manager.create_bench_site.call_args.kwargs["admin_pass"]
+    bench.set_bench_site_config.assert_called_once_with(SECOND, {"admin_password": created_pass})
+
+
+def test_an_explicit_admin_pass_is_honoured_without_minting(run, bench):
+    """`--admin-pass` on `fm create BENCH/SITE` is threaded straight through to the new site;
+    minting only fills in when the operator did not supply one."""
+    run(admin_pass="operator-chosen-secret")
+
+    assert bench.site_manager.create_bench_site.call_args.kwargs["admin_pass"] == "operator-chosen-secret"
+    bench.set_bench_site_config.assert_called_once_with(SECOND, {"admin_password": "operator-chosen-secret"})

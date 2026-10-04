@@ -284,7 +284,12 @@ def _derive_create_defaults(bc: BenchConfig, *, db_name: str) -> bool:
     # passed, so a value put there for an omitted `--admin-pass` is dropped and `bench new-site`
     # runs with no `--admin-password` at all, where Frappe falls back to an interactive getpass and
     # the create dies with no tty. Create-time policy is where a value nobody supplied belongs.
-    if bc.admin_pass is None:
+    #
+    # Never for an attach: that path runs no `new-site`, so fm does not set this site's
+    # Administrator password and has none to report. Minting one would put a random value where
+    # `fm info` reads, naming a password that does not open the site, which is the same reason
+    # `_attach_existing_site` refuses to write `admin_password` into site_config.json.
+    if bc.admin_pass is None and not bc.attach_existing_site:
         bc.admin_pass = generate_password()
 
     # A seeded workspace already contains its own frappe, and injecting a default would clobber it.
@@ -307,6 +312,7 @@ def bench_config_from_inputs(
     app_image: str | None,
     nginx_image: str | None,
     db_name: str,
+    attach_existing_site: bool = False,
 ) -> tuple[BenchConfig, bool]:
     """Everything between the CLI parameters and ``create_bench``: merge, refuse, validate, derive.
 
@@ -330,6 +336,10 @@ def bench_config_from_inputs(
     except ValueError as e:
         # The model states the rule; the CLI owns how a refusal reaches the operator.
         raise typer.BadParameter(str(e)) from e
+    # Set BEFORE the policy runs, not after it: `create` used to assign this onto the finished
+    # config, so a policy decision that depends on it (minting no Administrator password for an
+    # attach, which sets none) read the pydantic default and did the opposite.
+    bc.attach_existing_site = attach_existing_site
     return bc, _derive_create_defaults(bc, db_name=db_name)
 
 
@@ -1340,6 +1350,7 @@ def create(
             app_image=app_image if "app_image" in requested else None,
             nginx_image=nginx_image if "nginx_image" in requested else None,
             db_name=mariadb_name,
+            attach_existing_site=attach_existing_site,
         )
     except ConfigOverlayError as e:
         output.display_error(str(e))

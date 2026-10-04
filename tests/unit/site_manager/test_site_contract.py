@@ -1863,6 +1863,15 @@ class TestReset:
         assert minted
         assert minted in " ".join(str(c.args[0]) for c in bench.output.print.call_args_list if c.args)
 
+    def test_with_nothing_stored_the_minted_password_is_what_gets_recorded(self, harness):
+        """Both the printed value and `set_bench_site_config`'s write must be the SAME minted
+        password: a mismatch would report a login that does not work, or silently record one the
+        operator was never shown."""
+        bench = self._resettable(harness)
+        bench.reset()
+        minted = bench.site_manager.reset_bench_site.call_args.args[0]
+        bench.set_bench_site_config.assert_called_once_with(SITE, {"admin_password": minted})
+
     def test_the_password_used_is_written_back_into_site_config(self, harness):
         bench = self._resettable(harness)
         bench.get_common_bench_config.return_value = {"admin_password": "from-common"}

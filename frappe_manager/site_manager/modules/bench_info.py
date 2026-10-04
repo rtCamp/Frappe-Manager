@@ -310,8 +310,8 @@ class BenchInfo:
         bench_prod_server_log_path_stderr = base_log_dir / "web.error.log"
         return [p for p in [bench_prod_server_log_path_stderr, bench_prod_server_log_path_stdout] if p.exists()]
 
-    def _admin_password_for(self, site: str | None, config) -> str:
-        """One site's recorded Administrator password, or a plain statement that none is recorded.
+    def _admin_password_for(self, site: str | None, config) -> str | None:
+        """One site's recorded Administrator password, or None when nothing records one.
 
         There is no bench-wide default to fall back to any more: the password is minted per SITE by
         whatever creates it and recorded in that site's own `site_config.json`. The old fallback
@@ -320,9 +320,10 @@ class BenchInfo:
         admits it does not know.
 
         `admin_pass` is still read, because `--admin-pass` supplies one for the current run and a
-        hand-written bench_config.toml may name one, but it is never invented.
+        hand-written bench_config.toml may name one, but it is never invented. Returns the VALUE,
+        never a rendered phrase: this feeds the `--json` payload as well as the card, and markup in
+        a machine payload is markup a consumer has to strip.
         """
-        not_recorded = "[fm.muted]not recorded[/fm.muted]"
         if site:
             try:
                 recorded = self.get_site_config(site).get("admin_password")
@@ -330,7 +331,12 @@ class BenchInfo:
                 recorded = None
             if recorded:
                 return recorded
-        return config.admin_pass or not_recorded
+        return config.admin_pass or None
+
+    @staticmethod
+    def _shown_admin_password(password: str | None) -> str:
+        """The card's rendering of `_admin_password_for`, which returns None rather than a phrase."""
+        return password or "[fm.muted]not recorded[/fm.muted]"
 
     def _certificate_rows(self) -> list[dict]:
         """The certificate rows `fm ssl list` enumerates, for this bench.
@@ -646,7 +652,7 @@ class BenchInfo:
         # those three cases, so the URL names a host nginx actually answers on.
         domain = primary or (sites[0] if sites else self.bench_name)
 
-        admin_pass = self._admin_password_for(primary, config)
+        admin_pass = self._shown_admin_password(self._admin_password_for(primary, config))
 
         # The bench NAME titles the card, because that is what every command takes. Every URL below
         # is a site's DOMAIN, because that is what nginx routes and what a browser can open: a bench
@@ -870,7 +876,7 @@ class BenchInfo:
             named = f"[fm.muted]{site}[/fm.muted]  " if multi else ""
             card.fact(
                 "frappe" if i == 0 else "",
-                f"{named}administrator [fm.muted]/[/fm.muted] {self._admin_password_for(site, config)}",
+                f"{named}administrator [fm.muted]/[/fm.muted] {self._shown_admin_password(self._admin_password_for(site, config))}",
             )
         for i, site in enumerate(credentialled):
             info = self.get_db_connection_info(site) if multi else bench_db_info
