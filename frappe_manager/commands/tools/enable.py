@@ -15,7 +15,7 @@ from ._helpers import route_sites
 @example(
     "Start the admin tools containers for a bench",
     "{benchname}",
-    detail="Seeds the compose file on first use and mints the tools' htpasswd.",
+    detail="Seeds the compose file on first use; routing only, it does not protect the tools.",
     benchname="mybench",
 )
 @example(
@@ -56,7 +56,7 @@ def enable(
     """
     Start the admin tools (Adminer at /adminer, Mailpit at /mailpit), or route a site to them.
 
-    BENCH starts the one container pair the bench has, seeding its compose file on first use and minting its htpasswd. BENCH/SITE only adds the routes for that site's hostnames, leaving the containers as they were; BENCH/all restores the routes for every site the bench serves.
+    BENCH starts the one container pair the bench has, seeding its compose file on first use; this only routes, so protecting what it starts is a separate 'fm auth enable BENCH --tools' call. BENCH/SITE only adds the routes for that site's hostnames, leaving the containers as they were; BENCH/all restores the routes for every site the bench serves.
     """
 
     services_manager = ctx.obj["services"]
@@ -95,11 +95,19 @@ def enable(
         else:
             bench.admin_tools.enable(force_configure=mailpit_as_default_mail_server)
 
-        # The tools vhost renders `auth_basic_user_file .../<bench>.htpasswd`, but that file is
-        # owned solely by ensure_fm_nginx_confs(), whose guard skips it while admin tools are off --
-        # so on a bench created with tools disabled it is absent and the freshly enabled tools
-        # surface answers HTTP 500. Mint it now that the surface exists.
+        # The tools vhost renders `auth_basic_user_file .../<bench>.htpasswd` only while the tools
+        # surface is protected, so this writes the conf for whatever auth records; it never decides
+        # the auth itself.
         bench.ensure_fm_nginx_confs()
 
     bench.save_bench_config()
     output.print("Enabled Admin-tools")
+
+    # Warn across the concern, never act across it: `fm auth enable` gives the mirror warning when
+    # auth claims the tools surface on a bench serving none. Adminer is a database console, so the
+    # gap between routing it and protecting it is the operator's to close knowingly.
+    auth = bench.bench_config.auth
+    if auth is None or not auth.tools:
+        output.warning(
+            f"Nothing protects the admin tools yet; run 'fm auth enable {bench.name} --tools' to require a password"
+        )

@@ -307,7 +307,7 @@ developer_mode = true
 **Type:** `boolean`  
 **File key:** `admin_tools`
 
-Enable Mailpit (email testing) and Adminer (database UI) containers. Off by default: Adminer is a full database console routed on the bench's own hostname, and a dev bench is not always a laptop, so `fm create` never turns it on for you, even with `--environment dev`. Protected by HTTP Basic Auth when enabled.
+Enable Mailpit (email testing) and Adminer (database UI) containers. Off by default: Adminer is a full database console routed on the bench's own hostname, and a dev bench is not always a laptop, so `fm create` never turns it on for you, even with `--environment dev`. Routing only: enabling this does not protect the tools, `fm auth enable BENCH --tools` does, as a separate step.
 
 ```toml
 admin_tools = true
@@ -572,7 +572,7 @@ node_version = "20"
 
 ### `[auth]` {#auth}
 
-**Default:** admin tools protected (when `admin_tools` is enabled), site open  
+**Default:** both surfaces open, admin tools included  
 **File key:** `[auth]`
 
 HTTP basic auth for the bench's two nginx surfaces: `web` (frappe and socketio, every path bar the admin tools) and `tools` (`/adminer/` and `/mailpit/`). One credential pair serves both, and the bench nginx enforces both.
@@ -584,9 +584,12 @@ This table is what every site of the bench follows. A single site can override t
 | `user` | `admin` | basic auth username shared by both surfaces |
 | `password` | generated | basic auth password; minted on first enable |
 | `web` | `false` | prompt on the frappe and socketio surface |
-| `tools` | `true` | prompt on the admin tools paths |
+| `tools` | `false` | prompt on the admin tools paths |
 | `allow_ips` | `[]` | addresses or CIDRs that skip the prompt |
 | `allow_paths` | `[]` | path prefixes served without a prompt, web surface only |
+
+!!! info "Why `tools` no longer defaults true"
+    Protection is something `fm auth` records, never something a model default claimed for you. The old `true` meant every bench's config stated its admin tools were guarded whether or not anyone had asked, which then needed something to mint a password later just to keep that claim true. Nothing mints one while rendering nginx config any more: `fm auth enable BENCH --tools` is the only thing that creates a tools password now, in its own run, and `fm tools enable` warns when it has routed a surface that call has not protected.
 
 ```toml
 [auth]

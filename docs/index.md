@@ -45,7 +45,7 @@ It replaces the hand-rolled stack most Frappe developers end up maintaining: a b
 
     ---
 
-    Read outgoing mail in Mailpit and browse the database in Adminer, path-routed under the bench URL behind basic auth. Off by default; turn them on with `fm tools enable BENCH`.
+    Read outgoing mail in Mailpit and browse the database in Adminer, path-routed under the bench URL. Off by default; turn them on with `fm tools enable BENCH`, and protect them separately with `fm auth enable BENCH --tools`.
 
 -   :lucide-ship:{ .lg .middle } &nbsp; **[Ship immutable deploys](deploy/index.md)**
 

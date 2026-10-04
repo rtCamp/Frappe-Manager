@@ -1502,13 +1502,16 @@ def test_location_conf_carries_the_allow_ip_exemptions(tmp_path):
 
 
 @pytest.mark.timeout(15)
-def test_location_conf_defaults_to_a_fresh_auth_config_when_the_bench_has_none(t):
-    """auth is None on older benches; the default (web off, tools on) must still gate."""
+def test_location_conf_follows_the_model_default_when_the_bench_has_no_auth(t):
+    """A bench with no `[auth]` table claims no surface, so the tool locations carry no
+    `auth_basic`. This used to restate the default as a literal `True` here, which kept gating the
+    tools after the model stopped claiming them: protection is recorded by `fm auth`, never
+    inferred."""
     assert t.bench.bench_config.auth is None
 
     t.tools.save_nginx_location_config()
 
-    assert "auth_basic_user_file" in t.location_conf.read_text()
+    assert "auth_basic_user_file" not in t.location_conf.read_text()
 
 
 @pytest.mark.timeout(15)

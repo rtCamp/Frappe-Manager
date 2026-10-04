@@ -1001,7 +1001,10 @@ class AuthConfig(WebAuthConfig):
     bench-wide and cannot be overridden.
     """
 
-    tools: bool = Field(True, description="Prompt on the admin tools paths (/adminer/, /mailpit/).")
+    # Default OFF: a surface is protected because `fm auth` protected it, never because a model
+    # default said so. Defaulting on claimed protection for benches nobody had asked, which left a
+    # surface marked protected with no credential behind it and made something else mint one later.
+    tools: bool = Field(False, description="Prompt on the admin tools paths (/adminer/, /mailpit/).")
     tools_user: str | None = Field(
         None,
         description="Basic auth username for the admin tools; falls back to `user` when unset, which is what "

@@ -893,21 +893,16 @@ class TestEnsureFmNginxConfs:
         # Nothing serves the tools paths, so there is no surface to protect.
         assert not (h.conf_dir / "http_auth" / htpasswd_name(SITE)).exists()
 
-    def test_a_missing_password_is_minted_once_and_persisted(self, tmp_path):
+    def test_rendering_the_nginx_conf_never_mints_a_password(self, tmp_path):
+        """A credential is created by the command that protects a surface, in that command's own
+        run. Minting here made a password appear as a side effect of writing nginx config, and
+        existed only to reconcile `AuthConfig.tools` defaulting on, which it no longer does."""
         h = self._auth_bench(tmp_path, web=True)
         assert h.bench.bench_config.auth.password is None
         with patch.object(Bench, "save_bench_config") as save:
             h.bench.ensure_fm_nginx_confs()
-        minted = h.bench.bench_config.auth.password
-        assert minted
-        # Saved silently: this is a side effect of another command, not a config edit
-        # the user asked for.
-        save.assert_called_once_with(print_message=False)
-
-        with patch.object(Bench, "save_bench_config") as save_again:
-            h.bench.ensure_fm_nginx_confs()
-        assert h.bench.bench_config.auth.password == minted
-        save_again.assert_not_called()
+        assert h.bench.bench_config.auth.password is None
+        save.assert_not_called()
 
     def test_no_auth_configured_mints_nothing(self, tmp_path):
         bench_path = tmp_path / SITE

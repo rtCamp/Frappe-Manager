@@ -204,7 +204,9 @@ class BenchInfo:
         creds = " [fm.muted]·[/fm.muted] ".join(
             f"{prefix}{user} [fm.muted]/[/fm.muted] [fm.secret]{password}[/fm.secret]"
             if password
-            else f"{prefix}{user} [fm.muted]/ password minted on next start[/fm.muted]"
+            # Nothing mints later any more, so a claimed surface with no credential is an
+            # incomplete config rather than a pending step: say so, and name what fixes it.
+            else f"{prefix}{user} [fm.muted]/ no password recorded · fm auth enable[/fm.muted]"
             for prefix, user, password in shown
         )
         extras = [

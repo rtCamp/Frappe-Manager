@@ -2136,7 +2136,6 @@ class Bench:
             build_server_auth_conf,
             container_htpasswd_path,
             container_site_htpasswd_path,
-            generate_password,
             htpasswd_name,
             is_fm_auth_conf,
             site_htpasswd_name,
@@ -2221,17 +2220,10 @@ class Bench:
         tools_wanted = bool(auth.tools and self.bench_config.admin_tools)
         bench_web = any(key == "" and sauth.web for key, sauth in scopes)
 
-        minted = False
-        for _key, sauth in scopes:
-            if sauth.web and sauth.password is None:
-                sauth.password = generate_password()
-                minted = True
-        if tools_wanted and auth.effective_tools_password is None:
-            auth.tools_password = generate_password()
-            minted = True
-        if minted:
-            self.bench_config.auth = auth
-            self.save_bench_config(print_message=False)
+        # NOTHING is minted here. A password is created by the command that protects a surface,
+        # in that command's own run, so a credential never appears as a side effect of writing
+        # nginx config. Minting here existed only to reconcile `AuthConfig.tools` defaulting on,
+        # which it no longer does.
 
         bench_htpasswd = conf_dir / "http_auth" / htpasswd_name(self.name)
         map_conf_path = conf_dir / "conf.d" / MAP_CONF_NAME

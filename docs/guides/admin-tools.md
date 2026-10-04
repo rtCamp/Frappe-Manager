@@ -19,7 +19,7 @@ Access:
 - Mailpit: http://mybench.localhost/mailpit/
 - Adminer: http://mybench.localhost/adminer/
 
-Both sit behind an HTTP basic auth prompt by default. `fm info mybench` prints the credentials.
+Neither sits behind a password by default. `fm tools enable` only routes the paths; protecting them is a separate call, `fm auth enable mybench --tools`, and `fm tools enable` warns when you skip it. Between the two, Adminer answers unauthenticated, and on a bench reachable from outside the machine that is a real database console with no lock on the door. `fm info mybench` prints the credentials once a password exists.
 
 Adminer opens on one-click login cards rather than a blank login form: one per site database, plus the bench's Redis cache and Redis queue. The cards are read from the mounted `sites` directory on every request, so a password change (a restore, a rotation) is picked up without regenerating anything.
 
@@ -30,7 +30,7 @@ Adminer opens on one-click login cards rather than a blank login form: one per s
     `db_socket` silently overrides `db_host` and `db_port` for Frappe, and the Adminer container can never reach a unix socket that belongs to a different container. Without `db_host` set too, the fallback the other cards use would point this one at the bench's shared `mariadb`: a different, real, writable database, and a button aimed at the wrong one is worse than no button. Set `db_host` alongside `db_socket` to name a TCP endpoint Adminer can actually dial, and the card comes back.
 
 !!! warning
-    Admin tools are off by default at create time, on every environment: `fm create --environment dev` does not turn them on. Adminer is a full database console routed on the bench's own hostname, and a dev bench is not always a laptop, so turning it on automatically would have published that console to anyone who reached the host, and minted a basic auth password nobody asked for. `fm tools enable BENCH` is the one way in. `fm update --environment` never toggles them either way.
+    Admin tools are off by default at create time, on every environment: `fm create --environment dev` does not turn them on. Adminer is a full database console routed on the bench's own hostname, and a dev bench is not always a laptop, so turning it on automatically would have published that console to anyone who reached the host, unauthenticated, since nothing mints a password on your behalf either. `fm tools enable BENCH` is the one way in; protecting it afterward is `fm auth enable BENCH --tools`. `fm update --environment` never toggles them either way.
 
 ## Serving them from some hostnames only
 
@@ -87,7 +87,7 @@ If you need the SMTP endpoint manually (inside the Docker network): host `fm__<b
 
 | Surface | Covers |
 | --- | --- |
-| `tools` | `/adminer/` and `/mailpit/` only. On by default. |
+| `tools` | `/adminer/` and `/mailpit/` only. Off by default; `fm tools enable` routes them without protecting them. |
 | `web` | frappe and socketio, so every other path including `/api/*`. Off by default. The ACME challenge path opts out, so certificate renewal keeps working. |
 
 `fm auth enable` turns a surface on, `fm auth disable` turns it off, and `fm auth status` reports without writing. `--web` and `--tools` select which surfaces the call acts on, and naming one says nothing about the other: `fm auth enable mybench --web` leaves the admin tools exactly as they were. Naming neither acts on both.
@@ -99,7 +99,7 @@ fm auth enable mybench
 # Protect the site only, leaving the tools as they are
 fm auth enable mybench --web
 
-# Back to the default: tools prompt, site open
+# Turn the site prompt off again; admin tools are untouched either way
 fm auth disable mybench --web
 
 # Report the current state, writing nothing
@@ -164,6 +164,7 @@ Each flag **replaces** its stored list rather than appending, and omitting the f
 ### Two things that catch people out
 
 - `fm auth enable --tools` on a bench whose admin tools are **disabled** stores the intent and warns: there are no `/adminer/` and `/mailpit/` locations to gate yet. It starts applying once you run `fm tools enable mybench`.
+- `fm tools enable` on a bench whose `[auth]` does not protect `tools` warns the mirror way: it routes Adminer and Mailpit and names the `fm auth enable BENCH --tools` call that protects them, rather than protecting them itself.
 - Protecting `web` is refused on a bench whose nginx conf predates the `Authorization`-header fix, because nginx would forward the credentials it just checked and frappe would answer 401 to every authenticated request. `fm migrate` re-renders the conf on a mount bench; an image bench needs `fm bake` then `fm switch`. The `tools` surface is unaffected either way.
 
 See also: [Environments](../concepts/environments.md) for the dev/prod defaults behind these tools, [`[auth]`](../reference/configuration.md#auth) for the config keys `fm auth` writes, and [Architecture](../reference/architecture.md) for how the tools are routed inside the bench.

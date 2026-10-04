@@ -358,13 +358,11 @@ def test_compact_list_truncates_only_past_the_limit():
     assert cl("open", ["a", "b", "c"], limit=1) == "open a +2"
 
 
-def test_auth_fact_none_config_reports_the_model_defaults():
-    """A config written before ``[auth]`` existed: tools prompt, web does not, no password yet."""
-    fact = BenchInfo._auth_fact(None)
-    assert "tools" in fact
-    assert "web" not in fact
-    assert "password minted on next start" in fact
-    assert "admin" in fact
+def test_auth_fact_none_config_reports_nothing_protected():
+    """A bench with no ``[auth]`` table claims nothing: protection is recorded by `fm auth`, never
+    by a model default. The old default marked the tools surface protected on every bench, so a
+    surface read as protected with no credential behind it."""
+    assert BenchInfo._auth_fact(None) == "[fm.muted]off[/fm.muted]"
 
 
 def test_auth_fact_off_when_neither_surface_prompts():
@@ -1646,8 +1644,9 @@ def test_the_tools_row_says_so_when_no_site_routes_them(tmp_path, card_spy):
 
 
 def test_the_auth_row_is_unchanged_when_no_site_has_its_own(tmp_path, card_spy):
-    config = _config(sites={SITE: None, SECOND_SITE: None}, auth=AuthConfig(web=True, password="bp"))
-    # The tools surface is only a surface when the bench actually serves Adminer and Mailpit.
+    config = _config(sites={SITE: None, SECOND_SITE: None}, auth=AuthConfig(web=True, tools=True, password="bp"))
+    # The tools surface is only a surface when the bench actually serves Adminer and Mailpit,
+    # and only when auth recorded it: `tools` no longer defaults on.
     config.admin_tools = True
     info = _displayable(tmp_path, bench_config=config)
     info.display_info()
@@ -1672,7 +1671,7 @@ def test_the_tools_surface_is_not_reported_on_a_bench_that_serves_no_admin_tools
 def test_a_site_with_its_own_auth_gets_its_own_row(tmp_path, card_spy):
     """A single row would report one site's password as if it opened the others, which is the exact
     thing per-site credentials exist to prevent."""
-    config = _config(sites={SITE: None, SECOND_SITE: None}, auth=AuthConfig(web=True, password="bench-pw"))
+    config = _config(sites={SITE: None, SECOND_SITE: None}, auth=AuthConfig(web=True, tools=True, password="bench-pw"))
     config.sites[SECOND_SITE].auth = WebAuthConfig(web=True, user="customer", password="site-pw")
     config.admin_tools = True
     info = _displayable(tmp_path, bench_config=config)

@@ -18,7 +18,7 @@ $ fm tools COMMAND [ARGS]...
 
 Start the admin tools (Adminer at /adminer, Mailpit at /mailpit), or route a site to them.
 
-BENCH starts the one container pair the bench has, seeding its compose file on first use and minting its htpasswd. BENCH/SITE only adds the routes for that site's hostnames, leaving the containers as they were; BENCH/all restores the routes for every site the bench serves.
+BENCH starts the one container pair the bench has, seeding its compose file on first use; this only routes, so protecting what it starts is a separate 'fm auth enable BENCH --tools' call. BENCH/SITE only adds the routes for that site's hostnames, leaving the containers as they were; BENCH/all restores the routes for every site the bench serves.
 
 **Usage**:
 
@@ -38,7 +38,7 @@ $ fm tools enable BENCH(/SITE|all) [OPTIONS]
 
 #### Start the admin tools containers for a bench
 
-Seeds the compose file on first use and mints the tools' htpasswd.
+Seeds the compose file on first use; routing only, it does not protect the tools.
 
 ```bash
 fm tools enable mybench

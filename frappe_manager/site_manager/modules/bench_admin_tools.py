@@ -115,6 +115,7 @@ class BenchAdminTools:
         """
         from jinja2 import Template
 
+        from frappe_manager.site_manager.bench_config import AuthConfig
         from frappe_manager.site_manager.modules.auth import build_tools_auth_block, container_tools_htpasswd_path
 
         config = self.bench.bench_config
@@ -130,10 +131,14 @@ class BenchAdminTools:
                     "mailpit_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailpit",
                     "adminer_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}adminer",
                     "auth_block": build_tools_auth_block(
-                        web=config.auth_for(site).web if site else bool(auth and auth.web),
-                        tools=bool(auth.tools) if auth else True,
+                        # Both read through the model's own defaults rather than restating them: a
+                        # literal here was a second copy of `AuthConfig.tools`, and it kept
+                        # rendering `auth_basic` for benches with no `[auth]` table after the model
+                        # stopped claiming that surface.
+                        web=config.auth_for(site).web if site else (auth or AuthConfig()).web,
+                        tools=(auth or AuthConfig()).tools,
                         auth_file=container_tools_htpasswd_path(self.bench_name),
-                        allow_ips=auth.allow_ips if auth else [],
+                        allow_ips=(auth or AuthConfig()).allow_ips,
                     ),
                 }
             )

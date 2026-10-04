@@ -27,7 +27,7 @@ from frappe_manager.commands.tools.enable import enable
 from frappe_manager.commands.tools.status import status
 from frappe_manager.output_manager import railcard, set_global_output_handler
 from frappe_manager.output_manager.base import OutputHandler
-from frappe_manager.site_manager.bench_config import SiteConfig
+from frappe_manager.site_manager.bench_config import AuthConfig, SiteConfig
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME
 
 pytestmark = pytest.mark.timeout(15)
@@ -86,6 +86,7 @@ class ToolsWorld:
         cfg.admin_tools = True
         cfg.site_names = [BENCH]
         cfg.sites = {BENCH: SiteConfig()}
+        cfg.auth = AuthConfig(tools=True)
 
         self.bench.nginx_conf_serves_per_site.return_value = True
         self.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = True
@@ -124,6 +125,10 @@ class ToolsWorld:
     @property
     def prints(self) -> list[str]:
         return [c.args[0] for c in self.output.print.call_args_list if c.args]
+
+    @property
+    def warnings(self) -> list[str]:
+        return [c.args[0] for c in self.output.warning.call_args_list if c.args]
 
     @property
     def saves(self) -> int:
@@ -208,6 +213,50 @@ class TestEnableBench:
         assert "bench-wide setting covers every site" in world.errors[0]
         world.bench_cls.get_object.assert_not_called()
         world.bench.admin_tools.configure_mailpit_for_site.assert_not_called()
+
+
+class TestEnableToolsAuthWarning:
+    """`fm tools enable` routes the admin tools surface; it never decides whether that surface is
+    protected. When auth does not already claim the tools surface, it tells the operator what is
+    still open instead of silently protecting it -- and it must never act across the concern by
+    minting credentials itself."""
+
+    def test_warns_naming_the_bench_and_the_auth_command_when_auth_is_unset(self, world):
+        world.config.auth = None
+
+        world.run_enable()
+
+        assert len(world.warnings) == 1
+        warning = world.warnings[0]
+        assert BENCH in warning
+        assert "fm auth enable" in warning
+        assert "--tools" in warning
+
+    def test_warns_when_auth_exists_but_does_not_claim_tools(self, world):
+        world.config.auth = AuthConfig(tools=False)
+
+        world.run_enable()
+
+        assert len(world.warnings) == 1
+        warning = world.warnings[0]
+        assert BENCH in warning
+        assert "fm auth enable" in warning
+        assert "--tools" in warning
+
+    def test_silent_when_auth_already_claims_tools(self, world):
+        world.config.auth = AuthConfig(tools=True)
+
+        world.run_enable()
+
+        world.output.warning.assert_not_called()
+
+    def test_never_mutates_the_bench_auth_config(self, world):
+        world.config.auth = AuthConfig(tools=False, user="admin", password="secret")
+        before = world.config.auth.model_copy(deep=True)
+
+        world.run_enable()
+
+        assert world.config.auth == before
 
 
 class TestDisableBench:
