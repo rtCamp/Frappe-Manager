@@ -1,4 +1,4 @@
-FROM ubuntu:22.04 AS base
+FROM ubuntu:26.04 AS base
 
 LABEL author=rtCamp
 LABEL org.opencontainers.image.source=https://github.com/rtcamp/Frappe-Manager
