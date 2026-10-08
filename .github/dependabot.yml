@@ -1,15 +1,11 @@
 version: 2
 updates:
-  - package-ecosystem: "composer"
-    directory: "/"
-    schedule:
-      interval: "daily"
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "daily"
   - package-ecosystem: "docker"
-    directory: "/"
+    directory: "/Docker/frappe"
+    schedule:
+      interval: "monthly"
+  - package-ecosystem: "docker"
+    directory: "/Docker/nginx"
     schedule:
       interval: "monthly"
   - package-ecosystem: "uv"
@@ -20,19 +16,7 @@ updates:
     directory: "/Docker/frappe/fmx"
     schedule:
       interval: "daily"
-  - package-ecosystem: "bundler"
-    directory: "/"
-    schedule:
-      interval: "daily"
-  - package-ecosystem: "gomod"
-    directory: "/"
-    schedule:
-      interval: "daily"
   - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "daily"
-  - package-ecosystem: "terraform"
     directory: "/"
     schedule:
       interval: "daily"
