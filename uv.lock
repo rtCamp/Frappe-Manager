@@ -235,6 +235,7 @@ wheels = [
 name = "frappe-manager"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "cryptography" },
     { name = "email-validator" },
     { name = "gitpython" },
@@ -265,6 +266,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.3.3,<9.0.0" },
     { name = "cryptography", specifier = ">=50.0.0,<51.0.0" },
     { name = "email-validator", specifier = ">=2.3.0,<3.0.0" },
     { name = "gitpython", specifier = ">=3.1.40,<4.0.0" },
