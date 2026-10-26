@@ -1,7 +1,7 @@
 """
-Migration for v0.19.1 - move benches onto the v0.19.1 images.
+Migration for v0.20.0 - move benches onto the v0.20.0 images.
 
-v0.19.1 carries no structural changes. Its only job is to re-tag each bench's
+v0.20.0 carries no structural changes. Its only job is to re-tag each bench's
 compose images so they pick up the frappe image that ships Chromium's shared
 libraries, without which Frappe v16's chrome PDF generator cannot start, and to
 recreate already-running containers so they run off the new image immediately.
@@ -21,8 +21,8 @@ from frappe_manager.output_manager.context_managers import spinner
 FM_IMAGE_PATTERN = re.compile(r"(ghcr\.io/rtcamp/frappe-manager-[^:]+):v[0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?")
 
 
-class MigrationV0191(MigrationBase):
-    version = Version("0.19.1")
+class MigrationV0200(MigrationBase):
+    version = Version("0.20.0")
 
     def migrate_bench(self, bench: MigrationBench):
         """Re-tag fm images across every compose file, then pull and recreate if anything moved."""
