@@ -29,13 +29,15 @@ jobs:
             exit 1
           fi
 
-      # The cumulative changelog is only ever committed to main, so develop's copy
-      # is stale. Prepending onto it would drop every section main has since
-      # accumulated, and then conflict with main at merge time.
-      - name: Base changelog on main
+      # Release commits land only on main, so develop lacks main's changelog sections.
+      # Taking main's file alone still conflicts in the release PR: both sides then
+      # changed the same spot since the merge base. Merging main makes main an ancestor.
+      - name: Merge main into the release
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
-          git checkout origin/main -- docs/changelog.md
+          git merge --no-edit origin/main
           echo "Sections currently in the changelog:"
           grep -c '^## v' docs/changelog.md
 
@@ -75,8 +77,6 @@ jobs:
           VERSION: ${{ github.event.inputs.version }}
         run: |
           BRANCH="release/v${VERSION}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
           git add docs/changelog.md frappe_manager/__about__.py
           git commit -m "chore(release): prepare for v${VERSION}"
