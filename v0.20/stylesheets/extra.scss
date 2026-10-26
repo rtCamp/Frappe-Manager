@@ -1,0 +1,526 @@
+// =============================================================================
+// Frappe Manager Docs — Theme Stylesheet
+// Source: extra.scss  →  compiled to extra.css via `just css`
+// =============================================================================
+
+@use 'sass:color';
+
+// -----------------------------------------------------------------------------
+// 1. DESIGN TOKENS
+// All raw color values live here. Nothing else in this file uses bare hex/rgb.
+// -----------------------------------------------------------------------------
+
+// ── Brand: Orange scale ──────────────────────────────────────────────────────
+$orange:        #ff6e42;
+$orange-light:  #ff8a66;
+$orange-dark:   #f4511f;
+$orange-deeper: #ff764d;  // slightly lighter for dark-mode primary
+
+// ── Brand: Purple scale ──────────────────────────────────────────────────────
+$purple:        #AB3A6C;  // base brand purple
+$purple-mid:    #C8577F;  // accent — active states, links in dark
+$purple-light:  #D876A0;  // h1/h2 in dark
+$purple-soft:   #E891B5;  // inline code text, kbd, header title in dark
+$purple-deep:   #9C2E5C;  // gradient darker stop
+
+// ── Semantic accent colors (shared light + dark borders) ─────────────────────
+$color-info:    #00B8D4;  // cyan
+$color-warning: #FF9100;  // amber
+$color-danger:  #EF5350;  // red
+$color-example: #7C4DFF;  // indigo-purple
+$color-success: #00C853;  // green (future use)
+
+// ── Light mode surfaces ───────────────────────────────────────────────────────
+$light-cream:        #F9F8F2;
+$light-border-gold:  #DEBF94;  // geometric line color in SVGs
+$light-border:       rgba($light-border-gold, 0.3);
+$light-border-faint: rgba($light-border-gold, 0.12);  // header bottom
+$light-border-soft:  rgba($light-border-gold, 0.08);  // tabs bottom
+$light-border-foot:  rgba($light-border-gold, 0.15);  // footer top
+$light-footer-text:  #333333;
+// Derived light surfaces — warm orange tints over cream base
+$light-pre-bg:       color.mix($orange, $light-cream, 14%);  // ≈ #fce8df  — warm orange-tinted code bg
+$light-tab-bg:       color.mix($orange, $light-cream, 8%);   // ≈ #fdf0eb  — slightly lighter for tab content
+$light-labels-bg:    color.mix($orange, $light-cream, 20%);  // ≈ #fcddd1  — labels bar, visibly distinct from content
+
+// ── Dark mode surfaces ────────────────────────────────────────────────────────
+// Rule: every surface is a purple-tinted dark, layered above body rgb(11,12,15)
+$dark-body:          rgb(11, 12, 15);    // Material slate — do not override
+$dark-header:        #1a0d1f;            // header / footer / tabs
+$dark-code:          #1c1424;            // code blocks, tabbed-set bg
+$dark-surface:       rgba(24, 16, 32, 0.90);   // default admonition fill
+$dark-surface-tip:   rgba(28, 16, 36, 0.90);   // tip / note admonition
+$dark-surface-info:  rgba(0,  40, 52,  0.60);  // info admonition (cyan tint)
+$dark-surface-ex:    rgba(30, 16, 46,  0.80);  // example admonition (indigo tint)
+$dark-surface-warn:  rgba(40, 28, 0,   0.60);  // warning admonition (amber tint)
+$dark-surface-danger:rgba(48, 12, 12,  0.60);  // danger admonition (red tint)
+$dark-card:          rgba(28, 20, 36,  0.98);  // grid card base
+$dark-card-hover:    rgba(32, 22, 42,  1.00);  // grid card hovered
+$dark-footer-text:   #cccccc;
+
+// ── Alpha-channel helpers ─────────────────────────────────────────────────────
+// ot()  — orange tint   e.g. ot(0.15) = rgba($orange, 0.15)
+// pt()  — purple tint   e.g. pt(0.25) = rgba($purple, 0.25)
+// pm()  — purple-mid    e.g. pm(0.4)  = rgba($purple-mid, 0.4)
+// shadow() — pure black at opacity, for box-shadows
+@function ot($a) { @return rgba(255, 110, 66,  $a); }  // $orange
+@function pt($a) { @return rgba(171,  58, 108,  $a); }  // $purple
+@function pm($a) { @return rgba(200,  87, 127,  $a); }  // $purple-mid
+@function shadow($a) { @return rgba(0, 0, 0, $a); }
+
+// ── Gradients ─────────────────────────────────────────────────────────────────
+$gradient:      linear-gradient(135deg, $orange 0%, $purple 100%);
+$gradient-soft: linear-gradient(120deg, ot(0.1) 0%, pt(0.1) 100%);
+$gradient-dark: linear-gradient(135deg, $purple 0%, $purple-mid 100%);
+
+// -----------------------------------------------------------------------------
+// 2. SVG BACKGROUND DATA URIs
+// Kept as variables to avoid cluttering rule blocks.
+// Colors inside are intentional — they match the brand SVG art, not overridable.
+// -----------------------------------------------------------------------------
+
+$svg-header-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1920' height='150' viewBox='0 0 1920 150' fill='none'%3E%3Cg opacity='0.2'%3E%3Cpath d='M1511.23 200L1511.23 180L959.99 80L919.525 75L1157.73 150L1511.23 200Z' fill='url(%23paint0)'/%3E%3Cpath d='M1676.1 180L1695.42 160L1103.39 5L1054.42 15L1313.42 90L1676.1 180Z' fill='url(%23paint1)'/%3E%3Cpath d='M1271.2 170L1271.2 150L816.741 45L783.381 52L979.767 110L1271.2 170Z' fill='url(%23paint2)'/%3E%3Cpath d='M1556.89 185L1567.42 175L881.62 10L856.025 18L881.62 25L1556.89 185Z' fill='url(%23paint3)'/%3E%3C/g%3E%3Cdefs%3E%3ClinearGradient id='paint0' x1='1331.07' y1='210' x2='743.573' y2='110' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FBF2E7' stop-opacity='0'/%3E%3Cstop offset='0.5' stop-color='%23DEBF94'/%3E%3Cstop offset='1' stop-color='%23FDFAF5' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint1' x1='1601.38' y1='165' x2='1029.37' y2='30' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FDF9F3' stop-opacity='0'/%3E%3Cstop offset='0.4' stop-color='%23DEBF94'/%3E%3Cstop offset='1' stop-color='%23FDFAF5' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint2' x1='1215.81' y1='160' x2='867.3' y2='70' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FDF9F3' stop-opacity='0'/%3E%3Cstop offset='0.59' stop-color='%23E8DBC9'/%3E%3Cstop offset='1' stop-color='%23FDFAF5' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint3' x1='1455.08' y1='190' x2='811.092' y2='40' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FDF9F3' stop-opacity='0'/%3E%3Cstop offset='0.32' stop-color='%23DEBF94'/%3E%3Cstop offset='0.7' stop-color='%23DEBF94' stop-opacity='0.89'/%3E%3Cstop offset='1' stop-color='%23FDFAF5' stop-opacity='0'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E");
+$svg-header-dark:  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1920' height='150' viewBox='0 0 1920 150' fill='none'%3E%3Cg opacity='0.35'%3E%3Cpath d='M1511.23 200L1511.23 180L959.99 80L919.525 75L1157.73 150L1511.23 200Z' fill='url(%23paint0)'/%3E%3Cpath d='M1676.1 180L1695.42 160L1103.39 5L1054.42 15L1313.42 90L1676.1 180Z' fill='url(%23paint1)'/%3E%3Cpath d='M1271.2 170L1271.2 150L816.741 45L783.381 52L979.767 110L1271.2 170Z' fill='url(%23paint2)'/%3E%3Cpath d='M1556.89 185L1567.42 175L881.62 10L856.025 18L881.62 25L1556.89 185Z' fill='url(%23paint3)'/%3E%3C/g%3E%3Cdefs%3E%3ClinearGradient id='paint0' x1='1331.07' y1='210' x2='743.573' y2='110' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23AB3A6C' stop-opacity='0'/%3E%3Cstop offset='0.5' stop-color='%23C8577F'/%3E%3Cstop offset='1' stop-color='%23AB3A6C' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint1' x1='1601.38' y1='165' x2='1029.37' y2='30' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23C8577F' stop-opacity='0'/%3E%3Cstop offset='0.4' stop-color='%23AB3A6C'/%3E%3Cstop offset='1' stop-color='%239C2E5C' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint2' x1='1215.81' y1='160' x2='867.3' y2='70' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23AB3A6C' stop-opacity='0'/%3E%3Cstop offset='0.59' stop-color='%23C8577F'/%3E%3Cstop offset='1' stop-color='%23AB3A6C' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint3' x1='1455.08' y1='190' x2='811.092' y2='40' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%239C2E5C' stop-opacity='0'/%3E%3Cstop offset='0.32' stop-color='%23AB3A6C'/%3E%3Cstop offset='0.7' stop-color='%23AB3A6C' stop-opacity='0.89'/%3E%3Cstop offset='1' stop-color='%23C8577F' stop-opacity='0'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E");
+$svg-tabs-light:   url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1920' height='80' viewBox='0 0 1920 80' fill='none'%3E%3Cg opacity='0.2'%3E%3Cpath d='M1511.23 100L1511.23 90L959.99 40L919.525 38L1157.73 75L1511.23 100Z' fill='url(%23paint0)'/%3E%3Cpath d='M1676.1 90L1695.42 80L1103.39 5L1054.42 10L1313.42 45L1676.1 90Z' fill='url(%23paint1)'/%3E%3Cpath d='M1271.2 85L1271.2 75L816.741 25L783.381 28L979.767 55L1271.2 85Z' fill='url(%23paint2)'/%3E%3Cpath d='M1556.89 95L1567.42 90L881.62 8L856.025 12L881.62 18L1556.89 95Z' fill='url(%23paint3)'/%3E%3C/g%3E%3Cdefs%3E%3ClinearGradient id='paint0' x1='1331.07' y1='105' x2='743.573' y2='55' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FBF2E7' stop-opacity='0'/%3E%3Cstop offset='0.5' stop-color='%23DEBF94'/%3E%3Cstop offset='1' stop-color='%23FDFAF5' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint1' x1='1601.38' y1='82' x2='1029.37' y2='15' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FDF9F3' stop-opacity='0'/%3E%3Cstop offset='0.4' stop-color='%23DEBF94'/%3E%3Cstop offset='1' stop-color='%23FDFAF5' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint2' x1='1215.81' y1='80' x2='867.3' y2='35' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FDF9F3' stop-opacity='0'/%3E%3Cstop offset='0.59' stop-color='%23E8DBC9'/%3E%3Cstop offset='1' stop-color='%23FDFAF5' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint3' x1='1455.08' y1='92' x2='811.092' y2='20' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FDF9F3' stop-opacity='0'/%3E%3Cstop offset='0.32' stop-color='%23DEBF94'/%3E%3Cstop offset='0.7' stop-color='%23DEBF94' stop-opacity='0.89'/%3E%3Cstop offset='1' stop-color='%23FDFAF5' stop-opacity='0'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E");
+$svg-tabs-dark:    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1920' height='80' viewBox='0 0 1920 80' fill='none'%3E%3Cg opacity='0.35'%3E%3Cpath d='M1511.23 100L1511.23 90L959.99 40L919.525 38L1157.73 75L1511.23 100Z' fill='url(%23paint0)'/%3E%3Cpath d='M1676.1 90L1695.42 80L1103.39 5L1054.42 10L1313.42 45L1676.1 90Z' fill='url(%23paint1)'/%3E%3Cpath d='M1271.2 85L1271.2 75L816.741 25L783.381 28L979.767 55L1271.2 85Z' fill='url(%23paint2)'/%3E%3Cpath d='M1556.89 95L1567.42 90L881.62 8L856.025 12L881.62 18L1556.89 95Z' fill='url(%23paint3)'/%3E%3C/g%3E%3Cdefs%3E%3ClinearGradient id='paint0' x1='1331.07' y1='105' x2='743.573' y2='55' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23AB3A6C' stop-opacity='0'/%3E%3Cstop offset='0.5' stop-color='%23C8577F'/%3E%3Cstop offset='1' stop-color='%23AB3A6C' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint1' x1='1601.38' y1='82' x2='1029.37' y2='15' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23C8577F' stop-opacity='0'/%3E%3Cstop offset='0.4' stop-color='%23AB3A6C'/%3E%3Cstop offset='1' stop-color='%239C2E5C' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint2' x1='1215.81' y1='80' x2='867.3' y2='35' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23AB3A6C' stop-opacity='0'/%3E%3Cstop offset='0.59' stop-color='%23C8577F'/%3E%3Cstop offset='1' stop-color='%23AB3A6C' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint3' x1='1455.08' y1='92' x2='811.092' y2='20' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%239C2E5C' stop-opacity='0'/%3E%3Cstop offset='0.32' stop-color='%23AB3A6C'/%3E%3Cstop offset='0.7' stop-color='%23AB3A6C' stop-opacity='0.89'/%3E%3Cstop offset='1' stop-color='%23C8577F' stop-opacity='0'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E");
+$svg-footer-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1920' height='300' viewBox='0 0 1920 300' fill='none'%3E%3Cg opacity='0.2'%3E%3Cpath d='M1511.23 300L1511.23 270L959.99 100L919.525 90L1157.73 200L1511.23 300Z' fill='url(%23paint0)'/%3E%3Cpath d='M1676.1 250L1695.42 220L1103.39 20L1054.42 40L1313.42 130L1676.1 250Z' fill='url(%23paint1)'/%3E%3Cpath d='M1271.2 260L1271.2 230L816.741 60L783.381 70L979.767 150L1271.2 260Z' fill='url(%23paint2)'/%3E%3Cpath d='M1556.89 280L1567.42 270L881.62 30L856.025 45L881.62 60L1556.89 280Z' fill='url(%23paint3)'/%3E%3C/g%3E%3Cdefs%3E%3ClinearGradient id='paint0' x1='1331.07' y1='310' x2='743.573' y2='150' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FBF2E7' stop-opacity='0'/%3E%3Cstop offset='0.5' stop-color='%23DEBF94'/%3E%3Cstop offset='1' stop-color='%23FDFAF5' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint1' x1='1601.38' y1='240' x2='1029.37' y2='60' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FDF9F3' stop-opacity='0'/%3E%3Cstop offset='0.4' stop-color='%23DEBF94'/%3E%3Cstop offset='1' stop-color='%23FDFAF5' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint2' x1='1215.81' y1='250' x2='867.3' y2='100' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FDF9F3' stop-opacity='0'/%3E%3Cstop offset='0.59' stop-color='%23E8DBC9'/%3E%3Cstop offset='1' stop-color='%23FDFAF5' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint3' x1='1455.08' y1='285' x2='811.092' y2='80' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23FDF9F3' stop-opacity='0'/%3E%3Cstop offset='0.32' stop-color='%23DEBF94'/%3E%3Cstop offset='0.7' stop-color='%23DEBF94' stop-opacity='0.89'/%3E%3Cstop offset='1' stop-color='%23FDFAF5' stop-opacity='0'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E");
+$svg-footer-dark:  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1920' height='300' viewBox='0 0 1920 300' fill='none'%3E%3Cg opacity='0.35'%3E%3Cpath d='M1511.23 300L1511.23 270L959.99 100L919.525 90L1157.73 200L1511.23 300Z' fill='url(%23paint0)'/%3E%3Cpath d='M1676.1 250L1695.42 220L1103.39 20L1054.42 40L1313.42 130L1676.1 250Z' fill='url(%23paint1)'/%3E%3Cpath d='M1271.2 260L1271.2 230L816.741 60L783.381 70L979.767 150L1271.2 260Z' fill='url(%23paint2)'/%3E%3Cpath d='M1556.89 280L1567.42 270L881.62 30L856.025 45L881.62 60L1556.89 280Z' fill='url(%23paint3)'/%3E%3C/g%3E%3Cdefs%3E%3ClinearGradient id='paint0' x1='1331.07' y1='310' x2='743.573' y2='150' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23AB3A6C' stop-opacity='0'/%3E%3Cstop offset='0.5' stop-color='%23C8577F'/%3E%3Cstop offset='1' stop-color='%23AB3A6C' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint1' x1='1601.38' y1='240' x2='1029.37' y2='60' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23C8577F' stop-opacity='0'/%3E%3Cstop offset='0.4' stop-color='%23AB3A6C'/%3E%3Cstop offset='1' stop-color='%239C2E5C' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint2' x1='1215.81' y1='250' x2='867.3' y2='100' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%23AB3A6C' stop-opacity='0'/%3E%3Cstop offset='0.59' stop-color='%23C8577F'/%3E%3Cstop offset='1' stop-color='%23AB3A6C' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='paint3' x1='1455.08' y1='285' x2='811.092' y2='80' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%239C2E5C' stop-opacity='0'/%3E%3Cstop offset='0.32' stop-color='%23AB3A6C'/%3E%3Cstop offset='0.7' stop-color='%23AB3A6C' stop-opacity='0.89'/%3E%3Cstop offset='1' stop-color='%23C8577F' stop-opacity='0'/%3E%3C/linearGradient%3E%3C/defs%3E%3C/svg%3E");
+
+// Shared background mixin for header / tabs / footer
+@mixin bg-pattern($color, $svg, $position: center top) {
+  background: $color !important;
+  background-image: $svg !important;
+  background-size: cover;
+  background-position: $position;
+  background-repeat: no-repeat;
+}
+
+// =============================================================================
+// 3. CSS CUSTOM PROPERTIES  (runtime tokens exposed to Zensical / MkDocs)
+// =============================================================================
+
+:root {
+  --rtcamp-gradient:      #{$gradient};
+  --rtcamp-gradient-soft: #{$gradient-soft};
+  --rtcamp-orange:        #{$orange};
+  --rtcamp-purple:        #{$purple};
+}
+
+// Light mode MkDocs variable overrides
+[data-md-color-scheme="default"],
+[data-md-color-scheme="default"][data-md-color-primary="deep-orange"] {
+  --md-primary-fg-color:             #{$orange}        !important;
+  --md-primary-fg-color--light:      #{$orange-light}  !important;
+  --md-primary-fg-color--dark:       #{$orange-dark}   !important;
+  --md-accent-fg-color:              #{$purple}         !important;
+  --md-accent-fg-color--transparent: #{pt(0.1)}        !important;
+  --md-typeset-a-color:              #{$orange}         !important;
+}
+
+// Dark mode MkDocs variable overrides
+[data-md-color-scheme="slate"],
+[data-md-color-scheme="slate"][data-md-color-primary="deep-orange"] {
+  --md-primary-fg-color:             #{$orange-deeper}  !important;
+  --md-primary-fg-color--light:      #{$orange-light}   !important;
+  --md-primary-fg-color--dark:       #{$orange}         !important;
+  --md-accent-fg-color:              #{$purple-mid}     !important;
+  --md-accent-fg-color--transparent: #{pm(0.15)}        !important;
+  --md-typeset-a-color:              #{$purple-mid}     !important;
+  --md-code-bg-color:                #{$dark-code}      !important;
+}
+
+// =============================================================================
+// 4. TYPOGRAPHY
+// =============================================================================
+
+.md-typeset {
+  a {
+    color: $orange;
+    transition: color 0.2s ease;
+    &:hover { color: $orange-dark; }
+  }
+
+  h1, h2 { color: var(--rtcamp-orange); }
+
+  // Inline code only — light mode (not inside pre blocks)
+  :not(pre) > code {
+    border-radius: 0.3rem;
+    background-color: ot(0.08);
+    color: $orange-dark;
+    padding: 0.1em 0.4em;
+  }
+
+  // Pre blocks — warm orange-tinted bg derived from $light-pre-bg token
+  pre {
+    background-color: $light-pre-bg !important;
+    border-radius: 0.4rem;
+    border: 1px solid $light-border !important;
+    overflow: hidden;
+
+    code {
+      background-color: transparent !important;
+    }
+  }
+}
+
+// Dark mode typography
+[data-md-color-scheme="slate"] .md-typeset {
+  a {
+    color: $purple-mid;
+    &:hover { color: $purple-light; }
+  }
+
+  h1, h2 { color: $purple-light; }
+  h3, h4 { color: $purple-mid; }
+
+  // Inline code — purple tint
+  :not(pre) > code {
+    background-color: pt(0.15) !important;
+    color: $purple-soft !important;
+    border: 1px solid pt(0.25);
+  }
+
+  // Pre wrapper gets the bg + shape — code inside inherits, no double bg
+  pre {
+    background-color: $dark-code !important;
+    border-radius: 0.4rem;
+    overflow: hidden;
+
+    code {
+      background-color: transparent !important;
+      border-radius: 0;
+    }
+  }
+}
+
+// =============================================================================
+// 5. TEXT SELECTION
+// =============================================================================
+
+::selection        { background-color: ot(0.30); color: #1a1a1a; }
+::-moz-selection   { background-color: ot(0.30); color: #1a1a1a; }
+
+[data-md-color-scheme="slate"] {
+  ::selection      { background-color: pm(0.40); color: #ffffff; }
+  ::-moz-selection { background-color: pm(0.40); color: #ffffff; }
+}
+
+// =============================================================================
+// 6. HEADER & NAVIGATION TABS
+// =============================================================================
+
+.md-header {
+  @include bg-pattern($light-cream, $svg-header-light, center top);
+  border-bottom: 1px solid $light-border-faint;
+  position: relative;
+
+  // Always visible — prevent Material from hiding header on scroll
+  transform: none !important;
+  transition: color 0.25s, background-color 0.25s !important;
+}
+
+.md-tabs {
+  @include bg-pattern($light-cream, $svg-tabs-light, center center);
+  position: relative;
+  border-bottom: 1px solid $light-border-soft;
+}
+
+[data-md-color-scheme="slate"] {
+  .md-header {
+    @include bg-pattern($dark-header, $svg-header-dark, center top);
+    border-bottom: 1px solid pt(0.40) !important;
+  }
+
+  .md-tabs {
+    @include bg-pattern($dark-header, $svg-tabs-dark, center center);
+    border-bottom: 1px solid pt(0.35) !important;
+  }
+
+  .md-header__title { color: $purple-soft; }
+}
+
+// =============================================================================
+// 7. FOOTER
+// =============================================================================
+
+.md-footer {
+  @include bg-pattern($light-cream, $svg-footer-light, center bottom);
+  border-top: 1px solid $light-border-foot;
+
+  &__inner { color: $light-footer-text; }
+
+  a {
+    color: var(--rtcamp-orange);
+    &:hover { color: var(--rtcamp-purple); }
+  }
+}
+
+[data-md-color-scheme="slate"] {
+  .md-footer {
+    @include bg-pattern($dark-header, $svg-footer-dark, center bottom);
+    border-top: 1px solid pt(0.40);
+
+    &__inner { color: $dark-footer-text; }
+
+    a {
+      color: $purple-mid;
+      &:hover { color: $orange-light; }
+    }
+  }
+}
+
+// =============================================================================
+// 8. NAVIGATION
+// =============================================================================
+
+.md-nav__link {
+  &--active { border-left: 3px solid var(--rtcamp-orange); }
+  &:hover   { color: var(--rtcamp-orange); }
+}
+
+[data-md-color-scheme="slate"] .md-nav__link--active {
+  border-left-color: $purple-mid !important;
+  color: $purple-mid !important;
+  background-color: pm(0.10);
+}
+
+// =============================================================================
+// 9. GRID CARDS
+// =============================================================================
+
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid > .card {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  background: rgba(255, 255, 255, 0.95) !important;
+  border: 1.5px solid $light-border !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 8px shadow(0.08), 0 1px 3px shadow(0.06) !important;
+  overflow: hidden;
+  position: relative;
+  transition: all 0.3s ease-in-out;
+
+  &:hover {
+    box-shadow: 0 8px 24px ot(0.15), 0 4px 12px shadow(0.10) !important;
+    border-color: ot(0.40) !important;
+    transform: translateY(-2px);
+    background: rgba(255, 255, 255, 1) !important;
+  }
+}
+
+[data-md-color-scheme="slate"] .md-typeset .grid.cards > ul > li,
+[data-md-color-scheme="slate"] .md-typeset .grid > .card {
+  background: $dark-card !important;
+  border-color: pt(0.30) !important;
+  box-shadow: 0 2px 8px shadow(0.40), 0 1px 3px shadow(0.30) !important;
+
+  &:hover {
+    box-shadow: 0 8px 24px pt(0.25), 0 4px 12px shadow(0.40) !important;
+    border-color: pm(0.50) !important;
+    background: $dark-card-hover !important;
+  }
+}
+
+// =============================================================================
+// 10. ADMONITIONS
+// =============================================================================
+
+// Light mode — override base theme semantic fills with our orange/cream palette
+.md-typeset .admonition {
+  border: 1.5px solid !important;
+  border-radius: 12px !important;
+  box-shadow: 0 2px 8px shadow(0.06) !important;
+  background-color: color.mix($orange, $light-cream, 4%) !important;  // warm cream base for all
+
+  .admonition-title { background-color: transparent !important; }
+
+  &.note    { border-color: pt(0.35)                          !important; }
+  &.info    { border-color: rgba($color-info,    0.50)        !important; }
+  &.tip     { border-color: $orange                           !important; }
+  &.example { border-color: rgba($color-example, 0.40)        !important; }
+  &.warning { border-color: rgba($color-warning, 0.50)        !important; }
+  &.danger,
+  &.error   { border-color: rgba($color-danger,  0.50)        !important; }
+}
+
+.md-typeset .admonition.tip > .admonition-title {
+  background-color: ot(0.08) !important;
+}
+
+// Dark mode — purple-tinted fill per type so each stands out from body
+[data-md-color-scheme="slate"] .md-typeset .admonition {
+  box-shadow: 0 2px 8px shadow(0.30) !important;
+  background-color: $dark-surface !important;  // default fallback
+
+  .admonition-title { background-color: transparent !important; }
+
+  &.note {
+    border-color: pt(0.40) !important;
+    background-color: $dark-surface-tip !important;
+  }
+  &.tip {
+    border-color: pt(0.50) !important;
+    background-color: $dark-surface-tip !important;
+  }
+  &.info {
+    border-color: rgba($color-info,    0.40) !important;
+    background-color: $dark-surface-info !important;
+  }
+  &.example {
+    border-color: rgba($color-example, 0.40) !important;
+    background-color: $dark-surface-ex !important;
+  }
+  &.warning {
+    border-color: rgba($color-warning, 0.40) !important;
+    background-color: $dark-surface-warn !important;
+  }
+  &.danger,
+  &.error {
+    border-color: rgba($color-danger,  0.40) !important;
+    background-color: $dark-surface-danger !important;
+  }
+}
+
+// =============================================================================
+// 11. TABBED CONTENT
+// =============================================================================
+
+// Light mode: tabbed-set container + labels bar
+.md-typeset .tabbed-set {
+  border: 1px solid $light-border !important;
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 0.6em 0;
+}
+
+.md-typeset .tabbed-labels {
+  background-color: $light-labels-bg !important;
+  border-bottom: 1px solid $light-border !important;
+
+  label {
+    color: rgba(60, 40, 20, 0.55);
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s ease, border-color 0.2s ease;
+    &:hover { color: $orange-dark; }
+  }
+}
+
+// Active tab label
+.md-typeset .tabbed-set > input:checked + label {
+  border-color: $orange !important;
+  color: $orange !important;
+}
+
+// Content area — slightly lighter orange tint, distinct from labels bar
+.md-typeset .tabbed-content {
+  background-color: $light-tab-bg !important;
+}
+
+// Dark mode: full purple treatment
+[data-md-color-scheme="slate"] .md-typeset {
+  .tabbed-set {
+    background: $dark-code;
+    border: 1px solid pt(0.25);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 0.6em 0;
+  }
+
+  .tabbed-labels {
+    background: pt(0.08);
+    border-bottom: 1px solid pt(0.25);
+
+    label {
+      color: rgba(226, 228, 233, 0.50);
+      border-bottom: 2px solid transparent;
+      transition: color 0.2s ease, border-color 0.2s ease;
+      &:hover { color: rgba(226, 228, 233, 0.82); }
+    }
+
+    &--linked > label > a { padding: 0.3rem 0.6rem !important; }
+  }
+
+  // Active tab — generated for tabs 1–5
+  @for $i from 1 through 5 {
+    @if $i == 1 {
+      .tabbed-set > input:first-child:checked ~ .tabbed-labels > :first-child {
+        color: $purple-mid !important;
+        border-bottom-color: $purple-mid !important;
+      }
+    } @else {
+      .tabbed-set > input:nth-child(#{$i}):checked ~ .tabbed-labels > :nth-child(#{$i}) {
+        color: $purple-mid !important;
+        border-bottom-color: $purple-mid !important;
+      }
+    }
+  }
+
+  .tabbed-content {
+    padding: 0;
+    pre { margin: 0; border-radius: 0; }
+  }
+}
+
+// =============================================================================
+// 12. TABLES
+// =============================================================================
+
+[data-md-color-scheme="slate"] .md-typeset table:not([class]) {
+  border: 1px solid pt(0.20);
+
+  th {
+    background-color: pt(0.10);
+    border-bottom: 2px solid pt(0.30);
+  }
+
+  td { border-top: 1px solid pt(0.15); }
+
+  tr:nth-child(even) td { background-color: pt(0.05); }
+}
+
+// =============================================================================
+// 13. SEARCH
+// =============================================================================
+
+.md-search__input {
+  border-radius: 0.5rem;
+  &:focus { border-color: var(--rtcamp-orange); }
+}
+
+[data-md-color-scheme="slate"] .md-search-result__link:hover {
+  background-color: pt(0.10);
+}
+
+// =============================================================================
+// 14. BUTTONS
+// =============================================================================
+
+.md-button--primary {
+  background: var(--rtcamp-gradient);
+  border: none;
+  color: white;
+  transition: all 0.3s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px ot(0.30);
+    filter: brightness(1.1);
+  }
+}
+
+[data-md-color-scheme="slate"] .md-button--primary {
+  background: $gradient-dark;
+
+  &:hover { box-shadow: 0 8px 20px pt(0.40); }
+}
+
+// =============================================================================
+// 15. KEYBOARD SHORTCUTS
+// =============================================================================
+
+[data-md-color-scheme="slate"] .md-typeset kbd {
+  background-color: pt(0.12);
+  border: 1px solid pt(0.30);
+  color: $purple-soft;
+  box-shadow: 0 2px 0 pt(0.20);
+}
