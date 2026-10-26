@@ -114,6 +114,9 @@ Using pipx:
 pipx install git+https://github.com/rtcamp/frappe-manager@develop
 ```
 
+> [!IMPORTANT]
+> From v0.19.1 the CLI is installed as **`fmx`** as well as `fm`. `fm` is deprecated and is removed in 1.0.0, because macOS 27 ships Apple's own `/usr/bin/fm`. Every run as `fm` prints a warning; switch scripts and cron jobs to `fmx`.
+
 ## ⚡ Quick Start
 
 Create your first Frappe bench:
