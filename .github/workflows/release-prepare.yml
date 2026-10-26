@@ -37,7 +37,18 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
-          git merge --no-edit origin/main
+          if ! git merge --no-edit origin/main; then
+            conflicts=$(git diff --name-only --diff-filter=U)
+            # The version file always conflicts (main has the last release, develop the next .dev0);
+            # "Set release version" overwrites it, so keep develop's copy. Anything else is a real conflict.
+            if [ "$conflicts" != "frappe_manager/__about__.py" ]; then
+              echo "::error::unexpected conflicts merging main: $conflicts"
+              exit 1
+            fi
+            git checkout --ours frappe_manager/__about__.py
+            git add frappe_manager/__about__.py
+            git commit --no-edit
+          fi
           echo "Sections currently in the changelog:"
           grep -c '^## v' docs/changelog.md
 
