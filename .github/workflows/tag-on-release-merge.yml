@@ -14,17 +14,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          # A tag pushed with the default GITHUB_TOKEN does not start new workflow
+          # runs, which would leave draft-release.yml and bake-images.yml unfired.
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
 
+      # Tagging only. draft-release.yml owns building and creating the release off
+      # the resulting tag push.
       - name: Create and push tag
         env:
           HEAD_REF: ${{ github.head_ref }}
+          HAS_PAT: ${{ secrets.RELEASE_PAT != '' }}
         run: |
           VERSION=$(echo "$HEAD_REF" | sed 's|^release/||')
 
           if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Error: branch '$HEAD_REF' does not match release/vX.Y.Z — aborting tag creation."
+            echo "Error: branch '$HEAD_REF' does not match release/vX.Y.Z. Aborting."
+            exit 1
+          fi
+
+          DECLARED=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' frappe_manager/__about__.py)
+          if [ "v$DECLARED" != "$VERSION" ]; then
+            echo "::error::tag $VERSION does not match frappe_manager/__about__.py ($DECLARED). Images would publish under the wrong tag."
             exit 1
           fi
 
           git tag "$VERSION"
           git push origin "$VERSION"
+          echo "Pushed $VERSION"
+
+          if [ "$HAS_PAT" != "true" ]; then
+            echo "::warning::RELEASE_PAT is not configured, so this tag was pushed with GITHUB_TOKEN and will NOT trigger draft-release.yml or bake-images.yml. Run both manually via workflow_dispatch against the $VERSION tag."
+          fi

@@ -205,22 +205,23 @@ def migrate(
 
     if target_benches:
         for bench_name in target_benches:
-            if bench_name in migrations.migrate_benches:
-                bench_data = migrations.migrate_benches[bench_name]
-                last_migrated = bench_data["last_migration_version"]
+            bench_data = migrations.migrate_benches.get(bench_name)
 
-                # Compare base versions to handle dev releases (0.19.0.dev0 matches 0.19.0)
-                versions_match = (
-                    last_migrated is not None and last_migrated.base_version == current_version.base_version
-                )
+            if bench_data and bench_data["exception"]:
+                benches_failed.append(bench_name)
+                continue
 
-                if versions_match and not bench_data["exception"]:
-                    bench_path = CLI_BENCHES_DIRECTORY / bench_name
-                    if bench_path.exists() and (bench_path / CLI_BENCH_CONFIG_FILE_NAME).exists():
-                        set_bench_migration_version(bench_path, current_version)
-                        benches_migrated.append(bench_name)
-                elif bench_data["exception"]:
-                    benches_failed.append(bench_name)
+            # The run succeeded, so every bench that did not fail is at the current
+            # version — including benches no migration touched, because the release
+            # ships none for them. Keying the stamp off the last applied migration
+            # would leave those benches pinned to their old version forever, and
+            # every later command would keep demanding a migration that does nothing.
+            bench_path = CLI_BENCHES_DIRECTORY / bench_name
+            if bench_path.exists() and (bench_path / CLI_BENCH_CONFIG_FILE_NAME).exists():
+                set_bench_migration_version(bench_path, current_version)
+
+            if bench_data:
+                benches_migrated.append(bench_name)
             else:
                 benches_skipped.append(bench_name)
 

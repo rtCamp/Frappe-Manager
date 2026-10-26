@@ -1,15 +1,16 @@
 version: 2
 updates:
-  - package-ecosystem: "composer"
-    directory: "/"
-    schedule:
-      interval: "daily"
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "daily"
   - package-ecosystem: "docker"
-    directory: "/"
+    directory: "/Docker/frappe"
+    schedule:
+      interval: "monthly"
+    # The bench image hardcodes a jammy-built wkhtmltopdf package and no CI job
+    # builds this Dockerfile on a pull request, so base-image bumps arrive
+    # unverifiable. Upgrade the base deliberately, not by merging a bot PR.
+    ignore:
+      - dependency-name: "ubuntu"
+  - package-ecosystem: "docker"
+    directory: "/Docker/nginx"
     schedule:
       interval: "monthly"
   - package-ecosystem: "uv"
@@ -20,19 +21,7 @@ updates:
     directory: "/Docker/frappe/fmx"
     schedule:
       interval: "daily"
-  - package-ecosystem: "bundler"
-    directory: "/"
-    schedule:
-      interval: "daily"
-  - package-ecosystem: "gomod"
-    directory: "/"
-    schedule:
-      interval: "daily"
   - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "daily"
-  - package-ecosystem: "terraform"
     directory: "/"
     schedule:
       interval: "daily"

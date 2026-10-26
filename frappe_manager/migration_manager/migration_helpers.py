@@ -29,6 +29,20 @@ class MigrationBench:
         )
 
     @property
+    def managed_compose_paths(self) -> list[Path]:
+        """Compose files fm generates for a bench, filtered to those on disk.
+
+        Not a ``docker-compose*.yml`` glob: that would also claim files fm never
+        created, such as a user's own docker-compose.override.yml.
+        """
+        declared = [
+            self.compose_file_manager.compose_path,
+            self.workers_compose_file_manager.compose_path,
+            self.path / "docker-compose.admin-tools.yml",
+        ]
+        return [path for path in declared if path.is_file()]
+
+    @property
     def compose(self):
         assert self.docker.compose is not None
         return self.docker.compose

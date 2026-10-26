@@ -21,17 +21,15 @@ jobs:
   build-and-push:
     name: Build and push image
     strategy:
+      # One arch failing must not cancel the other.
+      fail-fast: false
       matrix:
-        os: [self-hosted-arm64,ubuntu-latest]
-        platform: [linux/amd64, linux/arm64]
         service_name: [frappe, nginx]
-        exclude:
-          - os: ubuntu-latest
-            platform: linux/arm64
-          - os: self-hosted-arm64
-            platform: linux/amd64
+        target:
+          - { os: ubuntu-latest, platform: linux/amd64, arch: amd64 }
+          - { os: ubuntu-24.04-arm, platform: linux/arm64, arch: arm64 }
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.target.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -70,7 +68,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
         with:
-          platforms: ${{ matrix.platform }}
+          platforms: ${{ matrix.target.platform }}
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v4
@@ -86,37 +84,68 @@ jobs:
           version=$(grep '^__version__' frappe_manager/__about__.py | sed 's/__version__ = "\(.*\)"/\1/')
           tag="v${version}"
           echo "Image tag $tag"
-          echo "image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
+          echo "image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:${{ matrix.target.arch }}-${tag}" >> $GITHUB_ENV
 
       - name: Set owner
         run: |
           echo "owned=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )" >> $GITHUB_ENV
+
+      # cache-from needs a multi-line value, which a ${{ }} expression cannot
+      # produce, so the refs are assembled here.
+      - name: Compute build cache refs
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          ARCH: ${{ matrix.target.arch }}
+          SERVICE: ${{ matrix.service_name }}
+        run: |
+          # Tag and nightly builds both build the latest release tag, so they
+          # share one scope instead of leaving a dead cache ref per release.
+          if [ "$EVENT_NAME" = "schedule" ] || [ "$REF_TYPE" = "tag" ]; then
+            scope="release"
+          else
+            # OCI tags cannot contain '/', so refs like dockerimage/1 must be
+            # flattened. printf avoids tr eating the trailing newline.
+            scope=$(printf '%s' "$REF_NAME" | tr -c 'a-zA-Z0-9_.-' '-' | cut -c1-100)
+          fi
+          echo "Cache scope: $scope"
+
+          repo="ghcr.io/${owned}/frappe-manager-${SERVICE}"
+
+          # Scoped, then develop's, then the legacy shared ref, so adopting
+          # scoped caches never forces a cold build. Drop the legacy entry once
+          # every active branch has populated its own.
+          {
+            echo "cache_from<<CACHE_FROM_EOF"
+            echo "type=registry,ref=${repo}:buildcache-${ARCH}-${scope}"
+            echo "type=registry,ref=${repo}:buildcache-${ARCH}-develop"
+            echo "type=registry,ref=${repo}:buildcache-${ARCH}"
+            echo "CACHE_FROM_EOF"
+          } >> "$GITHUB_ENV"
+
+          # Write scope-only, so no branch can clobber another's cache.
+          echo "cache_to=type=registry,ref=${repo}:buildcache-${ARCH}-${scope},mode=max" >> "$GITHUB_ENV"
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
         with:
           context: Docker/${{ matrix.service_name }}/.
           push: true
-          platforms: ${{ matrix.platform }}
+          platforms: ${{ matrix.target.platform }}
           tags: ${{ env.image_name }}
           provenance: false
-          cache-from: ${{ env.USE_CACHE == 'true' && format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache-{2}', env.owned, matrix.service_name, matrix.platform == 'linux/amd64' && 'amd64' || 'arm64') || '' }}
-          cache-to: ${{ format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache-{2},mode=max', env.owned, matrix.service_name, matrix.platform == 'linux/amd64' && 'amd64' || 'arm64') || '' }}
-
-      - name: Prune buildx cache (self-hosted only)
-        if: startsWith(matrix.os, 'self-hosted')
-        run: |
-          docker buildx prune -af
+          cache-from: ${{ env.USE_CACHE == 'true' && env.cache_from || '' }}
+          cache-to: ${{ env.cache_to }}
 
   combine:
     name: Combine both platform images
     needs: build-and-push
     strategy:
       matrix:
-        os: [ubuntu-latest]
         service_name: [frappe, nginx]
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7

@@ -204,7 +204,10 @@ class MigrationBase(ABC):
         if bench_config_path.exists():
             self.backup_manager.backup(bench_config_path, bench_name=bench.name)
 
-        self.backup_manager.backup(bench.path / "docker-compose.yml", bench_name=bench.name)
+        # Migrations rewrite the worker compose too, and the rollback in
+        # migrate_benches() can only restore what was backed up here.
+        for compose_path in bench.managed_compose_paths:
+            self.backup_manager.backup(compose_path, bench_name=bench.name)
 
         bench_common_site_config = bench.path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
         self.backup_manager.backup(bench_common_site_config, bench_name=bench.name)
