@@ -127,7 +127,7 @@ class MigrationV0200(MigrationBase):
             self.output.print("✓ Containers recreated", emoji_code="✅")
         except Exception as e:
             self.output.warning(f"Container recreation failed: {e}")
-            self.output.warning(f"Run 'fm restart {bench.name}' to start using the new images.")
+            self.output.warning(f"Run 'fmx restart {bench.name}' to start using the new images.")
 
     def _ensure_nginx_running(self, bench: MigrationBench):
         """Bring nginx back up if the parallel recreate raced it past frappe.
