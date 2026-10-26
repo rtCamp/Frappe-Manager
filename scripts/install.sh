@@ -83,8 +83,9 @@ USAGE:
     As non-root: $(basename "$0") [--dev] [--branch <name>] [--force] [--non-interactive] [--help]
 
 DESCRIPTION:
-    Installs Frappe Manager (fm) and all required dependencies including Docker,
-    Docker Compose, Python 3.10+, uv, and the fm CLI tool.
+    Installs Frappe Manager (fmx) and all required dependencies including Docker,
+    Docker Compose, Python 3.10+, uv, and the fmx CLI tool. The old 'fm' name keeps
+    working until 1.0.0.
 
 OPTIONS:
     --username <name>      User to create or configure when running as root (default: 'frappe').
@@ -289,7 +290,7 @@ install_fm_dev() {
 	uv tool install --python 3.13 --force "git+https://github.com/rtCamp/Frappe-Manager.git@${BRANCH}"
 	local version
 	version=$(uv tool list 2>/dev/null | grep "^frappe-manager" | awk '{print $2}')
-	info_green "$(bold "fm $version") (branch: ${BRANCH}) installed."
+	info_green "$(bold "fmx $version") (branch: ${BRANCH}) installed. The old 'fm' name keeps working until 1.0.0."
 }
 
 install_fm() {
@@ -313,7 +314,7 @@ install_fm() {
 		fi
 		local version
 		version=$(uv tool list 2>/dev/null | grep "^frappe-manager" | awk '{print $2}')
-		info_green "$(bold "fm $version") installed."
+		info_green "$(bold "fmx $version") installed. The old 'fm' name keeps working until 1.0.0."
 	fi
 }
 
@@ -377,14 +378,15 @@ check_path_entry() {
 }
 
 check_shell_completion() {
+	local name="$1"
 	local shell_type="${SHELL##*/}"
 	local completion_file
 	case "$shell_type" in
 	bash)
-		completion_file="$HOME/.bash_completion.d/fm.completion"
+		completion_file="$HOME/.bash_completion.d/$name.completion"
 		;;
 	zsh)
-		completion_file="$HOME/.zsh/completion/_fm"
+		completion_file="$HOME/.zsh/completion/_$name"
 		;;
 	esac
 
@@ -507,12 +509,20 @@ handle_shell() {
 		info_green "$HOME/.local/bin already in PATH."
 	fi
 
-	if [ -x "$HOME/.local/bin/fm" ] && ! check_shell_completion; then
-		info_blue "Installing fm shell completion."
-		$HOME/.local/bin/fm --install-completion || true
-	else
-		info_green "FM shell completion already installed."
-	fi
+	local name
+	for name in fmx fm; do
+		if [ -x "$HOME/.local/bin/$name" ] && ! check_shell_completion "$name"; then
+			info_blue "Installing $name shell completion."
+			# 2>/dev/null: running as fm prints the rename warning, which is noise mid-install.
+			if [ "$name" = fm ]; then
+				"$HOME/.local/bin/$name" --install-completion 2>/dev/null || true
+			else
+				"$HOME/.local/bin/$name" --install-completion || true
+			fi
+		else
+			info_green "$name shell completion already installed."
+		fi
+	done
 }
 
 USERNAME="${FM_USERNAME:-frappe}"
@@ -624,8 +634,8 @@ if [ "$OS" == "Darwin" ]; then
 	install_uv
 	install_fm "$DEVELOPMENT"
 	handle_shell
-	info_yellow "🔴 Please complete docker desktop setup before using fm."
-	osascript -e 'display notification "Please complete docker desktop setup before using fm." with title "🔴 fm - complete docker desktop setup."'
+	info_yellow "🔴 Please complete docker desktop setup before using fmx."
+	osascript -e 'display notification "Please complete docker desktop setup before using fmx." with title "🔴 fmx - complete docker desktop setup."'
 	open -na /Applications/Docker.app
 	info_green "Script execution completed."
 

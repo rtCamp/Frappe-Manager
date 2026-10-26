@@ -32,6 +32,7 @@ Documentation = "https://rtcamp.github.io/frappe-manager/"
 
 [project.scripts]
 fm = "frappe_manager.main:cli_entrypoint"
+fmx = "frappe_manager.main:cli_entrypoint"
 
 [tool.ruff]
 line-length = 120
