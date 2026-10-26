@@ -22,7 +22,8 @@ dependencies = [
     "gitpython>=3.1.40,<4.0.0",
     "cryptography>=50.0.0,<51.0.0",
     "packaging>=26.0.0,<27.0.0",
-    "typer-examples",
+    "typer-examples>=1.1.2,<2.0.0",
+    "rich>=13.8.0,<16.0.0",
 ]
 
 [project.urls]

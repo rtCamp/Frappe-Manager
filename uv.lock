@@ -251,6 +251,7 @@ dependencies = [
     { name = "psutil" },
     { name = "pydantic" },
     { name = "requests" },
+    { name = "rich" },
     { name = "ruamel-yaml" },
     { name = "tomlkit" },
     { name = "typer" },
@@ -281,10 +282,11 @@ requires-dist = [
     { name = "psutil", specifier = ">=7.0.0,<8.0.0" },
     { name = "pydantic", specifier = ">=2.9.0,<3.0.0" },
     { name = "requests", specifier = ">=2.32.0,<3.0.0" },
+    { name = "rich", specifier = ">=13.8.0,<16.0.0" },
     { name = "ruamel-yaml", specifier = ">=0.19.0,<0.20.0" },
     { name = "tomlkit", specifier = ">=0.15.0,<0.16.0" },
     { name = "typer", specifier = ">=0.27.0,<0.28.0" },
-    { name = "typer-examples" },
+    { name = "typer-examples", specifier = ">=1.1.2,<2.0.0" },
 ]
 
 [package.metadata.requires-dev]
