@@ -86,10 +86,14 @@ Install the latest development version directly from the GitHub `develop` branch
     pipx install --force git+https://github.com/rtcamp/frappe-manager@develop
     ```
 
+## The `fm` and `fmx` names
+
+From v0.20.0 the CLI is installed under two names, `fmx` and `fm`, which run the same program. `fm` is deprecated and is removed in 1.0.0: macOS 27 ships Apple's own `/usr/bin/fm`, which clashes with it. Every run as `fm` prints a one-line warning on stderr; switch your scripts and cron jobs to `fmx` to silence it. The rest of these docs still write `fm`; read it as `fmx`.
+
 ## Verify the install
 
 ```bash
-fm --version
+fmx --version
 ```
 
 If the command is not found, make sure the tool's bin directory is on your `PATH`. For `uv`, run:

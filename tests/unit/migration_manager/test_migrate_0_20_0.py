@@ -1,9 +1,9 @@
 """
-Tests for the v0.19.1 migration (image re-tagging).
+Tests for the v0.20.0 migration (image re-tagging).
 
-v0.19.1 has no structural changes: it only re-tags the fm images in each
+v0.20.0 has no structural changes: it only re-tags the fm images in each
 bench's generated compose files and stamps ``x-version``. These tests drive
-``MigrationV0191`` against real compose files on disk and only mock Docker.
+``MigrationV0200`` against real compose files on disk and only mock Docker.
 """
 
 from unittest.mock import MagicMock, Mock, patch
@@ -13,7 +13,7 @@ from ruamel.yaml import YAML
 
 from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
 from frappe_manager.migration_manager.migration_helpers import MigrationBench
-from frappe_manager.migration_manager.migrations.migrate_0_19_1 import MigrationV0191
+from frappe_manager.migration_manager.migrations.migrate_0_20_0 import MigrationV0200
 
 FRAPPE_IMAGE = "ghcr.io/rtcamp/frappe-manager-frappe"
 NGINX_IMAGE = "ghcr.io/rtcamp/frappe-manager-nginx"
@@ -120,14 +120,14 @@ def make_bench(tmp_path):
 
 @pytest.fixture
 def make_migration():
-    """Build MigrationV0191 with the fm version / installed image tag pinned."""
+    """Build MigrationV0200 with the fm version / installed image tag pinned."""
 
-    def _make(fm_version="0.19.1", image_tag="v0.19.1"):
+    def _make(fm_version="0.20.0", image_tag="v0.20.0"):
         with (
             patch("frappe_manager.utils.helpers.get_current_fm_version", return_value=fm_version),
             patch("frappe_manager.utils.helpers.get_docker_image_tag", return_value=image_tag),
         ):
-            migration = MigrationV0191()
+            migration = MigrationV0200()
 
         migration.migration_executor = Mock()
         return migration
@@ -135,7 +135,7 @@ def make_migration():
     return _make
 
 
-class TestMigrationV0191ComposeRetag:
+class TestMigrationV0200ComposeRetag:
     """Compose files are re-tagged and stamped; foreign images are left alone."""
 
     def test_retags_fm_images_and_stamps_version_in_main_and_workers(self, make_migration, make_bench):
@@ -146,20 +146,20 @@ class TestMigrationV0191ComposeRetag:
 
         main = bench.path / "docker-compose.yml"
         assert service_images(main) == {
-            "frappe": f"{FRAPPE_IMAGE}:v0.19.1",
-            "nginx": f"{NGINX_IMAGE}:v0.19.1",
-            "socketio": f"{FRAPPE_IMAGE}:v0.19.1",
-            "schedule": f"{FRAPPE_IMAGE}:v0.19.1",
+            "frappe": f"{FRAPPE_IMAGE}:v0.20.0",
+            "nginx": f"{NGINX_IMAGE}:v0.20.0",
+            "socketio": f"{FRAPPE_IMAGE}:v0.20.0",
+            "schedule": f"{FRAPPE_IMAGE}:v0.20.0",
             "redis-cache": REDIS_IMAGE,
-        }, "every fm image should move to v0.19.1 and redis must be untouched"
-        assert str(load_yaml(main)["x-version"]) == "0.19.1"
+        }, "every fm image should move to v0.20.0 and redis must be untouched"
+        assert str(load_yaml(main)["x-version"]) == "0.20.0"
 
         workers = bench.path / "docker-compose.workers.yml"
         assert service_images(workers) == {
-            "bench-default-worker": f"{FRAPPE_IMAGE}:v0.19.1",
-            "bench-long-worker": f"{FRAPPE_IMAGE}:v0.19.1",
+            "bench-default-worker": f"{FRAPPE_IMAGE}:v0.20.0",
+            "bench-long-worker": f"{FRAPPE_IMAGE}:v0.20.0",
         }
-        assert str(load_yaml(workers)["x-version"]) == "0.19.1"
+        assert str(load_yaml(workers)["x-version"]) == "0.20.0"
 
     def test_compose_without_fm_images_is_untouched(self, make_migration, make_bench):
         migration = make_migration()
@@ -189,13 +189,13 @@ class TestMigrationV0191ComposeRetag:
         assert (bench.path / "docker-compose.yml").read_bytes() == after_first_run
 
 
-class TestMigrationV0191ImageTagSelection:
+class TestMigrationV0200ImageTagSelection:
     """Regression guard for issue #452: stable releases tag with their own version."""
 
     @pytest.mark.parametrize(
         ("fm_version", "installed_tag"),
         [
-            ("0.19.1", "v0.19.0"),  # stale installed tag must not win
+            ("0.20.0", "v0.19.0"),  # stale installed tag must not win
             ("0.20.5", "v0.20.5"),  # a newer running fm must not win either
         ],
     )
@@ -204,13 +204,13 @@ class TestMigrationV0191ImageTagSelection:
         bench = make_bench()
 
         assert migration.is_dev_environment is False
-        assert migration._get_image_tag_for_migration() == "v0.19.1"
+        assert migration._get_image_tag_for_migration() == "v0.20.0"
 
         migration.migrate_bench(bench)
 
         images = service_images(bench.path / "docker-compose.yml")
-        assert images["frappe"] == f"{FRAPPE_IMAGE}:v0.19.1"
-        assert images["nginx"] == f"{NGINX_IMAGE}:v0.19.1"
+        assert images["frappe"] == f"{FRAPPE_IMAGE}:v0.20.0"
+        assert images["nginx"] == f"{NGINX_IMAGE}:v0.20.0"
 
     def test_dev_release_tags_with_installed_image_tag(self, make_migration, make_bench):
         migration = make_migration(fm_version="0.20.0.dev0", image_tag="v0.20.0.dev0")
@@ -226,10 +226,10 @@ class TestMigrationV0191ImageTagSelection:
         assert images["frappe"] == f"{FRAPPE_IMAGE}:v0.20.0.dev0"
         assert images["nginx"] == f"{NGINX_IMAGE}:v0.20.0.dev0"
         assert images["redis-cache"] == REDIS_IMAGE
-        assert str(load_yaml(main)["x-version"]) == "0.19.1", "x-version tracks the migration, not the image tag"
+        assert str(load_yaml(main)["x-version"]) == "0.20.0", "x-version tracks the migration, not the image tag"
 
 
-class TestMigrationV0191PullFailure:
+class TestMigrationV0200PullFailure:
     def test_non_zero_pull_exit_code_raises(self, make_migration, make_bench):
         migration = make_migration()
         bench = make_bench()
@@ -248,7 +248,7 @@ class TestMigrationV0191PullFailure:
         bench.compose.pull.assert_called_once_with(stream=False)
 
 
-class TestMigrationV0191Recreate:
+class TestMigrationV0200Recreate:
     """Containers already up must end on the new image without a manual restart."""
 
     @staticmethod
