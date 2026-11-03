@@ -1639,6 +1639,10 @@ class DeployOrchestrator:
             if do_backup:
                 self.output.change_head("Backing up DB + site config")
                 db_dumps = self._backup_all(backup_dir)
+                if db_dumps:
+                    # Wanted the moment a manual restore is considered, and recorded only in the
+                    # toml until now.
+                    self.output.info(f"Dumped {len(db_dumps)} site(s) to {backup_dir}")
                 incomplete = [s for s in self.sites if s not in db_dumps]
                 if incomplete and requested_backup != "auto" and self.switch_config.rollback_db:
                     # The operator asked for a dump AND asked fm to restore it if the deploy goes

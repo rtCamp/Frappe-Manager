@@ -1515,11 +1515,17 @@ class Bench:
             )
             return
 
+        deleted = 0
         for path in unreferenced:
             try:
                 Path(path).unlink(missing_ok=True)
+                deleted += 1
             except Exception as e:
                 self.output.warning(f"Could not delete the database dump {path}: {e}")
+        if deleted:
+            # The operator ASKED for these to go, and only the failures spoke. The keep branch
+            # above already names its files; this one said nothing at all.
+            self.output.print(f"Deleted {deleted} database dump(s) for the removed site")
 
     def _require_every_schema_resolved(self, outstanding: "list[tuple[SiteSchema, str]]") -> None:
         """The gate. Nothing may destroy the bench directory while a schema is unaccounted for."""
@@ -2309,12 +2315,14 @@ class Bench:
         custom_dir = conf_dir / "custom"
         if custom_dir.is_dir():
             stale += [d / SERVER_CONF_NAME for d in custom_dir.iterdir() if d.is_dir()]
+        swept: list[Path] = []
         for path in stale:
             if path in wanted or not path.exists():
                 continue
             if not is_fm_auth_conf(path.read_text()):
                 continue
             path.unlink()
+            swept.append(path)
             changed = True
 
         # The flat file and the per-site files can never coexist (see above), so whichever shape
@@ -2330,6 +2338,7 @@ class Bench:
             if not _is_fm_upload_limit_conf(path.read_text()):
                 continue
             path.unlink()
+            swept.append(path)
             changed = True
 
         http_auth_dir = conf_dir / "http_auth"
@@ -2337,7 +2346,13 @@ class Bench:
             for path in http_auth_dir.iterdir():
                 if path.is_file() and path not in htpasswds:
                     path.unlink()
+                    swept.append(path)
                     changed = True
+
+        if swept:
+            # Files deleted from the operator's disk, including their htpasswds, with nothing said
+            # at any level: "which command removed custom/<site>/auth.conf?" had no answer.
+            self.output.info(f"Removed {len(swept)} stale nginx file(s): {', '.join(p.name for p in swept)}")
 
         for path, content in wanted.items():
             if path.exists() and path.read_text() == content:

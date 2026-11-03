@@ -566,6 +566,9 @@ class BakeManager:
             self.output.change_head(f"Building runtime image {tag}")
             py_version = read_bench_python_version(frappe_bench_dir)
             node_version = read_bench_node_version(frappe_bench_dir)
+            # Written into image labels and nowhere an operator reads: "which Python and Node did
+            # this image get?" meant docker inspect.
+            self.output.info(f"Baking with Python {py_version}, Node {node_version}")
             git_src = (
                 host_bench_dir(Path(self.bench_config.root_path).parent)
                 if source == "workspace"
@@ -602,6 +605,10 @@ class BakeManager:
 
             if self._should_push(push):
                 self._push_images([tag, nginx_tag])
+            else:
+                # The next host's `fm switch` depends on this, and the silence after "Built
+                # image: X" read exactly like a push that had happened.
+                self.output.info(f"Not pushed: {tag} exists only on this host")
 
             # NOTE: local tag pruning is opt-in via `fm prune` / `--keep N` on deploy/switch.
             return tag

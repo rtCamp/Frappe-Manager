@@ -745,12 +745,15 @@ fi
             existing_apps = apps_txt_path.read_text().strip().split("\n")
             existing_apps = [app.strip() for app in existing_apps if app.strip()]
 
-        for app_config in apps:
-            if app_config.name not in existing_apps:
-                existing_apps.append(app_config.name)
+        appended = [a.name for a in apps if a.name not in existing_apps]
+        existing_apps.extend(appended)
 
         apps_txt_path.write_text("\n".join(existing_apps) + "\n")
-        self.logger.debug(f"Updated apps.txt with {len(apps)} new apps")
+        # len(apps) counted every app passed in, including ones already listed, so the logged
+        # number was wrong as well as invisible. apps.txt is the file Frappe trusts.
+        self.logger.debug(f"Updated apps.txt, appended {len(appended)}: {', '.join(appended)}")
+        if appended:
+            self.output.info(f"Added to apps.txt: {', '.join(appended)}")
 
     def _update_apps_list_with_corrected_names(self, apps_config: list[AppConfig]) -> None:
         for i, app_config in enumerate(apps_config):
@@ -815,7 +818,9 @@ fi
             app_name = app_config.name
             self.output.change_head(f"Installing app {app_name} in site")
             self.install_app_to_site(app_name, site_name)
-            self.output.print(f"Installed app {app_name} in site")
+            # `site_name` is right there: on a multi-site bench "Installed app X in site" cannot
+            # answer which site got it.
+            self.output.print(f"Installed app {app_name} in {site_name}")
 
     def build(self, app_list: list[str] | None = None, use_run: bool = False) -> None:
         """

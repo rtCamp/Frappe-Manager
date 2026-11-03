@@ -4,6 +4,7 @@ if TYPE_CHECKING:
     from frappe_manager.site_manager.bench_config import BenchConfig
 
 from frappe_manager.metadata_manager import FMConfigManager
+from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.ssl_manager import DNS_PROVIDER, LETSENCRYPT_PREFERRED_CHALLENGE
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
@@ -49,6 +50,9 @@ def resolve_dns_provider(
 
     provider = bench_labels.get(wanted)
     if provider and provider.exists:
+        # Which account signed an issuance, and from which scope. Visible until now only when an
+        # explicit --dns-provider was passed at add time, never on a renewal or a default.
+        get_global_output_handler().info(f"DNS credentials: '{wanted}' (bench scope)")
         return provider
 
     # Deferred so a bench-scoped hit never reads the global config off disk.
@@ -57,6 +61,7 @@ def resolve_dns_provider(
 
     provider = global_labels.get(wanted)
     if provider and provider.exists:
+        get_global_output_handler().info(f"DNS credentials: '{wanted}' (global scope)")
         return provider
 
     if label:

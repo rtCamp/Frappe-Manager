@@ -564,6 +564,7 @@ class BenchOrchestrator:
 
         max_retries = 30
 
+        last_seen = "nothing"
         for i in range(max_retries):
             try:
                 result = bench.docker_client.compose.exec(
@@ -586,12 +587,17 @@ class BenchOrchestrator:
                     return
 
             except Exception as e:
+                last_seen = f"error: {e}"
                 self.logger.debug(f"Bench server check attempt {i + 1}: {e}")
+            else:
+                last_seen = f"HTTP {status_code}" if status_code else "no response"
 
             if i < max_retries - 1:
                 time.sleep(2)
 
-        raise Exception("Bench server not responding after 60 seconds")
+        # "Not responding" covered refused, 502 and timeout alike; the last observation decides
+        # whether to raise the startup timeout or go read the app's logs.
+        raise Exception(f"Bench server not responding after 60 seconds (last: {last_seen})")
 
     def verify_site_reachable_through_nginx(self) -> None:
         """Verify the site answers THROUGH the bench nginx, not just inside the app container.

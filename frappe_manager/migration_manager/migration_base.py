@@ -20,6 +20,7 @@ from frappe_manager.services_manager.database_service_manager import DatabaseSer
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.modules.compose_shape import container_transit_path
 from frappe_manager.utils.helpers import capture_and_format_exception
+from frappe_manager.utils.prune import format_size
 from frappe_manager.utils.site import host_bench_dir
 
 
@@ -421,4 +422,11 @@ class MigrationBase(ABC):
         # Transit only: the dump must not be left sitting in the log directory.
         host_db_sql_file_path.unlink()
 
-        self.output.print(f"[fm.info]{site}[/fm.info] db backup completed successfully.")
+        # The gz bypasses backup_manager.backups, so nothing else names it either: the dump that
+        # IS the stated rollback path reached no surface at all. Size included because an empty
+        # dump and a real one are otherwise the same sentence.
+        size = backup_gz_file_backup_data_path.stat().st_size
+        self.output.print(
+            f"[fm.info]{site}[/fm.info] db backup completed successfully: "
+            f"{backup_gz_file_backup_data_path} ({format_size(size)})"
+        )
