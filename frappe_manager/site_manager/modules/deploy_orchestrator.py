@@ -550,19 +550,32 @@ class DeployOrchestrator:
     def _reload_nginx(self, container_id: str) -> None:
         """Graceful SIGHUP reload so the surviving app-nginx re-resolves the static
         ``server frappe:80`` upstream (drops the drained replica, keeps the new)."""
-        with contextlib.suppress(Exception):
+        try:
             self._raw_docker("exec", container_id, "sh", "-c", self._NGINX_HUP)
+        except Exception as e:
+            # A failed HUP leaves nginx resolving the DRAINED replica, so requests hang against a
+            # container that is going away. Warned, not merely logged: this one is live traffic.
+            self.output.warning(
+                f"Could not reload nginx in {container_id} ({e}); it may still be routing to the "
+                "replaced container. Restart the bench if requests hang."
+            )
 
     def _stop(self, container_id: str) -> None:
         # Graceful stop (SIGTERM): gunicorn/nginx finish in-flight and close their listener,
         # so new connections are refused-fast (not black-holed); also drops the container from
         # Docker's embedded DNS immediately.
-        with contextlib.suppress(Exception):
+        try:
             self._raw_docker("stop", container_id)
+        except Exception as e:
+            self.logger.debug(f"could not stop {container_id}: {e}")
 
     def _rm(self, container_id: str) -> None:
-        with contextlib.suppress(Exception):
+        try:
             self._raw_docker("rm", "-f", container_id)
+        except Exception as e:
+            # Leaves a stray container holding the old image, which is also why a later prune
+            # finds that image still referenced.
+            self.logger.debug(f"could not remove {container_id}: {e}")
 
     def _stop_rm(self, container_id: str, drain: float = 3.0) -> None:
         self._stop(container_id)
@@ -572,8 +585,16 @@ class DeployOrchestrator:
 
     def _rename(self, container_id: str, name: str) -> None:
         # A canonical container may still exist if a prior deploy was interrupted.
-        with contextlib.suppress(Exception):
+        try:
             self._raw_docker("rename", container_id, name)
+        except Exception as e:
+            # The canonical name is how fm finds this container afterwards, so a failed rename
+            # makes a running bench read as down -- and the deploy audit rated this warn for
+            # that reason, against `file` for its siblings above.
+            self.output.warning(
+                f"Could not rename {container_id} to {name} ({e}); fm may report this bench as down "
+                "even though it is serving."
+            )
 
     def _abort_rolling(
         self,

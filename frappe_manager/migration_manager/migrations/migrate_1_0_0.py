@@ -2367,9 +2367,14 @@ class MigrationV100(MigrationBase):
             try:
                 run_command_with_exit_code([*cmd, network["name"]], stream=False)
             except Exception as e:
-                # This path ends by printing "Rollback complete." A network that was not
-                # recreated means no bench on the host can start, and the suppress made that
-                # indistinguishable from a clean rollback.
+                # "already exists" is the ordinary case on a re-run and is not a problem; docker
+                # exits non-zero for it just the same. Warning on it would cry wolf in the one
+                # place an operator most needs to trust the message.
+                if "already exists" in str(e):
+                    self.logger.debug(f"network {network['name']} already present: {e}")
+                    continue
+                # Otherwise this matters: the path ends by printing "Rollback complete.", and a
+                # network that is genuinely missing stops every bench on the host from starting.
                 self.output.warning(
                     f"Rollback could not recreate the {network['name']} network ({e}); "
                     "benches will not start until it exists."
