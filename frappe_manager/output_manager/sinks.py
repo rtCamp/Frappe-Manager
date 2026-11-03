@@ -95,38 +95,68 @@ def _masked(data: Any) -> Any:
 
 
 class EventSink:
-    """One JSON object per line on stdout, sealed by an exit event."""
+    """One JSON object per line on stdout, naming what fm DID.
+
+    The old vocabulary was a transcript of the display API -- seventeen types named after the
+    methods that draw a terminal, two of them describing a spinner redrawing itself and two more
+    announcing a prompt that cannot happen while a machine is reading. A reader could tell that
+    something changed; to learn what, it had to match English.
+
+    `run` is the correlation id the log already stamps on every line, and `cmd` is the same four
+    characters the log line carries, so one run's file and stream join on either.
+    """
+
+    SCHEMA_VERSION = 1
+    # Declared, not inferred: the handler used to find this sink by probing for a private method,
+    # which is the shape-guessing the split exists to remove and breaks the moment another sink
+    # grows one.
+    consumes_command_events = True
 
     def __init__(self, stream: Any) -> None:
-        from frappe_manager.output_manager.json_output import JSONOutputHandler
+        self.stream = stream
+        self._open_step: str | None = None
+        self._started = False
 
-        self.emitter = JSONOutputHandler(stream=stream)
-        self.emitter.set_verbosity(2)
+    def _write(self, event: str, **fields: Any) -> None:
+        import json
+
+        from frappe_manager.logger.ambient import current_context
+
+        run = current_context().correlation_id
+        payload = {"event": event, "run": run[:8] if run else None, **{k: v for k, v in fields.items() if v is not None}}
+        print(json.dumps(payload, default=str), file=self.stream, flush=True)
+
+    def start_run(self, argv: str) -> None:
+        """The first line declares the contract: fields may be added, none renamed."""
+        if self._started:
+            return
+        self._started = True
+        from frappe_manager.utils.helpers import get_current_fm_version
+
+        self._write("run.started", v=self.SCHEMA_VERSION, fm=str(get_current_fm_version()), argv=argv)
 
     def emit(self, record: OutputRecord) -> None:
-        if record.kind == "data":
-            self.emitter.print_data(_masked(record.data))
-            return
-        method = getattr(self.emitter, _EVENT_METHOD.get(record.kind, "print"), None)
-        if method is None:
-            return
-        if record.kind == "change_head":
-            method(record.text, record.fields.get("style"))
+        if record.kind == "start":
+            # A step is a SCOPE opening -- the 48 places fm starts a unit of work -- never one of
+            # the 213 narration calls inside them. Deriving a step name from an English sentence
+            # rots the first time somebody rewords one, and a polling wait that re-announces the
+            # same phase every few seconds would emit hundreds of identical pairs.
+            if self._open_step is not None:
+                self._write("step.finished", step=self._open_step, ok=True)
+            self._open_step = record.text
+            self._write("step.started", step=record.text)
         elif record.kind == "stop":
-            method()
-        else:
-            method(record.text)
+            if self._open_step is not None:
+                self._write("step.finished", step=self._open_step, ok=True)
+                self._open_step = None
+        elif record.kind == "data":
+            self._write("result", data=_masked(record.data))
+        elif record.kind == "warning":
+            self._write("warning", text=record.text)
+        elif record.kind in ("error", "display_error"):
+            self._write("error", error=record.text)
+        elif record.kind.startswith("command."):
+            self._write(record.kind, **record.fields)
 
-
-_EVENT_METHOD = {
-    "print": "print",
-    "info": "info",
-    "debug": "debug",
-    "warning": "warning",
-    "display_error": "display_error",
-    "start": "start",
-    "change_head": "change_head",
-    "stop": "stop",
-    "relay": "relay",
-    "data_raw": "data_raw",
-}
+    def finish_run(self, ok: bool, code: int, duration_ms: int | None = None) -> None:
+        self._write("run.finished", ok=ok, code=code, duration_ms=duration_ms)

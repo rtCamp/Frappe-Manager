@@ -45,6 +45,14 @@ class SinkOutputHandler(OutputHandler):
         if self.terminal is not None:
             self.terminal.set_result_fields(fields)
 
+    def emit_command_event(self, kind: str, **fields: Any) -> None:
+        """A child process starting, speaking or finishing. Sinks only: the terminal already drew
+        this through `live_lines`, and drawing it twice is what the split exists to stop."""
+        record = OutputRecord(kind=kind, fields=fields)
+        for sink in self.sinks:
+            if getattr(sink, "consumes_command_events", False):
+                sink.emit(record)
+
     def _emit(self, kind: str, text: str = "", **fields: Any) -> None:
         record = OutputRecord(kind=kind, text=text, fields=fields)
         for sink in self.sinks:
@@ -208,7 +216,9 @@ class SinkOutputHandler(OutputHandler):
         yield
 
     def emit_exit(self, ok: bool, code: int = 0) -> None:
+        """The stream's last line. A reader that sees it knows nothing follows, which is the one
+        promise a tail cannot make for itself."""
         for sink in self.sinks:
-            emit_exit = getattr(getattr(sink, "emitter", None), "emit_exit", None)
-            if emit_exit is not None:
-                emit_exit(ok, code)
+            finish = getattr(sink, "finish_run", None)
+            if finish is not None:
+                finish(ok, code)

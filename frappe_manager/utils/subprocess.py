@@ -32,6 +32,22 @@ DRAIN_GRACE_PERIOD_AFTER_EXIT = 10.0
 DRAIN_POLL_INTERVAL = 0.5
 
 
+def _command_event(kind: str, **fields: object) -> None:
+    """Hand a command event to whatever sinks are attached, if any.
+
+    Silent when no handler exists: this module runs in tests and in paths that never build one,
+    and a missing display must never stop a subprocess.
+    """
+    try:
+        from frappe_manager.output_manager import get_global_output_handler
+
+        emit = getattr(get_global_output_handler(), "emit_command_event", None)
+        if emit is not None:
+            emit(kind, **fields)
+    except Exception:
+        pass
+
+
 def reader(pipe, pipe_name: str, queue: Queue, cmd_id: str = "----"):
     """Read a pipe into the queue, logging each line under the command that produced it.
 
@@ -155,6 +171,8 @@ def stream_command_output(
 
     q = Queue()
 
+    _command_event("command.started", cmd=cmd_id, argv=redact_command_line(cmd))
+
     # Copy the ambient logging context into the daemon reader threads so their
     # per-line debug traces stay corr/bench/op-tagged (contextvars don't cross
     # thread boundaries by themselves).
@@ -200,10 +218,15 @@ def stream_command_output(
             continue
 
         source, line = item
+        # Emitted HERE, on the thread draining the queue, rather than in the reader threads that
+        # write the log line: the machine sink holds no lock, and this is the one place both a
+        # streamed and a captured command's output passes through.
+        _command_event("command.output", cmd=cmd_id, stream="out" if source == "stdout" else "err", text=line.decode(errors="replace"))
         yield source, line
 
     exit_code = process.wait()
 
     logger.debug(f"RETURN CODE: {exit_code}", extra_fields=cmd_tag)
+    _command_event("command.finished", cmd=cmd_id, exit=exit_code)
 
     yield ("exit_code", str(exit_code).encode())

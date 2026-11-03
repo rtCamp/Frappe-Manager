@@ -406,7 +406,13 @@ def app_callback(
     # FileSink is attached here even though the help path never writes: it holds a lazy logger, so
     # the log file and the fm home appear on the first record rather than on construction. The old
     # wrapper opened the file as it was built, which made `fm start --help` create ~/frappe.
-    sinks = [FileSink(), EventSink(sys.stdout)] if stream_events else [FileSink()]  # noqa: TID251
+    sinks: list = [FileSink()]
+    if stream_events:
+        events_sink = EventSink(sys.stdout)  # noqa: TID251
+        # First line of the run, before anything else can speak: it carries the schema version a
+        # reader needs in order to read everything after it.
+        events_sink.start_run(redact_argv(sys.argv[1:]))
+        sinks.append(events_sink)
     basic_handler = SinkOutputHandler(terminal=None if stream_events else terminal, sinks=sinks)
     set_global_output_handler(basic_handler)
     # The handler exists before the command line is parsed, so this is the only moment the level
