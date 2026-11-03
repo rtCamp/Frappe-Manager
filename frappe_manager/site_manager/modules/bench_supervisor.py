@@ -9,8 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from frappe_manager import CLI_SERVICES_DIRECTORY, COMMON_SITE_CONFIG_FILE, CONTAINER_BENCH_DIR
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.logger import get_logger
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.site_manager.exceptions import BenchOperationException
 from frappe_manager.site_manager.modules.realip import trusted_ranges
@@ -102,7 +101,7 @@ class BenchSupervisor:
         self.docker_client = docker_client
         self.config = config
         self.bench_name = bench_name
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
     def is_supervisord_running(self, interval: int = 2, timeout: int = 30) -> bool:
         """

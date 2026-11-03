@@ -10,8 +10,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 
 # Store labels. Shared by the probes, the removal dispatch and the rendered plan, so a label can
 # never drift out of the branch that acts on it.
@@ -68,7 +67,7 @@ class TrustStoreManager:
     CA_NAME = "Frappe Manager Dev CA"
 
     def __init__(self, output_handler: OutputHandler | None = None):
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
     def install(self, ca_cert_path: Path) -> bool:
         """

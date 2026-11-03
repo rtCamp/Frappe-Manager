@@ -58,4 +58,4 @@ def status(
         routed = bench.bench_config.serves_admin_tools(site_name)
         card.fact("sites" if i == 0 else "", f"{site_name}  {'routed' if routed else 'not routed'}")
 
-    output.print_data(card.render())
+    output.print_data(card)

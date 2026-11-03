@@ -16,8 +16,7 @@ from frappe_manager.docker import DOCKER_LINE_NOISE, DockerClient, DockerExcepti
 from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger import get_logger
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.site_manager import NON_BASH_SUPPORTED_SERVICES
 from frappe_manager.site_manager.bench_config import BenchConfig, BenchRuntime
 from frappe_manager.utils.docker import host_run_cp
@@ -51,7 +50,7 @@ class BenchDockerOps:
         self.compose_file_manager = compose_file_manager
         self.config = config
         self.path = path
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
     def _is_service_running(self, service: str) -> bool:
         """Check if a specific service is running."""

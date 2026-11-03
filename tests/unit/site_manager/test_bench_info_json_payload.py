@@ -212,13 +212,16 @@ def test_display_info_hands_the_structured_payload_to_a_handler_that_wants_it(tm
     assert printed["name"] == BENCH
 
 
-def test_display_info_still_renders_the_card_for_a_handler_that_does_not_want_data(tmp_path, monkeypatch):
-    """The default (Rich) path must be untouched: no regression for the human-facing card."""
+def test_display_info_hands_the_card_itself_to_a_handler_that_does_not_want_data(tmp_path, monkeypatch):
+    """The human path gets the card, not a drawing of it: sinks mask by field, and a rendering
+    has no fields left to mask."""
     from frappe_manager.output_manager import railcard
+
+    made: list[object] = []
 
     class _CardSpy:
         def __init__(self, *a, **k):
-            pass
+            made.append(self)
 
         def section(self, *a, **k):
             return self
@@ -234,4 +237,6 @@ def test_display_info_still_renders_the_card_for_a_handler_that_does_not_want_da
 
     info.display_info()
 
-    info.output.print_data.assert_called_once_with("<rendered card>")
+    printed = info.output.print_data.call_args.args[0]
+    assert printed in made
+    assert printed != "<rendered card>"

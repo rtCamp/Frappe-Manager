@@ -145,12 +145,10 @@ def cli_entrypoint():
 def _emit_json_exit(ok: bool, code: int) -> None:
     """Close the ``fm --events json`` JSONL stream with an exit event; no-op in rich mode."""
     try:
-        from frappe_manager.output_manager.json_output import JSONOutputHandler
-
         handler = get_global_output_handler()
-        delegate = getattr(handler, "delegate", handler)
-        if isinstance(delegate, JSONOutputHandler):
-            delegate.emit_exit(ok=ok, code=code)
+        emit_exit = getattr(handler, "emit_exit", None)
+        if emit_exit is not None:
+            emit_exit(ok=ok, code=code)
     except Exception:
         # The terminal event is telemetry; it must never mask the run's own outcome.
         pass

@@ -19,8 +19,7 @@ from frappe_manager import (
 )
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
 from frappe_manager.metadata_manager import FMConfigManager
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.services_manager.database_service_manager import (
     DatabaseServerServiceInfo,
     DatabaseServiceManager,
@@ -120,7 +119,7 @@ class ServicesManager:
         self.path = path
         self.compose_path = self.path / "docker-compose.yml"
         self.invoked_subcommand = invoked_subcommand
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
     def engines_in_use(self) -> set[str]:
         """Which of fm's OWN database servers some site on this host lives on.

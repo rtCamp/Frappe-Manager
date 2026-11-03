@@ -8,8 +8,7 @@ following the Single Responsibility Principle and improving testability.
 import time
 
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 
 
 class NginxController:
@@ -44,7 +43,7 @@ class NginxController:
         self.service_name = service_name
         self.compose_file_manager = compose_file_manager
         self.docker_client = docker_client
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
     def reload(self) -> bool:
         """

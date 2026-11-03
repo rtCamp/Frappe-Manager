@@ -26,8 +26,7 @@ import time
 from pathlib import Path
 
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.services_manager.database_service_manager import (
     DatabaseServerServiceInfo,
     DatabaseServiceManager,
@@ -61,7 +60,7 @@ class PostgresManager(DatabaseServiceManager):
         self.database_server_info: DatabaseServerServiceInfo = database_server_info
         self.compose_file_manager: ComposeFile = compose_file_manager
         self.docker_client: DockerClient = docker_client
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
         self.run_on_compose_service: str
         if run_on_compose_service:

@@ -20,8 +20,7 @@ from cryptography.x509.oid import NameOID
 
 from frappe_manager import SSL_RENEW_BEFORE_DAYS
 from frappe_manager.logger import get_logger
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateGenerateFailed,
@@ -84,7 +83,7 @@ class CustomCertificateService:
     def __init__(self, ssl_service_dir: Path, output_handler: OutputHandler | None = None):
         self.logger = get_logger(component="custom_ssl")
         self.root_dir = ssl_service_dir / "custom"
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
         self.root_dir.mkdir(parents=True, exist_ok=True)
 
 

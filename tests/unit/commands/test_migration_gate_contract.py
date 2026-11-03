@@ -197,8 +197,8 @@ def gate(tmp_path, monkeypatch):
     fm_config_cls = MagicMock(name="FMConfigManager")
     fm_config_cls.import_from_toml.return_value = harness.config
 
-    logging_handler_cls = MagicMock(name="LoggingOutputHandler")
-    logging_handler_cls.return_value = harness.output
+    handler_cls = MagicMock(name="SinkOutputHandler")
+    handler_cls.return_value = harness.output
 
     with ExitStack() as stack:
         p = stack.enter_context
@@ -209,7 +209,7 @@ def gate(tmp_path, monkeypatch):
         p(patch("frappe_manager.commands.spinner", _fake_spinner))
         p(patch("frappe_manager.commands.DockerClient", docker_client))
         p(patch("frappe_manager.commands.FMConfigManager", fm_config_cls))
-        p(patch("frappe_manager.commands.LoggingOutputHandler", logging_handler_cls))
+        p(patch("frappe_manager.commands.SinkOutputHandler", handler_cls))
         p(patch("frappe_manager.commands.get_current_fm_version", return_value=CURRENT_FM_VERSION))
         p(patch("frappe_manager.commands.bench_needs_migration", harness.probe_bench_needs_migration))
         p(patch("frappe_manager.commands.get_bench_migration_version", harness.probe_bench_version))

@@ -4,8 +4,7 @@ from typing import TYPE_CHECKING
 from frappe_manager import CLI_SERVICES_DIRECTORY, SiteServicesEnum
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
 from frappe_manager.migration_manager.backup_manager import BackupManager
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.site_manager.bench_config import WorkersConfig
 from frappe_manager.site_manager.exceptions import (
     BenchOperationException,
@@ -48,7 +47,7 @@ class BenchWorkers:
         self.compose_path = self.bench.path / "docker-compose.workers.yml"
         self.config_dir = host_bench_dir(self.bench.path) / "config"
         self.supervisor_config_path = self.config_dir / "supervisor.conf"
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
         self.compose_file_manager = ComposeFile(self.compose_path, template_name="docker-compose.workers.tmpl")
         self.docker_client = DockerClient(compose_file_path=self.compose_path, output=self.output)
 
@@ -294,7 +293,7 @@ class BenchWorkerCoordinator:
         self.restart_supervisor_service = restart_supervisor_service_fn
         self.is_running = is_running_fn
         self.docker_ops = docker_ops
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
     def sync_workers_compose(
         self,

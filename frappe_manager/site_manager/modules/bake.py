@@ -27,8 +27,7 @@ from frappe_manager import BAKED_LABEL, CLI_DIR, COMMON_SITE_CONFIG_FILE, CONTAI
 from frappe_manager.docker import DockerClient
 from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.logger import get_logger
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig
 from frappe_manager.site_manager.modules.bench_app import BenchAppManager
 from frappe_manager.site_manager.modules.transport import push_images
@@ -76,7 +75,7 @@ class BakeManager:
         output_handler: OutputHandler | None = None,
     ):
         self.bench_config = bench_config
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
         self.logger = get_logger(component="bake")
         self.docker_client = DockerClient()
 

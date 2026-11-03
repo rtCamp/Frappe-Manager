@@ -66,4 +66,4 @@ def status(
     if enabled and not has_key:
         card.fact("note", "enabled without a key sends nothing; pass --license-key to fm telemetry enable.")
 
-    output.print_data(card.render())
+    output.print_data(card)

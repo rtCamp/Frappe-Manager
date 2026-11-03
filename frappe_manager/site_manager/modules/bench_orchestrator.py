@@ -29,7 +29,7 @@ from frappe_manager import CONTAINER_BENCH_DIR, CONTAINER_SITES_DIR
 from frappe_manager.docker import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger import get_logger
-from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.bench_config import (
     BenchRuntime,
@@ -96,7 +96,7 @@ class BenchOrchestrator:
         """
         self.logger = get_logger(component="orchestrator")
         self.bench = bench
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
         # Decided by the external database gate between phase 1 and phase 2. None means this
         # bench has no `[database]` entry and sits on the `mariadb` container, where nothing

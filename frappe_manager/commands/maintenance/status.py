@@ -90,7 +90,7 @@ def status(
 
         if not by_bench:
             # The healthy default across the whole host: nothing anywhere is in maintenance.
-            output.print_data(railcard.Card("maintenance", "none in maintenance", active=True).render())
+            output.print_data(railcard.Card("maintenance", "none in maintenance", active=True))
             return
 
         # One card per bench, not one per domain: a host with a dozen benches in maintenance at
@@ -167,5 +167,5 @@ def status(
             card.fact(row["domain"], "off [fm.muted](this domain already has nginx config fm did not write)[/fm.muted]")
         else:
             card.fact(row["domain"], "off")
-    output.print_data(card.render())
+    output.print_data(card)
 

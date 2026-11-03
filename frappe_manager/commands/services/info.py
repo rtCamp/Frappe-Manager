@@ -198,4 +198,4 @@ def info(ctx: typer.Context, json_result: JsonResultOption = False):
     if output.wants_structured_data:
         output.print_data(build_services_info_data(services_manager, statuses, sorted(disabled), active, prune_cfg))
     else:
-        output.print_data(card.render())
+        output.print_data(card)

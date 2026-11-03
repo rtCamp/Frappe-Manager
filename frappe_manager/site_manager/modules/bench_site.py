@@ -10,8 +10,7 @@ from frappe_manager.docker import DOCKER_LINE_NOISE, DockerClient, DockerExcepti
 from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger import get_logger
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import BenchConfig, DatabaseEngine
 from frappe_manager.site_manager.exceptions import (
@@ -104,7 +103,7 @@ class BenchSiteManager:
         self.bench_config = bench_config
         self.services = services
         self.compose_file_manager = compose_file_manager
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
         self.frappe_bench_dir: Path = host_bench_dir(bench_path)
         self.bench_cli_cmd = ["/opt/user/.bin/bench"]

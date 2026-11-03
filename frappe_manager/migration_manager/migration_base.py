@@ -15,8 +15,7 @@ from frappe_manager.migration_manager.migration_helpers import (
     MigrationServicesManager,
 )
 from frappe_manager.migration_manager.version import Version
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, MariaDBManager
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.modules.compose_shape import container_transit_path
@@ -31,7 +30,7 @@ class MigrationBase(ABC):
     migration_executor = None
 
     def __init__(self, output_handler: OutputHandler | None = None):
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
         self.logger = get_logger(component="migration")
 
         from frappe_manager.utils.helpers import get_current_fm_version, get_docker_image_tag

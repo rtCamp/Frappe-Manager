@@ -4,8 +4,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from frappe_manager.docker import DockerException
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.services_manager.proxy_dropins import ProxyDropins
 from frappe_manager.site_manager.bench_config import (
     AuthConfig,
@@ -106,7 +105,7 @@ class BenchInfo:
         self.get_services_running_status = get_services_running_status_fn
         self.unmanaged_site_dirs = unmanaged_site_dirs_fn
         self.docker_client = docker_client
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
     def get_common_config(self) -> dict:
         """
@@ -335,8 +334,12 @@ class BenchInfo:
 
     @staticmethod
     def _shown_admin_password(password: str | None) -> str:
-        """The card's rendering of `_admin_password_for`, which returns None rather than a phrase."""
-        return password or "[fm.muted]not recorded[/fm.muted]"
+        """The card's rendering of `_admin_password_for`, which returns None rather than a phrase.
+
+        `fm.secret` is how a row DECLARES its credential: the terminal colours it, and the file and
+        event sinks mask on that marker. An unmarked password reaches both of them in full.
+        """
+        return f"[fm.secret]{password}[/fm.secret]" if password else "[fm.muted]not recorded[/fm.muted]"
 
     def _certificate_rows(self) -> list[dict]:
         """The certificate rows `fm ssl list` enumerates, for this bench.
@@ -989,4 +992,4 @@ class BenchInfo:
         if self.output.wants_structured_data:
             self.output.print_data(self.build_bench_info_data())
         else:
-            self.output.print_data(card.render())
+            self.output.print_data(card)

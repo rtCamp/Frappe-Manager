@@ -31,8 +31,7 @@ from frappe_manager import COMMON_SITE_CONFIG_FILE, CONTAINER_BENCH_DIR
 from frappe_manager.docker import DockerException
 from frappe_manager.exceptions import FrappeManagerException, NonInteractiveError
 from frappe_manager.logger import get_logger
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.services_manager.database_service_manager import (
     DatabaseServerServiceInfo,
     MariaDBManager,
@@ -275,7 +274,7 @@ class DeployOrchestrator:
         self._rollback_reason: str | None = None
         self.compose = bench.compose_file_manager
         self.docker_ops = bench.docker_ops
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
         self.logger = get_logger(component="deploy")
 
 

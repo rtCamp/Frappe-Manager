@@ -77,7 +77,7 @@ def ca_status(json_results: JsonResultOption = False):
     else:
         card.fact("stores", "[fm.muted]none[/fm.muted]")
 
-    output.print_data(card.render())
+    output.print_data(card)
 
     if paths.sentinel.exists() and not entries:
         output.warning(

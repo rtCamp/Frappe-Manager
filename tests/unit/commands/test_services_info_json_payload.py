@@ -172,11 +172,13 @@ def test_json_payload_has_no_rich_object_or_path_values(tmp_path, monkeypatch):
     assert "object at 0x" not in dumped
 
 
-def test_a_handler_that_does_not_want_structured_data_still_gets_the_rendered_card(tmp_path, monkeypatch):
-    """Regression guard: the branch must not touch the default (Rich) path."""
+def test_a_handler_that_does_not_want_structured_data_gets_the_card_itself(tmp_path, monkeypatch):
+    """The human path takes the card, not a rendering of it: a drawing has no fields for the
+    file sink to mask."""
     handler = ServicesInfoHarness(tmp_path).run(monkeypatch, wants_structured_data=False)
 
-    assert handler.printed == "<rendered services>"
+    assert handler.printed != "<rendered services>"
+    assert hasattr(handler.printed, "fact")
 
 
 def test_build_services_info_data_never_hardcodes_a_single_engine_key_name(tmp_path):

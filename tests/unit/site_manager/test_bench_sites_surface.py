@@ -278,7 +278,7 @@ def test_a_one_site_bench_prints_the_url_it_always_has_and_no_per_site_rows(tmp_
     assert card.link == f"http://{SITE}"
     assert "sites" not in card.facts
     assert "unmanaged" not in card.facts
-    info.output.print_data.assert_called_once_with(f"<rendered {BENCH}>")
+    info.output.print_data.assert_called_once_with(card)
 
 
 def test_a_plain_single_site_bench_still_shows_its_upload_limit(tmp_path, card_spy):
@@ -397,7 +397,7 @@ def test_a_bench_with_no_site_prints_a_card_that_says_so(tmp_path, card_spy):
     assert "sites" not in card.facts
     # The rest of the card is intact: this bench still has a runtime, a database server, a dir.
     assert "not recorded" in card.facts["frappe"]
-    info.output.print_data.assert_called_once_with(f"<rendered {BENCH}>")
+    info.output.print_data.assert_called_once_with(card)
 
 
 def test_an_ambiguous_primary_prints_why_instead_of_raising(tmp_path, card_spy):
@@ -433,7 +433,7 @@ def test_frappes_own_admin_password_still_wins_when_the_site_config_is_there(tmp
     config = _config(tmp_path, sites={SITE: None})
     card, _ = _info_card(tmp_path, config, site_config={SITE: {"admin_password": "from-site-config"}})
 
-    assert card.facts["frappe"] == "administrator [fm.muted]/[/fm.muted] from-site-config"
+    assert card.facts["frappe"] == "administrator [fm.muted]/[/fm.muted] [fm.secret]from-site-config[/fm.secret]"
 
 
 def test_an_unmanaged_site_directory_is_reported_and_nothing_else_changes(tmp_path, card_spy):

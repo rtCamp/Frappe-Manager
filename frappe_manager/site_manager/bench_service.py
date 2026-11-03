@@ -3,8 +3,7 @@ from pathlib import Path
 from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME
 from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.logger import bind, get_logger, set_context
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.site_manager.modules.public_scheme import (
@@ -83,7 +82,7 @@ class BenchService:
         self.benches_directory = benches_directory
         self.services = services
         self.verbose = verbose
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
         self.logger = get_logger(component="bench_service")
 
     def get_bench(

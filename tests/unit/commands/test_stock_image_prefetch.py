@@ -77,7 +77,7 @@ def cli(tmp_path, monkeypatch):
     fm_config_cls = MagicMock(name="FMConfigManager")
     fm_config_cls.import_from_toml.return_value = harness.config
 
-    logging_handler_cls = MagicMock(name="LoggingOutputHandler")
+    logging_handler_cls = MagicMock(name="SinkOutputHandler")
     logging_handler_cls.return_value = harness.output
 
     with ExitStack() as stack:
@@ -89,7 +89,7 @@ def cli(tmp_path, monkeypatch):
         p(patch("frappe_manager.commands.spinner", _nullcontext))
         p(patch("frappe_manager.commands.DockerClient", docker_client))
         p(patch("frappe_manager.commands.FMConfigManager", fm_config_cls))
-        p(patch("frappe_manager.commands.LoggingOutputHandler", logging_handler_cls))
+        p(patch("frappe_manager.commands.SinkOutputHandler", logging_handler_cls))
         p(patch("frappe_manager.commands.get_current_fm_version", return_value=FM_VERSION))
         p(patch("frappe_manager.commands.pull_docker_images", harness.pull))
         p(patch("frappe_manager.commands.stock_images_missing", harness.images_missing))
@@ -221,7 +221,7 @@ class TestAFailedFirstInstallLeavesNothingBehind:
         fm_config_cls = MagicMock(name="FMConfigManager")
         fm_config_cls.import_from_toml.return_value = config
 
-        # The real LoggingOutputHandler opens CLI_DIR/logs/fm.log, which CREATES the home. That
+        # The real SinkOutputHandler opens CLI_DIR/logs/fm.log, which CREATES the home. That
         # side effect is the whole bug: whether the home pre-existed has to be read before it.
         def make_handler(_inner):
             (cli_dir / "logs").mkdir(parents=True, exist_ok=True)
@@ -237,7 +237,7 @@ class TestAFailedFirstInstallLeavesNothingBehind:
             p(patch("frappe_manager.commands.spinner", _nullcontext))
             p(patch("frappe_manager.commands.DockerClient", docker_client))
             p(patch("frappe_manager.commands.FMConfigManager", fm_config_cls))
-            p(patch("frappe_manager.commands.LoggingOutputHandler", make_handler))
+            p(patch("frappe_manager.commands.SinkOutputHandler", make_handler))
             p(patch("frappe_manager.commands.get_current_fm_version", return_value=FM_VERSION))
             p(patch("frappe_manager.commands.pull_docker_images", return_value=False))
             p(patch("frappe_manager.commands.stock_images_missing", return_value=True))

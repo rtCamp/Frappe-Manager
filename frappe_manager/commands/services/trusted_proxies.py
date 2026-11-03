@@ -127,7 +127,7 @@ def status(ctx: typer.Context, json_results: JsonResultOption = False):
         # what client IP every bench sees, so the empty state stays unmistakable, not just "none".
         card.fact("ranges", "[fm.muted]none; fm treats every request as arriving directly[/fm.muted]")
     card.fact("config", f"[fm.muted][link=file://{conf_path}]{conf_path}[/link][/fm.muted]")
-    output.print_data(card.render())
+    output.print_data(card)
 
 
 @example(

@@ -10,7 +10,11 @@ sections -- one grammar, one product. State is always carried by TEXT
 (e.g. ``running``/``stopped``); tokens only enhance it (mono-theme safe).
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from rich.console import Group, RenderableType
 
@@ -74,6 +78,20 @@ class Card:
     def section(self, title: str) -> "Card":
         self._rows.append(("section", title, ""))
         return self
+
+    def masked(self, mask_fact: "Callable[[str, str], str]") -> "Card":
+        """A copy whose fact values have been through ``mask_fact(label, value)``.
+
+        Every sink that is not the operator's own screen asks for this. It lives on the card
+        because the rows are the card's business: a sink reaching into them would be guessing at
+        a shape that is free to change.
+        """
+        return replace(
+            self,
+            _rows=[
+                (kind, label, mask_fact(label, value) if kind == "fact" else value) for kind, label, value in self._rows
+            ],
+        )
 
 
     def _headline(self) -> str:

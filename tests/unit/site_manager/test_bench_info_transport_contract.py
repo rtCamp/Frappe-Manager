@@ -470,7 +470,7 @@ def test_display_info_without_certificate_uses_http_and_says_not_enabled(tmp_pat
     info.certificate_manager.get_certificate_expiry.assert_not_called()
     assert card.sections[:2] == ["site", "runtime"]
     info.output.change_head.assert_called_once_with("Getting bench info")
-    info.output.print_data.assert_called_once_with(f"<rendered {BENCH}>")
+    info.output.print_data.assert_called_once_with(card)
 
 
 def test_display_info_with_certificate_switches_every_url_to_https(tmp_path, card_spy):
@@ -532,7 +532,7 @@ def test_display_info_site_config_admin_password_wins_over_the_config_default(tm
     info.display_info()
 
     (card,) = card_spy.made
-    assert card.facts["frappe"] == "administrator [fm.muted]/[/fm.muted] from-site-config"
+    assert card.facts["frappe"] == "administrator [fm.muted]/[/fm.muted] [fm.secret]from-site-config[/fm.secret]"
 
 
 def test_display_info_marks_the_bench_config_password_as_default(tmp_path, card_spy):
@@ -540,7 +540,7 @@ def test_display_info_marks_the_bench_config_password_as_default(tmp_path, card_
     info.display_info()
 
     (card,) = card_spy.made
-    assert card.facts["frappe"].endswith("admin-pass")
+    assert card.facts["frappe"].endswith("[fm.secret]admin-pass[/fm.secret]")
 
 
 def test_display_info_db_facts_fall_back_to_na_and_carry_no_root_credentials(tmp_path, card_spy):
@@ -1528,7 +1528,7 @@ def test_a_single_site_bench_prints_the_credential_rows_it_always_did(tmp_path, 
     info.display_info()
 
     (card,) = card_spy.made
-    assert card.facts["frappe"] == "administrator [fm.muted]/[/fm.muted] from-site-config"
+    assert card.facts["frappe"] == "administrator [fm.muted]/[/fm.muted] [fm.secret]from-site-config[/fm.secret]"
     assert SITE not in card.facts["frappe"]
 
 
@@ -1548,8 +1548,8 @@ def test_every_site_gets_its_own_administrator_row(tmp_path, card_spy):
 
     (card,) = card_spy.made
     assert card.labelled("frappe") == [
-        f"[fm.muted]{SITE}[/fm.muted]  administrator [fm.muted]/[/fm.muted] pw-{SITE}",
-        f"[fm.muted]{SECOND_SITE}[/fm.muted]  administrator [fm.muted]/[/fm.muted] pw-{SECOND_SITE}",
+        f"[fm.muted]{SITE}[/fm.muted]  administrator [fm.muted]/[/fm.muted] [fm.secret]pw-{SITE}[/fm.secret]",
+        f"[fm.muted]{SECOND_SITE}[/fm.muted]  administrator [fm.muted]/[/fm.muted] [fm.secret]pw-{SECOND_SITE}[/fm.secret]",
     ]
 
 
@@ -1598,7 +1598,7 @@ def test_a_site_with_no_recorded_password_reads_the_one_supplied_this_run(tmp_pa
     info.display_info()
 
     (card,) = card_spy.made
-    assert card.labelled("frappe")[1].endswith("admin-pass")
+    assert card.labelled("frappe")[1].endswith("[fm.secret]admin-pass[/fm.secret]")
 
 
 # ------------------------- per-site tool routing and auth on the card

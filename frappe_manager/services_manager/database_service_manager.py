@@ -9,8 +9,7 @@ from pydantic import BaseModel
 from frappe_manager import COMMON_SITE_CONFIG_FILE
 from frappe_manager.docker import DOCKER_LINE_NOISE, ComposeFile, DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.services_manager.services_exceptions import (
     DatabaseServiceDBCreateFailed,
     DatabaseServiceDBExportFailed,
@@ -174,7 +173,7 @@ class MariaDBManager(DatabaseServiceManager):
         self.database_server_info: DatabaseServerServiceInfo = database_server_info
         self.compose_file_manager: ComposeFile = compose_file_manager
         self.docker_client: DockerClient = docker_client
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
         self.run_on_compose_service: str
 

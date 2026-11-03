@@ -15,8 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.site_manager.exceptions import (
     AdminToolsFailedToStart,
     AdminToolsFailedToStop,
@@ -50,7 +49,7 @@ class BenchAdminTools:
         self.bench = bench
         self.compose_path = bench.path / "docker-compose.admin-tools.yml"
         self.bench_name = bench.name
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
         self.compose_file_manager = ComposeFile(self.compose_path, template_name="docker-compose.admin-tools.tmpl")
 

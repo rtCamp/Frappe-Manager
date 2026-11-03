@@ -47,7 +47,8 @@ from frappe_manager.migration_manager.bench_migration_state import (
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import OutputHandler, get_global_output_handler, spinner, temporary_stop
-from frappe_manager.output_manager.logging_output import LoggingOutputHandler
+from frappe_manager.output_manager.sink_handler import SinkOutputHandler
+from frappe_manager.output_manager.sinks import EventSink, FileSink
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
 from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig, FMBenchEnvType, RestartPolicyEnum
@@ -381,21 +382,24 @@ def app_callback(
     ctx.obj["non_interactive"] = non_interactive or stream_events
     ctx.obj["json"] = stream_events
 
-    # Swapped FIRST, so file logging still wraps it: rich rendering is replaced by one JSON line
-    # per event on stdout, and prompts raise NonInteractiveError instead of corrupting the machine
-    # stream (hence the implied --non-interactive above).
-    if stream_events:
-        from frappe_manager.output_manager import JSONOutputHandler
-
-        # JSONOutputHandler owns every write to stdout from here on.
-        basic_handler = JSONOutputHandler(verbose=ctx.obj["verbose"], stream=sys.stdout)  # noqa: TID251
-    else:
-        basic_handler = get_global_output_handler()
+    # The mode decides which sinks ATTACH, not which handler replaces which. `--events json`
+    # detaches the terminal and attaches the event stream; the file sink is always there. Before
+    # this, a machine-readable run meant the renderer was swapped out wholesale, which is why the
+    # stream could only ever carry a transcript of the display API.
+    # `getattr`, not `isinstance`: the class is a seam tests replace, and an isinstance against a
+    # replaced name raises rather than answering.
+    existing = get_global_output_handler()
+    terminal = getattr(existing, "terminal", existing)
+    # FileSink is attached here even though the help path never writes: it holds a lazy logger, so
+    # the log file and the fm home appear on the first record rather than on construction. The old
+    # wrapper opened the file as it was built, which made `fm start --help` create ~/frappe.
+    sinks = [FileSink(), EventSink(sys.stdout)] if stream_events else [FileSink()]  # noqa: TID251
+    basic_handler = SinkOutputHandler(terminal=None if stream_events else terminal, sinks=sinks)
     set_global_output_handler(basic_handler)
     # The handler exists before the command line is parsed, so this is the only moment the level
     # can reach it. Without this assignment `-v` changes the log file and nothing on screen.
     basic_handler.set_verbosity(ctx.obj["verbosity"])
-    output = get_global_output_handler()
+    output = basic_handler
     output.set_interactive_mode(non_interactive_flag=non_interactive or stream_events)
 
     help_called = will_print_help(ctx)
@@ -413,14 +417,7 @@ def app_callback(
         # observer command on a fresh host look like an existing install to every command after it.
         config_is_new = not CLI_FM_CONFIG_PATH.exists()
 
-        # The file-logging wrapper is built HERE, not above: constructing it opens
-        # CLI_DIR/logs/fm.log, which creates the fm home as a side effect. Doing that before the
-        # help gate meant `fm start --help` wrote a log directory onto a machine that had never
-        # run fm -- and, because CLI_DIR then existed, the creation branch below never ran and
-        # the benches directory was never made.
-        set_global_output_handler(LoggingOutputHandler(basic_handler))
         output = get_global_output_handler()
-        output.set_interactive_mode(non_interactive_flag=non_interactive or stream_events)
 
         with spinner(output, "Working"):
             if not CLI_DIR.is_dir():

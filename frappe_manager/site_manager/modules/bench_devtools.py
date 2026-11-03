@@ -19,8 +19,7 @@ from typing import TYPE_CHECKING
 from frappe_manager import BENCH_PYTHON, CONTAINER_BENCH_DIR
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.logger import get_logger
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.site_manager.exceptions import (
     BenchAttachTocontainerFailed,
     BenchFailedToInstallDevPackages,
@@ -75,7 +74,7 @@ class BenchDevTools:
         # only the data paths (compose_shape.data_binds), so the host's workspace/.vscode is not
         # mounted anywhere and writing there is a no-op the container never sees.
         self._is_image_runtime = is_image_runtime_fn or (lambda: False)
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
         self.logger = get_logger(component="devtools")
 
     def get_apps_dev_requirements(self) -> list[str]:

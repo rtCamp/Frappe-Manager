@@ -16,8 +16,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from frappe_manager.logger import get_logger
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.trust_store_manager import TrustStoreManager
 
@@ -69,7 +68,7 @@ class DevCertificateService:
         self.ca_key_path = paths.key
         self.ca_cert_path = paths.cert
         self.ca_sentinel_path = paths.sentinel
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
         self.root_dir.mkdir(parents=True, exist_ok=True)
         self.ca_dir.mkdir(parents=True, exist_ok=True)

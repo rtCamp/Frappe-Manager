@@ -1,8 +1,7 @@
 from pathlib import Path
 
 from frappe_manager.logger import get_logger
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.ssl_certificate_service import SSLCertificateService
 
@@ -15,7 +14,7 @@ class NoOpCertificateService(SSLCertificateService):
     ):
         self.logger = get_logger(component="noop_ssl")
         self.root_dir = root_dir
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
     def renew_certificate(self, certificate: "SSLCertificate", test_ca: bool = False) -> bool:
         return True

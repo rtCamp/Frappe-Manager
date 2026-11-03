@@ -8,8 +8,7 @@ from frappe_manager import BENCH_PYTHON, CONTAINER_BENCH_DIR
 from frappe_manager.docker import DOCKER_LINE_NOISE, DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger import get_logger
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig
 from frappe_manager.site_manager.exceptions import (
     BenchOperationBenchAppInSiteFailed,
@@ -96,7 +95,7 @@ class BenchAppManager:
         self.bench_path = bench_path
         self.docker_client = docker_client
         self.bench_config = bench_config
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
         self.provision_image = provision_image
 
         self.frappe_bench_dir: Path = host_bench_dir(bench_path)

@@ -90,7 +90,7 @@ def status(
                 source=f"inherited from bench '{bench.name}'",
             )
             card.fact("own auth", f"fm auth enable {scope} --web")
-            output.print_data(card.render())
+            output.print_data(card)
             return
         from frappe_manager.output_manager import railcard
 
@@ -101,7 +101,7 @@ def status(
         card.fact("tools", "protected (default)")
         card.fact("web", "open (default)")
         card.fact("mint credentials", f"fm auth enable {bench.name} --web")
-        output.print_data(card.render())
+        output.print_data(card)
         return
 
     card = build_auth_card(
@@ -129,4 +129,4 @@ def status(
             state = "web protected" if site_entry.auth.web else "web open"
             card.fact(name, state)
 
-    output.print_data(card.render())
+    output.print_data(card)

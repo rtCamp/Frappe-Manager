@@ -11,8 +11,7 @@ import subprocess
 from pathlib import Path
 
 from frappe_manager.logger import get_logger
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateGenerateFailed,
@@ -52,7 +51,7 @@ class AcmeShCertificateService:
         self.root_dir = ssl_service_dir / "acmesh"
         self.acmesh_home = acmesh_home or (ssl_service_dir / "acmesh" / ".acme.sh")
         self.acmesh_bin = self.acmesh_home / "acme.sh"
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
         # Carried solely so get_dns_credentials_for_certificate can reach the bench tier,
         # `[ssl.dns_providers]`. Without it that tier is unreachable at issuance and
         # renewal, which made `fm ssl dns-config cloudflare <bench>` a write-only command: the

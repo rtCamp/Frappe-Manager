@@ -14,9 +14,8 @@ from frappe_manager.migration_manager.migration_helpers import MigrationBench, M
 from frappe_manager.migration_manager.migration_orchestrator import MigrationOrchestrator
 from frappe_manager.migration_manager.migration_validator import BenchFilter, MigrationValidator
 from frappe_manager.migration_manager.version import Version
-from frappe_manager.output_manager import OutputHandler, railcard
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler, railcard
 from frappe_manager.output_manager.context_managers import temporary_stop
-from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.utils.helpers import get_current_fm_version
 
 
@@ -69,7 +68,7 @@ class MigrationExecutor:
         self.target_benches = target_benches
         self.migrate_global_services = migrate_global_services
         self.global_services_need_migration = False
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
         bench_filter = BenchFilter(target_benches=target_benches, exclude_benches=self.exclude_benches)
         self.validator = MigrationValidator(
@@ -235,7 +234,7 @@ class MigrationExecutor:
             # came out with `Starting migration...` sitting on top of them, and questionary
             # redrew the prompt a second time. Both go outside the live region instead.
             with temporary_stop(self.output):
-                self.output.print_data(card.render())
+                self.output.print_data(card)
 
                 if self.dry_run:
                     # The scriptable plan viewer: the plan above IS the output, and the

@@ -1,8 +1,7 @@
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.utils.helpers import get_bench_connection_config, get_container_name_prefix
 from frappe_manager.utils.site import get_bench_db_connection_info
 
@@ -46,7 +45,7 @@ class BenchDatabase:
         self.bench_config = bench_config
         self.services = services
         self.set_common_bench_config = set_common_bench_config_fn
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
 
     def get_connection_info(self, site: str | None = None) -> dict:
         """

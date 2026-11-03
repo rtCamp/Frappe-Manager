@@ -392,4 +392,4 @@ def apply_auth(
         hint_when_off=False,
         source=f"its own, overriding bench '{bench.name}'" if site else None,
     )
-    output.print_data(card.render())
+    output.print_data(card)

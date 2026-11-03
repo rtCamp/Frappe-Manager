@@ -16,8 +16,7 @@ from frappe_manager import (
 from frappe_manager.docker import DOCKER_LINE_NOISE, ComposeFile, DockerClient
 from frappe_manager.logger import get_logger, set_context
 from frappe_manager.migration_manager.backup_manager import BackupManager
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.services_manager.proxy_dropins import ProxyDropins
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import (
@@ -196,7 +195,7 @@ class Bench:
     ) -> None:
         self.path = path
         self.name = name
-        self.output = output_handler or RichOutputHandler()
+        self.output = output_handler or get_global_output_handler()
         self.services = services
         self.backup_path = self.path / "backups"
         self.bench_config: BenchConfig = bench_config
