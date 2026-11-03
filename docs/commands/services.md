@@ -35,6 +35,7 @@ $ fm services info [OPTIONS]
 **Options**:
 
 * `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
+* `--fields TEXT`: Comma-separated keys to keep in the --json result, e.g. --fields name,status. Ignored without --json.
 
 ## `fm services migrate`
 
@@ -331,6 +332,7 @@ $ fm services trusted-proxies status [OPTIONS]
 **Options**:
 
 * `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
+* `--fields TEXT`: Comma-separated keys to keep in the --json result, e.g. --fields name,status. Ignored without --json.
 
 #### Examples
 

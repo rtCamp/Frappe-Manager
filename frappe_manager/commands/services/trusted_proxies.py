@@ -8,7 +8,7 @@ from typing import Annotated
 import typer
 from typer_examples import example, install
 
-from frappe_manager.commands.arguments import JsonResultOption
+from frappe_manager.commands.arguments import JsonFieldsOption, JsonResultOption, _apply_fields
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.modules.realip import (
     CLOUDFLARE_FALLBACK_RANGES,
@@ -90,7 +90,7 @@ def _apply_downstream_trust(services, output) -> None:
     "",
     detail="Prints the rendered configuration, not the setting that produced it, which is what a trust problem needs.",
 )
-def status(ctx: typer.Context, json_results: JsonResultOption = False):
+def status(ctx: typer.Context, json_results: JsonResultOption = False, fields: JsonFieldsOption = None):
     """
     Show which proxies this host trusts and what is read from them.
     """
@@ -100,6 +100,7 @@ def status(ctx: typer.Context, json_results: JsonResultOption = False):
     output = get_global_output_handler()
     if json_results:
         output.set_json_results()
+        _apply_fields(fields)
     services = ctx.obj["services"]
 
     conf_path = Path(services.proxy_storage.dirs.confd.host) / PROXY_CONF_FILENAME

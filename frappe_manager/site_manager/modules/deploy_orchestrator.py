@@ -19,16 +19,15 @@ import contextlib
 import re
 import shlex
 import shutil
-import subprocess
 import tempfile
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from frappe_manager import COMMON_SITE_CONFIG_FILE, CONTAINER_BENCH_DIR
-from frappe_manager.docker import DockerException
+from frappe_manager.docker import DOCKER_LINE_NOISE, DockerException
 from frappe_manager.exceptions import FrappeManagerException, NonInteractiveError
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler, get_global_output_handler
@@ -1180,20 +1179,19 @@ class DeployOrchestrator:
             fh.write(self._hook_script(value, deploy_image, extra_env))
             script_path = fh.name
         try:
-            proc = subprocess.run(  # noqa: S603
-                ["bash", script_path],  # noqa: S607
-                cwd=str(self.bench_path),
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            for line in (proc.stdout or "").splitlines():
-                if line.strip():
-                    self.output.print(line.strip())
-            if proc.returncode != 0:
-                raise DeployError(
-                    f"{phase} hook (host) failed (exit {proc.returncode}): {(proc.stderr or '').strip()}",
+            # Streamed, not captured: a deploy hook's output after a failure is what an operator
+            # goes looking for, and capturing it meant stderr was read only on failure and thrown
+            # away otherwise, with stdout arriving in one block at the end.
+            try:
+                self.output.live_lines(
+                    cast(
+                        "Iterator[tuple[str, bytes]]",
+                        run_command_with_exit_code(["bash", script_path], stream=True, cwd=str(self.bench_path)),
+                    ),
+                    line_filters=DOCKER_LINE_NOISE,
                 )
+            except DockerException as e:
+                raise DeployError(f"{phase} hook (host) failed (exit {e.output.exit_code})") from e
         finally:
             with contextlib.suppress(OSError):
                 Path(script_path).unlink()

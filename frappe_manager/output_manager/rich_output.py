@@ -563,7 +563,7 @@ class RichOutputHandler(OutputHandler):
 
         from rich.console import ConsoleRenderable
 
-        from frappe_manager.output_manager.envelope import json_envelope
+        from frappe_manager.output_manager.envelope import json_envelope, select_fields
 
         # Data on stdout, diagnostics on stderr, so `fm info mybench > file` and `... | jq` work.
         # ConsoleRenderable covers Table, Group, Panel, Text, ... -- anything rich can render
@@ -573,7 +573,8 @@ class RichOutputHandler(OutputHandler):
         elif isinstance(data, (dict, list)):
             # Same no-markup, no-wrap rendering as data_raw: a rich-highlighted or soft-wrapped
             # JSON document is no longer the bytes a parser was handed.
-            json_str = json.dumps(json_envelope(data) if self._json_results else data, indent=2, default=str)
+            payload = select_fields(data, self.result_fields) if self._json_results else data
+            json_str = json.dumps(json_envelope(payload) if self._json_results else payload, indent=2, default=str)
             self._emit(self.stdout, json_str, markup=False, highlight=False, soft_wrap=True)
         else:
             self._emit(self.stdout, str(data))

@@ -2,7 +2,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
-from frappe_manager.commands.arguments import BenchNameArgument, JsonResultOption
+from frappe_manager.commands.arguments import BenchNameArgument, JsonFieldsOption, JsonResultOption, _apply_fields
 from frappe_manager.output_manager import get_global_output_handler, railcard
 from frappe_manager.site_manager.site import Bench
 
@@ -16,6 +16,7 @@ def status(
     ctx: typer.Context,
     benchname: BenchNameArgument = None,
     json_result: JsonResultOption = False,
+    fields: JsonFieldsOption = None,
 ):
     """
     Report whether admin tools are configured, whether they are enabled, and which sites route to them.
@@ -32,6 +33,7 @@ def status(
 
     if json_result:
         get_global_output_handler().set_json_results()
+        _apply_fields(fields)
         output.print_data(
             {
                 "bench": bench.name,

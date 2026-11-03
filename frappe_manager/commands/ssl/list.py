@@ -3,7 +3,7 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
-from frappe_manager.commands.arguments import BenchOnlyAllArgument, JsonResultOption
+from frappe_manager.commands.arguments import BenchOnlyAllArgument, JsonFieldsOption, JsonResultOption, _apply_fields
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, prompt_for_bench_selection, resolve_bench_targets
 
 from .bench_helpers import _bench_certificate_data, _list_bench_certificates
@@ -33,6 +33,7 @@ def list_certificates(
         typer.Option("--standalone", help="List external (non-bench) domains instead of a bench."),
     ] = False,
     json_result: JsonResultOption = False,
+    fields: JsonFieldsOption = None,
 ):
     """
     List SSL certificates with their expiry and renewal status.
@@ -44,6 +45,7 @@ def list_certificates(
 
     if json_result:
         get_output_handler(ctx).set_json_results()
+        _apply_fields(fields)
 
     if ctx.obj and ctx.obj.get("domain"):
         output = get_output_handler(ctx)

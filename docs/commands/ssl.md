@@ -108,6 +108,7 @@ $ fm ssl list BENCH|all [OPTIONS]
 
 * `--standalone`: List external (non-bench) domains instead of a bench.  [default: false]
 * `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
+* `--fields TEXT`: Comma-separated keys to keep in the --json result, e.g. --fields name,status. Ignored without --json.
 
 ### Examples
 
@@ -440,6 +441,7 @@ $ fm ssl ca status [OPTIONS]
 **Options**:
 
 * `--json`: Emit this command's result as JSON on clean stdout.  [default: false]
+* `--fields TEXT`: Comma-separated keys to keep in the --json result, e.g. --fields name,status. Ignored without --json.
 
 #### Examples
 

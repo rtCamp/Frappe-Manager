@@ -1079,6 +1079,9 @@ class TestHookInvocationPoints:
         r.orch._record.assert_called_once()
 
 
+HOOK_RUNNER = "frappe_manager.site_manager.modules.deploy_orchestrator.run_command_with_exit_code"
+
+
 class TestHookRunners:
     def test_empty_hook_value_is_a_noop_for_both_runners(self, tmp_path):
         orch = make_orch(tmp_path)
@@ -1093,12 +1096,13 @@ class TestHookRunners:
 
     def test_host_hook_runs_bash_from_the_bench_directory(self, tmp_path):
         orch = make_orch(tmp_path)
-        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout="ok\n", stderr="")) as run:
+        with patch(HOOK_RUNNER, return_value=iter([])) as run:
             orch._run_host_hook("echo ok", "before_restart", NEW_TAG)
         (argv,), kwargs = run.call_args
         assert argv[0] == "bash"
         assert kwargs["cwd"] == str(orch.bench_path)
-        assert kwargs["check"] is False
+        # Streamed, so the hook's output reaches the terminal and the file as it is produced.
+        assert kwargs["stream"] is True
         assert not Path(argv[1]).exists()  # the temp script is always removed
 
     def test_host_hook_script_carries_the_deploy_env(self, tmp_path):
@@ -1107,9 +1111,9 @@ class TestHookRunners:
 
         def _capture(argv, **_kw):
             written["body"] = Path(argv[1]).read_text()
-            return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return iter([])
 
-        with patch("subprocess.run", side_effect=_capture):
+        with patch(HOOK_RUNNER, side_effect=_capture):
             orch._run_host_hook("echo hi", "before_restart", NEW_TAG)
         assert f"export SITE_NAME={SITE}" in written["body"]
         assert f"export DEPLOY_IMAGE={NEW_TAG}" in written["body"]
@@ -1131,11 +1135,17 @@ class TestHookRunners:
         assert "MIGRATE_STATUS" not in script
         assert "MIGRATE_LOG_FILE" not in script
 
-    def test_host_hook_nonzero_exit_is_a_deploy_error_carrying_stderr(self, tmp_path):
+    def test_host_hook_nonzero_exit_is_a_deploy_error_naming_the_code(self, tmp_path):
+        """The hook's own output already reached the terminal and the file as it ran, so the
+        error carries the exit code rather than a copy of stderr nobody else saw."""
+        from frappe_manager.docker import DockerException
+        from frappe_manager.docker.subprocess_output import SubprocessOutput
+
         orch = make_orch(tmp_path)
+        failure = DockerException(["bash"], SubprocessOutput([], [], [], 7))
         with (
-            patch("subprocess.run", return_value=SimpleNamespace(returncode=7, stdout="", stderr="nope\n")),
-            pytest.raises(DeployError, match=r"before_restart hook \(host\) failed \(exit 7\): nope"),
+            patch(HOOK_RUNNER, side_effect=failure),
+            pytest.raises(DeployError, match=r"before_restart hook \(host\) failed \(exit 7\)"),
         ):
             orch._run_host_hook("false", "before_restart", NEW_TAG)
 

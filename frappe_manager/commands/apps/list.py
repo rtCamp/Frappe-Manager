@@ -2,7 +2,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
-from frappe_manager.commands.arguments import BenchNameArgument, JsonResultOption
+from frappe_manager.commands.arguments import BenchNameArgument, JsonFieldsOption, JsonResultOption, _apply_fields
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.site import host_bench_dir
@@ -17,6 +17,7 @@ def list_apps(
     ctx: typer.Context,
     benchname: BenchNameArgument = None,
     json_result: JsonResultOption = False,
+    fields: JsonFieldsOption = None,
 ):
     """
     List the apps a bench has recorded, and what is actually on disk.
@@ -38,6 +39,7 @@ def list_apps(
 
     if json_result:
         get_global_output_handler().set_json_results()
+        _apply_fields(fields)
         # `installed` is null, not [], when there is no workspace to read: an image-runtime bench
         # does not know its installed apps, which is a different fact from knowing there are none.
         output.print_data(

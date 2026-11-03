@@ -3,7 +3,7 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
-from frappe_manager.commands.arguments import JsonResultOption
+from frappe_manager.commands.arguments import JsonFieldsOption, JsonResultOption, _apply_fields
 from frappe_manager.commands.auth._helpers import ADDRESS_HELP, _web_enforcement, build_auth_card, resolve_scope
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.callbacks import bench_site_autocompletion_callback, bench_site_callback
@@ -35,6 +35,7 @@ def status(
         ),
     ] = None,
     json_results: JsonResultOption = False,
+    fields: JsonFieldsOption = None,
 ):
     """
     Report which surfaces are protected, with the credentials and allow lists while a surface is protected.
@@ -45,6 +46,7 @@ def status(
     output = get_global_output_handler()
     if json_results:
         output.set_json_results()
+        _apply_fields(fields)
     bench, site, entry = resolve_scope(ctx, address, output)
 
     scope = f"{bench.name}/{site}" if site else bench.name

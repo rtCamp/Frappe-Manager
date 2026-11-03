@@ -40,6 +40,11 @@ class SinkOutputHandler(OutputHandler):
         if self.terminal is not None:
             self.terminal.set_progress_mode(mode)
 
+    def set_result_fields(self, fields: list[str] | None) -> None:
+        super().set_result_fields(fields)
+        if self.terminal is not None:
+            self.terminal.set_result_fields(fields)
+
     def _emit(self, kind: str, text: str = "", **fields: Any) -> None:
         record = OutputRecord(kind=kind, text=text, fields=fields)
         for sink in self.sinks:

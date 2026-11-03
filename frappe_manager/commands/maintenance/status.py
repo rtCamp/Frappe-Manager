@@ -4,7 +4,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
-from frappe_manager.commands.arguments import JsonResultOption
+from frappe_manager.commands.arguments import JsonFieldsOption, JsonResultOption, _apply_fields
 from frappe_manager.commands.maintenance._helpers import (
     _bench_domains,
     _extract_bench,
@@ -48,6 +48,7 @@ def status(
         ),
     ] = None,
     json_results: JsonResultOption = False,
+    fields: JsonFieldsOption = None,
 ):
     """
     Report maintenance state per domain, with the bypass URL.
@@ -58,6 +59,7 @@ def status(
     output = get_global_output_handler()
     if json_results:
         output.set_json_results()
+        _apply_fields(fields)
     benchname = address
     _services, dropins, _html_host_dir, _html_container_dir = proxy_paths(ctx)
 

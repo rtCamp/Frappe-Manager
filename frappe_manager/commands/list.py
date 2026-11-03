@@ -7,7 +7,7 @@ from typer_examples import example
 from frappe_manager import (
     CLI_BENCHES_DIRECTORY,
 )
-from frappe_manager.commands.arguments import JsonResultOption
+from frappe_manager.commands.arguments import JsonFieldsOption, JsonResultOption, _apply_fields
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_service import BenchService
 
@@ -28,6 +28,7 @@ from frappe_manager.site_manager.bench_service import BenchService
 def list(
     ctx: typer.Context,
     json_output: JsonResultOption = False,
+    fields: JsonFieldsOption = None,
     paths: Annotated[
         bool,
         typer.Option(
@@ -59,6 +60,7 @@ def list(
 
     if json_output or ctx.obj.get("json"):
         get_global_output_handler().set_json_results()
+        _apply_fields(fields)
         # Under global --json the JSONL stream owns stdout and the inventory rides it as an event;
         # with the --json flag alone on a human terminal it's a pretty dump. Both go through the
         # data channel, which decides the rendering per handler.

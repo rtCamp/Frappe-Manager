@@ -57,6 +57,7 @@ class OutputHandler(ABC):
         """
         self.verbosity: int = 1 if verbose else 0
         self.progress_mode: str = "auto"
+        self.result_fields: list[str] | None = None
         self._spinner_active = False
         self._current_text: str | None = None
 
@@ -85,6 +86,10 @@ class OutputHandler(ABC):
         """`auto`, `plain` or `none`. Separate from verbosity: this is HOW progress is drawn, not
         how much is said, and the two were conflated while terminal sniffing was the only answer."""
         self.progress_mode = mode
+
+    def set_result_fields(self, fields: list[str] | None) -> None:
+        """Names a `--json` result is trimmed to. Empty means the whole record."""
+        self.result_fields = fields or None
 
     @abstractmethod
     def start(self, text: str) -> None:

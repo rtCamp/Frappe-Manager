@@ -35,3 +35,20 @@ def json_error_envelope(
         "path": path,
         "next": next_commands or [],
     }
+
+
+def select_fields(result: Any, fields: list[str] | None) -> Any:
+    """Keep only `fields`, in a list of records or in one record. Anything else passes through.
+
+    A reader that pays by the token pays for every key it did not ask for, and fm's records are
+    wide. An unknown name is ignored rather than refused: a caller asking for a key this version
+    does not emit wants the rest of its answer, not an error.
+    """
+    if not fields:
+        return result
+    wanted = set(fields)
+    if isinstance(result, list):
+        return [{k: v for k, v in row.items() if k in wanted} if isinstance(row, dict) else row for row in result]
+    if isinstance(result, dict):
+        return {k: v for k, v in result.items() if k in wanted}
+    return result

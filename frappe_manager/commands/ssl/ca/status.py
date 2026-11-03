@@ -5,7 +5,7 @@ import sys
 
 from typer_examples import example
 
-from frappe_manager.commands.arguments import JsonResultOption
+from frappe_manager.commands.arguments import JsonFieldsOption, JsonResultOption, _apply_fields
 from frappe_manager.commands.ssl.ca.helpers import ca_paths, expiry_note, fingerprint, read_ca
 from frappe_manager.output_manager import get_global_output_handler, railcard
 from frappe_manager.ssl_manager.trust_store_manager import TrustStoreManager
@@ -15,7 +15,7 @@ from frappe_manager.ssl_manager.trust_store_manager import TrustStoreManager
     "Is fm's dev CA trusted on this host?",
     "",
 )
-def ca_status(json_results: JsonResultOption = False):
+def ca_status(json_results: JsonResultOption = False, fields: JsonFieldsOption = None):
     """
     Show fm's dev CA and every trust store on this host that currently trusts it.
 
@@ -24,6 +24,7 @@ def ca_status(json_results: JsonResultOption = False):
     output = get_global_output_handler()
     if json_results:
         output.set_json_results()
+        _apply_fields(fields)
     paths = ca_paths()
     cert = read_ca(paths.cert)
     entries = TrustStoreManager(output).find()

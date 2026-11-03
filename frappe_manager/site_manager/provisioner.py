@@ -16,14 +16,16 @@ that app's dependency install and asset build, shared by create and bake (see
 """
 
 import contextlib
-import subprocess
 import tempfile
 import time
+from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 
 import typer
 
 from frappe_manager import CONTAINER_BENCH_DIR
+from frappe_manager.docker import DOCKER_LINE_NOISE, DockerException
 from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.site_manager.bench_config import (
@@ -37,6 +39,7 @@ from frappe_manager.site_manager.bench_config import (
 )
 from frappe_manager.site_manager.hooks import app_has_build_hooks, hook_env, hook_script
 from frappe_manager.site_manager.modules.bench_app import BenchAppManager
+from frappe_manager.utils.docker import run_command_with_exit_code
 
 
 class ProvisionHookError(FrappeManagerException):
@@ -172,20 +175,20 @@ def _run_build_hook(
             fh.write(script)
             script_path = fh.name
         try:
-            proc = subprocess.run(  # noqa: S603
-                ["bash", script_path],  # noqa: S607
-                cwd=str(app_manager.frappe_bench_dir),
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            for line in (proc.stdout or "").splitlines():
-                if line.strip():
-                    output.print(line.strip())
-            if proc.returncode != 0:
-                raise ProvisionHookError(
-                    f"{phase} hook (host) failed (exit {proc.returncode}): {(proc.stderr or '').strip()}",
+            # Streamed, not captured: a hook can run for minutes, and its output arriving only
+            # after it ends is the difference between watching a provision and waiting blind.
+            # Both pipes go through fm, so stderr reaches the file too -- it used to be read only
+            # when the hook failed, and discarded when it did not.
+            try:
+                output.live_lines(
+                    cast(
+                        "Iterator[tuple[str, bytes]]",
+                        run_command_with_exit_code(["bash", script_path], stream=True, cwd=str(app_manager.frappe_bench_dir)),
+                    ),
+                    line_filters=DOCKER_LINE_NOISE,
                 )
+            except DockerException as e:
+                raise ProvisionHookError(f"{phase} hook (host) failed (exit {e.output.exit_code})") from e
         finally:
             with contextlib.suppress(OSError):
                 Path(script_path).unlink()

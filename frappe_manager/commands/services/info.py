@@ -2,7 +2,7 @@ from pathlib import Path
 
 import typer
 
-from frappe_manager.commands.arguments import JsonResultOption
+from frappe_manager.commands.arguments import JsonFieldsOption, JsonResultOption, _apply_fields
 from frappe_manager.docker import DockerException
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import get_global_output_handler
@@ -97,7 +97,7 @@ def build_services_info_data(services_manager: ServicesManager, statuses: dict, 
         },
     }
 
-def info(ctx: typer.Context, json_result: JsonResultOption = False):
+def info(ctx: typer.Context, json_result: JsonResultOption = False, fields: JsonFieldsOption = None):
     """
     Show the global services' card: live container state, the root database credentials, the ports the proxy publishes on and which proxies in front of it are trusted.
 
@@ -109,6 +109,7 @@ def info(ctx: typer.Context, json_result: JsonResultOption = False):
     output = get_global_output_handler()
     if json_result:
         output.set_json_results()
+        _apply_fields(fields)
 
     output.change_head("Getting services info")
 

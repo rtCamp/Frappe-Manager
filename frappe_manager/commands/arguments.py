@@ -244,3 +244,22 @@ Not `fm --events json`, which replaces rendering everywhere with an event stream
 `--json` made one token's POSITION decide which of two unrelated things you got. This one sits on
 the command, so `fm info mybench --json` parses; prose already goes to stderr, so stdout is
 parseable without suppressing anything."""
+
+
+JsonFieldsOption = Annotated[
+    str | None,
+    typer.Option(
+        "--fields",
+        help="Comma-separated keys to keep in the --json result, e.g. --fields name,status. Ignored without --json.",
+    ),
+]
+"""Sits on the command beside its `--json`, because a flag that trims that flag's output and
+cannot be typed next to it is a flag nobody finds. An unknown key is ignored rather than
+refused: a caller naming a key this version does not emit wants the rest of its answer."""
+
+def _apply_fields(fields: str | None) -> None:
+    """Trim a `--json` result to the named keys. One parser for twelve commands, so the spelling
+    cannot drift between them."""
+    from frappe_manager.output_manager import get_global_output_handler
+
+    get_global_output_handler().set_result_fields([f.strip() for f in fields.split(",") if f.strip()] if fields else None)
