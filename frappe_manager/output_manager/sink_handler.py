@@ -8,6 +8,7 @@ lets a person watch a run while a machine records it.
 The 16-method contract above it does not change. Roughly 1470 call sites do not move.
 """
 
+import traceback
 from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 from typing import Any
@@ -26,6 +27,7 @@ class SinkOutputHandler(OutputHandler):
         # 26 ad-hoc `or RichOutputHandler()` fallbacks used to break.
         self.terminal = terminal
         self.sinks: list[Sink] = list(sinks)
+        self._scope_open = False
 
     def add_sink(self, sink: Sink) -> None:
         self.sinks.append(sink)
@@ -60,6 +62,7 @@ class SinkOutputHandler(OutputHandler):
 
     def start(self, text: str) -> None:
         self._emit("start", text)
+        self._scope_open = True
         if self.terminal is not None:
             self.terminal.start(text)
         super().start(text)
@@ -76,6 +79,7 @@ class SinkOutputHandler(OutputHandler):
 
     def stop(self) -> None:
         self._emit("stop")
+        self._scope_open = False
         if self.terminal is not None:
             self.terminal.stop()
         super().stop()
@@ -103,9 +107,12 @@ class SinkOutputHandler(OutputHandler):
     def error(self, text: str, exception: Exception, emoji_code: str = ":no_entry:") -> None:
         self._emit("error", text, exception=f"{type(exception).__name__}: {exception}")
         from frappe_manager.logger import get_logger
-        from frappe_manager.utils.helpers import capture_and_format_exception
 
-        get_logger(component="output").error(f"[OUTPUT] Exception detail:\n{capture_and_format_exception()}")
+        # Formatted from the exception in hand, NOT from sys.exc_info(): callers reach this with
+        # an exception they built rather than one they caught, and reading the ambient one dies
+        # inside the error path, replacing the real failure with an AttributeError.
+        detail = "".join(traceback.format_exception(type(exception), exception, exception.__traceback__))
+        get_logger(component="output").error(f"[OUTPUT] Exception detail:\n{detail}")
         if self.terminal is not None:
             self.terminal.display_error(text, emoji_code)
         raise exception
@@ -130,8 +137,12 @@ class SinkOutputHandler(OutputHandler):
         if self.terminal is not None:
             self.terminal.live_lines(data, stdout, stderr, lines, padding, stop_string, log_prefix, line_filters)
         else:
-            for _source, _line in data:
-                pass
+            # One stream, one termination condition: a headless run that drains past stop_string
+            # changes control flow, not rendering -- the caller reads the child's exit code off
+            # this generator and a command that should have stopped keeps going.
+            for _source, line in data:
+                if stop_string and stop_string.lower() in line.decode(errors="replace").lower():
+                    break
 
     def update_live(self, renderable: Any = None, padding: tuple[int, int, int, int] = (0, 0, 0, 0)) -> None:
         if self.terminal is not None:
@@ -151,6 +162,10 @@ class SinkOutputHandler(OutputHandler):
 
     def prompt_fuzzy(self, prompt: str, choices: list[str], default: str | None = None, required_flag: str | None = None, **kwargs) -> str:
         if self.terminal is None:
+            # A default IS the answer; refusing when one exists turns a runnable headless command
+            # into a failure over a question that was already settled.
+            if default is not None:
+                return default
             from frappe_manager.exceptions import NonInteractiveError
 
             raise NonInteractiveError(prompt, [f"Pass {required_flag}"] if required_flag else None)
@@ -165,7 +180,9 @@ class SinkOutputHandler(OutputHandler):
 
     @property
     def is_spinner_active(self) -> bool:
-        return self.terminal is not None and self.terminal.is_spinner_active
+        # Tracked here, not read off the terminal: headless there IS no spinner, and answering
+        # False made `temporary_stop` decline to resume the scope it had just suspended.
+        return self._scope_open
 
     def print_data(self, data: Any, **kwargs) -> None:
         record = OutputRecord(kind="data", data=data)

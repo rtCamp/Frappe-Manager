@@ -18,12 +18,10 @@ from frappe_manager.output_manager.globals import (
     has_global_output_handler,
     set_global_output_handler,
 )
-from frappe_manager.output_manager.json_output import JSONOutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
 
 __all__ = [
-    "JSONOutputHandler",
     "OutputHandler",
     "RichOutputHandler",
     "SilentOutputHandler",

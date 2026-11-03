@@ -13,16 +13,17 @@ import pytest
 import typer
 
 from frappe_manager.output_manager.base import OutputHandler
-from frappe_manager.output_manager.json_output import JSONOutputHandler
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
+from frappe_manager.output_manager.sink_handler import SinkOutputHandler
+from frappe_manager.output_manager.sinks import EventSink
 
 
 def _handlers() -> dict[str, OutputHandler]:
     return {
         "rich": RichOutputHandler(),
-        "json": JSONOutputHandler(stream=io.StringIO()),
+        "sink": SinkOutputHandler(terminal=None, sinks=[EventSink(io.StringIO())]),
         "silent": SilentOutputHandler(),
     }
 
@@ -98,8 +99,9 @@ class TestTheLoggingWrapperHasNoHoles:
         assert missing == []
 
     def test_a_method_only_the_delegate_has_is_still_reachable(self):
-        """JSONOutputHandler.emit_exit is not on the contract, and the wrapper must not hide it."""
-        delegate = JSONOutputHandler(stream=io.StringIO())
+        """`emit_exit` is not on the contract, and the wrapper must not hide it: main.py had to
+        unwrap `handler.delegate` to reach it."""
+        delegate = SinkOutputHandler(terminal=None, sinks=[EventSink(io.StringIO())])
         wrapper = LoggingOutputHandler(delegate)
 
         assert callable(wrapper.emit_exit)

@@ -1,47 +1,18 @@
-"""Status is a coalescing channel: last write wins, so a repeat is not a new fact.
+"""Status is a coalescing channel in the log: last write wins, so a repeat is not a new fact.
 
-On a terminal the spinner head overwrites one line in place. The recorders treated every call as
-an appendable event, so a poll loop -- `fm update`'s queue drain re-states the same sentence every
-few seconds while it waits -- produced one log line and one JSON event per poll for one unchanged
-state.
+On a terminal the spinner head overwrites one line in place. The log treated every call as an
+appendable event, so a poll loop -- `fm update`'s queue drain re-states the same sentence every
+few seconds while it waits -- produced one line per poll for one unchanged state. The machine
+stream solves this differently and is covered in test_event_stream: status is narration, and
+narration is not an event there at all.
 """
 
-import io
-import json
 import logging
 from unittest.mock import MagicMock
 
 import pytest
 
-from frappe_manager.output_manager.json_output import JSONOutputHandler
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
-
-
-def _events(stream: io.StringIO) -> list[dict]:
-    return [json.loads(line) for line in stream.getvalue().splitlines() if line.strip()]
-
-
-@pytest.mark.unit
-class TestJSONStreamCoalescesStatus:
-    def test_a_repeated_status_is_not_a_second_event(self):
-        stream = io.StringIO()
-        output = JSONOutputHandler(stream=stream)
-
-        for _ in range(5):
-            output.change_head("Waiting for the queue to drain, 3 job(s) left")
-
-        assert len(_events(stream)) == 1
-
-    def test_a_changed_status_still_emits(self):
-        """Coalescing must not swallow progress: the point of the channel is the latest state."""
-        stream = io.StringIO()
-        output = JSONOutputHandler(stream=stream)
-
-        output.change_head("3 job(s) left")
-        output.change_head("3 job(s) left")
-        output.change_head("2 job(s) left")
-
-        assert [event["data"]["text"] for event in _events(stream)] == ["3 job(s) left", "2 job(s) left"]
 
 
 @pytest.mark.unit

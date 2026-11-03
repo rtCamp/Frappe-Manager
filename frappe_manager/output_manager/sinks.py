@@ -151,10 +151,15 @@ class EventSink:
                 self._open_step = None
         elif record.kind == "data":
             self._write("result", data=_masked(record.data))
+        elif record.kind == "data_raw":
+            # The caller's own result as exact text. It is still a result, so it rides the stream
+            # as one rather than being written straight to stdout, which is what put non-JSON
+            # lines into a JSONL stream in the first place.
+            self._write("result", text=record.text)
         elif record.kind == "warning":
             self._write("warning", text=record.text)
         elif record.kind in ("error", "display_error"):
-            self._write("error", error=record.text)
+            self._write("error", error=record.text, exception=record.fields.get("exception"))
         elif record.kind.startswith("command."):
             self._write(record.kind, **record.fields)
 

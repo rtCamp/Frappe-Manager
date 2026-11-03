@@ -1,16 +1,18 @@
 """Tests for prompt_fuzzy() method in all OutputHandler implementations."""
 
+import io
 from unittest.mock import MagicMock
 
 import pytest
 
 from frappe_manager.exceptions import NonInteractiveError
 from frappe_manager.output_manager import (
-    JSONOutputHandler,
     RichOutputHandler,
     SilentOutputHandler,
 )
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
+from frappe_manager.output_manager.sink_handler import SinkOutputHandler
+from frappe_manager.output_manager.sinks import EventSink
 
 
 class TestRichOutputHandlerPromptFuzzy:
@@ -51,7 +53,7 @@ class TestJSONOutputHandlerPromptFuzzy:
 
     def test_prompt_fuzzy_raises_non_interactive_error_with_required_flag(self):
         """JSONOutputHandler always raises NonInteractiveError with required_flag."""
-        handler = JSONOutputHandler()
+        handler = SinkOutputHandler(terminal=None, sinks=[EventSink(io.StringIO())])
 
         with pytest.raises(NonInteractiveError) as exc_info:
             handler.prompt_fuzzy(
@@ -64,7 +66,7 @@ class TestJSONOutputHandlerPromptFuzzy:
 
     def test_prompt_fuzzy_returns_default_when_provided(self):
         """JSONOutputHandler returns default if provided."""
-        handler = JSONOutputHandler()
+        handler = SinkOutputHandler(terminal=None, sinks=[EventSink(io.StringIO())])
 
         result = handler.prompt_fuzzy(prompt="Select bench", choices=["bench1", "bench2"], default="bench1")
 

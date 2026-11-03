@@ -1,86 +1,88 @@
+"""The spinner and temporary-stop scopes, seen through the machine stream.
+
+A scope is what opens a unit of work, so these are the calls the stream turns into steps; the
+narration inside them is not.
+"""
+
+import io
+import json
+
 import pytest
 
 from frappe_manager.output_manager import (
     spinner,
     temporary_stop,
 )
-from frappe_manager.output_manager.json_output import JSONOutputHandler
+from frappe_manager.output_manager.sink_handler import SinkOutputHandler
+from frappe_manager.output_manager.sinks import EventSink
 
 
-def test_spinner_context_manager_basic():
-    output = JSONOutputHandler()
+def _handler() -> tuple[SinkOutputHandler, io.StringIO]:
+    stream = io.StringIO()
+    return SinkOutputHandler(terminal=None, sinks=[EventSink(stream)]), stream
+
+
+def _events(stream: io.StringIO) -> list[str]:
+    return [json.loads(line)["event"] for line in stream.getvalue().splitlines() if line.strip()]
+
+
+@pytest.mark.unit
+def test_a_spinner_scope_is_one_step():
+    output, stream = _handler()
 
     with spinner(output, "Working"):
         pass
 
-    events = output.get_events()
-    assert len(events) == 2
-    assert events[0]["event_type"] == "start"
-    assert events[0]["data"]["text"] == "Working"
-    assert events[1]["event_type"] == "stop"
+    assert _events(stream) == ["step.started", "step.finished"]
 
 
-def test_spinner_context_manager_exception_safety():
-    output = JSONOutputHandler()
+@pytest.mark.unit
+def test_the_step_is_closed_even_when_the_body_raises():
+    """An unclosed step leaves a reader waiting forever for a finish that never comes."""
+    output, stream = _handler()
 
     with pytest.raises(ValueError), spinner(output, "Working"):
         raise ValueError("Test error")
 
-    events = output.get_events()
-    assert events[-1]["event_type"] == "stop"
+    assert _events(stream)[-1] == "step.finished"
 
 
-def test_spinner_context_manager_change_text():
-    output = JSONOutputHandler()
+@pytest.mark.unit
+def test_a_keyboard_interrupt_still_closes_the_step():
+    output, stream = _handler()
+
+    with pytest.raises(KeyboardInterrupt), spinner(output, "Working"):
+        raise KeyboardInterrupt
+
+    assert "step.finished" in _events(stream)
+
+
+@pytest.mark.unit
+def test_narration_inside_the_scope_does_not_open_a_step():
+    output, stream = _handler()
 
     with spinner(output, "Working") as out:
         out.change_head("Still working")
         out.print("Done something")
 
-    events = output.get_events()
-    assert events[0]["event_type"] == "start"
-    assert events[1]["event_type"] == "change_head"
-    assert events[2]["event_type"] == "print"
-    assert events[3]["event_type"] == "stop"
+    assert _events(stream) == ["step.started", "step.finished"]
 
 
+@pytest.mark.unit
+def test_temporary_stop_closes_and_reopens_the_step():
+    """The scope is suspended so a prompt can own the terminal, and the stream says so rather
+    than reporting one long step that was not running throughout."""
+    output, stream = _handler()
+
+    with spinner(output, "Working"), temporary_stop(output):
+        pass
+
+    assert _events(stream) == ["step.started", "step.finished", "step.started", "step.finished"]
 
 
-def test_temporary_stop():
-    output = JSONOutputHandler()
-
-    with spinner(output, "Working"):
-        output.print("Task 1")
-
-        with temporary_stop(output):
-            output.print("User prompt")
-
-        output.print("Task 2")
-
-    events = output.get_events()
-    assert events[0]["event_type"] == "start"
-    assert events[1]["event_type"] == "print"
-    assert events[2]["event_type"] == "stop"
-    assert events[3]["event_type"] == "print"
-    assert events[4]["event_type"] == "start"
-    assert events[5]["event_type"] == "print"
-    assert events[6]["event_type"] == "stop"
-
-
-def test_keyboard_interrupt_stops_spinner():
-    output = JSONOutputHandler()
-
-    with pytest.raises(KeyboardInterrupt), spinner(output, "Working"):
-        raise KeyboardInterrupt
-
-    events = output.get_events()
-    stop_events = [e for e in events if e["event_type"] == "stop"]
-    assert len(stop_events) >= 1
-
-
-
+@pytest.mark.unit
 def test_spinner_state_tracking():
-    output = JSONOutputHandler()
+    output, _ = _handler()
 
     assert not output.is_spinner_active
 

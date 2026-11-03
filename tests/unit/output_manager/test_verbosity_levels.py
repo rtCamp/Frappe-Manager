@@ -1,9 +1,20 @@
 """The two verbosity levels, and the reason the handler carries a level rather than a flag."""
 
+
 import pytest
 
-from frappe_manager.output_manager.json_output import JSONOutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager.sink_handler import SinkOutputHandler
+
+
+class _Recorder:
+    """Records the kind of every record that reaches a sink."""
+
+    def __init__(self, into: list[str]) -> None:
+        self.into = into
+
+    def emit(self, record) -> None:
+        self.into.append(record.kind)
 
 
 @pytest.mark.unit
@@ -60,16 +71,18 @@ class TestEffectsAndReasoningSplit:
         assert "changed a thing" in err
         assert "considered a thing" in err
 
-    def test_the_machine_stream_splits_the_same_way(self):
-        handler = JSONOutputHandler(stream=None)
-        handler.set_verbosity(1)
+    def test_the_sinks_keep_everything_whatever_the_level(self):
+        """-v governs the TERMINAL. The file log keeps reasoning at every level, which is the
+        point of the split: a failure is diagnosed from the log of the run that already happened,
+        not by asking the operator to reproduce it with -v."""
+        recorded: list[str] = []
+        handler = SinkOutputHandler(terminal=None, sinks=[_Recorder(recorded)])
+        handler.set_verbosity(0)
 
         handler.info("changed a thing")
         handler.debug("considered a thing")
 
-        emitted = [event.event_type for event in handler.events]
-        assert "info" in emitted
-        assert "debug" not in emitted
+        assert recorded == ["info", "debug"]
 
 
 @pytest.mark.unit

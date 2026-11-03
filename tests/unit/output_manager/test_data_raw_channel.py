@@ -12,9 +12,10 @@ from unittest.mock import MagicMock
 import pytest
 from rich.console import Console
 
-from frappe_manager.output_manager.json_output import JSONOutputHandler
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager.sink_handler import SinkOutputHandler
+from frappe_manager.output_manager.sinks import EventSink
 
 
 @pytest.mark.unit
@@ -56,15 +57,15 @@ class TestDataRawReachesEveryDestination:
     def test_json_mode_emits_one_parseable_event(self):
         """In --events json the JSONL stream owns stdout; a raw write there corrupts it."""
         stream = io.StringIO()
-        output = JSONOutputHandler(stream=stream)
+        output = SinkOutputHandler(terminal=None, sinks=[EventSink(stream)])
 
         output.data_raw("mybench.localhost  primary")
 
         lines = [line for line in stream.getvalue().splitlines() if line.strip()]
         assert len(lines) == 1
         event = json.loads(lines[0])
-        assert event["event_type"] == "data_raw"
-        assert event["data"]["text"] == "mybench.localhost  primary"
+        assert event["event"] == "result"
+        assert event["text"] == "mybench.localhost  primary"
 
     def test_the_logging_wrapper_forwards_and_records(self):
         """A method the wrapper forgets to forward is invisible through it (see emit_exit)."""

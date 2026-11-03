@@ -6,12 +6,16 @@ This module documents and tests the two error handling methods:
 - error(): Display error and raise exception (for fatal errors)
 """
 
+import io
+import json
+
 import pytest
 
 from frappe_manager.exceptions import FrappeManagerException
-from frappe_manager.output_manager.json_output import JSONOutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
+from frappe_manager.output_manager.sink_handler import SinkOutputHandler
+from frappe_manager.output_manager.sinks import EventSink
 
 
 class OutputTestError(FrappeManagerException):
@@ -43,15 +47,16 @@ class TestDisplayErrorPattern:
         # Should not raise (silently ignored)
         handler.display_error("Error message")
 
-    def test_display_error_does_not_raise_with_json_handler(self):
-        """display_error() captures event without raising."""
-        handler = JSONOutputHandler()
+    def test_display_error_reaches_the_stream_without_raising(self):
+        """display_error REPORTS a failure the caller is handling; error RAISES one."""
+        stream = io.StringIO()
+        handler = SinkOutputHandler(terminal=None, sinks=[EventSink(stream)])
 
         handler.display_error("Error occurred")
 
-        # Should capture event but not raise
-        assert len(handler.events) == 1
-        assert handler.events[0].event_type == "display_error"
+        [event] = [json.loads(line) for line in stream.getvalue().splitlines() if line.strip()]
+        assert event["event"] == "error"
+        assert event["error"] == "Error occurred"
 
 
 class TestErrorPattern:
@@ -88,17 +93,17 @@ class TestErrorPattern:
 
     def test_error_always_raises_with_json_handler(self):
         """error() captures event and raises exception."""
-        handler = JSONOutputHandler()
+        stream = io.StringIO()
+        handler = SinkOutputHandler(terminal=None, sinks=[EventSink(stream)])
 
         exc = RuntimeError("Critical error")
 
         with pytest.raises(RuntimeError, match="Critical error"):
             handler.error("Fatal error", exception=exc)
 
-        # Should still capture event before raising
-        assert len(handler.events) == 1
-        assert handler.events[0].event_type == "error"
-        assert handler.events[0].data["exception_type"] == "RuntimeError"
+        [event] = [json.loads(line) for line in stream.getvalue().splitlines() if line.strip()]
+        assert event["event"] == "error"
+        assert "RuntimeError" in event["exception"]
 
 
 class TestErrorHandlingUseCases:
@@ -203,7 +208,7 @@ class TestErrorMessageConsistency:
             silent.error("Error occurred", exception=exc)
 
         # JSON handler - captures and raises
-        json = JSONOutputHandler()
+        json = SinkOutputHandler(terminal=None, sinks=[EventSink(io.StringIO())])
         with pytest.raises(OutputTestError):
             json.error("Error occurred", exception=exc)
 
@@ -219,9 +224,9 @@ class TestErrorMessageConsistency:
         silent = SilentOutputHandler()
         silent.display_error("Error message")  # Silent, doesn't raise
 
-        # JSON handler - captures event
-        json = JSONOutputHandler()
-        json.display_error("Error message")  # Captures, doesn't raise
-        assert len(json.events) == 1
+        stream = io.StringIO()
+        machine = SinkOutputHandler(terminal=None, sinks=[EventSink(stream)])
+        machine.display_error("Error message")
+        assert len([line for line in stream.getvalue().splitlines() if line.strip()]) == 1
 
         # None of them raised an exception
