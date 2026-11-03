@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from frappe_manager import COMMON_SITE_CONFIG_FILE
 from frappe_manager.docker import DOCKER_LINE_NOISE, ComposeFile, DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
+from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.services_manager.services_exceptions import (
     DatabaseServiceDBCreateFailed,
@@ -174,6 +175,7 @@ class MariaDBManager(DatabaseServiceManager):
         self.compose_file_manager: ComposeFile = compose_file_manager
         self.docker_client: DockerClient = docker_client
         self.output = output_handler or get_global_output_handler()
+        self.logger = get_logger(component="database")
 
         self.run_on_compose_service: str
 
@@ -302,6 +304,9 @@ class MariaDBManager(DatabaseServiceManager):
             )
             return "mysqld is alive" in " ".join(output.stdout)
         except DockerException as e:
+            # Callers then wait up to 150s and blame a startup timeout. Access-denied and
+            # connection-refused are different problems, and this is the only place that knows.
+            self.logger.debug(f"db ping failed on {self.run_on_compose_service}: {e}")
             return False
 
     def get_db_users(self) -> dict[str, str]:
@@ -385,8 +390,11 @@ class MariaDBManager(DatabaseServiceManager):
                 rm=True,
                 entrypoint=db_export_command,
             )
-        except DockerException:
-            raise DatabaseServiceDBExportFailed(self.run_on_compose_service, db_name)
+        except DockerException as e:
+            # mariadb-dump's own stderr -- disk full, access denied, unknown database -- is the
+            # answer to "why did my dump fail?", and it was dropped on the floor here.
+            self.logger.debug(f"db export failed for {db_name}: {e}")
+            raise DatabaseServiceDBExportFailed(self.run_on_compose_service, db_name) from e
 
     def db_export_all(self, export_file_path: str | Path):
         """Dump every database, including the mysql schema, into one file.
@@ -412,8 +420,9 @@ class MariaDBManager(DatabaseServiceManager):
                 rm=True,
                 entrypoint=db_export_command,
             )
-        except DockerException:
-            raise DatabaseServiceDBExportFailed(self.run_on_compose_service, "--all-databases")
+        except DockerException as e:
+            self.logger.debug(f"db export (all databases) failed: {e}")
+            raise DatabaseServiceDBExportFailed(self.run_on_compose_service, "--all-databases") from e
 
     def db_create(self, db_name):
         create_db_command = f"'CREATE DATABASE IF NOT EXISTS `{db_name}`';"
@@ -444,5 +453,6 @@ class MariaDBManager(DatabaseServiceManager):
                 rm=True,
                 entrypoint=None,
             )
-        except DockerException:
-            raise DatabaseServiceDBImportFailed(self.run_on_compose_service, source)
+        except DockerException as e:
+            self.logger.debug(f"db import failed from {source}: {e}")
+            raise DatabaseServiceDBImportFailed(self.run_on_compose_service, source) from e

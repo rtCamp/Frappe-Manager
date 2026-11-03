@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 from frappe_manager import CLI_SERVICES_DIRECTORY, SiteServicesEnum
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
+from frappe_manager.logger import get_logger
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.site_manager.bench_config import WorkersConfig
@@ -294,6 +295,7 @@ class BenchWorkerCoordinator:
         self.is_running = is_running_fn
         self.docker_ops = docker_ops
         self.output = output_handler or get_global_output_handler()
+        self.logger = get_logger(component="bench_workers")
 
     def sync_workers_compose(
         self,
@@ -419,7 +421,11 @@ class BenchWorkerCoordinator:
         try:
             self._fmx_cycle(service, docker_client_obj or self.docker_ops.docker_client)
             self.output.print(f"Restarted supervisor processes - {service}")
-        except Exception:
+        except Exception as e:
+            # The exception was discarded entirely, so a genuine fmx failure -- supervisord down,
+            # a kill-ladder error -- is reported as "old image?" and rerouted. The guess belongs
+            # on the terminal; the actual cause belongs in the file.
+            self.logger.debug(f"{service}: fmx cycle failed, falling back to supervisorctl: {e}")
             self.output.warning(f"fmx restart unavailable in {service} (old image?); falling back to supervisorctl")
             is_restarted = self.restart_supervisor_service(service, docker_client_obj=docker_client_obj, force=False)
             if is_restarted:

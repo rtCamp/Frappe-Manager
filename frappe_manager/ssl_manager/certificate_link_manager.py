@@ -8,6 +8,7 @@ directory where nginx-proxy expects to find them.
 
 from pathlib import Path
 
+from frappe_manager.logger import get_logger
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
 from frappe_manager.utils.helpers import create_symlink
 
@@ -38,6 +39,7 @@ class CertificateLinkManager:
             ValueError: If storage_config paths are invalid
         """
         self.storage_config = storage_config
+        self.logger = get_logger(component="ssl")
         self._validate_prerequisites()
 
     def _validate_prerequisites(self):
@@ -188,5 +190,7 @@ class CertificateLinkManager:
         """
         try:
             path.unlink()
-        except (FileNotFoundError, OSError):
-            pass
+        except (FileNotFoundError, OSError) as e:
+            # A permission error leaves a LIVE symlink that nginx keeps serving, so a certificate
+            # fm reported as removed is still being presented.
+            self.logger.debug(f"Could not unlink {path}: {e}")

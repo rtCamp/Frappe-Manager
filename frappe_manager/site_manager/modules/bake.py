@@ -231,6 +231,13 @@ class BakeManager:
                 continue
             url = self._git_output(app_path, "config", "--get", "remote.origin.url")
             branch = self._git_output(app_path, "rev-parse", "--abbrev-ref", "HEAD")
+            if not url:
+                # Falling back to the bare NAME changes which repository gets baked: fm resolves
+                # it against its own defaults rather than the checkout in front of it.
+                self.output.warning(
+                    f"Could not read {name}'s origin URL from {app_path}; baking it by name, which may "
+                    "resolve to a different repository than your checkout."
+                )
             spec = url or name
             if branch and branch != "HEAD":
                 spec = f"{spec}:{branch}"
@@ -739,6 +746,12 @@ class BakeManager:
                 else:
                     real = entry.parent / link
                 if not real.exists():
+                    # Dropped silently, this app's /assets/<name> 404s in production after a bake
+                    # whose output was all success lines.
+                    self.output.warning(
+                        f"Asset link {entry.name} points at {real}, which does not exist; it is not in the "
+                        "image, so that app's static files will 404."
+                    )
                     continue
                 if real.is_dir():
                     shutil.copytree(real, out, symlinks=False, ignore_dangling_symlinks=True)

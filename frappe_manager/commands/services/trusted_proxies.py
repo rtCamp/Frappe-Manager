@@ -9,6 +9,7 @@ import typer
 from typer_examples import example, install
 
 from frappe_manager.commands.arguments import JsonFieldsOption, JsonResultOption, _apply_fields
+from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.modules.realip import (
     CLOUDFLARE_FALLBACK_RANGES,
@@ -388,7 +389,11 @@ def _report_self_call_risk(ctx, output) -> None:
             # Parsed raw rather than through BenchConfig: this is an advisory line, and a bench
             # whose config fails validation must not take the command down with it.
             sites = tomlkit.parse(config.read_text()).get("sites") or {}
-        except Exception:
+        except Exception as e:
+            # Advisory, so the command must survive this -- but one unparseable config silently
+            # shrinks the computed set, and the omitted bench's domains are exactly what the
+            # operator later finds missing.
+            get_logger(component="services").debug(f"trusted proxies: skipping {config}: {e}")
             continue
         domains.extend(str(site) for site in sites)
 
