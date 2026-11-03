@@ -319,13 +319,6 @@ def app_callback(
         str | None,
         typer.Option("--log-level", help="Set log level explicitly (debug|info|warning|error)"),
     ] = None,
-    fields: Annotated[
-        str | None,
-        typer.Option(
-            "--fields",
-            help="Comma-separated keys to keep in a --json result, e.g. --fields name,status. A reader that pays by the token stops paying for keys it did not ask for.",
-        ),
-    ] = None,
     no_color: Annotated[
         bool,
         typer.Option("--no-color", help="Render without colour. NO_COLOR in the environment does the same."),
@@ -435,7 +428,6 @@ def app_callback(
     # tail to another program, so a `--json` meant for bench or docker is not a request to fm.
     if asked_for_json_result(ctx):
         basic_handler.set_json_results()
-        basic_handler.set_result_fields([f.strip() for f in fields.split(",") if f.strip()] if fields else None)
     output = basic_handler
     output.set_interactive_mode(non_interactive_flag=non_interactive or stream_events)
 
