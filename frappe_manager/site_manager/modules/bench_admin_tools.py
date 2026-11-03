@@ -152,13 +152,26 @@ class BenchAdminTools:
             self.nginx_config_location_path.write_text(_render(None))
             return
 
+        routed: list[str] = []
+        dropped: list[str] = []
         for site in config.site_names:
             path = self._site_location_path(site)
             if not config.serves_admin_tools(site):
+                if path.exists():
+                    dropped.append(site)
                 path.unlink(missing_ok=True)
                 continue
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(_render(site))
+            routed.append(site)
+
+        # Removing the location block is the ONLY real per-site control (both hostnames reach one
+        # container), so which hostnames gained or lost it is the whole effect of this call.
+        reporter = getattr(self, "output", None) or get_global_output_handler()
+        if routed:
+            reporter.info(f"Admin tools routed for: {', '.join(routed)}")
+        if dropped:
+            reporter.info(f"Admin tools route removed for: {', '.join(dropped)}")
 
         # Every bench that had admin tools before this carries the shared file, which would keep
         # serving `/adminer/` from the hostnames a site just opted out of.

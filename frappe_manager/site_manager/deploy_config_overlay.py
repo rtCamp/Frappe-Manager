@@ -17,6 +17,7 @@ from pathlib import Path
 import tomlkit
 
 from frappe_manager.exceptions import ConfigurationError, FrappeManagerException
+from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.utils import toml_document
 
@@ -203,3 +204,6 @@ def apply_config_overlays(bench_config_path: Path, configs: list[str]) -> None:
     # Atomic and 0600: this file holds the bench's basic-auth password and any token an overlay
     # brought with it, and a plain write_text left it at the process umask.
     toml_document.save_text(bench_config_path, merged)
+    # A permanent rewrite of the operator's bench config, with nothing said on success: "which
+    # overlays were merged, and into which file?" had no answer afterwards.
+    get_global_output_handler().info(f"Merged {len(configs)} --config overlay(s) into {bench_config_path}")

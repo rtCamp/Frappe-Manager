@@ -379,6 +379,9 @@ class BenchSupervisor:
             if stale.name not in written_files:
                 stale.unlink()
                 self.logger.info(f"Removed stale supervisor conf {stale.name}")
+                # This delete is why a worker container disappears on the next sync, and it was
+                # file-only -- so the container vanished with no visible cause.
+                self.output.info(f"Dropped supervisor conf {stale.name}; its worker will not be recreated")
 
     def _write_newrelic_config(self, config_dir, force: bool = False) -> None:
         """Seed `config/newrelic.ini`, ONCE.
@@ -401,7 +404,9 @@ class BenchSupervisor:
 
         target = Path(config_dir) / "newrelic.ini"
         if target.exists() and not force:
+            # The reason enabling New Relic appeared to change nothing, file-only until now.
             self.logger.info("Kept existing newrelic.ini (user-owned; pass force to regenerate)")
+            self.output.info("Kept your existing newrelic.ini; pass --force to regenerate it")
             return
 
         cfg = configparser.RawConfigParser()

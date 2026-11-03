@@ -109,7 +109,12 @@ def remove_domain(
     # this domain outlive it, and a domain later added to a DIFFERENT bench would inherit this
     # one's upload limit and HSTS without anything saying so.
     dropins = ProxyDropins.for_services_path(bench.services.path)
-    removed = [dropins.remove(domain, concern) for concern in dropins.active(domain)]
+    concerns = list(dropins.active(domain))
+    removed = [dropins.remove(domain, concern) for concern in concerns]
     if any(removed):
         bench.services.nginx_controller.reload()
+    if concerns:
+        # `active()` names them and the result was reduced to a reload bool: re-adding this
+        # domain elsewhere starts clean, and only this line says what was dropped.
+        output.info(f"Removed proxy config for {domain}: {', '.join(concerns)}")
     output.print("Alias domains updated successfully")

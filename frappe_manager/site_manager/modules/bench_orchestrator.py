@@ -334,6 +334,9 @@ class BenchOrchestrator:
         # brings up containers.
         nginx_image = self._resolve_companion_image(image, current.nginx_image)
         if nginx_image != current.nginx_image:
+            # Resolved from the image's own label rather than a flag, and a wrong assets image
+            # serves stale statics with nothing saying where the choice came from.
+            self.output.info(f"Companion nginx image: {nginx_image} (resolved from the image label)")
             current.nginx_image = nginx_image
             bench.generate_compose(bench.bench_config.export_to_compose_inputs())
 
@@ -343,6 +346,9 @@ class BenchOrchestrator:
         host_run_cp(image, f"{CONTAINER_SITES_DIR}/apps.txt", str(apps_txt), bench.docker_client)
         baked = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
         bench.bench_config.apps_list = [AppConfig.from_string(n) for n in baked]
+        # The seeded path prints the equivalent fact; an image-runtime create said nothing, so
+        # "which apps is this bench actually serving?" had no answer after it finished.
+        self.output.print(f"Image provides {len(baked)} app(s): {', '.join(baked)}")
 
         if not bench_only:
             # The same gate the mount runtime runs between phase 1 and phase 2, placed at the first

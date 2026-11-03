@@ -151,9 +151,12 @@ class BenchWorkers:
 
         prev_services: list[str] = []
         if not self.compose_path.exists():
-            self.output.print("Workers compose not present. Generating new configuration..")
+            # Why fm chose to create rather than regenerate is REASONING: it belongs where
+            # someone asking for detail looks, not on every run above a heading that already
+            # says what is happening.
+            self.output.debug("Workers compose not present. Generating new configuration..")
         else:
-            self.output.print("Workers configuration changed. Recreating compose..")
+            self.output.debug("Workers configuration changed. Recreating compose..")
             try:
                 prev_services = self.compose_file_manager.get_services_list()
             except Exception:
@@ -327,7 +330,9 @@ class BenchWorkerCoordinator:
         are_workers_not_changed = self.workers.is_new_workers_added(include_default_workers=include_default_workers)
 
         if are_workers_not_changed:
-            self.output.print("Workers configuration remains unchanged")
+            # Nothing happened. The always-on channel is for effects; announcing their absence on
+            # every restart is how 655 print calls accumulate.
+            self.output.info("Workers configuration remains unchanged")
             return
 
         start_required = self.workers.generate_compose(

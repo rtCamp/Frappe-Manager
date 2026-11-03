@@ -518,7 +518,10 @@ class TestSyncWorkersCompose:
 
         h.workers.generate_compose.assert_not_called()
         h.workers_client.compose.up.assert_not_called()
-        assert h.prints == ["Workers configuration remains unchanged"]
+        # The announcement that NOTHING happened belongs at -v, not on every restart: the
+        # always-on channel is for effects.
+        assert h.prints == []
+        assert "Workers configuration remains unchanged" in [str(c.args[0]) for c in h.output.info.call_args_list]
 
     @pytest.mark.timeout(15)
     def test_changed_configuration_regenerates_and_starts_the_workers_compose(self, harness):
