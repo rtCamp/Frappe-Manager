@@ -239,12 +239,13 @@ class ServicesManager:
         if not on_disk or not wanted or on_disk == wanted:
             return
 
-        self.output.exit(
+        self.output.display_error(
             f"fm's postgres data was written by PostgreSQL {on_disk}, and fm now runs {wanted}. "
             f"Postgres does not upgrade a datadir in place, so starting it would fail with "
             f"'database files are incompatible with server'. Dump every database with the {on_disk} "
             f"image, move {marker.parent} aside, and restore into the new one."
         )
+        raise typer.Exit(1)
 
     def database_server_info_for(self, engine) -> DatabaseServerServiceInfo:
         """Endpoint and root credentials for one of fm's OWN database servers.
@@ -422,10 +423,9 @@ class ServicesManager:
         old_names = self.compose_file_manager.get_services_list()
         if "global-db" in old_names and "mariadb" not in old_names:
             if command not in MIGRATION_COMMANDS and command.split(" ")[0] != "self":
-                self.output.exit(
-                    "The global services predate the v1.0.0 rename (global-db -> mariadb). "
-                    "Run 'fm services migrate' to cut this install over."
-                )
+                self.output.display_error("The global services predate the v1.0.0 rename (global-db -> mariadb). "
+                    "Run 'fm services migrate' to cut this install over.")
+                raise typer.Exit(1)
             return
 
         if start:

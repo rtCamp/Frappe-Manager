@@ -1304,7 +1304,6 @@ class BenchOrchestrator:
             raise Exception("Bench site is inactive or unresponsive.")
 
         self.output.print("Bench infrastructure ready")
-        self.logger.info(f"{bench.name}: Bench infrastructure verified and ready.")
 
     def _phase6_install_apps(self) -> bool:
         """Phase 6: Install apps to site with graceful failure handling

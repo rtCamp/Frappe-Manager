@@ -533,6 +533,10 @@ class Bench:
                 # No logger.info beside it: the FileSink already writes every print into fm.log,
                 # so the pair put the same sentence in the same file twice.
                 self.output.print("Saved bench config")
+            elif changed:
+                # The four callers passing print_message=False have no print for the sink to
+                # mirror, so without this their saves leave no trace in the file at all.
+                self.logger.info(f"Bench config saved: {self.name}", extra_fields=extra)
             return changed
         except Exception as e:
             extra["error"] = str(e)

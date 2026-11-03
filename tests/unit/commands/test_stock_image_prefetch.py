@@ -45,10 +45,9 @@ class Harness:
         # Deliberately NOT created: its absence is what arms the prefetch.
         self.fm_config_path = self.cli_dir / "fm_config.toml"
 
+        # No re-armed `exit` side effect: the refusals raise typer.Exit at their own call sites
+        # now, so a mocked handler cannot silently swallow a guard.
         self.output = MagicMock(spec=OutputHandler)
-        # The real `exit` raises typer.Exit; a mock that returns None lets the callback run on past
-        # its own refusals, which is the difference between testing a guard and testing nothing.
-        self.output.exit.side_effect = typer.Exit(1)
         self.config = MagicMock(name="fm_config_manager")
         self.config.get_system_migration_version.return_value = Version(FM_VERSION)
         self.config.logs.file_level = "DEBUG"
@@ -211,7 +210,6 @@ class TestAFailedFirstInstallLeavesNothingBehind:
             (cli_dir / "sites").mkdir(parents=True)
 
         output = MagicMock(spec=OutputHandler)
-        output.exit.side_effect = typer.Exit(1)
         config = MagicMock(name="fm_config_manager")
         config.get_system_migration_version.return_value = Version(FM_VERSION)
         config.logs.file_level = "DEBUG"

@@ -467,7 +467,8 @@ def app_callback(
         with spinner(output, "Working"):
             if not CLI_DIR.is_dir():
                 if CLI_DIR.exists():
-                    output.exit(f"{CLI_DIR} exists but is not a directory! Aborting!")
+                    output.display_error(f"{CLI_DIR} exists but is not a directory! Aborting!")
+                    raise typer.Exit(1)
                 output.print(f"fm directory doesn't exists! Created at -> {CLI_DIR!s}")
             CLI_DIR.mkdir(parents=True, exist_ok=True)
             CLI_BENCHES_DIRECTORY.mkdir(parents=True, exist_ok=True)
@@ -516,7 +517,8 @@ def app_callback(
             # host trust stores, and `self uninstall` reports the docker half as un-removable and
             # still deletes the files and the CA.
             if not tolerates_broken_host(ctx) and not DockerClient().server_running():
-                output.exit("Docker daemon not running. Please start docker service")
+                output.display_error("Docker daemon not running. Please start docker service")
+                raise typer.Exit(1)
 
             invoked_command = ctx.invoked_subcommand or "no-command"
 
@@ -553,10 +555,9 @@ def app_callback(
                     # deleted an existing install's logs and backups because one image pull failed.
                     if created_home and CLI_DIR.exists():
                         shutil.rmtree(CLI_DIR)
-                    output.exit(
-                        "Aborting: could not pull every image fm needs. Fix the cause named above, "
-                        "then run the same command again."
-                    )
+                    output.display_error("Aborting: could not pull every image fm needs. Fix the cause named above, "
+                        "then run the same command again.")
+                    raise typer.Exit(1)
 
             # Bring the config file into existence before anything else can, so that the gates
             # below read a stamped ledger rather than an absent one. The version itself is written
@@ -698,7 +699,8 @@ def app_callback(
                 )
                 if host_lock is None:
                     culprit = process_lock.read_holder(process_lock.migration_lock_path()) or "a migration"
-                    output.exit(f"{culprit} is in progress on this host; wait for it to finish and retry.")
+                    output.display_error(f"{culprit} is in progress on this host; wait for it to finish and retry.")
+                    raise typer.Exit(1)
                 # Referenced for the command's whole lifetime; the grip dies with the process.
                 ctx.obj["host_lock"] = host_lock
 
@@ -739,7 +741,8 @@ def app_callback(
                     services_manager.remove_itself()
                     if created_home and CLI_DIR.exists():
                         shutil.rmtree(CLI_DIR)
-                    output.exit(f"{e}\nNothing was left behind. Fix the cause above, then run the command again.")
+                    output.display_error(f"{e}\nNothing was left behind. Fix the cause above, then run the command again.")
+                    raise typer.Exit(1)
 
             ctx.obj["services"] = services_manager
             ctx.obj["fm_config_manager"] = fm_config_manager

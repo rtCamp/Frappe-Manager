@@ -153,7 +153,6 @@ def remove_zombie_subprocess_process(process):
         None
     """
     if process:
-        logger.cleanup("-" * 20)
         logger.cleanup(f"PROCESS: USED PROCESS {process}")
 
         import psutil
@@ -167,7 +166,6 @@ def remove_zombie_subprocess_process(process):
                 logger.cleanup(f"{pid} Process not found")
             except psutil.AccessDenied:
                 logger.cleanup(f"{pid} Permission denied")
-        logger.cleanup("-" * 20)
 
 
 

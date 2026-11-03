@@ -30,6 +30,8 @@ import os
 from pathlib import Path
 from typing import IO
 
+import typer
+
 from frappe_manager import CLI_DIR
 
 LOCKS_DIR: Path = CLI_DIR / "locks"
@@ -107,9 +109,8 @@ def bench_lock(param: str = "benchname", shared: bool = False, operation: str | 
                     from frappe_manager.output_manager import get_global_output_handler
 
                     culprit = read_holder(path) or "another fm operation"
-                    get_global_output_handler().exit(
-                        f"Bench {bench_name} is busy: {culprit} is running on it. Let it finish, then re-run."
-                    )
+                    get_global_output_handler().display_error(f"Bench {bench_name} is busy: {culprit} is running on it. Let it finish, then re-run.")
+                    raise typer.Exit(1)
             try:
                 return fn(*args, **kwargs)
             finally:

@@ -17,6 +17,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+import typer
 
 from frappe_manager.services_manager.services import ServicesManager
 
@@ -216,20 +217,24 @@ class TestThePostgresMajorGuard:
     def test_a_datadir_from_another_major_is_refused(self, tmp_path):
         manager = self._manager(tmp_path, on_disk="16", image="postgres:17")
 
-        with pytest.raises(SystemExit):
+        # The raise lives at the call site now, not inside the handler, so it is a typer.Exit
+        # whether or not the handler is a mock.
+        with pytest.raises(typer.Exit):
             manager.check_postgres_datadir_major()
 
-        assert "16" in manager.output.exit.call_args.args[0]
+        assert "16" in manager.output.display_error.call_args.args[0]
 
     def test_the_refusal_says_what_to_do(self, tmp_path):
         """There is no safe automatic move: going up a major is a dump by the OLD server and a
         restore into a new datadir, and fm must not do that silently on a start."""
         manager = self._manager(tmp_path, on_disk="16", image="postgres:17")
 
-        with pytest.raises(SystemExit):
+        # The raise lives at the call site now, not inside the handler, so it is a typer.Exit
+        # whether or not the handler is a mock.
+        with pytest.raises(typer.Exit):
             manager.check_postgres_datadir_major()
 
-        message = manager.output.exit.call_args.args[0]
+        message = manager.output.display_error.call_args.args[0]
         assert "Dump" in message
 
     def test_a_host_with_no_datadir_yet_is_not_refused(self, tmp_path):

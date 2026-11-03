@@ -89,7 +89,6 @@ class MigrationBase(ABC):
             return True
 
         self.output.print(f"[bold][fm.info]Migration for v{self.version!s}[/fm.info][/bold]", emoji_code=":package:")
-        self.logger.info(f"v{self.version!s}: Started")
 
         self.init()
 

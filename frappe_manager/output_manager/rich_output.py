@@ -579,13 +579,3 @@ class RichOutputHandler(OutputHandler):
         else:
             self._emit(self.stdout, str(data))
 
-    def exit(self, text: str, emoji_code: str = ":no_entry:"):
-        """Report a fatal error and end the command.
-
-        Args:
-            text: The text to be printed
-            emoji_code: The emoji code to be displayed before the text (default: ":no_entry:")
-        """
-        self.stop()
-        self._emit(self.stderr, f"{emoji_code} {text}")
-        raise typer.Exit(1)

@@ -39,14 +39,13 @@ class TestEveryHandlerAgreesOnControlFlow:
             output.error("failed", ValueError("boom"))
 
     @pytest.mark.parametrize("name", sorted(_handlers()))
-    def test_exit_raises_and_never_returns(self, name):
-        """Every exit path must terminate the command, whichever handler is installed."""
+    def test_display_error_reports_without_terminating(self, name):
+        """There is no longer an `exit()` on the contract: a command that means to stop raises
+        `typer.Exit` itself, at the call site, where the control flow is visible. `display_error`
+        REPORTS and returns, and every handler must agree on that."""
         output = _handlers()[name]
 
-        with pytest.raises(typer.Exit) as exc:
-            output.exit("fatal")
-
-        assert exc.value.exit_code == 1
+        output.display_error("failed")
 
     @pytest.mark.parametrize("name", sorted(_handlers()))
     def test_live_lines_consumes_the_whole_stream(self, name):

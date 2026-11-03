@@ -116,7 +116,6 @@ class AppCloner:
                         if self.output:
                             verb = "Cloned" if freshly_cloned else "Reused existing"
                             self.output.print(f"{verb} {app_name}", emoji_code=":white_check_mark:")
-                        self.logger.info(f"Successfully cloned {app_name} to {clone_path}")
                     except Exception as e:
                         failed_apps.append((app.name, str(e)))
                         self.logger.error(f"Failed to clone {app.name}: {e}")

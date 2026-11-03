@@ -809,16 +809,15 @@ class TestHostLockAtTheCallback:
         with _exclusive_holder():
             ctx = gate.run("list")
 
-        gate.output.exit.assert_not_called()
+        gate.output.display_error.assert_not_called()
         assert "host_lock" not in ctx.obj
 
     def test_a_state_touching_command_is_refused_naming_the_migration(self, gate):
-        gate.output.exit.side_effect = typer.Exit(1)
 
         with _exclusive_holder(), pytest.raises(typer.Exit):
             gate.run("start", bench_arg="mysite.localhost")
 
-        assert "migration (pid 4242)" in gate.output.exit.call_args.args[0]
+        assert "migration (pid 4242)" in gate.output.display_error.call_args.args[0]
 
     def test_a_state_touching_command_grips_shared_when_the_host_is_free(self, gate):
         ctx = gate.run("start", bench_arg="mysite.localhost")
