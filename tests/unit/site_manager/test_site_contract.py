@@ -1069,11 +1069,14 @@ class TestEnsureAdminToolsRunningIfAvailable:
         bench.ensure_admin_tools_running_if_available()
         bench.admin_tools.enable.assert_called_once_with()
 
-    def test_unwanted_admin_tools_are_not_disabled_even_while_running(self, harness):
-        # SUSPICION: the "disable leftovers" branch iterates the *keys* of the service
-        # status map and compares each service name to the literal "running", so a
-        # normally named service can never satisfy it and disable() is effectively
-        # dead. Pinned as-is; the fix belongs in a behaviour change, not a test.
+    def test_unwanted_admin_tools_are_disabled_when_they_are_still_running(self, harness):
+        """The whole point of the branch: config says off, containers say running, so stop them.
+
+        This used to assert the OPPOSITE, under a comment calling the dead branch a SUSPICION. The
+        loop compared SERVICE NAMES to the literal "running", which no service is called, so
+        `disable()` never ran while fm recorded `admin_tools=false` and adminer and mailpit kept
+        answering.
+        """
         bench = self._admin(harness)
         bench.bench_config.admin_tools = False
         bench.admin_tools.docker_client.compose.get_all_services_status.return_value = [
@@ -1081,19 +1084,18 @@ class TestEnsureAdminToolsRunningIfAvailable:
             status("mailpit", "fm-test-mailpit", "running"),
         ]
         bench.ensure_admin_tools_running_if_available()
-        bench.admin_tools.disable.assert_not_called()
+        bench.admin_tools.disable.assert_called_once_with()
 
-    def test_a_service_literally_named_running_is_what_triggers_the_disable(self, harness):
-        # The other half of the same suspicion, pinned so the dead branch's real
-        # trigger condition is documented rather than guessed at.
-        bench = self._admin(harness, services_list=["running"])
+    def test_unwanted_admin_tools_already_stopped_are_left_alone(self, harness):
+        """Nothing is running, so there is nothing to disable."""
+        bench = self._admin(harness)
         bench.bench_config.admin_tools = False
-        bench.admin_tools.compose_file_manager.get_container_names.return_value = {"running": "fm-test-running"}
         bench.admin_tools.docker_client.compose.get_all_services_status.return_value = [
-            status("running", "fm-test-running", "exited"),
+            status("adminer", "fm-test-adminer", "exited"),
+            status("mailpit", "fm-test-mailpit", "exited"),
         ]
         bench.ensure_admin_tools_running_if_available()
-        bench.admin_tools.disable.assert_called_once_with()
+        bench.admin_tools.disable.assert_not_called()
 
 
 class TestSyncBenchConfigConfiguration:

@@ -60,6 +60,8 @@ class AppCloner:
         self.apps_dir = Path(apps_dir)
         self.github_token = github_token
         self.output = output_handler
+        # Apps whose directory already existed. The caller's count must not call these clones.
+        self.skipped_apps: list[str] = []
 
         self.apps_dir.mkdir(parents=True, exist_ok=True)
 
@@ -107,10 +109,13 @@ class AppCloner:
                 for future in as_completed(future_to_app):
                     app = future_to_app[future]
                     try:
-                        app_name, clone_path = future.result()
+                        app_name, clone_path, freshly_cloned = future.result()
                         cloned_apps[app_name] = clone_path
+                        if not freshly_cloned:
+                            self.skipped_apps.append(app_name)
                         if self.output:
-                            self.output.print(f"Cloned {app_name}", emoji_code=":white_check_mark:")
+                            verb = "Cloned" if freshly_cloned else "Reused existing"
+                            self.output.print(f"{verb} {app_name}", emoji_code=":white_check_mark:")
                         self.logger.info(f"Successfully cloned {app_name} to {clone_path}")
                     except Exception as e:
                         failed_apps.append((app.name, str(e)))
@@ -238,7 +243,7 @@ class AppCloner:
 
         return result
 
-    def _clone_app(self, app: AppConfig) -> tuple[str, Path]:
+    def _clone_app(self, app: AppConfig) -> tuple[str, Path, bool]:
         """
         Clone a single standalone app (non-subdirectory) with authentication fallback.
 
@@ -266,8 +271,10 @@ class AppCloner:
         clone_path = self.apps_dir / app.name
 
         if clone_path.exists():
+            # Reported as a SKIP, not a clone: the caller used to print "Cloned X" and count it,
+            # so a stale directory on the wrong branch was announced as a fresh checkout.
             self.logger.info(f"App {app.name} already exists at {clone_path}, skipping")
-            return (app.name, clone_path)
+            return (app.name, clone_path, False)
 
         auth_methods = self._get_auth_methods(app)
         last_error = None
@@ -298,7 +305,7 @@ class AppCloner:
 
                 app.name = actual_app_name
 
-                return (actual_app_name, clone_path)
+                return (actual_app_name, clone_path, True)
 
             except (GitCommandError, Exception) as e:
                 last_error = e

@@ -633,28 +633,30 @@ class TestSSLCertificateManagerRenewCertificate:
         # Verify nginx was NOT restarted (test-CA rehearsal)
         ssl_certificate_manager.nginx_controller.restart.assert_not_called()
 
-    def test_renew_certificate_handles_symlink_recreation_failure(self, mocker, ssl_certificate_manager):
-        """Test that renewal succeeds even if symlink recreation fails."""
+    def test_renew_certificate_does_not_claim_success_when_the_link_fails(self, mocker, ssl_certificate_manager):
+        """A failed re-link means nginx still reads the OLD certificate.
+
+        This used to assert the opposite -- "renewal succeeds even if symlink recreation fails" --
+        so the operator was told the renewal landed while the expiring certificate stayed in
+        service until it ran out.
+        """
         mocker.patch.object(ssl_certificate_manager, "needs_renewal", return_value=True)
 
         expiry_date = datetime.now() + timedelta(days=10)
         mocker.patch.object(ssl_certificate_manager, "get_certificate_expiry", return_value=expiry_date)
-
-        # Mock get_certificate_paths to raise error (simulating symlink failure)
         mocker.patch.object(ssl_certificate_manager, "get_certificate_paths", side_effect=Exception("Symlink error"))
 
         domain = ssl_certificate_manager.certificates[0].domain
         mock_service = MagicMock()
         ssl_certificate_manager.services[domain] = mock_service
 
-        # Should not raise - renewal still succeeds even if symlink recreation fails
         ssl_certificate_manager.renew_certificate()
 
-        # Verify service renew was called
         mock_service.renew_certificate.assert_called_once()
-
-        # Verify nginx was still restarted
-        ssl_certificate_manager.nginx_controller.restart.assert_called_once()
+        # No restart, which would imply the new certificate is live.
+        ssl_certificate_manager.nginx_controller.restart.assert_not_called()
+        warned = " ".join(str(c.args[0]) for c in ssl_certificate_manager.output_handler.warning.call_args_list)
+        assert "still serving the previous certificate" in warned
 
     def test_renew_certificate_fallback_ignores_a_stray_acme_client(self, mocker, ssl_certificate_manager):
         """Same hazard as `add_certificate`, on the renewal path's fallback in `_renew_single_certificate`."""

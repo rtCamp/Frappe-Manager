@@ -111,5 +111,14 @@ class NginxController:
         self.output.change_head("Restarting nginx")
 
         if self.docker_client.compose.is_service_running(self.service_name):
-            output = self.docker_client.compose.restart(services=[self.service_name], stream=False)
-            self.output.print("Restarting nginx")
+            self.docker_client.compose.restart(services=[self.service_name], stream=False)
+            # Past tense, and said ONCE: this used to repeat the spinner head verbatim, after the
+            # restart had already returned.
+            self.output.print("Restarted nginx")
+        else:
+            # Restarting a stopped service is a silent no-op, so a certificate could be reported
+            # "added" having never been served.
+            self.output.warning(
+                f"{self.service_name} is not running, so the new configuration is not being served yet; "
+                "start the bench to pick it up."
+            )

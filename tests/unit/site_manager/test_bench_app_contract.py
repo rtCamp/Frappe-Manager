@@ -156,6 +156,7 @@ def _fake_cloner(record, *, rename=None, error=None):
             self.apps_dir = apps_dir
             self.github_token = github_token
             self.output_handler = output_handler
+            self.skipped_apps: list[str] = []
             record.append(self)
 
         def clone_apps_parallel(self, apps, max_workers=5):

@@ -1851,18 +1851,30 @@ class DeployOrchestrator:
 
         for backup_dir in summary["backups"]:
             shutil.rmtree(backup_dir, ignore_errors=True)
+        removed_images = 0
+        refused: list[str] = []
         for image in summary["images"]:
-            with contextlib.suppress(DockerException):
+            try:
                 self.docker.rmi(image, stream=False)
+                removed_images += 1
+            except DockerException as e:
+                # Counted as pruned while docker refused it: an image still referenced by a
+                # running container stays, and the disk the operator wanted back never comes.
+                refused.append(image)
+                self.logger.debug(f"rmi refused for {image}: {e}")
 
         state.history = kept
         self.config.deployments = state
         self.config.export_to_toml(self._config_path())
         self.output.print(
             f"Pruned {summary['entries']} old release(s): {len(summary['backups'])} backup dir(s), "
-            f"{len(summary['images'])} image(s); kept {summary['kept']}.",
+            f"{removed_images} image(s); kept {summary['kept']}.",
             emoji_code=":broom:",
         )
+        if refused:
+            self.output.warning(
+                f"{len(refused)} image(s) could not be removed and are still on disk: {', '.join(refused)}"
+            )
         return summary
 
     def rollback(

@@ -531,7 +531,14 @@ fi
                     output_handler=self.output,
                 )
                 cloned_apps = cloner.clone_apps_parallel(apps_config)
-                self.output.print(f"Cloned {len(cloned_apps)} apps successfully")
+                # len(cloned_apps) counts reused directories too, so this read "Cloned 5 apps
+                # successfully" for a run that cloned none of them.
+                reused = len(cloner.skipped_apps)
+                fresh = len(cloned_apps) - reused
+                summary = f"Cloned {fresh} apps successfully"
+                if reused:
+                    summary += f"; reused {reused} already present ({', '.join(sorted(cloner.skipped_apps))})"
+                self.output.print(summary)
 
                 self._update_apps_txt(apps_config)
                 self._update_apps_list_with_corrected_names(apps_config)

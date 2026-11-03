@@ -192,7 +192,7 @@ def test_an_existing_app_directory_is_returned_untouched_without_cloning(tmp_pat
     calls = _fake_clone_from(monkeypatch)
     app = _app("erpnext", "frappe/erpnext")
 
-    name, path = cloner._clone_app(app)
+    name, path, fresh = cloner._clone_app(app)
 
     assert (name, path) == ("erpnext", existing)
     assert calls == []
@@ -226,7 +226,7 @@ def test_a_failed_auth_method_is_cleaned_up_and_the_next_one_is_tried(tmp_path, 
     token_url = "https://ghp_secret@github.com/frappe/erpnext.git"
     calls = _fake_clone_from(monkeypatch, fails={token_url})
 
-    name, path = cloner._clone_app(app)
+    name, path, fresh = cloner._clone_app(app)
 
     assert [c["url"] for c in calls] == [token_url, "https://github.com/frappe/erpnext.git"]
     assert (name, path) == ("erpnext", cloner.apps_dir / "erpnext")
@@ -322,7 +322,7 @@ def test_rename_is_abandoned_when_the_module_named_directory_already_exists(tmp_
     app = _app("frappe-consent-management", "acme/frappe-consent-management")
     _fake_clone_from(monkeypatch, populate=lambda p: _pyproject(p, "frappe_consent_management"))
 
-    name, path = cloner._clone_app(app)
+    name, path, fresh = cloner._clone_app(app)
 
     assert (name, path) == ("frappe-consent-management", cloner.apps_dir / "frappe-consent-management")
     assert app.name == "frappe-consent-management"

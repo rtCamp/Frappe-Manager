@@ -53,12 +53,12 @@ def disable(
     site = ctx.obj.get("site") if ctx.obj else None
     domains, _domain_ssl, all_domains = _bench_domains(benchname, site)
 
-    removed = 0
+    disabled: list[str] = []
     for domain in domains:
         if not conf_state(dropins, domain):
             continue
         dropins.remove(domain, "maintenance")
-        removed += 1
+        disabled.append(domain)
 
     # A domain dropped from the bench (`fm domain remove B/x`) keeps its fragment, and the loop
     # above only knows the CURRENT bench_config.toml -- so it would stay live: still listed by
@@ -75,10 +75,11 @@ def disable(
             continue
         dropins.remove(domain, "maintenance")
         orphans.append(domain)
-    removed += len(orphans)
 
-    if not removed:
+    if not disabled and not orphans:
         output.print("Maintenance was not enabled")
         return
     services.nginx_controller.reload()
-    output.print(f"Maintenance disabled for: {', '.join([*domains, *orphans])}")
+    # `disabled`, not `domains`: the loop skips domains with no active fragment, so printing
+    # everything it was ASKED about named domains this run never touched.
+    output.print(f"Maintenance disabled for: {', '.join([*disabled, *orphans])}")

@@ -299,6 +299,7 @@ def _admin_role_check(row: str, *, user: str) -> ProbeCheck:
 def _schema_state(
     *,
     database_exists: bool,
+    exists_known: bool,
     table_count: int,
     frappe_tables: tuple[str, ...],
     installed_apps: tuple[str, ...],
@@ -309,6 +310,15 @@ def _schema_state(
         is_frappe=len(frappe_tables) == 2,
         installed_apps=installed_apps,
     )
+    if not exists_known:
+        # "Does not exist" is an ACTION here -- fm goes on to create the database -- so a query
+        # that FAILED must never read as a negative answer. The two were indistinguishable while
+        # the query's ok flag was discarded.
+        return state, ProbeCheck(
+            CHECK_SCHEMA_STATE,
+            CheckStatus.fail,
+            "could not determine whether the database exists; fm will not create over an unknown state",
+        )
     if not database_exists:
         detail = "the database does not exist yet; fm will create it"
     elif table_count == 0:
@@ -382,11 +392,13 @@ def probe_stage_one(
     _, row = ask(admin_role_sql(), database="postgres")
     checks.append(_admin_role_check(row.strip().splitlines()[0] if row.strip() else "", user=user))
 
-    _, tls_row = ask(tls_sql(), database="postgres")
-    tls_in_force = tls_row.strip().startswith("t")
+    tls_ok, tls_row = ask(tls_sql(), database="postgres")
+    # A failed query is not a "no": without the flag, "could not ask whether this session is
+    # encrypted" was reported as "it is not encrypted".
+    tls_in_force = tls_ok and tls_row.strip().startswith("t")
 
-    _, exists_row = ask(database_exists_sql(dbname), database="postgres")
-    database_exists = exists_row.strip().startswith("1")
+    exists_known, exists_row = ask(database_exists_sql(dbname), database="postgres")
+    database_exists = exists_known and exists_row.strip().startswith("1")
 
     table_count = 0
     frappe_tables: tuple[str, ...] = ()
@@ -403,6 +415,7 @@ def probe_stage_one(
 
     state, state_check = _schema_state(
         database_exists=database_exists,
+        exists_known=exists_known,
         table_count=table_count,
         frappe_tables=frappe_tables,
         installed_apps=installed_apps,

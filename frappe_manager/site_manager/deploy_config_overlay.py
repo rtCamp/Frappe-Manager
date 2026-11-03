@@ -16,7 +16,7 @@ from pathlib import Path
 
 import tomlkit
 
-from frappe_manager.exceptions import FrappeManagerException
+from frappe_manager.exceptions import ConfigurationError, FrappeManagerException
 from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.utils import toml_document
 
@@ -45,12 +45,18 @@ def looks_like_a_path(value: str) -> bool:
 def resolve_source(value: str) -> str:
     """TOML text for a ``--config`` value: the file's contents when it is a path to
     an existing file, else the value itself (treated as inline TOML)."""
+    candidate = Path(value).expanduser()
     try:
-        candidate = Path(value).expanduser()
         if candidate.is_file():
             return candidate.read_text()
-    except OSError:
-        pass
+    except OSError as e:
+        # A file that EXISTS and cannot be read is not a missing file. Swallowing this sent the
+        # caller down the inline-TOML path, whose error then said "--config file not found" about
+        # a path that is right there, pointing the operator at the name instead of at its mode.
+        raise ConfigurationError(
+            f"--config file could not be read: {candidate} ({e.strerror or e})",
+            suggestions=[f"Check the permissions and ownership of {candidate}"],
+        ) from e
     return value
 
 

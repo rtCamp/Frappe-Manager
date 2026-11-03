@@ -520,12 +520,21 @@ class DockerComposeWrapper:
         ls_cmd += parameters_to_options(parameters)
 
         try:
-            output = run(self.docker_compose_cmd + ls_cmd, capture_output=True)
-            output = output.stdout.decode()
+            result = run(self.docker_compose_cmd + ls_cmd, capture_output=True)
         except Exception:
             return False
 
-        return output
+        if result.returncode != 0:
+            # A failed `compose ls` returned its empty stdout, which reads exactly like "no
+            # projects exist". The exit code was in hand and dropped.
+            from frappe_manager.logger import get_logger
+
+            get_logger(component="docker").warning(
+                f"compose ls exited {result.returncode}: {result.stderr.decode(errors='replace').strip()}"
+            )
+            return False
+
+        return result.stdout.decode()
 
     @overload
     def pull(
@@ -659,6 +668,13 @@ class DockerComposeWrapper:
 
             for line in output.stdout:
                 statuses.append(json.loads(line))
-        except Exception:
-            pass
+        except Exception as e:
+            # The partial list is DISCARDED rather than returned: a caller counting running
+            # services off a truncated answer reports a healthy bench with services missing. It
+            # still returns a list because `fm list` must degrade rather than raise, but the
+            # reason now reaches the file instead of vanishing.
+            from frappe_manager.logger import get_logger
+
+            get_logger(component="docker").warning(f"compose ps failed for {self.compose_file_path}: {e}")
+            return []
         return statuses

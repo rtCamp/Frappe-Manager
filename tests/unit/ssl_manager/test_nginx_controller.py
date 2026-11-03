@@ -167,9 +167,10 @@ class TestNginxControllerRestart:
         )
         controller.restart()
 
-        # Verify output handler was called for status updates
+        # The heading announces the attempt; the line after it reports the OUTCOME. Both used to
+        # be the identical string, the second printed after the restart had already returned.
         mock_output.change_head.assert_called_once_with("Restarting nginx")
-        mock_output.print.assert_called_once_with("Restarting nginx")
+        mock_output.print.assert_called_once_with("Restarted nginx")
 
         # Verify docker restart was called with correct parameters
         mock_docker_client.compose.restart.assert_called_once_with(services=["nginx-proxy"], stream=False)

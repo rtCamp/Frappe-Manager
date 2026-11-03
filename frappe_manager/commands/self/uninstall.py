@@ -183,39 +183,55 @@ def uninstall(
     failures: list[str] = []
 
     if docker is not None and plan.containers:
+        removed_containers = 0
         with spinner(output, "Removing containers"):
             for name in plan.containers:
                 output.change_head(f"Removing container {name}")
                 try:
                     docker.rm(name, force=True, volumes=True, stream=False)
+                    removed_containers += 1
                 except Exception as e:
                     failures.append(f"container {name}: {e}")
-        output.print(f"Removed {len(plan.containers)} container(s)")
+        # What WENT, not what was planned: reporting len(plan.containers) told the operator eight
+        # were removed while three of them sat in `failures` printed directly below.
+        output.print(f"Removed {removed_containers} container(s)")
 
     # After the containers, never before: docker refuses to remove a volume or a network that is
     # still referenced, and `docker rm -v` above only took the anonymous ones.
     if docker is not None and plan.volumes:
+        removed_volumes = 0
         with spinner(output, "Removing volumes"):
             for name in plan.volumes:
                 output.change_head(f"Removing volume {name}")
-                if not docker.volume_rm(name):
+                if docker.volume_rm(name):
+                    removed_volumes += 1
+                else:
                     failures.append(f"volume {name}: could not be removed")
-        output.print(f"Removed {len(plan.volumes)} volume(s)")
+        output.print(f"Removed {removed_volumes} volume(s)")
 
     if docker is not None and plan.networks:
+        removed_networks = 0
         with spinner(output, "Removing networks"):
             for network in plan.networks:
                 output.change_head(f"Removing network {network}")
-                if not docker.network_rm(network):
+                if docker.network_rm(network):
+                    removed_networks += 1
+                else:
                     failures.append(f"network {network}: could not be removed")
-        output.print(f"Removed {len(plan.networks)} network(s)")
+        output.print(f"Removed {removed_networks} network(s)")
 
     if plan.paths:
+        freed = 0
         with spinner(output, "Removing files"):
             for entry in plan.paths:
                 output.change_head(f"Removing {entry.path} ({format_size(entry.size)})")
+                before = len(failures)
                 _remove_path(entry.path, failures)
-        output.print(f"Removed {format_size(plan.total_size)} of files")
+                if len(failures) == before:
+                    freed += entry.size
+        # Summing only the entries that survived _remove_path: plan.total_size counted the
+        # root-owned mariadb directory -- the documented failure -- as space reclaimed.
+        output.print(f"Removed {format_size(freed)} of files")
 
     # CLI_DIR itself only goes when nothing was asked to be kept inside it; --only and
     # --keep-backups both leave a populated tree that must survive.
@@ -223,14 +239,16 @@ def uninstall(
         _remove_path(CLI_DIR, failures)
 
     if docker is not None and plan.images:
+        removed_images = 0
         with spinner(output, "Removing images"):
             for image in plan.images:
                 output.change_head(f"Removing image {image}")
                 try:
                     docker.rmi(image, force=True, stream=False)
+                    removed_images += 1
                 except Exception as e:
                     failures.append(f"image {image}: {e}")
-        output.print(f"Removed {len(plan.images)} image(s)")
+        output.print(f"Removed {removed_images} image(s)")
 
     if plan.trust:
         removed, trust_failures = TrustStoreManager(output).uninstall()
@@ -245,7 +263,16 @@ def uninstall(
         raise typer.Exit(1)
 
     if scopes == set(Scope):
-        output.print("fm's state is gone from this host.", emoji_code=":wastebasket:")
+        if docker is None:
+            # Not "gone": with no docker daemon every container, volume, network and image block
+            # was skipped wholesale rather than failing, so `failures` is empty and the clean-host
+            # line would print over objects that are all still there.
+            output.warning(
+                "fm's files are gone, but docker was unreachable: its containers, volumes, "
+                "networks and images were not touched. Re-run this with docker running to remove them."
+            )
+        else:
+            output.print("fm's state is gone from this host.", emoji_code=":wastebasket:")
         output.print(_package_removal_hint(), emoji_code="", soft_wrap=True, highlight=False)
 
 

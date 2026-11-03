@@ -1735,8 +1735,11 @@ class Bench:
                         for status in all_statuses
                         if status.get("Name") in containers
                     }
-                    for service in running_services:
-                        if service == "running":
+                    # .values(), not the mapping itself: iterating it compared SERVICE NAMES to
+                    # "running", which is never true, so admin tools were never disabled while
+                    # the bench config recorded them off and the containers kept answering.
+                    for state in running_services.values():
+                        if state == "running":
                             atleast_one_service_running = True
                 except Exception:
                     atleast_one_service_running = False

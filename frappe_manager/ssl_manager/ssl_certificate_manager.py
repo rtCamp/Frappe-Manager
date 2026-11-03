@@ -521,8 +521,15 @@ class SSLCertificateManager:
                     fullchain_path=fullchain_path,
                     alias_domains=None,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                # The link is what puts the NEW certificate where nginx reads it. Swallowing this
+                # and printing success told the operator the renewal landed while nginx carried
+                # on serving the old certificate until it expired.
+                self.output_handler.warning(
+                    f"Renewed {certificate.domain}, but could not update the certificate link ({e}); "
+                    "nginx is still serving the previous certificate."
+                )
+                return
 
             if not skip_nginx_restart:
                 self.nginx_controller.restart()
