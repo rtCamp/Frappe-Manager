@@ -1059,11 +1059,14 @@ class DeployOrchestrator:
             try:
                 self.set_maintenance_mode(0)
             except Exception as e:
-                # Suppressed, the site stays behind the maintenance page after a deploy the
-                # operator was told succeeded, and nothing anywhere names the cause.
+                # Suppressed, the site stays in Frappe's maintenance mode after a deploy the
+                # operator was told succeeded, and nothing anywhere names the cause. This is
+                # Frappe's own flag, NOT fm's nginx 503 block, so `fm maintenance disable` does
+                # not clear it -- see set_maintenance_mode's docstring.
                 self.output.warning(
-                    f"Could not take the site out of maintenance mode ({e}); it is still serving the "
-                    "maintenance page. Run 'fm maintenance disable' once the bench is healthy."
+                    f"Could not clear Frappe's maintenance_mode for {self.site} ({e}); the site will refuse "
+                    f"requests until it is unset. Run: fm shell {self.bench.name} -c "
+                    f"'bench --site {self.site} set-config -g maintenance_mode 0'"
                 )
         self.resume_workers()
 
@@ -1763,8 +1766,9 @@ class DeployOrchestrator:
                     self.set_maintenance_mode(0)
                 except Exception as e:
                     self.output.warning(
-                        f"Could not take the site out of maintenance mode ({e}); it is still serving the "
-                        "maintenance page. Run 'fm maintenance disable' once the bench is healthy."
+                        f"Could not clear Frappe's maintenance_mode for {self.site} ({e}); the site will refuse "
+                        f"requests until it is unset. Run: fm shell {self.bench.name} -c "
+                        f"'bench --site {self.site} set-config -g maintenance_mode 0'"
                     )
             self._record(new_image, migrate_status, nginx_image=new_nginx_image, backups=db_dumps)
             # The image IS live and recorded -- the deploy committed; a failing post-restart hook
