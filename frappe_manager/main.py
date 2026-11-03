@@ -1,6 +1,7 @@
 import atexit
 import os
 import signal
+import sys
 
 from frappe_manager import CLI_LOG_DIRECTORY
 from frappe_manager.exceptions import FrappeManagerException
@@ -13,6 +14,40 @@ from frappe_manager.output_manager.rich_output import RichOutputHandler
 # import side effect, so hoisting them to the top would run that before cli_entrypoint() gets to
 # refuse root -- `sudo -E fm` would then leave a root-owned fm.log the next non-root fm run cannot
 # write.
+
+
+def _run_app(app) -> None:
+    """Invoke the CLI, answering a USAGE error in JSON when the caller asked for JSON.
+
+    A stray argument is rejected by click before any command body runs, so the per-command error
+    path cannot see it: four of the twelve `--json` commands answered their most likely mistake
+    with rich usage text on stdout and no JSON at all. Standalone mode is given up only for a
+    `--json` run, so the human path keeps click's own rendering and exit codes untouched.
+    """
+    import click
+
+    if not _argv_asks_for_json():
+        app()
+        return
+
+    from typer.main import get_command
+
+    try:
+        get_command(app).main(standalone_mode=False)
+    except click.UsageError as e:
+        from frappe_manager.exceptions import MissingArgumentError
+
+        hint = f"Run 'fm {e.ctx.command_path.removeprefix('fm ')} --help'" if e.ctx else "Pass --help"
+        _emit_json_error(MissingArgumentError(e.format_message(), [hint]), get_global_output_handler())
+        raise SystemExit(e.exit_code) from e
+
+
+def _argv_asks_for_json() -> bool:
+    """`--json` before any `--`; after it the words belong to the child command."""
+    argv = sys.argv[1:]
+    if "--" in argv:
+        argv = argv[: argv.index("--")]
+    return "--json" in argv
 
 
 def cli_entrypoint():
@@ -64,7 +99,7 @@ def cli_entrypoint():
     from frappe_manager.commands import app
 
     try:
-        app()
+        _run_app(app)
         _emit_json_exit(ok=True, code=0)
     except SystemExit as e:
         # typer.Exit / click abort paths: SystemExit is not an Exception, so it

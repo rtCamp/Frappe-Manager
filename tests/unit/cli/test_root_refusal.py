@@ -123,8 +123,11 @@ def test_guard_precedes_the_app_call():
     )
 
     main_source = Path("frappe_manager/main.py").read_text()
-    # Anchored on the indented statement: "app()" also appears in this module's docstring.
-    assert main_source.index("geteuid") < main_source.index("\n        app()"), "the root guard must precede app()"
+    # Anchored on the invocation inside cli_entrypoint, not on "app()" anywhere: that text also
+    # appears in this module's docstring and inside the usage-error runner it delegates to.
+    assert main_source.index("geteuid") < main_source.index("\n        _run_app(app)"), (
+        "the root guard must precede app()"
+    )
     assert main_source.index("geteuid") < main_source.index("from frappe_manager.commands import app"), (
         "importing frappe_manager.commands creates CLI_DIR, so it must stay below the root check"
     )
