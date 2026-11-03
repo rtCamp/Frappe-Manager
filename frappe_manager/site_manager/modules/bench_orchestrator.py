@@ -575,6 +575,7 @@ class BenchOrchestrator:
                     # answering immediately. Either way gunicorn is up and answering, which is
                     # everything this check claims to verify.
                     self.output.print("Bench server is responding correctly")
+                    self.output.info(f"gunicorn answered {status_code} on attempt {i + 1}")
                     return
 
             except Exception as e:
@@ -613,8 +614,10 @@ class BenchOrchestrator:
                     user="frappe",
                     stream=False,
                 )
-                if "".join(result.stdout).strip() in ("200", "404", "401"):
+                code = "".join(result.stdout).strip()
+                if code in ("200", "404", "401"):
                     self.output.print("Site is reachable through nginx")
+                    self.output.info(f"nginx answered {code} for Host {bench.site_name} on attempt {attempt + 1}")
                     return
             except Exception as e:
                 self.logger.debug(f"nginx reachability attempt {attempt + 1}: {e}")

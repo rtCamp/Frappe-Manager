@@ -1018,6 +1018,7 @@ class DeployOrchestrator:
                 f"({detail}). The image may predate fmx -- 'fm self update-images' "
                 "installs one that supports draining."
             ) from e
+        self.output.info(f"Workers idle, queue {self._queue_endpoint()} (waited up to {timeout}s)")
         return True
 
     def _queue_endpoint(self) -> str:
