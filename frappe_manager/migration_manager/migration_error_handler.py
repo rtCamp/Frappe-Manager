@@ -229,7 +229,12 @@ class MigrationErrorHandler:
                 archive_bench_path = CLI_SITES_ARCHIVE / bench
                 CLI_SITES_ARCHIVE.mkdir(exist_ok=True, parents=True)
                 shutil.move(bench_info["object"].path, archive_bench_path)
-                self.executor.output.print(f"[bold]Archived bench :[/bold] [fm.warn]{bench}[/fm.warn]", emoji_code="")
+                # Naming the DESTINATION: a whole bench directory just moved on the operator's
+                # disk, and "Archived bench : x" left them with no idea where it went.
+                self.executor.output.print(
+                    f"[bold]Archived bench :[/bold] [fm.warn]{bench}[/fm.warn] -> {archive_bench_path}",
+                    emoji_code="",
+                )
 
     def _rollback_all(self, show_cli_downgrade_instructions: bool = True):
         """

@@ -285,6 +285,12 @@ class AppCloner:
                 self.logger.debug(f"Trying {method_name} for {app.name}: {strip_url_credentials(repo_url)}")
                 self._git_clone(repo_url, clone_path, app)
                 self.logger.info(f"Successfully cloned {app.name} using {method_name}")
+                # File-only until now, while "which branch did I actually get, and did my token
+                # or my SSH key fetch it?" is the first question when a private-repo clone picks
+                # the wrong credential.
+                if self.output:
+                    ref = f" at {app.ref}" if getattr(app, "ref", None) else ""
+                    self.output.info(f"Cloned {app.name}{ref} via {method_name}")
 
                 actual_app_name = extract_app_python_module_name(clone_path)
 

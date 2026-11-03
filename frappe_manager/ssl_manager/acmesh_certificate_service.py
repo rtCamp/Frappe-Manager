@@ -273,6 +273,9 @@ class AcmeShCertificateService:
             )
 
         ca_server = LETSENCRYPT_STAGING_SERVER if use_staging else LETSENCRYPT_PRODUCTION_SERVER
+        # Staging gets a warning above; production -- the common case -- was named nowhere, so
+        # "which CA actually signed this certificate?" had no answer on any surface.
+        self.output.info(f"CA: {ca_server}")
 
         args = [
             "--home",

@@ -1391,6 +1391,10 @@ class Bench:
         site_dir = self.sites_dir / site
         if site_dir.exists():
             shutil.rmtree(site_dir)
+            # The irreversible step of the command whose whole job is deleting, and it ran with
+            # no message at any level. Always printed: you should not need a flag to learn that
+            # your site's files are gone.
+            self.output.print(f"Deleted {site}'s files at {site_dir}")
 
         # Everything below is cleanup AFTER the dangerous part, so each piece warns and continues:
         # the schema and the directory are gone by now, and refusing to finish would leave the site

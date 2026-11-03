@@ -256,6 +256,12 @@ class BenchSupervisor:
         # Frappe is IO-bound (DB/Redis heavy) and its concurrency_limiter reads --threads from
         # the gunicorn master cmdline, so gthread is the intended worker type.
         gunicorn_threads = config.get("gunicorn_threads", self._get_gunicorn_threads())
+        # Chosen for the operator from host CPU count unless their config overrides it, written
+        # into the rendered conf, and never stated anywhere.
+        self.output.info(
+            f"Gunicorn: {web_worker_count} worker(s), {gunicorn_threads} thread(s), "
+            f"max_requests {max_requests}"
+        )
 
         context = {
             "bench_dir": CONTAINER_BENCH_DIR,

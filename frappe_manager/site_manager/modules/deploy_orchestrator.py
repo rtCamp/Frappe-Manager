@@ -1416,6 +1416,12 @@ class DeployOrchestrator:
         deployments.history.append(entry)
         self.config.deployments = deployments
         self.config.export_to_toml(self._config_path())
+        # Both tags are locals here and reached no surface: "Deployed X" never said what X
+        # replaced, which is also where `fm switch --previous` would now land.
+        if deployments.previous:
+            self.output.info(
+                f"Replaced {deployments.previous.app_image}; 'fm switch --previous' now rolls back to it"
+            )
 
 
     def _check_sites_before_deploy(self) -> None:
@@ -1688,9 +1694,13 @@ class DeployOrchestrator:
                     # operator can restore their own snapshot.
                     self._deploy_outcome = "rolled_back"
                     self._rollback_reason = "migrate_failed"
+                    # The log of the migrate that just failed is already on disk and its path is
+                    # in hand; without it the operator is told to "fix" something whose output
+                    # they have no way to find.
+                    where = f" The migrate log is at {self._migrate_log_host}." if self._migrate_log_host else ""
                     raise DeployError(
                         f"Migration failed; kept old image ({old_image or 'dev/mount'}). "
-                        f"Compose reverted, no swap performed. Re-run deploy after fixing: {e}",
+                        f"Compose reverted, no swap performed. Re-run deploy after fixing: {e}.{where}",
                     ) from e
                 self._run_container_hook(self._switch_hook("after_migrate"), "after_migrate", new_image)
                 self._run_host_hook(self._switch_hook("after_migrate", host=True), "host_after_migrate", new_image)

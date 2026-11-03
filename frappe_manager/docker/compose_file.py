@@ -377,6 +377,10 @@ class ComposeFile:
         try:
             with open(self.compose_path, "w") as f:
                 yaml.dump(self.yml, f, transform=represent_null_empty)
+            # A file on the operator's disk, rewritten from four call paths with nothing said at
+            # any verbosity -- which is why "why does my compose file keep changing?" had no
+            # answer.
+            get_global_output_handler().info(f"Wrote {self.compose_path}")
         except Exception as e:
             output = get_global_output_handler()
             output.error("Error in writing compose file.", e)
