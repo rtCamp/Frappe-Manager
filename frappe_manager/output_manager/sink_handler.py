@@ -170,9 +170,14 @@ class SinkOutputHandler(OutputHandler):
 
             raise NonInteractiveError(prompt, [f"Pass {required_flag}"] if required_flag else None)
         self._emit("info", f"FUZZY_PROMPT: {prompt} ({len(choices)} choices)")
-        return self.terminal.prompt_fuzzy(
+        answer = self.terminal.prompt_fuzzy(
             prompt=prompt, choices=choices, default=default, required_flag=required_flag, **kwargs
         )
+        # `prompt_ask` has always recorded its answer; this one did not, so the file knew every
+        # typed response EXCEPT which bench was chosen from a menu -- the one an operator most
+        # often cannot remember afterwards.
+        self._emit("info", f"FUZZY_PROMPT_RESPONSE: {answer}")
+        return answer
 
     @property
     def should_stream_docker(self) -> bool:

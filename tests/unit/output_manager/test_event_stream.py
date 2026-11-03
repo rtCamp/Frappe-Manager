@@ -165,3 +165,46 @@ class TestCommandsAreJoinableToTheLog:
         """The handler used to find this sink by probing for a private method, which breaks the
         moment another sink grows one."""
         assert EventSink.consumes_command_events is True
+
+
+@pytest.mark.unit
+class TestTheSurfacesDoNotDriftApart:
+    def test_a_menu_choice_is_recorded_like_a_typed_answer(self):
+        """`prompt_ask` always recorded its answer and `prompt_fuzzy` did not, so the file knew
+        every typed response except which bench was picked from a menu."""
+        from unittest.mock import MagicMock
+
+        from frappe_manager.output_manager.sink_handler import SinkOutputHandler
+
+        terminal = MagicMock()
+        terminal.prompt_fuzzy.return_value = "mybench.localhost"
+        recorded: list[str] = []
+
+        class _Recorder:
+            def emit(self, record):
+                recorded.append(record.text)
+
+        handler = SinkOutputHandler(terminal=terminal, sinks=[_Recorder()])
+        handler.prompt_fuzzy(prompt="Select bench", choices=["a", "b"])
+
+        assert any("FUZZY_PROMPT_RESPONSE: mybench.localhost" in line for line in recorded)
+
+    def test_a_sink_that_stops_accepting_events_is_recorded_once(self, monkeypatch):
+        """One bad sink drops every command event for the rest of a run while the file keeps all
+        of them. Said ONCE, not per line: this helper runs per line of output."""
+        from unittest.mock import MagicMock
+
+        from frappe_manager.utils import subprocess as sp
+
+        monkeypatch.setattr(sp, "_command_event_failed", False)
+        broken = MagicMock()
+        broken.emit_command_event.side_effect = RuntimeError("sink is gone")
+        monkeypatch.setattr("frappe_manager.output_manager.get_global_output_handler", lambda: broken)
+        logger = MagicMock()
+        monkeypatch.setattr("frappe_manager.logger.get_logger", lambda **_kw: logger)
+
+        for _ in range(5):
+            sp._command_event("command.output", cmd="a3f1", text="x")
+
+        assert logger.warning.call_count == 1
+        assert "incomplete" in str(logger.warning.call_args.args[0])

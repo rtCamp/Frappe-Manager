@@ -32,20 +32,35 @@ DRAIN_GRACE_PERIOD_AFTER_EXIT = 10.0
 DRAIN_POLL_INTERVAL = 0.5
 
 
+_command_event_failed = False
+
+
 def _command_event(kind: str, **fields: object) -> None:
     """Hand a command event to whatever sinks are attached, if any.
 
     Silent when no handler exists: this module runs in tests and in paths that never build one,
     and a missing display must never stop a subprocess.
     """
+    global _command_event_failed  # noqa: PLW0603 -- once-per-process latch; the alternative is a line of noise per output line
     try:
         from frappe_manager.output_manager import get_global_output_handler
 
         emit = getattr(get_global_output_handler(), "emit_command_event", None)
         if emit is not None:
             emit(kind, **fields)
-    except Exception:
-        pass
+    except Exception as e:
+        # Swallowed entirely, one bad sink drops every command.* event for the REST of the run
+        # while the file keeps all of them, so the two surfaces disagree with nothing saying so.
+        # Recorded ONCE: this runs per output line, and per-line logging would bury the very
+        # file a reader would compare the stream against.
+        if not _command_event_failed:
+            _command_event_failed = True
+            from frappe_manager.logger import get_logger
+
+            get_logger(component="subprocess").warning(
+                f"Command events stopped reaching their sink ({e}); the --events stream is "
+                "incomplete from here, though fm.log still has every line."
+            )
 
 
 def reader(pipe, pipe_name: str, queue: Queue, cmd_id: str = "----"):
