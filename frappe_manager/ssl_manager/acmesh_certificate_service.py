@@ -403,6 +403,9 @@ class AcmeShCertificateService:
             )
 
         ca_server = LETSENCRYPT_STAGING_SERVER if use_staging else LETSENCRYPT_PRODUCTION_SERVER
+        # Same line as the issue path. Renewals are where it matters MOST: a leaked
+        # FM_LETSENCRYPT_STAGING quietly replaces a working certificate with an untrusted one.
+        self.output.info(f"CA: {ca_server}")
 
         args = [
             "--home",
