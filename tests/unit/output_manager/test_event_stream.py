@@ -194,17 +194,24 @@ class TestTheSurfacesDoNotDriftApart:
         of them. Said ONCE, not per line: this helper runs per line of output."""
         from unittest.mock import MagicMock
 
+        from frappe_manager.output_manager import get_global_output_handler, set_global_output_handler
         from frappe_manager.utils import subprocess as sp
 
         monkeypatch.setattr(sp, "_command_event_failed", False)
-        broken = MagicMock()
-        broken.emit_command_event.side_effect = RuntimeError("sink is gone")
-        monkeypatch.setattr("frappe_manager.output_manager.get_global_output_handler", lambda: broken)
         logger = MagicMock()
         monkeypatch.setattr("frappe_manager.logger.get_logger", lambda **_kw: logger)
 
-        for _ in range(5):
-            sp._command_event("command.output", cmd="a3f1", text="x")
+        # The handler INSTANCE is swapped, never the getter: the project's testing rules say so,
+        # and the autouse fixture installs a real one to put back.
+        previous = get_global_output_handler()
+        broken = MagicMock()
+        broken.emit_command_event.side_effect = RuntimeError("sink is gone")
+        set_global_output_handler(broken)
+        try:
+            for _ in range(5):
+                sp._command_event("command.output", cmd="a3f1", text="x")
+        finally:
+            set_global_output_handler(previous)
 
         assert logger.warning.call_count == 1
         assert "incomplete" in str(logger.warning.call_args.args[0])

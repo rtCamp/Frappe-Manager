@@ -11,6 +11,7 @@ import pytest
 import typer
 
 from frappe_manager.exceptions import MigrationRequiredError
+from frappe_manager.output_manager import set_global_output_handler
 
 
 @pytest.mark.unit
@@ -75,7 +76,8 @@ class TestTheMigrationGateAnswersAMachine:
             def stop(self):
                 pass
 
-        monkeypatch.setattr(commands_module, "get_global_output_handler", lambda: _Machine())
+        # Installed, not patched over the getter: the rules say swap the instance.
+        set_global_output_handler(_Machine())
 
         with pytest.raises(MigrationRequiredError) as exc:
             commands_module.check_bench_migration_required("mybench.localhost")
@@ -114,7 +116,7 @@ class TestTheMigrationGateAnswersAMachine:
             def print(self, text, **_kw):
                 said.append(text)
 
-        monkeypatch.setattr(commands_module, "get_global_output_handler", lambda: _Terminal())
+        set_global_output_handler(_Terminal())
 
         with pytest.raises(typer.Exit) as exc:
             commands_module.check_bench_migration_required("mybench.localhost")
