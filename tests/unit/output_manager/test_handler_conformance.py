@@ -13,7 +13,6 @@ import pytest
 import typer
 
 from frappe_manager.output_manager.base import OutputHandler
-from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
 from frappe_manager.output_manager.sink_handler import SinkOutputHandler
@@ -82,26 +81,20 @@ class TestEveryHandlerAgreesOnControlFlow:
 
 
 @pytest.mark.unit
-class TestTheLoggingWrapperHasNoHoles:
-    def test_every_contract_method_is_reachable_through_the_wrapper(self):
-        """A method the wrapper forgets to forward is invisible through it: `emit_exit` was, and
-        main.py had to unwrap `handler.delegate` to reach it."""
-        delegate = MagicMock()
-        delegate.verbose = False
-        wrapper = LoggingOutputHandler(delegate)
+class TestTheLiveHandlerHasNoHoles:
+    def test_every_contract_method_is_reachable(self):
+        """A missing method is invisible until the one path that calls it runs. `emit_exit` was
+        exactly that: the old logging wrapper did not forward it, and main.py had to reach past
+        the wrapper to find it."""
+        handler = SinkOutputHandler(terminal=None, sinks=[EventSink(io.StringIO())])
 
-        missing = [
-            name
-            for name in dir(OutputHandler)
-            if not name.startswith("_") and not hasattr(wrapper, name)
-        ]
+        missing = [name for name in dir(OutputHandler) if not name.startswith("_") and not hasattr(handler, name)]
 
         assert missing == []
 
-    def test_a_method_only_the_delegate_has_is_still_reachable(self):
-        """`emit_exit` is not on the contract, and the wrapper must not hide it: main.py had to
-        unwrap `handler.delegate` to reach it."""
-        delegate = SinkOutputHandler(terminal=None, sinks=[EventSink(io.StringIO())])
-        wrapper = LoggingOutputHandler(delegate)
+    def test_the_exit_event_is_reachable_without_unwrapping(self):
+        """`emit_exit` is not on the contract, and main.py calls it on whatever handler is
+        installed -- so it must be present directly."""
+        handler = SinkOutputHandler(terminal=None, sinks=[EventSink(io.StringIO())])
 
-        assert callable(wrapper.emit_exit)
+        assert callable(handler.emit_exit)

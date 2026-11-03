@@ -192,16 +192,12 @@ def _add_console_handler(logger: logging.Logger, console_level: str) -> None:
             logger.removeHandler(handler)
 
     from frappe_manager.output_manager import get_global_output_handler, has_global_output_handler
-    from frappe_manager.output_manager.logging_output import LoggingOutputHandler
     from frappe_manager.output_manager.rich_output import RichOutputHandler
 
     if has_global_output_handler():
-        output = get_global_output_handler()
-
-        if isinstance(output, LoggingOutputHandler):
-            underlying_output = output.delegate
-        else:
-            underlying_output = output
+        # No unwrap: the wrapper this used to see through (LoggingOutputHandler) is gone, and
+        # SinkOutputHandler holds its terminal in `.terminal`, not `.delegate`.
+        underlying_output = get_global_output_handler()
 
         if isinstance(underlying_output, RichOutputHandler):
             console_handler = RichHandler(

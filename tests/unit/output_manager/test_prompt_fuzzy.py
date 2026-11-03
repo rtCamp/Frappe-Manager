@@ -10,7 +10,6 @@ from frappe_manager.output_manager import (
     RichOutputHandler,
     SilentOutputHandler,
 )
-from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 from frappe_manager.output_manager.sink_handler import SinkOutputHandler
 from frappe_manager.output_manager.sinks import EventSink
 
@@ -105,17 +104,13 @@ class TestSilentOutputHandlerPromptFuzzy:
             handler.prompt_fuzzy(prompt="Select bench", choices=["bench1", "bench2"])
 
 
-class TestLoggingOutputHandlerPromptFuzzy:
-    """Tests for LoggingOutputHandler.prompt_fuzzy()."""
+class TestTheLiveHandlerPromptFuzzy:
+    """`prompt_fuzzy` on the handler commands actually hold."""
 
-    def test_prompt_fuzzy_delegates_to_underlying_handler(self):
-        """LoggingOutputHandler delegates prompt_fuzzy to underlying handler."""
-        mock_delegate = MagicMock()
-        mock_delegate.prompt_fuzzy.return_value = "bench1"
-        mock_logger = MagicMock()
-
-        handler = LoggingOutputHandler(delegate=mock_delegate)
-        handler.logger = mock_logger
+    def test_it_delegates_to_the_terminal(self):
+        terminal = MagicMock()
+        terminal.prompt_fuzzy.return_value = "bench1"
+        handler = SinkOutputHandler(terminal=terminal, sinks=[])
 
         result = handler.prompt_fuzzy(
             prompt="Select bench",
@@ -125,25 +120,16 @@ class TestLoggingOutputHandlerPromptFuzzy:
         )
 
         assert result == "bench1"
-        mock_delegate.prompt_fuzzy.assert_called_once_with(
+        terminal.prompt_fuzzy.assert_called_once_with(
             prompt="Select bench",
             choices=["bench1", "bench2"],
             default="bench1",
             required_flag="bench_name",
         )
 
-    def test_prompt_fuzzy_logs_selection(self, caplog):
-        mock_delegate = MagicMock()
-        mock_delegate.prompt_fuzzy.return_value = "bench1"
-        mock_logger = MagicMock()
+    def test_a_default_answers_it_when_there_is_no_terminal(self):
+        """A default IS the answer; refusing when one exists fails a runnable headless command
+        over a question that was already settled."""
+        handler = SinkOutputHandler(terminal=None, sinks=[])
 
-        handler = LoggingOutputHandler(delegate=mock_delegate)
-        handler.logger = mock_logger
-
-        result = handler.prompt_fuzzy(prompt="Select bench", choices=["bench1", "bench2"], default="bench1")
-
-        assert result == "bench1"
-        assert mock_logger.info.call_count == 2
-        call_messages = [call[0][0] for call in mock_logger.info.call_args_list]
-        assert any("Select bench" in msg for msg in call_messages)
-        assert any("bench1" in msg for msg in call_messages)
+        assert handler.prompt_fuzzy(prompt="Select bench", choices=["a", "b"], default="a") == "a"

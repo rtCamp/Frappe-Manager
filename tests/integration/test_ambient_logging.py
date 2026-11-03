@@ -3,7 +3,7 @@ Integration tests for ambient contextual logging.
 
 End-to-end: context set via set_context/bind flows through the real file
 pipeline (ContextInjectFilter + %(fm_ctx)s formatter) onto every record --
-business logs, LoggingOutputHandler mirror lines, worker threads, and bare
+business logs, the file sink's mirror lines, worker threads, and bare
 stdlib loggers alike.
 """
 
@@ -20,7 +20,8 @@ from frappe_manager.logger import (
     set_context,
 )
 from frappe_manager.logger.log import ContextInjectFilter, FMLogger
-from frappe_manager.output_manager.logging_output import LoggingOutputHandler
+from frappe_manager.output_manager.sink_handler import SinkOutputHandler
+from frappe_manager.output_manager.sinks import FileSink
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
 
 FILE_FORMAT = "[%(asctime)s] %(levelname)s:%(fm_ctx)s %(message)s"
@@ -110,8 +111,10 @@ class TestOutputMirrorAmbient:
         logger, log_file = file_logger
         set_context(correlation_id="deadbeef-1", bench="mybench", operation="delete")
 
-        handler = LoggingOutputHandler(SilentOutputHandler())
-        handler.logger = FMLogger(logger, component="output")
+        # The FileSink is what mirrors output into fm.log now; the wrapper this used to go
+        # through is gone.
+        handler = SinkOutputHandler(terminal=SilentOutputHandler(), sinks=[FileSink()])
+        handler.sinks[0].logger = FMLogger(logger, component="output")
 
         handler.print("Removing volumes")
         handler.warning("Volume not found")
@@ -161,8 +164,10 @@ class TestPrintDataMirror:
         from rich.text import Text
 
         logger, log_file = file_logger
-        handler = LoggingOutputHandler(SilentOutputHandler())
-        handler.logger = FMLogger(logger, component="output")
+        # The FileSink is what mirrors output into fm.log now; the wrapper this used to go
+        # through is gone.
+        handler = SinkOutputHandler(terminal=SilentOutputHandler(), sinks=[FileSink()])
+        handler.sinks[0].logger = FMLogger(logger, component="output")
 
         handler.print_data(Group(Text("fm.example.com", style="fm.ok"), Text("apps frappe")))
 
@@ -173,8 +178,10 @@ class TestPrintDataMirror:
 
     def test_plain_data_logged_verbatim(self, file_logger):
         logger, log_file = file_logger
-        handler = LoggingOutputHandler(SilentOutputHandler())
-        handler.logger = FMLogger(logger, component="output")
+        # The FileSink is what mirrors output into fm.log now; the wrapper this used to go
+        # through is gone.
+        handler = SinkOutputHandler(terminal=SilentOutputHandler(), sinks=[FileSink()])
+        handler.sinks[0].logger = FMLogger(logger, component="output")
 
         handler.print_data({"status": "ok"})
 

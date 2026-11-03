@@ -60,10 +60,9 @@ def cli_entrypoint():
     """
     Main CLI entry point.
 
-    Initializes a basic RichOutputHandler early, which will be upgraded
-    to LoggingOutputHandler in app_callback (commands/__init__.py) after
-    CLI arguments are parsed. Exception handling uses bare richprint for
-    backward compatibility.
+    Initializes a basic RichOutputHandler early; app_callback (commands/__init__.py) replaces it
+    with a SinkOutputHandler once the command line is parsed, attaching the file sink and, under
+    `--events json`, the stream sink.
     """
     if hasattr(signal, "SIGPIPE"):
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)

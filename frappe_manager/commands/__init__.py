@@ -506,9 +506,7 @@ def app_callback(
 
             logger = log.get_logger(console_level=console_level, file_level=file_level)
 
-            logger.info("")
             logger.info(f"{':' * 20}FM Invoked{':' * 20}")
-            logger.info("")
 
             logger.info(f"RUNNING COMMAND: {redact_argv(sys.argv[1:])}")
             logger.info(f"LOG LEVEL: {level_name}")

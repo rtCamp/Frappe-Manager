@@ -90,7 +90,6 @@ class MigrationBase(ABC):
 
         self.output.print(f"[bold][fm.info]Migration for v{self.version!s}[/fm.info][/bold]", emoji_code=":package:")
         self.logger.info(f"v{self.version!s}: Started")
-        self.logger.info("-" * 40)
 
         self.init()
 
@@ -100,11 +99,9 @@ class MigrationBase(ABC):
 
         self.migrate_benches()
 
-        self.logger.info("-" * 40)
 
     def down(self):
         self.output.change_head(f"Working on v{self.version!s} rollback")
-        self.logger.info("-" * 40)
 
         for bench_name, bench_data in self.migration_executor.migrate_benches.items():
             if not bench_data["exception"]:
@@ -118,7 +115,6 @@ class MigrationBase(ABC):
         self.undo_services_migrate()
 
         self.output.print(f"[bold]v{self.version!s}[/bold] rollback successful")
-        self.logger.info("-" * 40)
 
     def services_basic_backup(self):
         if not self.services_manager.compose_file_manager.exists():

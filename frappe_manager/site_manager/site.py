@@ -530,8 +530,9 @@ class Bench:
         try:
             changed = self.bench_config.export_to_toml(self.bench_config.root_path)
             if changed and print_message:
+                # No logger.info beside it: the FileSink already writes every print into fm.log,
+                # so the pair put the same sentence in the same file twice.
                 self.output.print("Saved bench config")
-            self.logger.info(f"Bench config saved: {self.name}", extra_fields=extra)
             return changed
         except Exception as e:
             extra["error"] = str(e)

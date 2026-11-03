@@ -66,27 +66,12 @@ def docker_command(
                 full_cmd = self.docker_compose_cmd + cmd
 
             if should_stream:
-                from frappe_manager.logger import get_logger
-
-                logger = get_logger(component="docker_compose")
-                logger.debug(
-                    f"[docker_command] Auto-streaming: should_stream={should_stream}, stream_param={stream_param}, output={self.output is not None}",
-                )
-
                 stream_result = run_command_with_exit_code(full_cmd, stream=True)
                 iterator = cast("Iterable[tuple[str, bytes]]", stream_result)
                 if self.output and stream_param is None:
-                    logger.debug("[docker_command] Entering auto-streaming mode with tee()")
                     display_iter, capture_iter = itertools.tee(iterator, 2)
-                    logger.debug("[docker_command] Calling output.live_lines()")
                     self.output.live_lines(display_iter, padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE)
-                    logger.debug("[docker_command] Converting capture_iter to SubprocessOutput")
-                    result = SubprocessOutput.from_output(capture_iter)
-                    logger.debug(
-                        f"[docker_command] Returning SubprocessOutput: exit_code={result.exit_code}, stdout_lines={len(result.stdout)}, stderr_lines={len(result.stderr)}",
-                    )
-                    return result
-                logger.debug("[docker_command] Returning raw iterator (explicit stream=True)")
+                    return SubprocessOutput.from_output(capture_iter)
                 return iterator
             # `capture_output` is a transport flag excluded from CLI options, so the decorator
             # must forward it explicitly: dropping it piped an interactive `exec` shell's stdio

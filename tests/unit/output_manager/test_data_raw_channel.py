@@ -12,7 +12,6 @@ from unittest.mock import MagicMock
 import pytest
 from rich.console import Console
 
-from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.output_manager.sink_handler import SinkOutputHandler
 from frappe_manager.output_manager.sinks import EventSink
@@ -67,11 +66,12 @@ class TestDataRawReachesEveryDestination:
         assert event["event"] == "result"
         assert event["text"] == "mybench.localhost  primary"
 
-    def test_the_logging_wrapper_forwards_and_records(self):
-        """A method the wrapper forgets to forward is invisible through it (see emit_exit)."""
-        delegate = MagicMock()
-        output = LoggingOutputHandler(delegate)
+    def test_the_live_handler_forwards_to_its_terminal(self):
+        """The channel exists so a result reaches EVERY surface; a handler that keeps it from the
+        terminal is the same hole the old wrapper had with emit_exit."""
+        terminal = MagicMock()
+        output = SinkOutputHandler(terminal=terminal, sinks=[])
 
         output.data_raw("mybench.localhost  primary")
 
-        delegate.data_raw.assert_called_once_with("mybench.localhost  primary")
+        terminal.data_raw.assert_called_once_with("mybench.localhost  primary")
