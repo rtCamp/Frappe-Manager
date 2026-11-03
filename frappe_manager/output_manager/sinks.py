@@ -113,9 +113,13 @@ class EventSink:
     consumes_command_events = True
 
     def __init__(self, stream: Any) -> None:
+        import time
+
         self.stream = stream
         self._open_step: str | None = None
+        self._pending_close = False
         self._started = False
+        self._started_at = time.monotonic()
 
     def _write(self, event: str, **fields: Any) -> None:
         import json
@@ -135,33 +139,64 @@ class EventSink:
 
         self._write("run.started", v=self.SCHEMA_VERSION, fm=str(get_current_fm_version()), argv=argv)
 
+    def _close_step(self, ok: bool) -> None:
+        if self._open_step is None:
+            return
+        self._write("step.finished", step=self._open_step, ok=ok)
+        self._open_step = None
+        self._pending_close = False
+
+    def _settle_pending(self, ok: bool) -> None:
+        """Emit the close that `stop` deferred.
+
+        A spinner stops BEFORE the failure is reported -- the error path stops it so the message
+        does not land under a spinning line -- so deciding the outcome at `stop` time always read
+        success, and the stream told a reader the failing step passed. The close is held until
+        something settles it: the next step opening, an error, or the run ending.
+        """
+        if self._pending_close:
+            self._close_step(ok)
+
     def emit(self, record: OutputRecord) -> None:
         if record.kind == "start":
             # A step is a SCOPE opening -- the 48 places fm starts a unit of work -- never one of
             # the 213 narration calls inside them. Deriving a step name from an English sentence
             # rots the first time somebody rewords one, and a polling wait that re-announces the
             # same phase every few seconds would emit hundreds of identical pairs.
-            if self._open_step is not None:
-                self._write("step.finished", step=self._open_step, ok=True)
+            self._settle_pending(ok=True)
+            self._close_step(ok=True)
             self._open_step = record.text
             self._write("step.started", step=record.text)
         elif record.kind == "stop":
+            # Held, not written: the outcome is not known yet. See _settle_pending.
             if self._open_step is not None:
-                self._write("step.finished", step=self._open_step, ok=True)
-                self._open_step = None
+                self._pending_close = True
         elif record.kind == "data":
+            self._settle_pending(ok=True)
             self._write("result", data=_masked(record.data))
         elif record.kind == "data_raw":
             # The caller's own result as exact text. It is still a result, so it rides the stream
             # as one rather than being written straight to stdout, which is what put non-JSON
             # lines into a JSONL stream in the first place.
+            self._settle_pending(ok=True)
             self._write("result", text=record.text)
         elif record.kind == "warning":
             self._write("warning", text=record.text)
         elif record.kind in ("error", "display_error"):
+            self._settle_pending(ok=False)
+            self._close_step(ok=False)
             self._write("error", error=record.text, exception=record.fields.get("exception"))
         elif record.kind.startswith("command."):
             self._write(record.kind, **record.fields)
 
     def finish_run(self, ok: bool, code: int, duration_ms: int | None = None) -> None:
+        import time
+
+        # A step still held at the end takes the run's own verdict: nothing else will settle it.
+        self._settle_pending(ok=ok)
+        self._close_step(ok=ok)
+        # Sent, not merely declared: a field the schema promises and never emits is worse than
+        # an absent one, because a reader writes code against it.
+        if duration_ms is None:
+            duration_ms = int((time.monotonic() - self._started_at) * 1000)
         self._write("run.finished", ok=ok, code=code, duration_ms=duration_ms)

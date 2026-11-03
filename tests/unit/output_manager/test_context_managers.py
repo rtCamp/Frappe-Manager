@@ -22,8 +22,17 @@ def _handler() -> tuple[SinkOutputHandler, io.StringIO]:
     return SinkOutputHandler(terminal=None, sinks=[EventSink(stream)]), stream
 
 
-def _events(stream: io.StringIO) -> list[str]:
-    return [json.loads(line)["event"] for line in stream.getvalue().splitlines() if line.strip()]
+def _events(stream: io.StringIO, handler: SinkOutputHandler | None = None) -> list[str]:
+    # A step's close is HELD until something settles its outcome -- the next step, a result, an
+    # error, or the run ending -- because the spinner stops before a failure is reported. Ending
+    # the run here is what a real invocation does on its way out.
+    if handler is not None:
+        handler.emit_exit(ok=True, code=0)
+    return [
+        json.loads(line)["event"]
+        for line in stream.getvalue().splitlines()
+        if line.strip() and json.loads(line)["event"] != "run.finished"
+    ]
 
 
 @pytest.mark.unit
@@ -33,7 +42,7 @@ def test_a_spinner_scope_is_one_step():
     with spinner(output, "Working"):
         pass
 
-    assert _events(stream) == ["step.started", "step.finished"]
+    assert _events(stream, output) == ["step.started", "step.finished"]
 
 
 @pytest.mark.unit
@@ -44,7 +53,7 @@ def test_the_step_is_closed_even_when_the_body_raises():
     with pytest.raises(ValueError), spinner(output, "Working"):
         raise ValueError("Test error")
 
-    assert _events(stream)[-1] == "step.finished"
+    assert _events(stream, output)[-1] == "step.finished"
 
 
 @pytest.mark.unit
@@ -54,7 +63,7 @@ def test_a_keyboard_interrupt_still_closes_the_step():
     with pytest.raises(KeyboardInterrupt), spinner(output, "Working"):
         raise KeyboardInterrupt
 
-    assert "step.finished" in _events(stream)
+    assert "step.finished" in _events(stream, output)
 
 
 @pytest.mark.unit
@@ -65,7 +74,7 @@ def test_narration_inside_the_scope_does_not_open_a_step():
         out.change_head("Still working")
         out.print("Done something")
 
-    assert _events(stream) == ["step.started", "step.finished"]
+    assert _events(stream, output) == ["step.started", "step.finished"]
 
 
 @pytest.mark.unit
@@ -77,7 +86,7 @@ def test_temporary_stop_closes_and_reopens_the_step():
     with spinner(output, "Working"), temporary_stop(output):
         pass
 
-    assert _events(stream) == ["step.started", "step.finished", "step.started", "step.finished"]
+    assert _events(stream, output) == ["step.started", "step.finished", "step.started", "step.finished"]
 
 
 @pytest.mark.unit

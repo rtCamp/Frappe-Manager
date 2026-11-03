@@ -43,6 +43,17 @@ class TestTheContractIsDeclaredFirst:
         assert last["ok"] is False
         assert last["code"] == 7
 
+    def test_the_closing_line_carries_a_duration(self):
+        """`duration_ms` is a declared field; declaring one and never sending it is worse than
+        omitting it, because a reader writes code against the schema."""
+        buf = io.StringIO()
+        sink = EventSink(buf)
+
+        sink.finish_run(ok=True, code=0)
+
+        [last] = _events(buf)
+        assert isinstance(last["duration_ms"], int)
+
 
 @pytest.mark.unit
 class TestAStepIsAScopeNotASentence:
@@ -61,8 +72,9 @@ class TestAStepIsAScopeNotASentence:
         for remaining in range(50, 0, -1):
             sink.emit(OutputRecord(kind="change_head", text=f"Waiting, {remaining} job(s) left"))
         sink.emit(OutputRecord(kind="stop"))
+        sink.finish_run(ok=True, code=0)
 
-        assert [e["event"] for e in _events(buf)] == ["step.started", "step.finished"]
+        assert [e["event"] for e in _events(buf)] == ["step.started", "step.finished", "run.finished"]
 
     def test_opening_a_step_closes_the_one_before_it(self, stream):
         sink, buf = stream
@@ -73,6 +85,51 @@ class TestAStepIsAScopeNotASentence:
             ("step.started", "first"),
             ("step.finished", "first"),
             ("step.started", "second"),
+        ]
+
+    def test_a_step_that_failed_closes_as_failed(self):
+        """In the real path the spinner stops BEFORE the failure is reported -- the error path
+        stops it so the message does not land under a spinning line -- so a close decided at stop
+        time always read success and the stream told a reader the failing step passed."""
+        buf = io.StringIO()
+        sink = EventSink(buf)
+
+        sink.emit(OutputRecord(kind="start", text="Working"))
+        sink.emit(OutputRecord(kind="stop"))
+        sink.emit(OutputRecord(kind="display_error", text="not found"))
+
+        assert [(e["event"], e.get("ok")) for e in _events(buf)] == [
+            ("step.started", None),
+            ("step.finished", False),
+            ("error", None),
+        ]
+
+    def test_a_held_close_takes_the_runs_verdict_when_nothing_else_settles_it(self):
+        buf = io.StringIO()
+        sink = EventSink(buf)
+
+        sink.emit(OutputRecord(kind="start", text="Working"))
+        sink.emit(OutputRecord(kind="stop"))
+        sink.finish_run(ok=False, code=1)
+
+        assert [(e["event"], e.get("ok")) for e in _events(buf)] == [
+            ("step.started", None),
+            ("step.finished", False),
+            ("run.finished", False),
+        ]
+
+    def test_a_result_settles_a_held_close_as_success(self):
+        buf = io.StringIO()
+        sink = EventSink(buf)
+
+        sink.emit(OutputRecord(kind="start", text="Working"))
+        sink.emit(OutputRecord(kind="stop"))
+        sink.emit(OutputRecord(kind="data", data=[{"name": "mybench"}]))
+
+        assert [(e["event"], e.get("ok")) for e in _events(buf)] == [
+            ("step.started", None),
+            ("step.finished", True),
+            ("result", None),
         ]
 
 
