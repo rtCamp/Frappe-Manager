@@ -133,6 +133,16 @@ def check_bench_migration_required(bench_name: str | None) -> None:
 
         bench_version = get_bench_migration_version(bench_path)
         fm_version = Version(get_current_fm_version())
+        if output.wants_structured_data:
+            # A refusal IS the answer to a `--json` run. Printing the guidance for a person and
+            # raising typer.Exit left the machine caller with an empty stdout and, until the
+            # runner honoured click's returned code, an exit status of 0 as well.
+            from frappe_manager.exceptions import MigrationRequiredError
+
+            raise MigrationRequiredError(
+                f"Bench migration required: {bench_name} (v{bench_version} → v{fm_version})",
+                suggestions=[f"Run 'fm migrate {bench_name}'"],
+            )
 
         output.warning(f"Bench migration required: {bench_name} (v{bench_version} → v{fm_version})\n", emoji_code="")
         output.print("Bench migration updates configuration and applies necessary changes.\n", emoji_code="")

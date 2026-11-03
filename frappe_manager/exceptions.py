@@ -109,6 +109,17 @@ class InvalidBenchNameError(FrappeManagerException):
     exit_code = 2
 
 
+class MigrationRequiredError(FrappeManagerException):
+    """A bench whose on-disk version is behind fm's, refused before it is touched.
+
+    Exit 1, matching the human path: the command line was right, fm declined to act on it. The
+    `--json` form of this refusal is the ONLY thing a machine caller gets, so it carries the
+    recovery command rather than leaving stdout empty.
+    """
+
+    exit_code = 1
+
+
 class VersionUnusableByApps(FrappeManagerException):
     """An explicitly requested Python or Node version that the bench's apps reject.
 

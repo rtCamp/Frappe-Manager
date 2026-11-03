@@ -33,7 +33,13 @@ def _run_app(app) -> None:
     from typer.main import get_command
 
     try:
-        get_command(app).main(standalone_mode=False)
+        # Click RETURNS a typer.Exit's code here rather than exiting, because standalone mode is
+        # what normally turns it into SystemExit. Dropping this value made every `--json` command
+        # that REFUSES -- the migration gate, a guard that exits 1 -- report success with empty
+        # output, while the same command without `--json` printed its reason and exited 1.
+        code = get_command(app).main(standalone_mode=False)
+        if code:
+            raise SystemExit(code)
     except click.UsageError as e:
         from frappe_manager.exceptions import MissingArgumentError
 
