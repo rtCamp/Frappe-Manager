@@ -29,6 +29,7 @@ from frappe_manager.site_manager.modules.db_probe import (
     CHECK_CONNECT,
     CHECK_SCHEMA_STATE,
     CHECK_SERVER_VERSION,
+    CHECK_TLS_IN_FORCE,
     PSQL_ERROR_RE,
     CheckStatus,
     ProbeCheck,
@@ -393,9 +394,17 @@ def probe_stage_one(
     checks.append(_admin_role_check(row.strip().splitlines()[0] if row.strip() else "", user=user))
 
     tls_ok, tls_row = ask(tls_sql(), database="postgres")
-    # A failed query is not a "no": without the flag, "could not ask whether this session is
-    # encrypted" was reported as "it is not encrypted".
     tls_in_force = tls_ok and tls_row.strip().startswith("t")
+    if not tls_ok:
+        # A failed query is not a "no". Reporting tls_in_force=False for it made "this connection
+        # is not encrypted" and "fm could not ask whether it is" the same answer.
+        checks.append(
+            ProbeCheck(
+                CHECK_TLS_IN_FORCE,
+                CheckStatus.warn,
+                "could not determine whether this connection is encrypted",
+            )
+        )
 
     exists_known, exists_row = ask(database_exists_sql(dbname), database="postgres")
     database_exists = exists_known and exists_row.strip().startswith("1")

@@ -130,6 +130,33 @@ class TestAProbeThatFailedIsNotAnAnswer:
         assert check.status is CheckStatus.ok
         assert "does not exist yet" in check.detail
 
+    def test_an_unaskable_tls_state_is_not_reported_as_plaintext(self, monkeypatch):
+        """"Could not ask whether this connection is encrypted" and "it is not encrypted" were
+        the same value, because the query's ok flag was dropped."""
+        from types import SimpleNamespace
+
+        from frappe_manager.site_manager.modules import db_probe_postgres as pg
+
+        def runner(_cmd, **_kw):
+            return True, ""
+
+        # The banner query succeeds so the probe gets past the connect gate; everything after it
+        # fails, which is what a dropped ok flag used to render as a confident "not encrypted".
+        replies = iter([SimpleNamespace(ok=True, text="")])
+        monkeypatch.setattr(
+            pg,
+            "run_query",
+            lambda *_a, **_k: next(replies, SimpleNamespace(ok=False, text="server closed the connection")),
+        )
+        result = pg.probe_stage_one(
+            runner, host="db", port=5432, user="fm", password=None, dbname="site_db", site_login=None
+        )
+
+        assert result.tls_in_force is False
+        tls = [c for c in result.checks if c.name == pg.CHECK_TLS_IN_FORCE]
+        assert tls, "an unaskable TLS state must be reported, not silently read as plaintext"
+        assert "could not determine" in tls[0].detail
+
 
 @pytest.mark.unit
 class TestAReusedDirectoryIsNotAClone:
