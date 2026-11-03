@@ -1493,10 +1493,16 @@ class BenchOrchestrator:
 
         self.output.change_head("Starting bench services")
         bench.docker_ops.start(services=[], force_recreate=force, pull="never")
-        # `fm start -v` added ZERO lines before this: the command's whole effect was invisible
-        # beyond the spinner heading it already showed.
-        started = bench.compose_file_manager.get_services_list()
-        self.output.info(f"Started {len(started)} container(s): {', '.join(sorted(started))}")
+        # Read back from docker AFTER the start, not from the compose file's planned service
+        # list, and worded as STATE rather than an action: `fm start` on an already-running
+        # bench starts nothing, and "Started 6 container(s)" would be the same false claim as
+        # the admin-tools line fixed ten lines below.
+        running = [
+            status.get("Service")
+            for status in bench.docker_ops.docker_client.compose.get_all_services_status()
+            if status.get("State") == "running"
+        ]
+        self.output.info(f"{len(running)} container(s) up: {', '.join(sorted(s for s in running if s))}")
 
         if bench.admin_tools.compose_file_manager.compose_path.exists():
             self.output.change_head("Starting admin tools services")
