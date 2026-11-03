@@ -45,6 +45,7 @@ def tools(tmp_path):
         obj.bench_name = SITE
         obj.nginx_proxy = proxy
         obj.nginx_config_location_path = h.conf_dir / "custom" / "admin-tools.conf"
+        obj.output = MagicMock()
         return h, obj
 
     return _make

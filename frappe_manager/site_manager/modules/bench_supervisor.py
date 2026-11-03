@@ -406,7 +406,7 @@ class BenchSupervisor:
         if target.exists() and not force:
             # The reason enabling New Relic appeared to change nothing, file-only until now.
             self.logger.info("Kept existing newrelic.ini (user-owned; pass force to regenerate)")
-            self.output.info("Kept your existing newrelic.ini; pass --force to regenerate it")
+            self.output.info("Kept your existing newrelic.ini; pass --force-config to regenerate it")
             return
 
         cfg = configparser.RawConfigParser()
