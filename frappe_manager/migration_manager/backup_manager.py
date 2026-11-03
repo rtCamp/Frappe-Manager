@@ -151,6 +151,15 @@ class BackupManager:
             return None
 
         if not backup_data.real_dest.exists():
+            # Returning None here is indistinguishable from a restore that worked, and the caller
+            # then prints "rollback successful" over the gap. A backup that is not where it was
+            # recorded is the one thing a rollback cannot recover from quietly.
+            from frappe_manager.output_manager import get_global_output_handler
+
+            get_global_output_handler().warning(
+                f"Rollback could not restore {backup_data.src}: its backup is missing from "
+                f"{backup_data.real_dest}. That file is unchanged from before the rollback."
+            )
             return None
 
         if force:

@@ -66,7 +66,15 @@ def build_global_domain_map(
             config = BenchConfig.import_from_toml(config_file)
             for domain, site in config.get_site_mappings().items():
                 domain_map[domain.lower()] = (config.name, site)
-        except Exception:
+        except Exception as e:
+            # A bench that silently leaves this map takes its domains with it, so the conflict
+            # check passes and fm lets a second bench claim a hostname the first already serves.
+            from frappe_manager.output_manager import get_global_output_handler
+
+            get_global_output_handler().warning(
+                f"Could not read {bench_dir.name}'s config ({e}), so its domains are not being checked "
+                "for conflicts: another bench may be allowed to claim a hostname it already serves."
+            )
             continue
 
     return domain_map

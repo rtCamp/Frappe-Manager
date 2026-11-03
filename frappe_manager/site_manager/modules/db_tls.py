@@ -123,7 +123,18 @@ def rebuild_ca_bundle(bench_path: Path) -> None:
 
 def remove_site_tls(bench_path: Path, site: str) -> None:
     """Drop a site's TLS directory and shrink the bundle to the sites that remain."""
-    shutil.rmtree(site_tls_host_dir(bench_path, site), ignore_errors=True)
+    site_dir = site_tls_host_dir(bench_path, site)
+    shutil.rmtree(site_dir, ignore_errors=True)
+    if site_dir.exists():
+        # ignore_errors hid this, and the rebuild below then re-concatenates the CA it was meant
+        # to drop -- so a deleted site's database CA stays trusted by every site on the bench,
+        # which is a security answer nobody gets told.
+        from frappe_manager.output_manager import get_global_output_handler
+
+        get_global_output_handler().warning(
+            f"Could not remove {site}'s database TLS material at {site_dir}; its CA is still "
+            "trusted by every site on this bench. Remove that directory and re-run to drop it."
+        )
     rebuild_ca_bundle(bench_path)
 
 

@@ -493,11 +493,20 @@ def _wait_for_empty_queue(bench: Bench, plan: UpdatePlan, output, orchestrator) 
     current_queue = _current_queue_url(bench)
     output.change_head(f"Producers paused, {plan.queued_jobs} job(s) still queued")
 
+    warned_unreadable = False
     while True:
         depth = redis_queue_depth(current_queue, orchestrator.container_command_runner())
         if depth is not None and sum(depth) == 0:
             output.print("Queue is empty; nothing will be left behind by the switch")
             return
+        if depth is None and not warned_unreadable:
+            # An unreadable queue waits forever and reads exactly like a slow drain. Said ONCE:
+            # this loop polls every few seconds and a warning per poll is noise.
+            warned_unreadable = True
+            output.warning(
+                f"Cannot read the queue at {current_queue}, so fm cannot tell whether it is draining. "
+                "This will wait indefinitely; Ctrl-C and check that redis is reachable."
+            )
         remaining = sum(depth) if depth else "an unknown number of"
         output.change_head(f"Waiting for the queue to drain, {remaining} job(s) left (Ctrl-C to abort)")
         time.sleep(config.drain_poll)

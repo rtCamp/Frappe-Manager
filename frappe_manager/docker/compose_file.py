@@ -26,6 +26,18 @@ yaml.default_flow_style = False
 yaml.default_style = None
 
 
+def _warn_missing_service(container: str, what: str) -> None:
+    """A setter asked to configure a service the compose file does not define.
+
+    Swallowed, the caller carries on believing the service is configured and the symptom lands
+    much later, inside a running container, as a setting that simply is not there.
+    """
+    get_global_output_handler().warning(
+        f"Compose file has no '{container}' service, so its {what} were not applied."
+    )
+
+
+
 def _image_report(image: str) -> dict[str, str | None]:
     """Decompose ``image`` into the ``{name, tag, digest, image}`` shape ``get_all_images``
     reports to its callers, via ``ImageRef`` -- the one place fm parses
@@ -292,8 +304,10 @@ class ComposeFile:
 
         try:
             self.yml["services"][container]["environment"] = new_env
-        except KeyError as e:
-            pass
+        except KeyError:
+            # The caller proceeds believing the container is configured, and the symptom lands
+            # much later as a variable missing inside a running service.
+            _warn_missing_service(container, "environment")
 
     def get_envs(self, container: str) -> dict:
         """
@@ -323,8 +337,8 @@ class ComposeFile:
         """
         try:
             self.yml["services"][container]["labels"] = labels
-        except KeyError as e:
-            pass
+        except KeyError:
+            _warn_missing_service(container, "labels")
 
     def get_labels(self, container: str) -> dict:
         """
@@ -353,8 +367,8 @@ class ComposeFile:
         """
         try:
             self.yml["services"][container]["extra_hosts"] = extrahosts
-        except KeyError as e:
-            pass
+        except KeyError:
+            _warn_missing_service(container, "extra_hosts")
 
     def write_to_file(self):
         """

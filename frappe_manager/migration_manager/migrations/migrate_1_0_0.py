@@ -2364,5 +2364,13 @@ class MigrationV100(MigrationBase):
             subnet = self._old_subnets.get(NETWORK_KEY_RENAMES.get(key, key))
             if subnet:
                 cmd += ["--subnet", subnet]
-            with contextlib.suppress(Exception):
+            try:
                 run_command_with_exit_code([*cmd, network["name"]], stream=False)
+            except Exception as e:
+                # This path ends by printing "Rollback complete." A network that was not
+                # recreated means no bench on the host can start, and the suppress made that
+                # indistinguishable from a clean rollback.
+                self.output.warning(
+                    f"Rollback could not recreate the {network['name']} network ({e}); "
+                    "benches will not start until it exists."
+                )
