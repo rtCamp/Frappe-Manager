@@ -82,5 +82,7 @@ class TestTrustStoreManagerOutputHandler:
             mock_run.return_value = MagicMock(returncode=0, stderr="")
             mgr._install_macos(ca_cert)
 
-        assert handler.debug.call_count >= 1
-        assert any("keychain" in call.args[0] for call in handler.debug.call_args_list)
+        # info, not debug: writing a CA into a trust store is an effect, so it belongs at -v with
+        # the other things fm changed, not at -vv with the reasoning.
+        assert handler.info.call_count >= 1
+        assert any("keychain" in call.args[0] for call in handler.info.call_args_list)

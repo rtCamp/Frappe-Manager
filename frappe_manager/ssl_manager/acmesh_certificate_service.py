@@ -101,7 +101,7 @@ class AcmeShCertificateService:
                 content = content.replace("#LOG_FILE=", "LOG_FILE=")
                 content = content.replace("#LOG_LEVEL=", "LOG_LEVEL=")
                 account_conf.write_text(content)
-                self.output.debug(f"Enabled logging in {account_conf}")
+                self.output.info(f"Enabled logging in {account_conf}")
 
             self.output.print("acme.sh installed successfully")
             AcmeShCertificateService._acmesh_installed = True
@@ -122,7 +122,7 @@ class AcmeShCertificateService:
             CompletedProcess result
         """
         cmd = [str(self.acmesh_bin)] + args
-        self.output.debug(f"Running acme.sh: {' '.join(args)}")
+        self.output.info(f"Running acme.sh: {' '.join(args)}")
 
         command_env = os.environ.copy()
         command_env["LE_WORKING_DIR"] = str(self.acmesh_home)
@@ -190,7 +190,7 @@ class AcmeShCertificateService:
             account_conf.write_text("\n".join(filtered_lines))
 
             if removed_count > 0:
-                self.output.debug(f"Cleared {removed_count} cached DNS credential line(s) from account.conf")
+                self.output.info(f"Cleared {removed_count} cached DNS credential line(s) from account.conf")
             else:
                 self.output.debug("No cached DNS credentials found in account.conf")
 
@@ -222,7 +222,7 @@ class AcmeShCertificateService:
             Exit code of the command
         """
         cmd = [str(self.acmesh_bin)] + args
-        self.output.debug(f"Running acme.sh with streaming: {' '.join(args)}")
+        self.output.info(f"Running acme.sh with streaming: {' '.join(args)}")
 
         command_env = os.environ.copy()
         command_env["LE_WORKING_DIR"] = str(self.acmesh_home)
@@ -291,11 +291,11 @@ class AcmeShCertificateService:
         env = {}
 
         if certificate.challenge_type.value == "http01":
-            self.output.info(f"Using HTTP-01 challenge with webroot: {self.webroot_dir}")
+            self.output.debug(f"Using HTTP-01 challenge with webroot: {self.webroot_dir}")
             args.extend(["-w", str(self.webroot_dir)])
 
         elif certificate.challenge_type.value == "dns01":
-            self.output.info("Using DNS-01 challenge with Cloudflare")
+            self.output.debug("Using DNS-01 challenge with Cloudflare")
 
             self._clear_cached_dns_credentials()
 
@@ -311,7 +311,7 @@ class AcmeShCertificateService:
 
             delegation_cname = declared_field(certificate, "delegation_cname")
             if delegation_cname:
-                self.output.info(f"Using challenge alias: {delegation_cname}")
+                self.output.debug(f"Using challenge alias: {delegation_cname}")
                 args.extend(["--dns", "dns_cf", "--challenge-alias", delegation_cname])
             else:
                 args.extend(["--dns", "dns_cf"])
@@ -351,7 +351,7 @@ class AcmeShCertificateService:
         dest_key = dest_dir / "key.pem"
         dest_fullchain = dest_dir / "fullchain.pem"
 
-        self.output.debug(f"Copying certificates to {dest_dir}")
+        self.output.info(f"Copying certificates to {dest_dir}")
         shutil.copy(fullchain_path, dest_fullchain)
         shutil.copy(key_path, dest_key)
 
@@ -473,7 +473,7 @@ class AcmeShCertificateService:
         if cert_dir.exists():
             try:
                 shutil.rmtree(cert_dir)
-                self.output.debug(f"Removed certificate directory: {cert_dir}")
+                self.output.info(f"Removed certificate directory: {cert_dir}")
             except Exception as e:
                 self.output.display_error(f"Failed to remove directory {cert_dir}: {e}")
 
@@ -482,7 +482,7 @@ class AcmeShCertificateService:
         if acmesh_internal_dir.exists():
             try:
                 shutil.rmtree(acmesh_internal_dir)
-                self.output.debug(f"Removed acme.sh internal directory: {acmesh_internal_dir}")
+                self.output.info(f"Removed acme.sh internal directory: {acmesh_internal_dir}")
             except Exception as e:
                 self.output.warning(f"Failed to remove acme.sh directory {acmesh_internal_dir}: {e}")
 

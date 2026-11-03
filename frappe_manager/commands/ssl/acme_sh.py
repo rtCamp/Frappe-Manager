@@ -47,7 +47,9 @@ def acmesh_passthrough(
 
     if not acmesh_bin.exists():
         output.display_error("acme.sh is not installed yet")
-        output.info("Run 'fm ssl add <benchname> <domain>' to install acme.sh first")
+        # print, not info: this is the one thing to do about the error just displayed, and before
+        # `-v` reached the renderer it never appeared at all.
+        output.print("Run 'fm ssl add <benchname> <domain>' to install acme.sh first", emoji_code="")
         raise typer.Exit(1)
 
     cmd = [str(acmesh_bin), "--home", str(acmesh_home)]

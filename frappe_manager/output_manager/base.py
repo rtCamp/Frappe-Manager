@@ -53,14 +53,32 @@ class OutputHandler(ABC):
         Initialize output handler with verbosity settings.
 
         Args:
-            verbose: Show info and debug level messages
+            verbose: Show info level messages (equivalent to verbosity 1)
         """
-        self.verbose = verbose
+        self.verbosity: int = 1 if verbose else 0
         self._spinner_active = False
         self._current_text: str | None = None
 
         self._interactive: bool | None = None  # None = not initialized
         self._tty_available: bool = sys.stdin.isatty() and sys.stdout.isatty() and not running_in_ci()
+
+    @property
+    def verbose(self) -> bool:
+        """True once the operator has asked for more than results and warnings.
+
+        A property, not a field: the handler is built before the command line is parsed, so the
+        level can only arrive later, through `set_verbosity`. Storing a bool at construction is
+        what made `-v` reach nothing -- the renderer kept the default forever.
+        """
+        return self.verbosity > 0
+
+    @verbose.setter
+    def verbose(self, value: bool) -> None:
+        self.verbosity = 1 if value else 0
+
+    def set_verbosity(self, level: int) -> None:
+        """0 results and warnings, 1 effects (`-v`), 2 reasoning (`-vv`)."""
+        self.verbosity = level
 
     @abstractmethod
     def start(self, text: str) -> None:

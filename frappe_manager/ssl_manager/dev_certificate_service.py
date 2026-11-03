@@ -134,7 +134,7 @@ class DevCertificateService:
 
         self.ca_cert_path.write_bytes(ca_cert.public_bytes(serialization.Encoding.PEM))
 
-        self.output.debug(f"Generated new local dev CA at {self.ca_dir}")
+        self.output.info(f"Generated new local dev CA at {self.ca_dir}")
         return ca_key, ca_cert
 
     def _ensure_ca(self) -> tuple[ec.EllipticCurvePrivateKey, x509.Certificate]:
@@ -275,7 +275,7 @@ class DevCertificateService:
         dest_dir = self.root_dir / certificate.domain
         if dest_dir.exists():
             shutil.rmtree(dest_dir)
-            self.output.debug(f"Removed dev certificate directory: {dest_dir}")
+            self.output.info(f"Removed dev certificate directory: {dest_dir}")
 
         self.output.print(f"Dev certificate removed for {certificate.domain}")
         return True

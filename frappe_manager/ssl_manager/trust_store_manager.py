@@ -167,7 +167,7 @@ class TrustStoreManager:
     def _install_macos(self, ca_cert_path: Path) -> None:
         """Install into macOS login keychain (current user, no sudo required)."""
         login_keychain = Path.home() / "Library" / "Keychains" / "login.keychain-db"
-        self.output.debug(f"Installing CA into macOS login keychain: {login_keychain}")
+        self.output.info(f"Installing CA into macOS login keychain: {login_keychain}")
 
         result = subprocess.run(  # noqa: S603
             [  # noqa: S607
@@ -192,13 +192,13 @@ class TrustStoreManager:
                 )
             raise RuntimeError(f"Failed to install CA into macOS keychain (exit {result.returncode}): {result.stderr}")
 
-        self.output.debug("CA installed into macOS login keychain")
+        self.output.info("CA installed into macOS login keychain")
 
     def _install_linux(self, ca_cert_path: Path) -> None:
         """Install into Linux system CA store."""
         if shutil.which("update-ca-certificates"):
             dest = Path("/usr/local/share/ca-certificates/fm-dev-ca.crt")
-            self.output.debug(f"Installing CA to {dest} (Debian/Ubuntu)")
+            self.output.info(f"Installing CA to {dest} (Debian/Ubuntu)")
             result = subprocess.run(  # noqa: S603
                 ["sudo", "cp", str(ca_cert_path), str(dest)],  # noqa: S607
                 capture_output=True,
@@ -218,7 +218,7 @@ class TrustStoreManager:
 
         elif shutil.which("update-ca-trust"):
             dest = Path("/etc/pki/ca-trust/source/anchors/fm-dev-ca.crt")
-            self.output.debug(f"Installing CA to {dest} (RHEL/Fedora)")
+            self.output.info(f"Installing CA to {dest} (RHEL/Fedora)")
             result = subprocess.run(  # noqa: S603
                 ["sudo", "cp", str(ca_cert_path), str(dest)],  # noqa: S607
                 capture_output=True,
@@ -237,7 +237,7 @@ class TrustStoreManager:
                 raise RuntimeError(f"update-ca-trust failed: {result.stderr}")
 
         elif shutil.which("trust"):
-            self.output.debug("Installing CA via trust anchor (Arch)")
+            self.output.info("Installing CA via trust anchor (Arch)")
             result = subprocess.run(  # noqa: S603
                 ["sudo", "trust", "anchor", "--store", str(ca_cert_path)],  # noqa: S607
                 capture_output=True,
@@ -252,7 +252,7 @@ class TrustStoreManager:
                 "No supported CA trust update tool found. Install libnss3-tools (Debian/Ubuntu) or nss-tools (Fedora)."
             )
 
-        self.output.debug("CA installed into Linux system trust store")
+        self.output.info("CA installed into Linux system trust store")
 
     def _nss_databases(self) -> list[Path]:
         """Every NSS database on this host fm may have installed into.
@@ -310,7 +310,7 @@ class TrustStoreManager:
                 check=False,
             )
             if result.returncode == 0:
-                self.output.debug(f"CA installed into NSS database: {nss_db}")
+                self.output.info(f"CA installed into NSS database: {nss_db}")
             else:
                 self.output.debug(f"NSS install skipped for {nss_db}: {result.stderr.strip()}")
 

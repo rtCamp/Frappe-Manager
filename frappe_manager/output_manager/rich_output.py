@@ -205,27 +205,25 @@ class RichOutputHandler(OutputHandler):
         self._emit(self.stderr, msg, **kwargs)
 
     def debug(self, text: str, emoji_code: str = ":bug:", **kwargs) -> None:
-        """
-        Display debug message if verbose mode is enabled.
+        """Reasoning: probes, resolution, fallbacks. Shown at `-vv`.
 
         Args:
             text: Debug message
             emoji_code: Emoji code to display (e.g., ":bug:")
             **kwargs: Additional Rich print arguments
         """
-        if self.verbose:
+        if self.verbosity >= 2:
             self.print(text, emoji_code=emoji_code, **kwargs)
 
     def info(self, text: str, emoji_code: str = ":information:", **kwargs) -> None:
-        """
-        Display info message if verbose mode is enabled.
+        """Effects: what fm changed, and what it ran. Shown at `-v`.
 
         Args:
             text: Info message
             emoji_code: Emoji code to display (e.g., ":information:")
             **kwargs: Additional Rich print arguments
         """
-        if self.verbose:
+        if self.verbosity >= 1:
             self.print(text, emoji_code=emoji_code, **kwargs)
 
     def display_error(self, text: str, emoji_code: str = ":no_entry:") -> None:
@@ -531,7 +529,10 @@ class RichOutputHandler(OutputHandler):
 
     @property
     def should_stream_docker(self) -> bool:
-        return self._is_interactive and self.is_spinner_active and not self.verbose
+        # Deliberately not gated on verbosity. The term was inert while `-v` reached nothing, and
+        # making `-v` work would have turned it live in the wrong direction: asking for more
+        # detail would have switched the live command output off.
+        return self._is_interactive and self.is_spinner_active
 
     def print_data(self, data: Any, **kwargs) -> None:
         self._print_data_impl(data, **kwargs)

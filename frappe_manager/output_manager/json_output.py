@@ -175,7 +175,7 @@ class JSONOutputHandler(OutputHandler):
             emoji_code: Emoji code (captured but not rendered)
             **kwargs: Additional arguments (captured in data)
         """
-        if self.verbose:
+        if self.verbosity >= 2:
             self._add_event(OutputEvent("debug", {"text": text, "emoji_code": emoji_code, "kwargs": kwargs}))
 
     def info(self, text: str, emoji_code: str = ":information:", **kwargs) -> None:
@@ -187,7 +187,7 @@ class JSONOutputHandler(OutputHandler):
             emoji_code: Emoji code (captured but not rendered)
             **kwargs: Additional arguments (captured in data)
         """
-        if self.verbose:
+        if self.verbosity >= 1:
             self._add_event(OutputEvent("info", {"text": text, "emoji_code": emoji_code, "kwargs": kwargs}))
 
     def display_error(self, text: str, emoji_code: str = ":no_entry:") -> None:

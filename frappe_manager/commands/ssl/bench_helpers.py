@@ -248,7 +248,7 @@ def _add_bench_certificate(
         try:
             if served == domain:
                 bench.set_bench_site_config(served, {"host_name": host_name})
-                output.debug(f"Updated host_name to {host_name} on {served}")
+                output.info(f"Updated host_name to {host_name} on {served}")
             elif served:
                 output.debug(f"{domain} is an alias of {served}; leaving host_name alone")
             else:
@@ -320,7 +320,7 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
         try:
             if served == domain:
                 bench.set_bench_site_config(served, {"host_name": host_name})
-                output.debug(f"Updated host_name to {host_name} on {served}")
+                output.info(f"Updated host_name to {host_name} on {served}")
             elif served:
                 output.debug(f"{domain} is an alias of {served}; leaving host_name alone")
             else:

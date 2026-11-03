@@ -151,11 +151,14 @@ These are options on `fm` itself, so they go before the subcommand.
 
 ### `--verbose` / `-v`
 
-Turns on console log output at `INFO`.
+Raises how much fm tells you on screen. It does not put the log file on your terminal.
 
 ```bash
-fm -v start mybench
+fm -v start mybench      # what fm changed, and the commands it ran
+fm -vv start mybench     # the above, plus why it chose what it chose
 ```
+
+`-v` shows effects: a certificate copied, a CA installed into a trust store, a site's `host_name` updated. `-vv` adds reasoning: which challenge type was picked, which lookup was attempted, which cleanup was skipped and why.
 
 ### `--log-level`
 
@@ -163,10 +166,10 @@ fm -v start mybench
 fm --log-level debug create mybench
 ```
 
-Accepts `debug`, `info`, `warning` and `error`; anything else exits 1 with the valid list.
+Accepts `debug`, `info`, `warning` and `error`; anything else exits 1 with the valid list. It is the same dial as `-v`: `info` matches `-v`, `debug` matches `-vv`, and passing it overrides the flag.
 
-!!! note "Only `debug` and `info` add console output"
-    Console log output is attached only when the level is `INFO` or `DEBUG` (or `-v` was passed). `--log-level warning` and `--log-level error` therefore leave the console log handler off entirely, which is also the default. Command output, tables and prompts are unaffected either way; `fm.log` still records everything at `logs.file_level`.
+!!! note "The log file is separate"
+    Neither flag changes what reaches `~/frappe/logs/fm.log`, which always records at `logs.file_level`, and neither puts log records on your screen. Results, tables and prompts are unaffected by both.
 
 ### `--non-interactive` / `-n`
 

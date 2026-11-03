@@ -301,7 +301,17 @@ app.add_typer(
 @app.callback()
 def app_callback(
     ctx: typer.Context,
-    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output (info level)")] = False,
+    verbose: Annotated[
+        int,
+        typer.Option(
+            "--verbose",
+            "-v",
+            count=True,
+            metavar="",
+            show_default=False,
+            help="Show more: -v what fm changed and ran, -vv why it chose it.",
+        ),
+    ] = 0,
     log_level: Annotated[
         str | None,
         typer.Option("--log-level", help="Set log level explicitly (debug|info|warning|error)"),
@@ -351,13 +361,18 @@ def app_callback(
                 f"{log_level!r} is not one of {', '.join(valid_levels).lower()}.",
                 param_hint="--log-level",
             )
-    elif verbose:
+    elif verbose >= 2:
+        level_name = "DEBUG"
+    elif verbose == 1:
         level_name = "INFO"
     else:
         level_name = "WARNING"
 
     ctx.obj["log_level"] = level_name
-    ctx.obj["verbose"] = verbose or level_name in ["INFO", "DEBUG"]
+    # Counted from the level, not from the flag alone, so `--log-level debug` and `-vv` arrive at
+    # the renderer as the same thing.
+    ctx.obj["verbosity"] = {"DEBUG": 2, "INFO": 1}.get(level_name, 0)
+    ctx.obj["verbose"] = ctx.obj["verbosity"] > 0
     # The flag names the STREAM, not a format for results: `--events json` replaces fm's rich
     # rendering with one JSON line per event. A command's own `--json` is the other thing, a
     # result document, and the two are deliberately not the same flag (compose does the same
@@ -377,7 +392,9 @@ def app_callback(
     else:
         basic_handler = get_global_output_handler()
     set_global_output_handler(basic_handler)
-
+    # The handler exists before the command line is parsed, so this is the only moment the level
+    # can reach it. Without this assignment `-v` changes the log file and nothing on screen.
+    basic_handler.set_verbosity(ctx.obj["verbosity"])
     output = get_global_output_handler()
     output.set_interactive_mode(non_interactive_flag=non_interactive or stream_events)
 
@@ -414,7 +431,11 @@ def app_callback(
             CLI_BENCHES_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
             global logger
-            console_level = level_name if ctx.obj["verbose"] else None
+            # Never attached. `-v` raises the RENDERER's level; it does not put the log file on
+            # screen. With a console handler here every message arrived twice -- once rendered by
+            # the handler, once again as a log record of that same rendering -- and results came
+            # back wrapped in an [OUTPUT] DATA block that nothing could parse.
+            console_level = None
 
             try:
                 fm_config_manager: FMConfigManager = FMConfigManager.import_from_toml()

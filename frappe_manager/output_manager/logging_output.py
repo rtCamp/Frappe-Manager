@@ -229,20 +229,11 @@ class LoggingOutputHandler(OutputHandler):
         log_prefix: str = "=>",
         line_filters: "Sequence[str] | None" = None,
     ) -> None:
-        """
-        Display live lines (logs start/stop, not individual lines for performance).
+        """Display live lines.
 
-        Note: Individual lines are not logged to avoid performance overhead.
-        Only the start and completion of live output is logged.
-
-        Args:
-            data: Iterator yielding (source, line) tuples
-            stdout: Whether to display stdout lines
-            stderr: Whether to display stderr lines
-            lines: Maximum number of lines to display
-            padding: Padding around displayed lines
-            stop_string: String that stops display when found
-            log_prefix: Prefix for each line
+        Individual lines are NOT logged here: every subprocess line is already written to fm.log
+        by `stream_command_output`, which is where the data comes from. Mirroring here would
+        double every line of a venv rebuild.
         """
         self._log_message(logging.DEBUG, f"LIVE_LINES: Starting (stdout={stdout}, stderr={stderr})")
         self.delegate.live_lines(data, stdout, stderr, lines, padding, stop_string, log_prefix, line_filters)

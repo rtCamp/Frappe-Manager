@@ -48,8 +48,8 @@ These come before the subcommand and work everywhere.
 
 | Option | Default | Description |
 |---|---|---|
-| `-v`, `--verbose` | off | Info-level output |
-| `--log-level TEXT` | from config | Set the level explicitly: `debug`, `info`, `warning`, `error` |
+| `-v`, `--verbose` | off | Show more on screen: `-v` what fm changed and ran, `-vv` why it chose it |
+| `--log-level TEXT` | from config | The same dial, set explicitly: `info` matches `-v`, `debug` matches `-vv`. Also accepts `warning`, `error` |
 | `-n`, `--non-interactive` | off | Never prompt. A prompt that would have been shown becomes an error naming the flag that answers it |
 | `--events json` | off | Stream what fm is doing as one JSON line per event (JSONL). Implies `--non-interactive` |
 | `-V`, `--version` | | Print the fm version and exit |

@@ -142,29 +142,33 @@ class TestExplicitLogLevelFlag:
 class TestFlagInteractionPrecedence:
     """Test that --log-level takes precedence over -v flags."""
 
-    def test_log_level_overrides_v_flag(self):
-        """Test that --log-level warning overrides -v log level but keeps verbose=True."""
+    def test_log_level_overrides_the_v_flag_entirely(self):
+        """--log-level wins over -v: it sets the level, and nothing is left verbose beside it."""
         ctx = MagicMock(spec=typer.Context)
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.will_print_help", return_value=True):
-            app_callback(ctx, verbose=True, log_level="warning", version=None)
+            app_callback(ctx, verbose=1, log_level="warning", version=None)
 
         assert ctx.obj.get("log_level") == "WARNING"
-        assert ctx.obj.get("verbose") is True
+        assert ctx.obj.get("verbosity") == 0
+        assert ctx.obj.get("verbose") is False
 
-    def test_log_level_overrides_vv_flag(self):
-        """Test that --log-level warning overrides -v log level but keeps verbose=True."""
-        ctx = MagicMock(spec=typer.Context)
-        ctx.obj = {}
-        ctx.invoked_subcommand = "list"
+    def test_log_level_debug_and_vv_arrive_at_the_same_verbosity(self):
+        """The two spellings of "show me the reasoning" must reach the renderer identically."""
+        by_flag = MagicMock(spec=typer.Context)
+        by_flag.obj = {}
+        by_flag.invoked_subcommand = "list"
+        by_level = MagicMock(spec=typer.Context)
+        by_level.obj = {}
+        by_level.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.will_print_help", return_value=True):
-            app_callback(ctx, verbose=True, log_level="warning", version=None)
+            app_callback(by_flag, verbose=2, log_level=None, version=None)
+            app_callback(by_level, verbose=0, log_level="debug", version=None)
 
-        assert ctx.obj.get("log_level") == "WARNING"
-        assert ctx.obj.get("verbose") is True
+        assert by_flag.obj["verbosity"] == by_level.obj["verbosity"] == 2
 
     def test_log_level_debug_with_no_v_flag(self):
         """Test that --log-level debug works without -v flag."""
@@ -277,9 +281,11 @@ class TestLoggerConfiguration:
                                                 pass
 
                                             mock_get_logger.assert_called()
-                                            # get_logger is called twice: once for the contextual logger
-                                            # (file_level only) and once for the command logger (with console_level).
-                                            # We need the second call.
+                                            # get_logger is called twice: the contextual logger, then
+                                            # the command logger. The second call is the one to read.
+                                            # The log file never gets a console handler: -v raises
+                                            # the renderer's level, it does not put log records on
+                                            # screen. Attaching one printed every message twice.
                                             assert len(mock_get_logger.call_args_list) >= 2
                                             call_args = mock_get_logger.call_args_list[1]
-                                            assert call_args[1]["console_level"] == "INFO"
+                                            assert call_args[1]["console_level"] is None
