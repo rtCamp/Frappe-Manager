@@ -23,9 +23,12 @@ from frappe_manager.site_manager.modules.bake import BakeError, BakeManager
 RUNNER = "frappe_manager.site_manager.modules.bake.run_command_with_exit_code"
 
 
-def _manager() -> BakeManager:
-    """A BakeManager with __init__ bypassed: the build argv depends on nothing else."""
-    return object.__new__(BakeManager)
+def _manager(progress: str = "auto") -> BakeManager:
+    """A BakeManager with __init__ bypassed: the build argv depends on nothing but the handler,
+    which decides whether buildkit keeps the terminal or fm reads the build."""
+    manager = object.__new__(BakeManager)
+    manager.output = MagicMock(progress_mode=progress)
+    return manager
 
 
 def _build(platform=None, extra=None):
@@ -39,6 +42,35 @@ def _build(platform=None, extra=None):
             extra=extra or [],
         )
     return runner.call_args.args[0]
+
+
+class TestWhoReadsTheBuild:
+    def _run(self, progress: str):
+        mgr = _manager(progress)
+        with patch(RUNNER) as runner:
+            mgr._buildx(
+                dockerfile=Path("/ctx/Dockerfile"),
+                tag="t",
+                context=Path("/ctx"),
+                platform=None,
+                extra=[],
+            )
+        return mgr, runner.call_args.kwargs
+
+    def test_auto_hands_the_terminal_to_buildkit(self):
+        """Its live progress cannot survive being read through a pipe, so auto does not read it."""
+        mgr, kwargs = self._run("auto")
+
+        assert kwargs == {"stream": False, "capture_output": False}
+        assert mgr.output.live_lines.call_count == 0
+
+    def test_plain_reads_the_build_so_it_reaches_the_file(self):
+        """A failed build is the case its output is wanted for, and plain says nobody is
+        watching a redraw."""
+        mgr, kwargs = self._run("plain")
+
+        assert kwargs == {"stream": True}
+        assert mgr.output.live_lines.call_count == 1
 
 
 class TestBuildInvocation:

@@ -19,6 +19,7 @@ def stream_stdout_and_stderr(
     full_cmd: list,
     cwd: str | None = None,
     env: dict[str, str] | None = None,
+    input_data: bytes | None = None,
 ) -> Iterable[tuple[str, bytes]]:
     """
     Executes a Docker command and streams the stdout and stderr outputs.
@@ -42,7 +43,7 @@ def stream_stdout_and_stderr(
     """
     output = []
 
-    for source, line in stream_command_output(full_cmd, env=env, cwd=cwd):
+    for source, line in stream_command_output(full_cmd, env=env, cwd=cwd, input_data=input_data):
         output.append((source, line))
 
         if source == "exit_code":
@@ -73,28 +74,29 @@ def run_command_with_exit_code(
     """
     if not stream:
         if not capture_output:
-            logger.debug("- -" * 10)
+            import uuid
+
             # Local import: helpers imports this module, so a module-level one is a cycle.
             from frappe_manager.utils.helpers import redact_command_line
 
-            logger.debug(f"COMMAND: {redact_command_line(full_cmd)}")
+            cmd_tag = {"cmd": uuid.uuid4().hex[:4]}
+            logger.debug(f"COMMAND: {redact_command_line(full_cmd)}", extra_fields=cmd_tag)
 
             run_output = run(full_cmd, cwd=cwd, env=env, input=input_data)
             exit_code = run_output.returncode
 
-            logger.debug(f"RETURN CODE: {exit_code}")
-            logger.debug("- -" * 10)
+            logger.debug(f"RETURN CODE: {exit_code}", extra_fields=cmd_tag)
 
             if exit_code != 0:
                 raise DockerException(full_cmd, SubprocessOutput([], [], [], exit_code))
             return None
 
         stream_output: SubprocessOutput = SubprocessOutput.from_output(
-            stream_stdout_and_stderr(full_cmd, cwd=cwd, env=env),
+            stream_stdout_and_stderr(full_cmd, cwd=cwd, env=env, input_data=input_data),
         )
         return stream_output
 
-    output: Iterable[tuple[str, bytes]] = stream_stdout_and_stderr(full_cmd, cwd=cwd, env=env)
+    output: Iterable[tuple[str, bytes]] = stream_stdout_and_stderr(full_cmd, cwd=cwd, env=env, input_data=input_data)
     return output
 
 

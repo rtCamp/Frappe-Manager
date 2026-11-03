@@ -16,7 +16,7 @@ from frappe_manager.site_manager.site import Bench
     "Read one fact out of it",
     "{benchname} --json",
     benchname="mybench",
-    detail="fm info mybench --json | jq -r '.url'",
+    detail="fm info mybench --json | jq -r '.result.url'",
 )
 def info(
     ctx: typer.Context,

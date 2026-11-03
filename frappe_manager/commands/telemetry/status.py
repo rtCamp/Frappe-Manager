@@ -38,6 +38,7 @@ def status(
     agent_config = host_bench_dir(bench.path) / "config" / "newrelic.ini"
 
     if json_result:
+        get_global_output_handler().set_json_results()
         output.print_data(
             {
                 "bench": bench.name,

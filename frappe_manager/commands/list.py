@@ -23,7 +23,7 @@ from frappe_manager.site_manager.bench_service import BenchService
 @example(
     "Script over the inventory",
     "--json",
-    detail="fm list --json | jq -r '.[] | select(.status == \"active\") | .name'",
+    detail="fm list --json | jq -r '.result[] | select(.status == \"active\") | .name'",
 )
 def list(
     ctx: typer.Context,
@@ -58,14 +58,14 @@ def list(
         )
 
     if json_output or ctx.obj.get("json"):
+        get_global_output_handler().set_json_results()
         # Under global --json the JSONL stream owns stdout and the inventory rides it as an event;
         # with the --json flag alone on a human terminal it's a pretty dump. Both go through the
         # data channel, which decides the rendering per handler.
         data = bench_service.list_benches_data()
-        if ctx.obj.get("json"):
-            output.print_data(data)
-        else:
-            output.data_raw(json_module.dumps(data, indent=2))
+        # One channel for both modes: the handler decides the rendering, which is what puts a
+        # result in the same envelope its failure uses.
+        output.print_data(data)
         return
 
     if paths:

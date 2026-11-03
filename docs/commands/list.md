@@ -31,7 +31,7 @@ fm list --paths
 
 ### Script over the inventory
 
-fm list --json | jq -r '.[] | select(.status == "active") | .name'
+fm list --json | jq -r '.result[] | select(.status == "active") | .name'
 
 ```bash
 fm list --json

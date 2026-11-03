@@ -37,6 +37,7 @@ def list_domains(
     if not sites:
         empty = f"{bench.name} serves no site (created with --bench-only, or none recorded in bench_config.toml)"
         if json_result:
+            get_global_output_handler().set_json_results()
             output.print_data([])
         else:
             output.data_raw(empty)

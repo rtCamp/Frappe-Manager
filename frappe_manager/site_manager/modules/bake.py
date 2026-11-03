@@ -22,9 +22,13 @@ import subprocess
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 from frappe_manager import BAKED_LABEL, CLI_DIR, COMMON_SITE_CONFIG_FILE, CONTAINER_BENCH_DIR
-from frappe_manager.docker import DockerClient
+from frappe_manager.docker import DOCKER_LINE_NOISE, DockerClient
 from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler, get_global_output_handler
@@ -648,7 +652,16 @@ class BakeManager:
             cmd += ["--platform", platform]
         cmd += extra
         cmd.append(str(context))
-        run_command_with_exit_code(cmd, stream=False, capture_output=False)
+        # `auto` hands the terminal to buildkit, which is the only way to keep its live, in-place
+        # progress -- and the only way its output reaches nothing but the screen. Any other mode
+        # says nobody is watching a redraw, so the build is read through fm and lands in the file.
+        if self.output.progress_mode == "auto":
+            run_command_with_exit_code(cmd, stream=False, capture_output=False)
+            return
+        self.output.live_lines(
+            cast("Iterator[tuple[str, bytes]]", run_command_with_exit_code(cmd, stream=True)),
+            line_filters=DOCKER_LINE_NOISE,
+        )
 
     def _build_nginx_image(self, frappe_bench_dir: Path, nginx_tag: str, platform: str | None = None) -> str:
         """Build the app-nginx assets image under the reference ``bake`` already chose.

@@ -85,23 +85,30 @@ def cli_entrypoint():
         logger = get_logger(component="main")
         output = get_global_output_handler()
 
-        # No "Error Occurred" prefix: the ⛔ glyph and the red style already say that, and the
-        # words pushed the part that matters -- what went wrong -- further right on every error.
-        output.display_error(str(e).strip())
+        # JSON mode replaces the HUMAN rendering and nothing else: the file log and the teardown
+        # below still run. Exiting here instead made a failed `--json` run the one failure fm
+        # never recorded, which is the opposite of what the file is for.
+        rendered_as_json = _emit_json_error(e, output)
 
-        # getattr, not e.details: this is the last handler standing, and must not itself raise on
-        # an exception whose __init__ never reached FrappeManagerException -- that would let an
-        # AttributeError escape cli_entrypoint, giving the user a bare traceback instead of the
-        # log line below.
-        details = getattr(e, "details", None)
-        if details:
-            output.display_error(f"Details: {details}")
+        if not rendered_as_json:
+            # No "Error Occurred" prefix: the ⛔ glyph and the red style already say that, and the
+            # words pushed the part that matters -- what went wrong -- further right on every error.
+            output.display_error(str(e).strip())
 
-        # One render for every exception class, so a subclass only has to carry the strings.
-        for suggestion in getattr(e, "suggestions", None) or []:
-            output.print(f"  • {suggestion}", emoji_code="")
+            # getattr, not e.details: this is the last handler standing, and must not itself raise
+            # on an exception whose __init__ never reached FrappeManagerException -- that would let
+            # an AttributeError escape cli_entrypoint, giving the user a bare traceback instead of
+            # the log line below.
+            details = getattr(e, "details", None)
+            if details:
+                output.display_error(f"Details: {details}")
 
-        output.print(f"More info about error is logged in {CLI_LOG_DIRECTORY / 'fm.log'}", emoji_code=":mag:")
+            # One render for every exception class, so a subclass only has to carry the strings.
+            for suggestion in getattr(e, "suggestions", None) or []:
+                output.print(f"  • {suggestion}", emoji_code="")
+
+            output.print(f"More info about error is logged in {CLI_LOG_DIRECTORY / 'fm.log'}", emoji_code=":mag:")
+
         output.stop()
 
         from frappe_manager.utils.helpers import capture_and_format_exception
@@ -152,6 +159,37 @@ def _emit_json_exit(ok: bool, code: int) -> None:
     except Exception:
         # The terminal event is telemetry; it must never mask the run's own outcome.
         pass
+
+
+def _emit_json_error(error: Exception, output) -> bool:
+    """Print the failure as the same envelope a success takes. False when nobody asked for one.
+
+    `suggestions` already exist on fm's own exceptions, rendered as bullets for a human; they are
+    the `next` field here, so a program is told what to run instead of having to read prose.
+    """
+    try:
+        if not getattr(output, "wants_structured_data", False):
+            return False
+
+        import json
+
+        from rich.text import Text
+
+        from frappe_manager.output_manager.envelope import json_error_envelope
+
+        envelope = json_error_envelope(
+            # The message was written for a terminal and carries rich markup; a parser must not
+            # be handed `[bold]` as part of the reason.
+            error=Text.from_markup(str(error).strip()).plain,
+            subject=getattr(error, "subject", None),
+            path=str(getattr(error, "path", "")) or None,
+            next_commands=list(getattr(error, "suggestions", None) or []),
+        )
+        print(json.dumps(envelope, indent=2, default=str))  # noqa: T201 -- stdout is the caller's here
+        return True
+    except Exception:
+        # The envelope must never mask the failure it describes.
+        return False
 
 
 def exit_cleanup():

@@ -7,6 +7,7 @@ that works for any subprocess (Docker, acme.sh, git, npm, etc.).
 
 import contextvars
 import os
+import uuid
 from collections.abc import Iterator
 from queue import Empty, Queue
 from subprocess import PIPE, Popen
@@ -31,18 +32,19 @@ DRAIN_GRACE_PERIOD_AFTER_EXIT = 10.0
 DRAIN_POLL_INTERVAL = 0.5
 
 
-def reader(pipe, pipe_name: str, queue: Queue):
-    """
-    Reads lines from a pipe and puts them into a queue.
+def reader(pipe, pipe_name: str, queue: Queue, cmd_id: str = "----"):
+    """Read a pipe into the queue, logging each line under the command that produced it.
 
-    This function runs in a daemon thread to continuously read from
-    stdout or stderr without blocking the main process.
+    `cmd_id` is what joins a line to its command: one run opens dozens of processes, and without
+    it the file holds hundreds of output lines with nothing saying which wrote any of them.
 
     Args:
         pipe: The pipe to read from (stdout or stderr)
         pipe_name: Name identifier ("stdout" or "stderr")
         queue: Queue to put the lines into
+        cmd_id: Four-character id of the command being read, shared with its COMMAND line
     """
+    tag = {"cmd": f"{cmd_id} {'out' if pipe_name == 'stdout' else 'err'}"}
     try:
         buf = b""
         with pipe:
@@ -52,7 +54,7 @@ def reader(pipe, pipe_name: str, queue: Queue):
                     if buf:
                         line = buf.decode(errors="replace").strip("\r\n")
                         if line:
-                            logger.debug(line)
+                            logger.debug(line, extra_fields=tag)
                             queue.put((pipe_name, line.encode()))
                     break
                 buf += chunk
@@ -63,7 +65,7 @@ def reader(pipe, pipe_name: str, queue: Queue):
                             line = buf[:idx].decode(errors="replace").strip("\r\n")
                             buf = buf[idx + 1 :]
                             if line:
-                                logger.debug(line)
+                                logger.debug(line, extra_fields=tag)
                                 queue.put((pipe_name, line.encode()))
                             break
                     else:
@@ -76,6 +78,7 @@ def stream_command_output(
     cmd: list,
     env: dict[str, str] | None = None,
     cwd: str | None = None,
+    input_data: bytes | None = None,
 ) -> Iterator[tuple[str, bytes]]:
     """
     Execute a command and stream stdout/stderr output in real-time.
@@ -92,6 +95,9 @@ def stream_command_output(
         cmd: Command to execute as list of strings
         env: Environment variables (merged with os.environ if provided)
         cwd: Working directory for command execution
+        input_data: Bytes written to the child's standard input, which is then closed. A child
+            reading stdin hangs forever without that close, which is why the pipe is opened only
+            when there is something to put in it.
 
     Yields:
         Tuple[str, bytes]:
@@ -116,12 +122,15 @@ def stream_command_output(
         DRAIN_GRACE_PERIOD_AFTER_EXIT seconds to finish. A wedged reader thread
         can therefore cost trailing output, never the exit code.
     """
-    logger.debug("- -" * 10)
+    # Minted HERE, where the process is about to be opened, so the command line and every line it
+    # produces carry the same id. Anywhere else and the two could not be joined.
+    cmd_id = uuid.uuid4().hex[:4]
+    cmd_tag = {"cmd": cmd_id}
     # The argv can carry a credential -- `bench reinstall --admin-password ...`, a db root
     # password, a token -- and this line goes to fm.log, which operators paste into issues.
     from frappe_manager.utils.helpers import redact_command_line  # local: helpers imports this module
 
-    logger.debug(f"COMMAND: {redact_command_line(cmd)}")
+    logger.debug(f"COMMAND: {redact_command_line(cmd)}", extra_fields=cmd_tag)
 
     if env is not None:
         subprocess_env = dict(os.environ)
@@ -131,20 +140,30 @@ def stream_command_output(
 
     cmd = list(map(str, cmd))
 
-    process = Popen(cmd, stdout=PIPE, stderr=PIPE, env=subprocess_env, cwd=cwd)
+    process = Popen(
+        cmd,
+        stdout=PIPE,
+        stderr=PIPE,
+        stdin=PIPE if input_data is not None else None,
+        env=subprocess_env,
+        cwd=cwd,
+    )
+
+    if input_data is not None and process.stdin is not None:
+        process.stdin.write(input_data)
+        process.stdin.close()
 
     q = Queue()
 
-    # Use daemon threads to avoid hanging on ctrl+c
     # Copy the ambient logging context into the daemon reader threads so their
     # per-line debug traces stay corr/bench/op-tagged (contextvars don't cross
     # thread boundaries by themselves).
     ctx = contextvars.copy_context()
-    stdout_thread = Thread(target=ctx.run, args=[reader, process.stdout, "stdout", q])
+    stdout_thread = Thread(target=ctx.run, args=[reader, process.stdout, "stdout", q, cmd_id])
     stdout_thread.daemon = True
     stdout_thread.start()
 
-    stderr_thread = Thread(target=contextvars.copy_context().run, args=[reader, process.stderr, "stderr", q])
+    stderr_thread = Thread(target=contextvars.copy_context().run, args=[reader, process.stderr, "stderr", q, cmd_id])
     stderr_thread.daemon = True
     stderr_thread.start()
 
@@ -185,7 +204,6 @@ def stream_command_output(
 
     exit_code = process.wait()
 
-    logger.debug(f"RETURN CODE: {exit_code}")
-    logger.debug("- -" * 10)
+    logger.debug(f"RETURN CODE: {exit_code}", extra_fields=cmd_tag)
 
     yield ("exit_code", str(exit_code).encode())

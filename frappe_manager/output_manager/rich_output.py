@@ -61,6 +61,12 @@ class RichOutputHandler(OutputHandler):
         return self._tty_available
 
     @property
+    def _animates(self) -> bool:
+        """Whether progress REDRAWS. `auto` asks the same question prompting does; the other two
+        modes answer it outright, which is the whole point of the flag."""
+        return self.progress_mode == "auto" and self._is_interactive
+
+    @property
     def is_spinner_active(self) -> bool:
         """Check if spinner is currently active."""
         return self._spinner_active
@@ -84,19 +90,22 @@ class RichOutputHandler(OutputHandler):
             self._spinner_active = True
             self._current_text = text
 
-            if self._is_interactive:
+            if self._animates:
                 self.live.start(refresh=True)
                 self.live.update(self.spinner, refresh=True)
             else:
                 self._print_noninteractive_head(text)
 
     def _print_noninteractive_head(self, text: str) -> None:
-        """One ⚙️ line per DISTINCT head in non-interactive mode.
+        """One ⚙️ line per DISTINCT head when progress is not animated.
 
         Deduplicates consecutive repeats (nested spinners/change_head chains
         re-announce the same phase) and suppresses the generic "Working"
         placeholder -- it carries no information and only adds CI noise.
+        `--progress none` asks for no progress at all, so nothing is printed.
         """
+        if self.progress_mode == "none":
+            return
         if text == "Working" or text == getattr(self, "_last_ni_head", None):
             return
         self._last_ni_head = text
@@ -110,7 +119,7 @@ class RichOutputHandler(OutputHandler):
             text: The new status message
             style: Rich style/token for the spinner text (honored; None = unstyled)
         """
-        if not self._is_interactive:
+        if not self._animates:
             self._print_noninteractive_head(text)
             return
 
@@ -129,7 +138,7 @@ class RichOutputHandler(OutputHandler):
         Args:
             text: The new head text
         """
-        if not self._is_interactive:
+        if not self._animates:
             self._print_noninteractive_head(text)
             return
 
@@ -152,7 +161,7 @@ class RichOutputHandler(OutputHandler):
             self._spinner_active = False
             self._current_text = None
 
-            if self._is_interactive:
+            if self._animates:
                 self.spinner.update()
                 self.live.update(Text("", end=""))
                 self.live.stop()
@@ -163,7 +172,7 @@ class RichOutputHandler(OutputHandler):
 
         Private on purpose: `_emit` is the only caller, so no call site can forget to pause.
         """
-        resume = self._spinner_active and self._is_interactive
+        resume = self._spinner_active and self._animates
         if resume:
             self.live.stop()
         try:
@@ -300,7 +309,7 @@ class RichOutputHandler(OutputHandler):
         """
         filters = tuple(f.lower() for f in (line_filters or ()))
 
-        if not self._is_interactive:
+        if not self._animates:
             while True:
                 try:
                     source, line = next(data)
@@ -375,7 +384,7 @@ class RichOutputHandler(OutputHandler):
             padding: Padding around content (top, right, bottom, left)
             refresh: Force an immediate render; False defers to Live's auto refresh
         """
-        if not self._is_interactive:
+        if not self._animates:
             return
 
         if renderable:
@@ -532,7 +541,7 @@ class RichOutputHandler(OutputHandler):
         # Deliberately not gated on verbosity. The term was inert while `-v` reached nothing, and
         # making `-v` work would have turned it live in the wrong direction: asking for more
         # detail would have switched the live command output off.
-        return self._is_interactive and self.is_spinner_active
+        return self._animates and self.is_spinner_active
 
     def print_data(self, data: Any, **kwargs) -> None:
         self._print_data_impl(data, **kwargs)
@@ -554,6 +563,8 @@ class RichOutputHandler(OutputHandler):
 
         from rich.console import ConsoleRenderable
 
+        from frappe_manager.output_manager.envelope import json_envelope
+
         # Data on stdout, diagnostics on stderr, so `fm info mybench > file` and `... | jq` work.
         # ConsoleRenderable covers Table, Group, Panel, Text, ... -- anything rich can render
         # goes through the console instead of str()'s repr.
@@ -562,7 +573,7 @@ class RichOutputHandler(OutputHandler):
         elif isinstance(data, (dict, list)):
             # Same no-markup, no-wrap rendering as data_raw: a rich-highlighted or soft-wrapped
             # JSON document is no longer the bytes a parser was handed.
-            json_str = json.dumps(data, indent=2, default=str)
+            json_str = json.dumps(json_envelope(data) if self._json_results else data, indent=2, default=str)
             self._emit(self.stdout, json_str, markup=False, highlight=False, soft_wrap=True)
         else:
             self._emit(self.stdout, str(data))

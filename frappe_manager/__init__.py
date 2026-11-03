@@ -127,6 +127,20 @@ class EventStreamFormat(str, Enum):
     json = "json"
 
 
+class ProgressMode(str, Enum):
+    """How progress is drawn.
+
+    A mode rather than a verbosity level, which is how docker compose and cargo settle the same
+    question: whether to animate depends on who is reading, not on how much detail they asked
+    for. `auto` sniffs, and sniffing gets the piped and CI cases wrong often enough that the
+    other two members exist to overrule it in both directions.
+    """
+
+    auto = "auto"
+    plain = "plain"
+    none = "none"
+
+
 class TelemetryProviderEnum(str, Enum):
     """APM backends `fm telemetry` can act on.
 

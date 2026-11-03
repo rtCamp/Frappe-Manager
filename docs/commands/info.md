@@ -28,7 +28,7 @@ fm info mybench
 
 ### Read one fact out of it
 
-fm info mybench --json | jq -r '.url'
+fm info mybench --json | jq -r '.result.url'
 
 ```bash
 fm info mybench --json

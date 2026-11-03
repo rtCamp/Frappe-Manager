@@ -118,6 +118,27 @@ def tolerates_broken_host(ctx: click.Context) -> bool:
     return any(getattr(command, "tolerates_broken_host", False) for command in ctx.meta.get(META_CHAIN, ()))
 
 
+PASSTHROUGH_COMMANDS = frozenset({"shell", "compose"})
+
+
+def asked_for_json_result(ctx: click.Context) -> bool:
+    """Whether THIS invocation asked fm for a JSON result.
+
+    Read from argv because the callback runs before any command body, and the gates it runs can
+    fail first: a `--json` run that died in the migration gate had nothing yet that knew JSON was
+    wanted. Two things are excluded, because their `--json` belongs to another program --
+    anything after `--`, and the commands that forward their tail to bench or docker.
+    """
+    import sys
+
+    if ctx.invoked_subcommand in PASSTHROUGH_COMMANDS:
+        return False
+    argv = sys.argv[1:]
+    if "--" in argv:
+        argv = argv[: argv.index("--")]
+    return "--json" in argv
+
+
 def will_print_help(ctx: click.Context) -> bool:
     """Whether click is about to print help instead of running the command.
 

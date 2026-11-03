@@ -37,6 +37,7 @@ def list_apps(
     )
 
     if json_result:
+        get_global_output_handler().set_json_results()
         # `installed` is null, not [], when there is no workspace to read: an image-runtime bench
         # does not know its installed apps, which is a different fact from knowing there are none.
         output.print_data(

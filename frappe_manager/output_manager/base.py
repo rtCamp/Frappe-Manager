@@ -56,6 +56,7 @@ class OutputHandler(ABC):
             verbose: Show info level messages (equivalent to verbosity 1)
         """
         self.verbosity: int = 1 if verbose else 0
+        self.progress_mode: str = "auto"
         self._spinner_active = False
         self._current_text: str | None = None
 
@@ -79,6 +80,11 @@ class OutputHandler(ABC):
     def set_verbosity(self, level: int) -> None:
         """0 results and warnings, 1 effects (`-v`), 2 reasoning (`-vv`)."""
         self.verbosity = level
+
+    def set_progress_mode(self, mode: "str") -> None:
+        """`auto`, `plain` or `none`. Separate from verbosity: this is HOW progress is drawn, not
+        how much is said, and the two were conflated while terminal sniffing was the only answer."""
+        self.progress_mode = mode
 
     @abstractmethod
     def start(self, text: str) -> None:

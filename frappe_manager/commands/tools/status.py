@@ -31,6 +31,7 @@ def status(
     enabled = bool(bench.bench_config.admin_tools)
 
     if json_result:
+        get_global_output_handler().set_json_results()
         output.print_data(
             {
                 "bench": bench.name,

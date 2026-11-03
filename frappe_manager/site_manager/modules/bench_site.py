@@ -801,14 +801,19 @@ class BenchSiteManager:
         full_cmd += [service, *argv]
 
         try:
-            # capture_output=False is the only path that honours input_data; the container's
-            # output therefore goes straight to the terminal, which is where the operator wants
-            # Frappe's own "Created database" / "Granted privileges" lines anyway.
-            run_command_with_exit_code(
-                full_cmd,
-                stream=False,
-                capture_output=False,
-                input_data=stdin_data.encode() if stdin_data is not None else None,
+            # Read through fm rather than handed the terminal: Frappe's own "Created database" and
+            # "Granted privileges" lines are exactly what an operator goes looking for when a site
+            # creation fails, and inherited stdio put them on the screen and nowhere else.
+            self.output.live_lines(
+                cast(
+                    "Iterator[tuple[str, bytes]]",
+                    run_command_with_exit_code(
+                        full_cmd,
+                        stream=True,
+                        input_data=stdin_data.encode() if stdin_data is not None else None,
+                    ),
+                ),
+                line_filters=DOCKER_LINE_NOISE,
             )
         except DockerException as e:
             if on_failure is not None:

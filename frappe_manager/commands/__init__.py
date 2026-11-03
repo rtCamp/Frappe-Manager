@@ -24,10 +24,12 @@ from frappe_manager import (
     STOCK_IMAGE_PREFETCH_SKIP_COMMANDS,
     EnableDisableOptionsEnum,
     EventStreamFormat,
+    ProgressMode,
 )
 from frappe_manager.commands.gating import (
     FMCommand,
     FMGroup,
+    asked_for_json_result,
     command_args,
     command_path,
     tolerates_broken_host,
@@ -317,6 +319,17 @@ def app_callback(
         str | None,
         typer.Option("--log-level", help="Set log level explicitly (debug|info|warning|error)"),
     ] = None,
+    no_color: Annotated[
+        bool,
+        typer.Option("--no-color", help="Render without colour. NO_COLOR in the environment does the same."),
+    ] = False,
+    progress: Annotated[
+        ProgressMode,
+        typer.Option(
+            "--progress",
+            help="How progress is drawn: 'auto' animates when you are at a terminal and no CI is detected, 'plain' prints one line per step and redraws nothing, 'none' prints no progress at all. --non-interactive and --events json both imply 'plain'.",
+        ),
+    ] = ProgressMode.auto,
     non_interactive: Annotated[
         bool,
         typer.Option(
@@ -399,6 +412,22 @@ def app_callback(
     # The handler exists before the command line is parsed, so this is the only moment the level
     # can reach it. Without this assignment `-v` changes the log file and nothing on screen.
     basic_handler.set_verbosity(ctx.obj["verbosity"])
+    # One rule for three controls: anything that says "nobody is watching" wins over `auto`, and
+    # an explicit mode wins over everything. `--non-interactive` and `--events json` already
+    # meant plain before this flag existed, so neither changes behaviour by being named here.
+    effective_progress = progress
+    if progress is ProgressMode.auto and (non_interactive or stream_events):
+        effective_progress = ProgressMode.plain
+    ctx.obj["progress"] = effective_progress.value
+    basic_handler.set_progress_mode(effective_progress.value)
+    # Read from argv, not from a command's parameter: the callback runs BEFORE any command body,
+    # and the gates it runs can fail first. A `--json` run that died in the migration gate got
+    # prose, because the only thing that knew JSON was wanted had not executed yet.
+    #
+    # Stop at `--`, and skip the passthrough commands: `fm shell` and `fm compose` forward their
+    # tail to another program, so a `--json` meant for bench or docker is not a request to fm.
+    if asked_for_json_result(ctx):
+        basic_handler.set_json_results()
     output = basic_handler
     output.set_interactive_mode(non_interactive_flag=non_interactive or stream_events)
 
@@ -450,7 +479,11 @@ def app_callback(
             from frappe_manager.output_manager.theme import apply_output_theme
 
             try:
-                apply_output_theme(fm_config_manager.output.theme, fm_config_manager.output.colors)
+                # The flag outranks the configured theme: it is this run's answer, and `mono`
+                # already exists as the colourless one. NO_COLOR is honoured by rich itself.
+                apply_output_theme(
+                    "mono" if no_color else fm_config_manager.output.theme, fm_config_manager.output.colors
+                )
                 set_output_style(fm_config_manager.output.style)
             except Exception as e:  # cosmetic subsystem: warn + defaults, never block commands
                 output.warning(f"Output theme/style config: {e} -- using defaults.")

@@ -106,11 +106,6 @@ class ConsoleLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         msg = str(record.getMessage())
 
-        if msg.strip() == "- -- -- -- -- -- -- -- -- -- -":
-            record.msg = "[dim]---[/dim]"
-            record.args = ()
-            return True
-
         if msg.startswith("COMMAND:"):
             simplified = self._simplify_command(msg)
             record.msg = f"[dim]{simplified}[/dim]"
