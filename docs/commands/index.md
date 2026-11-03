@@ -77,6 +77,33 @@ fm info            # exit 2, caught by fm
 
 **`--events` is the stream, a command's `--json` is the result.** They answer different questions and are deliberately not the same flag. `fm --events json` describes *what fm did*, as it happens: one JSON line per event, ending in a terminal exit event, useful for a CI log or a progress UI. A command's own `--json`, such as `fm list --json`, returns *the answer*: one document, on clean stdout, ready for `jq`. `--events` comes before the subcommand because it changes how everything is rendered; `--json` comes after it, because it belongs to that command. Docker Compose splits the same way, with `--progress json` against `ps --format json`.
 
+### The event vocabulary
+
+Ten event types, named after what fm did rather than what it drew. The first line declares the schema version; fields may be added to this stream, but no field already emitted will be renamed or change meaning.
+
+| Event | When | Carries |
+|---|---|---|
+| `run.started` | first line of every run | `v`, `fm` version, `argv` |
+| `step.started` / `step.finished` | fm opens or closes a unit of work | `step`, and `ok` on finish |
+| `command.started` | fm runs a child process | `cmd`, `argv` |
+| `command.output` | that process writes a line | `cmd`, `stream` (`out`/`err`), `text` |
+| `command.finished` | that process exits | `cmd`, `exit` |
+| `result` | the command's own answer | `data` or `text` |
+| `warning`, `error` | as they occur | `text`, or `error` and `exception` |
+| `run.finished` | last line of every run | `ok`, `code` |
+
+Every event carries `run`, the same correlation id fm stamps on each line of `~/frappe/logs/fm.log`, and every `command.*` event carries `cmd`, the same four characters that tag that command's lines in the log. So a run's stream and its log file can be read against each other:
+
+```bash
+fm --events json restart mybench.localhost > run.jsonl
+jq -r 'select(.event=="command.started") | "\(.cmd)  \(.argv)"' run.jsonl
+grep 'cmd=a3f1' ~/frappe/logs/fm.log     # the same command, in the log
+```
+
+A step is a unit of work opening, not a sentence fm printed. A command that polls while it waits -- `fm update` draining its queue -- re-states its progress every few seconds; that narration is not on this stream, so a wait of any length is one `step.started` and one `step.finished`.
+
+The stream always ends with `run.finished`. A reader that has seen it knows nothing more is coming, which is the one thing tailing a pipe cannot tell you on its own.
+
 ## Bench lifecycle
 
 | Command | What it does |

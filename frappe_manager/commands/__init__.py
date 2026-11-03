@@ -502,7 +502,6 @@ def app_callback(
 
             logger.info(f"RUNNING COMMAND: {redact_argv(sys.argv[1:])}")
             logger.info(f"LOG LEVEL: {level_name}")
-            logger.info("-" * 20)
 
             # Two commands must survive a host whose docker is already gone, because that host is
             # exactly where fm's leftovers would otherwise be permanent: `ssl ca` only ever touches
