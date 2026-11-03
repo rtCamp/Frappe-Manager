@@ -75,14 +75,17 @@ class NonInteractiveError(FrappeManagerException):
             solutions_text = "\n".join(f"  • {s}" for s in suggestions)
             full_message = f"{message}\n\nSolutions:\n{solutions_text}"
         else:
-            full_message = (
-                f"{message}\n\n"
-                "Solutions:\n"
-                "  • Provide required arguments explicitly\n"
-                "  • Run without --non-interactive for prompts\n"
-                "  • Use --help for available options"
-            )
-        super().__init__(full_message)
+            suggestions = [
+                "Provide required arguments explicitly",
+                "Run without --non-interactive for prompts",
+                "Use --help for available options",
+            ]
+            solutions_text = "\n".join(f"  • {s}" for s in suggestions)
+            full_message = f"{message}\n\nSolutions:\n{solutions_text}"
+        # Passed through to the base rather than assigned here: it owns `suggestions`, so setting
+        # the attribute before calling it just gets overwritten. `--json` reports them as `next`,
+        # and a program should not parse bullets back out of an error string.
+        super().__init__(full_message, suggestions=suggestions)
 
 
 class MissingArgumentError(NonInteractiveError):

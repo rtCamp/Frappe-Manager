@@ -4,6 +4,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands.arguments import BenchOnlyAllArgument, JsonFieldsOption, JsonResultOption, _apply_fields
+from frappe_manager.exceptions import MissingArgumentError
 from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, prompt_for_bench_selection, resolve_bench_targets
 
 from .bench_helpers import _bench_certificate_data, _list_bench_certificates
@@ -63,10 +64,12 @@ def list_certificates(
         address = prompt_for_bench_selection(address)
 
         if not address:
-            output = get_output_handler(ctx)
-            output.display_error("Benchname required in bench mode")
-            output.data_raw(ctx.get_help())
-            raise typer.Exit(2)
+            # Raised, not printed: a hand-written help dump goes to stdout as rich text, so a
+            # `--json` caller got no JSON at all for the failure it is most likely to hit.
+            raise MissingArgumentError(
+                "Benchname required in bench mode",
+                ["Name a bench, or pass 'all' for every bench and the external domains together"],
+            )
 
         _list_bench_certificates(ctx, address)
 
