@@ -227,7 +227,14 @@ class BenchOrchestrator:
                 try:
                     bench.app_manager._container_run(clear_cmd)
                 except Exception as e:
+                    # File-only until now, while the documented symptom -- the fresh site 404ing
+                    # until someone runs clear-cache by hand -- lands on the operator with no
+                    # clue that this step is the cause.
                     self.logger.warning(f"{bench.name}: clear-cache failed: {e}")
+                    self.output.warning(
+                        f"Could not clear the website route cache ({e}). The new site may answer 404 until you run: "
+                        f"fm shell {bench.name} -c 'bench --site {bench.site_name} clear-cache'"
+                    )
 
             self._report_created_bench(apps_installed)
             return apps_installed

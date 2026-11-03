@@ -2155,6 +2155,14 @@ class Bench:
         subnet = self._frontend_network_subnet()
         if subnet:
             wanted[conf_dir / "custom" / "real-ip.conf"] = build_bench_realip_conf(subnet)
+        else:
+            # Both detection paths swallow their failure, after which real-ip.conf is simply not
+            # written and every request in the access log carries the proxy's address instead of
+            # the client's -- which also defeats any rate limiting keyed on it.
+            self.output.warning(
+                "Could not determine fm's frontend network subnet, so real client IPs are not being "
+                "restored: access logs and rate limiting will see the proxy's address for every request."
+            )
 
         # The bench's own client_max_body_size: one directive must end up in every site's server
         # block, because nothing else ever wrote this file at create -- a bench came up on nginx's
@@ -2345,8 +2353,14 @@ class Bench:
                 self.admin_tools.save_nginx_location_config()
                 after = {p: p.read_text() for p in tool_confs if p.exists()}
                 changed = changed or after != before
-            except Exception:
-                pass
+            except Exception as e:
+                # The swallow hid two things: the conf may be half-written, and `changed` stays
+                # False so the reload below never runs. Both surface as /adminer or /mailpit 404
+                # after an auth change, with nothing in the log either.
+                self.output.warning(
+                    f"Could not re-render the admin tools nginx config ({e}); "
+                    "/adminer and /mailpit may not reflect this change until the bench is restarted."
+                )
 
         if changed:
             # The confs and the htpasswd are already on disk, so a reload that did not happen

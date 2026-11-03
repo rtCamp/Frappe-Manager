@@ -743,7 +743,12 @@ class ServicesManager:
             try:
                 self.compose_file_manager.yml["networks"][network]["ipam"]["config"][0]["subnet"] = cidr
             except (KeyError, IndexError):
-                pass
+                # The operator SET this in fm_config and it silently never lands on disk, so the
+                # services come up on an address range they did not choose.
+                self.output.warning(
+                    f"Configured subnet {cidr} could not be applied to the {network} network: "
+                    "the rendered compose file has no ipam config to pin it to."
+                )
 
         # Pin the proxy's static IP without dropping any other networks it's on
         if fm_config.network.proxy_ip:
@@ -761,7 +766,10 @@ class ServicesManager:
                 nets["frontend-network"] = entry
                 proxy_service["networks"] = nets
             except KeyError:
-                pass
+                self.output.warning(
+                    f"Configured proxy IP {fm_config.network.proxy_ip} could not be applied: "
+                    "the rendered compose file has no nginx-proxy service to pin it to."
+                )
 
     def ensure_shared_networks(self) -> list[str]:
         """Create any shared network docker does not have yet. Returns the ones created.

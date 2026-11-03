@@ -241,8 +241,14 @@ class BenchSupervisor:
         if common_site_config_path.exists():
             try:
                 config = json.loads(common_site_config_path.read_text())
-            except Exception:
-                pass
+            except Exception as e:
+                # Silently rendering from pure defaults drops every custom queue and gunicorn
+                # override the operator put in this file, and the first sign of it is a worker
+                # that stopped existing after a restart.
+                self.output.warning(
+                    f"Could not read {COMMON_SITE_CONFIG_FILE} ({e}); supervisor is being rendered from "
+                    "defaults, so custom workers and gunicorn settings in that file are not applied."
+                )
 
         web_worker_count = config.get("gunicorn_workers", self._get_gunicorn_workers())
         max_requests = config.get("gunicorn_max_requests", self._get_default_max_requests(web_worker_count))

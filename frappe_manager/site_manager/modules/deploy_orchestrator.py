@@ -1056,8 +1056,15 @@ class DeployOrchestrator:
         every abort path.
         """
         if self._frappe_running():
-            with contextlib.suppress(Exception):
+            try:
                 self.set_maintenance_mode(0)
+            except Exception as e:
+                # Suppressed, the site stays behind the maintenance page after a deploy the
+                # operator was told succeeded, and nothing anywhere names the cause.
+                self.output.warning(
+                    f"Could not take the site out of maintenance mode ({e}); it is still serving the "
+                    "maintenance page. Run 'fm maintenance disable' once the bench is healthy."
+                )
         self.resume_workers()
 
     def _site_installed_apps(self, site: str) -> set[str]:
@@ -1752,8 +1759,13 @@ class DeployOrchestrator:
             self._run_host_hook(self._switch_hook("after_restart", host=True), "host_after_restart", new_image)
         except DeployError:
             if maintenance:
-                with contextlib.suppress(Exception):
+                try:
                     self.set_maintenance_mode(0)
+                except Exception as e:
+                    self.output.warning(
+                        f"Could not take the site out of maintenance mode ({e}); it is still serving the "
+                        "maintenance page. Run 'fm maintenance disable' once the bench is healthy."
+                    )
             self._record(new_image, migrate_status, nginx_image=new_nginx_image, backups=db_dumps)
             # The image IS live and recorded -- the deploy committed; a failing post-restart hook
             # is surfaced but the outcome is success, not an abort.
