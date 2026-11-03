@@ -12,6 +12,7 @@ import pytest
 import typer
 
 from frappe_manager.commands.self.uninstall import uninstall
+from frappe_manager.output_manager import set_global_output_handler
 from frappe_manager.site_manager.modules.db_probe import CheckStatus
 from frappe_manager.utils.uninstall import PathEntry, TeardownPlan
 
@@ -27,8 +28,10 @@ def _run_uninstall(plan: TeardownPlan, docker, tmp_path) -> tuple[list[str], lis
     """Drive the real command and return (printed lines, warned lines)."""
     output = MagicMock()
     output.prompt_ask.return_value = "uninstall"
+    # The handler INSTANCE is swapped, never `get_global_output_handler` itself: the autouse
+    # fixture installs a real one and the project's testing rules forbid patching the getter.
+    set_global_output_handler(output)
     with (
-        patch("frappe_manager.commands.self.uninstall.get_global_output_handler", return_value=output),
         patch("frappe_manager.commands.self.uninstall.plan_teardown", return_value=plan),
         patch("frappe_manager.commands.self.uninstall.CLI_DIR", tmp_path / "nonexistent"),
         patch("frappe_manager.commands.self.uninstall.DockerClient", return_value=docker),
@@ -89,9 +92,9 @@ class TestTheUninstallSummaryCountsWhatWent:
 
         output = MagicMock()
         output.prompt_ask.return_value = "uninstall"
+        set_global_output_handler(output)
         with (
-            patch("frappe_manager.commands.self.uninstall.get_global_output_handler", return_value=output),
-            patch("frappe_manager.commands.self.uninstall.plan_teardown", return_value=plan),
+                patch("frappe_manager.commands.self.uninstall.plan_teardown", return_value=plan),
             patch("frappe_manager.commands.self.uninstall.CLI_DIR", tmp_path / "nonexistent"),
             patch("frappe_manager.commands.self.uninstall.DockerClient", return_value=_dead_docker()),
             patch("frappe_manager.commands.self.uninstall.TrustStoreManager") as trust,

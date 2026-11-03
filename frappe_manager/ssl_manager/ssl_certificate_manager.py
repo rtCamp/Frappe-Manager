@@ -451,7 +451,7 @@ class SSLCertificateManager:
         test_ca: bool,
         force: bool,
         skip_nginx_restart: bool = False,
-    ):
+    ) -> bool:
         """
         Core renewal logic for a single certificate.
 
@@ -529,12 +529,15 @@ class SSLCertificateManager:
                     f"Renewed {certificate.domain}, but could not update the certificate link ({e}); "
                     "nginx is still serving the previous certificate."
                 )
-                return
+                return False
 
             if not skip_nginx_restart:
                 self.nginx_controller.restart()
 
             self.output_handler.print(f"Successfully renewed {certificate.domain}")
+            return True
+
+        return False
 
     def renew_certificate(self, domain: str | None = None, test_ca: bool = False, force: bool = False):
         self.logger.info(
@@ -569,13 +572,17 @@ class SSLCertificateManager:
             self.logger.debug("Enabled staging mode for test-CA rehearsal")
 
         with _letsencrypt_staging(test_ca):
-            self._renew_single_certificate(
+            # The file log must not disagree with the terminal: a failed re-link leaves nginx on
+            # the old certificate, so "renewed successfully" there would outlive the honest
+            # warning the operator saw.
+            renewed = self._renew_single_certificate(
                 certificate=certificate,
                 test_ca=test_ca,
                 force=force,
                 skip_nginx_restart=False,
             )
-            self.logger.info("Certificate renewed successfully", extra_fields={"domain": certificate.domain})
+            if renewed:
+                self.logger.info("Certificate renewed successfully", extra_fields={"domain": certificate.domain})
 
     def renew_all_certificates(self, test_ca: bool = False, force: bool = False):
         """
