@@ -7,6 +7,7 @@ Extracted from the monolithic Bench class for better separation of concerns.
 
 import time
 import json
+import shlex
 import multiprocessing
 from jinja2 import Template
 from frappe_manager.utils.helpers import get_template_path
@@ -214,6 +215,8 @@ class BenchSupervisor:
         # --threads from the gunicorn master cmdline, so gthread is the intended worker type.
         # Default 2 threads per worker; overridable via common_site_config.json.
         gunicorn_threads = config.get("gunicorn_threads", self._get_gunicorn_threads())
+        gunicorn_keep_alive = config.get("gunicorn_keep_alive")  # omit when unset; 0 is still emitted (is-not-None guard)
+        gunicorn_worker_tmp_dir = config.get("gunicorn_worker_tmp_dir")  # omit when unset or empty (truthiness guard)
 
         context = {
             "bench_dir": CONTAINER_BENCH_DIR,
@@ -227,6 +230,8 @@ class BenchSupervisor:
             "gunicorn_max_requests": max_requests,
             "gunicorn_max_requests_jitter": self._compute_max_requests_jitter(max_requests),
             "gunicorn_threads": gunicorn_threads,
+            "gunicorn_keep_alive": gunicorn_keep_alive,
+            "gunicorn_worker_tmp_dir": gunicorn_worker_tmp_dir,
             "bench_name": "frappe-bench",
             "background_workers": config.get("background_workers") or 1,
             "bench_cmd": "/opt/user/.bin/bench",
@@ -387,8 +392,12 @@ class BenchSupervisor:
             f" --max-requests-jitter {context['gunicorn_max_requests_jitter']}"
             f" -t {context['http_timeout']}"
             f" --graceful-timeout 30"
-            f" frappe.app:application --preload"
         )
+        if context.get("gunicorn_keep_alive") is not None:
+            gunicorn_args += f" --keep-alive {shlex.quote(str(context['gunicorn_keep_alive']))}"
+        if context.get("gunicorn_worker_tmp_dir"):
+            gunicorn_args += f" --worker-tmp-dir {shlex.quote(str(context['gunicorn_worker_tmp_dir']))}"
+        gunicorn_args += " frappe.app:application --preload"
 
         template_path = get_template_path("fm-web-server.sh.tmpl")
         script = Template(template_path.read_text()).render(
