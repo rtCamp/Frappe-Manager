@@ -133,3 +133,31 @@ class TestTheLiveHandlerPromptFuzzy:
         handler = SinkOutputHandler(terminal=None, sinks=[])
 
         assert handler.prompt_fuzzy(prompt="Select bench", choices=["a", "b"], default="a") == "a"
+
+
+@pytest.mark.unit
+class TestWhatAnswersAHeadlessPrompt:
+    """`prompt_ask` gates state changes and `prompt_fuzzy` picks from a list, so they may not
+    treat a default the same way. A green suite once shipped them identical."""
+
+    def test_yes_answers_a_confirmation_without_a_terminal(self):
+        """--yes means "do the thing I typed": the refusal used to be raised before the flag was
+        ever read, which made it useless in a script."""
+        handler = SinkOutputHandler(terminal=None, sinks=[])
+
+        assert handler.prompt_ask(prompt="Upgrade?", choices=["yes", "no"], force_yes=True) == "yes"
+
+    def test_a_default_does_not_answer_a_state_changing_prompt(self):
+        """The migration gate prompts with default="update". Honouring a default here starts a
+        migration a scripted run never asked for; pressing enter is something only a person does."""
+        handler = SinkOutputHandler(terminal=None, sinks=[])
+
+        with pytest.raises(NonInteractiveError) as refusal:
+            handler.prompt_ask(
+                prompt="How would you like to proceed?",
+                choices=["update", "skip"],
+                default="update",
+                required_flag="'fm migrate BENCH'",
+            )
+
+        assert "'fm migrate BENCH'" in refusal.value.suggestions[0]
