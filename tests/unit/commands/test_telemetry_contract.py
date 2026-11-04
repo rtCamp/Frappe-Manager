@@ -195,14 +195,13 @@ class TestEnable:
 
         assert world.saves == 1
 
-    def test_an_already_enabled_bench_is_reported_not_re_applied(self, world):
+    def test_an_already_enabled_bench_is_not_re_applied(self, world):
         """The retired `fm update --newrelic` had no equality check, so a repeat destroyed and
         recreated the web container every time."""
         world.store(enabled=True, license_key="stored-key")
 
         world.enable()
 
-        assert any("already enabled" in line for line in world.prints)
         assert world.compose_up_calls == []
         assert world.saves == 0
 
@@ -257,19 +256,17 @@ class TestDisable:
 
         world.bench.supervisor.setup_newrelic.assert_called_once_with(world.bench_path, force=False)
 
-    def test_an_already_disabled_bench_is_reported_not_re_applied(self, world):
+    def test_an_already_disabled_bench_is_not_re_applied(self, world):
         world.store(enabled=False, license_key="stored-key")
 
         world.disable()
 
-        assert any("already disabled" in line for line in world.prints)
         assert world.compose_up_calls == []
         assert world.saves == 0
 
     def test_a_never_configured_bench_is_already_disabled(self, world):
         world.disable()
 
-        assert any("already disabled" in line for line in world.prints)
         assert world.saves == 0
 
 

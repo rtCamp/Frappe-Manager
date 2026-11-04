@@ -77,7 +77,6 @@ def disable(
         orphans.append(domain)
 
     if not disabled and not orphans:
-        output.print("Maintenance was not enabled")
         return
     services.nginx_controller.reload()
     # `disabled`, not `domains`: the loop skips domains with no active fragment, so printing

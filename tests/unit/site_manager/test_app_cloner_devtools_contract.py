@@ -273,22 +273,6 @@ def test_parallel_clone_aggregates_every_failure_into_one_error(tmp_path, monkey
 
 
 @pytest.mark.timeout(15)
-def test_parallel_clone_reports_each_success_with_a_tick(tmp_path, monkeypatch):
-    output = _out()
-    cloner = _cloner(tmp_path, output=output)
-    _fake_clone_from(monkeypatch)
-
-    result = cloner.clone_apps_parallel([_app("erpnext", "frappe/erpnext"), _app("hrms", "frappe/hrms")])
-
-    assert result == {
-        "erpnext": cloner.apps_dir / "erpnext",
-        "hrms": cloner.apps_dir / "hrms",
-    }
-    assert sorted(c.args[0] for c in output.print.call_args_list) == ["Cloned erpnext", "Cloned hrms"]
-    assert {c.kwargs["emoji_code"] for c in output.print.call_args_list} == {":white_check_mark:"}
-
-
-@pytest.mark.timeout(15)
 def test_parallel_clone_works_without_an_output_handler(tmp_path, monkeypatch):
     """`self.output` is optional; every print is guarded."""
     cloner = AppCloner(tmp_path / "apps")
@@ -297,7 +281,6 @@ def test_parallel_clone_works_without_an_output_handler(tmp_path, monkeypatch):
     assert cloner.clone_apps_parallel([_app("erpnext", "frappe/erpnext")]) == {
         "erpnext": cloner.apps_dir / "erpnext",
     }
-
 
 @pytest.mark.timeout(15)
 def test_renaming_to_the_python_module_name_is_reflected_in_the_result_and_the_config(tmp_path, monkeypatch):
@@ -623,7 +606,7 @@ def test_extraction_reports_the_final_app_name(tmp_path, monkeypatch):
 
     cloner._clone_monorepo_apps([_app("one", "acme/mono", subdir_path="apps/one")])
 
-    output.print.assert_called_once_with("Extracted one_module", emoji_code=":white_check_mark:")
+    output.info.assert_called_once_with("Extracted one_module")
 
 
 def test_extraction_copies_symlinks_as_symlinks(tmp_path, monkeypatch):
@@ -1037,7 +1020,7 @@ def test_debugger_config_writes_the_three_vscode_files_and_installs_ruff(devtool
         user="frappe",
         stream=False,
     )
-    tools.output.print.assert_called_with("Synced vscode debugger configuration")
+    tools.output.info.assert_called_with("Synced vscode debugger configuration")
 
 
 def test_config_files_are_written_sorted_and_indented(devtools):

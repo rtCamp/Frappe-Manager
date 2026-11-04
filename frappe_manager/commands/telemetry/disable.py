@@ -48,9 +48,8 @@ def disable(
 
     enabled, _ = describe_newrelic(bench)
     if not enabled:
-        # Reported, not raised: an already-disabled bench is this command's goal state, the same
-        # way `fm tools disable` treats it.
-        output.print(f"{provider.value} is already disabled on {bench.name}")
+        # Not raised: an already-disabled bench is this command's goal state, the same way
+        # `fm tools disable` treats it.
         return
 
     with spinner(output, f"Disabling {provider.value}"):

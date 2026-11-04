@@ -1358,9 +1358,7 @@ class DeployOrchestrator:
                 self.output.print(f"Migrations applied to {site}")
 
         _persist()
-        if not custom:
-            self.output.print(f"Migrations applied ({len(self.sites)} site(s))")
-        else:
+        if custom:
             self.output.print("Migrations applied")
         return True
 
@@ -1603,7 +1601,6 @@ class DeployOrchestrator:
             )
         except DockerException as e:
             raise DeployError(f"Pre-flight boot check failed for {new_image}; aborting deploy: {e}") from e
-        self.output.print("Pre-flight boot check passed")
 
         backup_dir = self.bench_path / "backups" / f"deploy-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
         db_dumps: dict[str, Path] = {}
@@ -1810,7 +1807,7 @@ class DeployOrchestrator:
             )
         if not do_rolling:
             self._ensure_nginx()
-        self.output.print("New containers are healthy")
+        self.output.info("New containers are healthy")
 
         self.output.change_head("Finalizing (resume workers, install new apps, clear cache, maintenance off)")
         self.resume_workers()
@@ -1953,7 +1950,7 @@ class DeployOrchestrator:
         self.config.export_to_toml(self._config_path())
         self.output.print(
             f"Pruned {summary['entries']} old release(s): {len(summary['backups'])} backup dir(s), "
-            f"{removed_images} image(s); kept {summary['kept']}.",
+            f"{removed_images} image(s); kept {summary['kept']}",
             emoji_code=":broom:",
         )
         if refused:

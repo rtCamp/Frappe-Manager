@@ -642,7 +642,7 @@ def _install_db_ca(bench: Bench, plan: UpdatePlan, output) -> None:
     # No restart notice: config/ is bind-mounted as a directory into frappe, socketio, schedule and
     # the workers, and the copy rewrites the same file in place, so running containers already see it.
     if plan.db_ca_had_previous:
-        output.print("Running containers read the new CA on their next database connection; no restart needed.")
+        output.info("Running containers read the new CA on their next database connection; no restart needed.")
     else:
         output.warning(
             f"{bench.site_name} was configured without database TLS: sites/{bench.site_name}/site_config.json "
@@ -663,7 +663,7 @@ def _setup_runtime(bench: Bench, plan: UpdatePlan, output) -> None:
     venv_recreated = bench.app_manager.setup_python_and_node_environments(
         use_run=True, recreate_python_env=plan.recreate_python_env
     )
-    output.print("Runtime versions updated successfully")
+    output.print("Runtime versions updated")
 
     if venv_recreated:
         # `recreate_venv` left the pre-repair venv as env.bak and this is the only place that can
@@ -679,7 +679,7 @@ def _setup_runtime(bench: Bench, plan: UpdatePlan, output) -> None:
                     for name in installed_apps
                 ]
                 output.change_head("Reinstalling apps into new virtual environment")
-                output.print(f"Found {len(apps_list)} installed apps: {', '.join([a.name for a in apps_list])}")
+                output.info(f"Found {len(apps_list)} installed apps: {', '.join([a.name for a in apps_list])}")
                 bench.app_manager.install_apps(
                     apps_list=apps_list,
                     github_token=bench.bench_config.github_token,
@@ -687,7 +687,7 @@ def _setup_runtime(bench: Bench, plan: UpdatePlan, output) -> None:
                     skip_clone=True,
                     use_run=True,
                 )
-                output.print("All apps reinstalled successfully")
+                output.print("All apps reinstalled")
             else:
                 output.warning("No apps.txt found, skipping app reinstallation")
         except Exception:

@@ -102,7 +102,7 @@ class AcmeShCertificateService:
                 account_conf.write_text(content)
                 self.output.info(f"Enabled logging in {account_conf}")
 
-            self.output.print("acme.sh installed successfully")
+            self.output.print("acme.sh installed")
             AcmeShCertificateService._acmesh_installed = True
         except subprocess.CalledProcessError as e:
             error_msg = f"Failed to install acme.sh: {e.stderr}"
@@ -340,7 +340,7 @@ class AcmeShCertificateService:
             raise SSLCertificateNotFoundError(certificate.domain)
 
         if test_ca:
-            self.output.print(f"[fm.ok]Certificate generated successfully (staging) for {certificate.domain}[/fm.ok]")
+            self.output.print(f"Certificate generated (staging) for {certificate.domain}")
             self.output.print(
                 "[fm.warn]Skipped: Copying certificate files (test-CA rehearsal)[/fm.warn]",
                 emoji_code=":fast_forward:",
@@ -357,7 +357,7 @@ class AcmeShCertificateService:
         shutil.copy(fullchain_path, dest_fullchain)
         shutil.copy(key_path, dest_key)
 
-        self.output.print(f"Certificate generated successfully for {certificate.domain}")
+        self.output.info(f"Certificate generated successfully for {certificate.domain}")
         return (dest_key, dest_fullchain)
 
     def renew_certificate(self, certificate: SSLCertificate, test_ca: bool = False) -> bool:
@@ -436,7 +436,7 @@ class AcmeShCertificateService:
 
         if fullchain_path.exists() and key_path.exists():
             if test_ca:
-                self.output.print(f"[fm.ok]Certificate renewed successfully (staging) for {certificate.domain}[/fm.ok]")
+                self.output.print(f"Certificate renewed (staging) for {certificate.domain}")
                 self.output.print(
                     "[fm.warn]Skipped: Copying certificate files (test-CA rehearsal)[/fm.warn]",
                     emoji_code=":fast_forward:",
@@ -452,7 +452,7 @@ class AcmeShCertificateService:
             shutil.copy(fullchain_path, dest_fullchain)
             shutil.copy(key_path, dest_key)
 
-            self.output.print(f"Certificate renewed successfully for {certificate.domain}")
+            self.output.info(f"Certificate renewed successfully for {certificate.domain}")
             return True
 
         self.output.display_error(f"Renewed certificate files not found for {certificate.domain}")
@@ -492,9 +492,7 @@ class AcmeShCertificateService:
                 self.output.warning(f"Failed to remove acme.sh directory {acmesh_internal_dir}: {e}")
 
         success = result.returncode == 0
-        if success:
-            self.output.print(f"Certificate removed successfully for {certificate.domain}")
-        else:
+        if not success:
             self.output.display_error(f"Failed to remove certificate for {certificate.domain}")
 
         return success

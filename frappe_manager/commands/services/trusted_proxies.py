@@ -82,8 +82,8 @@ def _apply_downstream_trust(services, output) -> None:
     services.compose_file_manager.write_to_file()
     if not services.is_service_running("nginx-proxy"):
         return
-    output.print("Recreating the proxy to apply its forwarded-header trust")
     services.docker_client.compose.up(services=["nginx-proxy"], detach=True, force_recreate=True, stream=False)
+    output.print("Recreated the proxy to apply its forwarded-header trust")
 
 
 @example(
@@ -299,7 +299,6 @@ def clear(ctx: typer.Context):
     conf_path = Path(services.proxy_storage.dirs.confd.host) / PROXY_CONF_FILENAME
 
     if not (conf_path.exists() and is_fm_realip_conf(conf_path.read_text())):
-        output.print("No proxies were trusted")
         return
 
     conf_path.unlink()

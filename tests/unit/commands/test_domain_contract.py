@@ -120,7 +120,7 @@ class TestDomainAdd:
             ["www.new.com"], benches_root=world.benches_root, exclude_bench=BENCH, skip_check=False
         )
         world.bench.update_alias_domains.assert_called_once_with(add_domains=["www.new.com"], site="shop")
-        assert world.prints == ["Alias domains updated successfully"]
+        assert world.prints == ["Alias domains updated"]
 
     def test_bare_bench_attaches_to_primary_site(self, world):
         world.add(["www.new.com"])
@@ -201,7 +201,7 @@ class TestDomainRemove:
         world.remove(domain="www.shop.com")
 
         world.bench.update_alias_domains.assert_called_once_with(remove_domains=["www.shop.com"], site="shop.local")
-        assert world.prints == ["Alias domains updated successfully"]
+        assert world.prints == ["Alias domains updated"]
 
     def test_refuses_a_sites_own_canonical_domain(self, world):
         world.bench.bench_config.sites = {BENCH: SiteConfig(alias_domains=[])}

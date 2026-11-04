@@ -145,7 +145,6 @@ def check_bench_migration_required(bench_name: str | None) -> None:
             )
 
         output.warning(f"Bench migration required: {bench_name} (v{bench_version} → v{fm_version})\n", emoji_code="")
-        output.print("Bench migration updates configuration and applies necessary changes.\n", emoji_code="")
         output.print(f"Run: [fm.info]fm migrate {bench_name}[/fm.info]\n", emoji_code="")
         # Exit 1, not 0: this refuses the command without doing anything, so `fm start x && ...`
         # and any CI step or systemd unit checking $? must see a failure.
@@ -469,7 +468,7 @@ def app_callback(
                 if CLI_DIR.exists():
                     output.display_error(f"{CLI_DIR} exists but is not a directory! Aborting!")
                     raise typer.Exit(1)
-                output.print(f"fm directory doesn't exists! Created at -> {CLI_DIR!s}")
+                output.info(f"fm directory doesn't exists! Created at -> {CLI_DIR!s}")
             CLI_DIR.mkdir(parents=True, exist_ok=True)
             CLI_BENCHES_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
@@ -546,7 +545,7 @@ def app_callback(
             # available" -- the exact stall the prefetch exists to prevent, reachable by running
             # the most innocuous command first.
             if needs_stock_images and stock_images_missing():
-                output.print("Some images this needs are not on the machine yet. Pulling them...️", "🔍")
+                output.debug("Some images this needs are not on the machine yet. Pulling them...️", "🔍")
 
                 completed_status = pull_docker_images()
 

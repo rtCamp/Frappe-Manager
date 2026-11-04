@@ -153,7 +153,7 @@ def _add_external_certificate(
         cert = build_letsencrypt_certificate(domain, challenge, cname)
 
         if cname:
-            output.print(f"Using CNAME delegation: {cname}", emoji_code=":information:")
+            output.info(f"Using CNAME delegation: {cname}", emoji_code=":information:")
 
             if not skip_dns_check:
                 from frappe_manager.ssl_manager.dns_validator import DNSValidator
@@ -208,7 +208,7 @@ def _add_external_certificate(
                         output.print("To wait for propagation, use: --wait-for-dns", emoji_code="")
                         raise typer.Exit(1)
 
-                    output.print("CNAME record verified", emoji_code=":white_check_mark:")
+                    output.info("CNAME record verified", emoji_code=":white_check_mark:")
         elif not skip_dns_check and challenge == LETSENCRYPT_PREFERRED_CHALLENGE.http01:
             from frappe_manager.ssl_manager.dns_validator import DNSValidator
 
@@ -217,7 +217,7 @@ def _add_external_certificate(
             validation = validator.validate_a_record(domain)
 
             if validation.valid:
-                output.print(f"Domain resolves to {validation.actual_value}", emoji_code=":white_check_mark:")
+                output.info(f"Domain resolves to {validation.actual_value}", emoji_code=":white_check_mark:")
             else:
                 output.warning(f"Domain {domain} doesn't have an A record")
                 output.print("HTTP-01 challenge may fail if DNS is not configured correctly.", emoji_code="")
@@ -229,7 +229,6 @@ def _add_external_certificate(
 
         output.change_head(f"Setting up nginx configuration for {domain}")
         standalone_nginx.create_http_config(domain)
-        output.print("Created HTTP configuration for ACME challenge", emoji_code=":white_check_mark:")
 
         output.change_head("Reloading nginx to apply configuration")
         nginx_controller.reload()
@@ -258,7 +257,6 @@ def _add_external_certificate(
             output.change_head(f"Enabling HTTPS for {domain}")
             try:
                 standalone_nginx.create_https_config(domain)
-                output.print("Created HTTPS configuration", emoji_code=":white_check_mark:")
 
                 nginx_controller.reload()
             except Exception as post_cert_error:
@@ -303,7 +301,6 @@ def _add_external_certificate(
             )
 
             output.print(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
-            output.print("Certificate configured successfully", emoji_code=":zap:")
             output.print("", emoji_code="")
             output.print("[fm.accent]To use this certificate in your Docker project:[/fm.accent]", emoji_code="")
             output.print("", emoji_code="")
@@ -409,7 +406,7 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
 
         output.change_head(f"Removing nginx configuration for {domain}")
         standalone_nginx.remove_config(domain)
-        output.print("Removed nginx configuration", emoji_code=":white_check_mark:")
+        output.info("Removed nginx configuration", emoji_code=":white_check_mark:")
 
         nginx_controller.reload()
 
@@ -641,8 +638,8 @@ def _list_external_certificates(ctx: typer.Context):
     output.print_data(railcard.cards([_external_certificate_card(row) for row in rows]))
 
     if any(row["status"] == "no_ssl" for row in rows):
-        output.print("\n[fm.warn]💡 Tip: Add SSL certificates for non-SSL domains:[/fm.warn]", emoji_code="")
-        output.print("[fm.muted]  fm ssl add --standalone <domain>[/fm.muted]", emoji_code="")
+        output.info("\n[fm.warn]💡 Tip: Add SSL certificates for non-SSL domains:[/fm.warn]", emoji_code="")
+        output.info("[fm.muted]  fm ssl add --standalone <domain>[/fm.muted]", emoji_code="")
 
 
 def _renew_external_certificate(ctx: typer.Context, domain: str, test_ca: bool, force: bool = False):

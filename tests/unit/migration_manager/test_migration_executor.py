@@ -644,4 +644,4 @@ class TestDryRun:
         assert "migration plan" in plan
         assert "v0.19.0" in plan
         assert "opensource.rtcamp.com" in plan
-        assert "Dry run: nothing migrated." in " ".join(str(c) for c in mock_output.print.call_args_list)
+        assert "Dry run: nothing migrated" in " ".join(str(c) for c in mock_output.print.call_args_list)

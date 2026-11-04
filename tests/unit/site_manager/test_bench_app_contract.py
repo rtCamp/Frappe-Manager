@@ -479,7 +479,7 @@ class TestInstallPythonDeps:
             f"{UV_INSTALL}frappe",
             f"{UV_INSTALL}erpnext",
         ]
-        assert _said(manager.output.warning, "succeeded on retry")
+        assert _said(manager.output.print, "fallback (first attempt failed)")
 
     def test_the_retry_passes_no_exception_object(self, tmp_path):
         manager = _manager(tmp_path)
@@ -518,7 +518,7 @@ class TestInstallPythonDeps:
         manager._install_python_deps_with_uv([AppConfig.from_string("frappe")])
 
         assert _commands(manager) == ["which uv", f"{UV_INSTALL}frappe"]
-        assert _said(manager.output.warning, "succeeded on retry")
+        assert _said(manager.output.print, "fallback (first attempt failed)")
 
 
 class TestInstallNodeDeps:
@@ -573,7 +573,7 @@ class TestInstallApps:
         )
 
         assert manager.install_apps([]) == []
-        assert _said(manager.output.print, "No apps to install")
+        assert _said(manager.output.debug, "No apps to install")
         recorder.python_deps.assert_not_called()
         recorder.build.assert_not_called()
 
@@ -800,7 +800,7 @@ class TestGraftApps:
         # the replaced copy is gone, the clone took its place
         assert (manager.frappe_bench_dir / "apps" / "erpnext" / "cloned").exists()
         assert not (manager.frappe_bench_dir / "apps" / "erpnext" / "uncommitted.py").exists()
-        assert _said(manager.output.print, "Replacing app erpnext (frappe/erpnext:develop)")
+        assert _said(manager.output.info, "Replacing app erpnext (frappe/erpnext:develop)")
 
     def test_a_new_app_is_reported_as_added_and_appended_to_apps_txt(self, graft_manager):
         manager = graft_manager(apps_txt="frappe\nerpnext\n", existing_apps=("frappe", "erpnext"))
@@ -810,7 +810,7 @@ class TestGraftApps:
         assert added == ["hrms"]
         assert stash_dir is None
         assert (manager.frappe_bench_dir / "sites" / "apps.txt").read_text() == "frappe\nerpnext\nhrms\n"
-        assert _said(manager.output.print, "Adding app hrms (frappe/hrms:main)")
+        assert _said(manager.output.info, "Adding app hrms (frappe/hrms:main)")
 
     def test_frappe_is_never_reported_as_installable_to_a_site(self, graft_manager):
         manager = graft_manager(apps_txt="erpnext\n", existing_apps=("erpnext",))
@@ -825,7 +825,7 @@ class TestGraftApps:
 
         manager.graft_apps([AppConfig.from_string("hrms")])
 
-        assert _said(manager.output.print, "Adding app hrms (frappe/hrms:default)")
+        assert _said(manager.output.info, "Adding app hrms (frappe/hrms:default)")
 
     def test_stash_true_moves_the_replaced_code_aside_intact(self, graft_manager):
         manager = graft_manager(apps_txt="frappe\nerpnext\n", existing_apps=("frappe", "erpnext"))
@@ -1403,7 +1403,7 @@ class TestSetupEnvironmentsPython:
 
         assert manager.setup_python_and_node_environments() is False
         assert _commands(manager) == [PY_VERSION_CMD]
-        assert _said(manager.output.print, "✓ Python 3.12 already satisfies >=3.10,<3.14 - skipping installation")
+        assert _said(manager.output.debug, "✓ Python 3.12 already satisfies >=3.10,<3.14 - skipping installation")
 
     def test_the_skip_message_names_frappes_own_requirement_when_readable(self, tmp_path):
         frappe_bench = _bench_layout(tmp_path)
@@ -1417,7 +1417,7 @@ class TestSetupEnvironmentsPython:
 
         manager.setup_python_and_node_environments()
 
-        assert _said(manager.output.print, "(Frappe requires: >=3.10,<3.14)")
+        assert _said(manager.output.debug, "(Frappe requires: >=3.10,<3.14)")
 
     def test_frappes_requirement_is_read_under_the_bench_dir_not_the_config_file(self, tmp_path):
         """In production ``bench_config.root_path`` is the bench_config.toml FILE, not the bench
@@ -1437,7 +1437,7 @@ class TestSetupEnvironmentsPython:
 
         manager.setup_python_and_node_environments()
 
-        assert _said(manager.output.print, "(Frappe requires: >=3.10,<3.14)")
+        assert _said(manager.output.debug, "(Frappe requires: >=3.10,<3.14)")
 
     def test_an_unsatisfied_requirement_reuses_the_newest_installed_interpreter(self, tmp_path):
         manager = _manager(tmp_path)
@@ -1466,9 +1466,9 @@ class TestSetupEnvironmentsPython:
         assert _find(commands, "uv python install") == []
         assert "ln -sf python/cpython-3.14.0-linux-aarch64-gnu python-default" in _find(commands, SYMLINK_MARKER)[0]
         assert _find(commands, VENV_MARKER) == []
-        assert _said(manager.output.print, "Found Python 3.14.0 satisfying ^3.13")
-        assert _said(manager.output.print, "Python 3.11 does not satisfy ^3.13 - will recreate venv")
-        assert _said(manager.output.print, "Skipping venv recreation")
+        assert _said(manager.output.debug, "Found Python 3.14.0 satisfying ^3.13")
+        assert _said(manager.output.debug, "Python 3.11 does not satisfy ^3.13 - will recreate venv")
+        assert _said(manager.output.debug, "Skipping venv recreation")
 
     def test_no_usable_interpreter_installs_one_and_relinks_the_detected_dir(self, tmp_path):
         manager = _manager(tmp_path)
@@ -1490,8 +1490,7 @@ class TestSetupEnvironmentsPython:
             "ls -1 /workspace/frappe-bench/.uv/python/ | grep '^cpython-3.11' | sort -V | tail -1",
         ]
         assert "ln -sf python/cpython-3.11.9-linux-aarch64-gnu python-default" in _find(commands, SYMLINK_MARKER)[0]
-        assert _said(manager.output.print, "Installing Python 3.11 via uv..")
-        assert _said(manager.output.print, "Installed Python 3.11 via uv")
+        assert _said(manager.output.info, "Installed Python 3.11 via uv")
 
     def test_an_undetectable_install_falls_back_to_the_bare_cpython_name(self, tmp_path):
         manager = _manager(tmp_path)
@@ -1635,7 +1634,7 @@ class TestSetupEnvironmentsNode:
 
         assert manager.setup_python_and_node_environments() is False
         assert _commands(manager) == ["node --version"]
-        assert _said(manager.output.print, "Node 20 already satisfies >=18 - skipping installation")
+        assert _said(manager.output.debug, "Node 20 already satisfies >=18 - skipping installation")
 
     def test_a_failing_node_probe_falls_through_to_installing(self, tmp_path):
         manager = _manager(tmp_path)
@@ -1663,7 +1662,7 @@ class TestSetupEnvironmentsNode:
 
         manager.setup_python_and_node_environments()
 
-        assert _said(manager.output.print, "(Frappe requires: >=18)")
+        assert _said(manager.output.debug, "(Frappe requires: >=18)")
 
     def test_frappes_engine_range_is_read_under_the_bench_dir_not_the_config_file(self, tmp_path):
         """Same production shape as the Python side: ``root_path`` is the config FILE."""
@@ -1677,7 +1676,7 @@ class TestSetupEnvironmentsNode:
 
         manager.setup_python_and_node_environments()
 
-        assert _said(manager.output.print, "(Frappe requires: >=18)")
+        assert _said(manager.output.debug, "(Frappe requires: >=18)")
 
     def test_an_already_present_version_is_not_reinstalled(self, tmp_path):
         manager = _manager(tmp_path)
@@ -1701,9 +1700,9 @@ class TestSetupEnvironmentsNode:
             "fnm default 18",
             "yarn --version",
         ]
-        assert _said(manager.output.print, "Node 18 already installed")
-        assert _said(manager.output.print, "Set Node 18 as default")
-        assert _said(manager.output.print, "Yarn is available for Node 18")
+        assert _said(manager.output.debug, "Node 18 already installed")
+        assert _said(manager.output.info, "Set Node 18 as default")
+        assert _said(manager.output.debug, "Yarn is available for Node 18")
 
     def test_a_missing_version_is_installed_then_made_default(self, tmp_path):
         manager = _manager(tmp_path)
@@ -1728,8 +1727,7 @@ class TestSetupEnvironmentsNode:
             "fnm default 18",
             "yarn --version",
         ]
-        assert _said(manager.output.print, "Installing Node 18 via fnm..")
-        assert _said(manager.output.print, "Installed Node 18 via fnm")
+        assert _said(manager.output.info, "Installed Node 18 via fnm")
 
     def test_a_failed_install_warns_and_skips_the_rest_of_the_node_stage(self, tmp_path):
         manager = _manager(tmp_path)

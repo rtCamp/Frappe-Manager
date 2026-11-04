@@ -418,7 +418,7 @@ class MigrationV100(MigrationBase):
         environment["LOG_FORMAT"] = desired
         environment["LOG_FORMAT_ESCAPE"] = "json"
         compose_path.write_text(_dump_yaml(doc))
-        self.output.print("Updated the global proxy's access-log format")
+        self.output.info("Updated the global proxy's access-log format")
 
     def _add_proxy_fmd_mount(self) -> bool:
         """Give an existing services compose the `fm.d` mount `ProxyDropins` fragments need.
@@ -458,7 +458,7 @@ class MigrationV100(MigrationBase):
 
         volumes.append(mount)
         compose_path.write_text(_dump_yaml(doc))
-        self.output.print("Added the fm.d fragment mount to the global proxy")
+        self.output.info("Added the fm.d fragment mount to the global proxy")
         return True
 
     def _convert_proxy_vhostd_to_fragments(self):
@@ -783,7 +783,7 @@ class MigrationV100(MigrationBase):
         nginx["depends_on"] = wanted
         with compose_path.open("w") as f:
             yaml.dump(compose_data, f)
-        self.output.print(f"Ordered nginx after {', '.join(wanted)} for {bench.name}")
+        self.output.info(f"Ordered nginx after {', '.join(wanted)} for {bench.name}")
 
     def _heal_adminer_mount(self, bench: MigrationBench, compose_path: Path) -> None:
         """Place the login plugin, and recreate the container if that just recreated its directory.
@@ -876,7 +876,7 @@ class MigrationV100(MigrationBase):
         conf_dir = bench.path / "configs" / "nginx" / "conf" / "custom"
         conf_dir.mkdir(parents=True, exist_ok=True)
         (conf_dir / "real-ip.conf").write_text(build_bench_realip_conf(str(subnet)))
-        self.output.print(f"Placed bench nginx real-ip conf for {bench.name}")
+        self.output.info(f"Placed bench nginx real-ip conf for {bench.name}")
 
     def _migrate_upload_limit_layout(self, bench: MigrationBench) -> None:
         """Move `client_max_body_size` from the flat `custom/upload-limit.conf` to one file per
@@ -957,7 +957,7 @@ class MigrationV100(MigrationBase):
             )
 
         if changed:
-            self.output.print(
+            self.output.info(
                 f"Moved {bench.name}'s nginx upload limit to the "
                 f"{'per-site' if per_site else 'flat'} conf layout"
             )
@@ -972,7 +972,7 @@ class MigrationV100(MigrationBase):
             return
         self.backup_manager.backup(default_conf, bench_name=bench.name)
         default_conf.unlink()
-        self.output.print(f"Removed generated nginx default.conf for {bench.name} (re-rendered on start)")
+        self.output.info(f"Removed generated nginx default.conf for {bench.name} (re-rendered on start)")
 
     def _move_admin_tools_credentials(self, bench: MigrationBench):
         """Move the old top-level admin tools credentials into the [auth] table.
@@ -1055,7 +1055,7 @@ class MigrationV100(MigrationBase):
             return
 
         toml_document.save(config_path, doc)
-        self.output.print(f"Dropped removed config {', '.join(dropped)} for {bench.name}")
+        self.output.info(f"Dropped removed config {', '.join(dropped)} for {bench.name}")
 
     def _rename_schema_table(self, bench: MigrationBench):
         """Rename `[migration_state]` to `[schema]`, and its `migrated_to` key to `version`,
@@ -1088,7 +1088,7 @@ class MigrationV100(MigrationBase):
         doc["schema"] = state
 
         toml_document.save(config_path, doc)
-        self.output.print(f"Renamed \\[migration_state] to \\[schema] for {bench.name}")
+        self.output.info(f"Renamed \\[migration_state] to \\[schema] for {bench.name}")
 
     def _write_sites_table(self, bench: MigrationBench):
         """Give every bench a `[sites."<site>"]` entry, and move `[database."<site>"]` under it.
@@ -1183,13 +1183,13 @@ class MigrationV100(MigrationBase):
 
         toml_document.save(config_path, doc)
         if moved:
-            self.output.print(f"Moved \\[database] under \\[sites] for {', '.join(moved)}")
+            self.output.info(f"Moved \\[database] under \\[sites] for {', '.join(moved)}")
         elif created:
-            self.output.print(f"Recorded site {primary_name} under \\[sites]")
+            self.output.info(f"Recorded site {primary_name} under \\[sites]")
         elif not moved_aliases:
-            self.output.print(f"Dropped the empty \\[database] table for {bench.name}")
+            self.output.info(f"Dropped the empty \\[database] table for {bench.name}")
         if moved_aliases:
-            self.output.print(f'Moved alias_domains under \\[sites."{primary_name}"]')
+            self.output.info(f'Moved alias_domains under \\[sites."{primary_name}"]')
 
     def _drop_phantom_sites(self, bench: MigrationBench):
         """Remove `[sites."<name>"]` entries for sites that do not exist, left by this migration.
@@ -1234,7 +1234,7 @@ class MigrationV100(MigrationBase):
         for name in phantoms:
             del sites[name]
         toml_document.save(config_path, doc)
-        self.output.print(f"Dropped \\[sites] entries for {', '.join(phantoms)} (no such site on disk)")
+        self.output.info(f"Dropped \\[sites] entries for {', '.join(phantoms)} (no such site on disk)")
 
     def _write_database_records(self, bench: MigrationBench):
         """Give every `[sites."<site>"]` entry a `[...database]` table naming its engine.
@@ -1277,7 +1277,7 @@ class MigrationV100(MigrationBase):
             return
 
         toml_document.save(config_path, doc)
-        self.output.print(f"Recorded the database engine for {', '.join(typed)}")
+        self.output.info(f"Recorded the database engine for {', '.join(typed)}")
 
     def _backfill_default_site(self, bench: MigrationBench):
         """Write `default_site` when the bench has none, so the answer stops being a guess.
@@ -1350,7 +1350,7 @@ class MigrationV100(MigrationBase):
 
         switch["migrate"] = True
         toml_document.save(config_path, doc)
-        self.output.print(f'Rewrote \\[switch].migrate from "auto" to true for {bench.name}')
+        self.output.info(f'Rewrote \\[switch].migrate from "auto" to true for {bench.name}')
 
     def _rename_deploy_tag_keys(self, bench: MigrationBench):
         """Rename tag-era ``[deploy_state]`` keys to the image spelling the loader reads.
@@ -1393,7 +1393,7 @@ class MigrationV100(MigrationBase):
 
         if renamed:
             toml_document.save(config_path, doc)
-            self.output.print(f"Renamed {renamed} tag-era deploy_state key(s) to the image spelling for {bench.name}")
+            self.output.info(f"Renamed {renamed} tag-era deploy_state key(s) to the image spelling for {bench.name}")
 
     def _rewrite_deploy_history(self, bench: MigrationBench):
         """File each recorded deploy's DB dump under the SITE it was taken from.
@@ -1443,7 +1443,7 @@ class MigrationV100(MigrationBase):
         if moved or any(isinstance(r, MutableMapping) and "backups" in r for r in history):
             toml_document.save(config_path, doc)
             if moved:
-                self.output.print(f'Filed {moved} recorded deploy dump(s) under \\[sites."{primary}"] for {bench.name}')
+                self.output.info(f'Filed {moved} recorded deploy dump(s) under \\[sites."{primary}"] for {bench.name}')
 
     @staticmethod
     def _nginx_image_snapshot(image: str) -> str | None:
@@ -1526,7 +1526,7 @@ class MigrationV100(MigrationBase):
             # Already reshaped (or hand-authored): [deploy_state] is superseded, never read again.
             del doc["deploy_state"]
             toml_document.save(config_path, doc)
-            self.output.print(f"Dropped superseded \\[deploy_state] for {bench.name}")
+            self.output.info(f"Dropped superseded \\[deploy_state] for {bench.name}")
             return
 
         history_data = state.get("history")
@@ -1568,7 +1568,7 @@ class MigrationV100(MigrationBase):
             # absent anyway, the same way the old reader treated an empty [deploy_state]).
             del doc["deploy_state"]
             toml_document.save(config_path, doc)
-            self.output.print(f"Dropped empty \\[deploy_state] for {bench.name}")
+            self.output.info(f"Dropped empty \\[deploy_state] for {bench.name}")
             return
 
         deployments = tomlkit.table()
@@ -1609,7 +1609,7 @@ class MigrationV100(MigrationBase):
         doc["deployments"] = deployments
         del doc["deploy_state"]
         toml_document.save(config_path, doc)
-        self.output.print(f"Reshaped \\[deploy_state] into \\[deployments] for {bench.name}")
+        self.output.info(f"Reshaped \\[deploy_state] into \\[deployments] for {bench.name}")
 
     def _rewrite_ssl_table(self, bench: MigrationBench):
         """Bring a bench's TLS configuration into the one shape the loader reads: an [ssl]
@@ -1808,7 +1808,7 @@ class MigrationV100(MigrationBase):
         else:
             # Nothing to carry over. A credential-less set is not written, because the config
             # writer drops one anyway and the resolver treats it as absent.
-            self.output.print("Dropped the legacy global \\[cloudflare] table, which held no credential")
+            self.output.info("Dropped the legacy global \\[cloudflare] table, which held no credential")
 
         del doc["cloudflare"]
 
@@ -1856,7 +1856,7 @@ class MigrationV100(MigrationBase):
         doc["schema"] = state
 
         toml_document.save(config_path, doc)
-        self.output.print("Renamed \\[migration_state] to \\[schema] in the global fm config")
+        self.output.info("Renamed \\[migration_state] to \\[schema] in the global fm config")
 
     def _upgrade_global_db_engine(self):
         """Move global-db onto the engine tag frappe tests against.
@@ -1887,7 +1887,7 @@ class MigrationV100(MigrationBase):
             self.logger.debug(f"[_upgrade_global_db_engine] already on {MARIADB_IMAGE}")
             return
 
-        self.output.print(f"Upgrading global database engine: {current_image} -> {MARIADB_IMAGE}")
+        self.output.info(f"Upgrading global database engine: {current_image} -> {MARIADB_IMAGE}")
 
         database_manager = MariaDBManager(
             DatabaseServerServiceInfo.import_from_compose_file("global-db", compose_file_manager),
@@ -2023,7 +2023,7 @@ class MigrationV100(MigrationBase):
             self._migrate_all_benches_files()
             return
 
-        self.output.print("Renaming the global services to their engine names (mariadb, nginx-proxy)")
+        self.output.debug("Renaming the global services to their engine names (mariadb, nginx-proxy)")
 
         # Daemon truth for the subnets, captured while the old networks still exist: the compose
         # file cannot be trusted here on a legacy install, since it marks the networks `external`
@@ -2105,7 +2105,7 @@ class MigrationV100(MigrationBase):
             self.logger.debug("[rename] no old data volume found, skipping copy")
             return
         if self._volume_exists(NEW_VOLUME_NAME):
-            self.output.print(f"Data volume {NEW_VOLUME_NAME} already exists, keeping it")
+            self.output.debug(f"Data volume {NEW_VOLUME_NAME} already exists, keeping it")
             return
         with spinner(self.output, f"Copying database volume {old_volume} -> {NEW_VOLUME_NAME}"):  # type: ignore[arg-type]
             # `cp -a` preserves ownership and permissions, which mariadb checks on boot.
@@ -2191,7 +2191,7 @@ class MigrationV100(MigrationBase):
         changed_any |= self._rewrite_db_hosts(bench)
 
         if changed_any:
-            self.output.print(f"Renamed shared services in {bench.name}'s compose and site configs")
+            self.output.info(f"Renamed shared services in {bench.name}'s compose and site configs")
 
         # Reported separately, and deliberately not folded into `changed_any`: this is the
         # telemetry table rename, not the shared-service rename, and it prints its own line.
@@ -2284,7 +2284,7 @@ class MigrationV100(MigrationBase):
         toml_document.save(config_path, doc)
         # `\[` is required: `output.print` interprets rich markup, and `[telemetry.newrelic]` is
         # shaped exactly like a style tag, so an unescaped one renders as nothing.
-        self.output.print(f"Moved {bench.name}'s NewRelic settings to \\[telemetry.newrelic]")
+        self.output.info(f"Moved {bench.name}'s NewRelic settings to \\[telemetry.newrelic]")
         return True
 
     def _start_bench(self, bench: MigrationBench):

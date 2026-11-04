@@ -2019,7 +2019,7 @@ class TestSaveBenchConfig:
 
     def test_a_real_save_announces_itself(self, harness):
         assert harness.bench.save_bench_config(print_message=True) is True
-        harness.bench.output.print.assert_called_once()
+        harness.bench.output.info.assert_called_once()
 
     def test_a_save_that_changes_nothing_writes_nothing_and_says_nothing(self, harness):
         """`fm start` saves unconditionally at the end of every run, so on a healthy bench this is

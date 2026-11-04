@@ -87,10 +87,9 @@ def enable(
 
     enabled, _ = describe_newrelic(bench)
     if enabled and not license_key and not force_config:
-        # An already-enabled bench is this command's goal state already reached, so it reports
-        # and stops instead of recreating the container for nothing. `fm update --newrelic` had
-        # no such check and force-recreated the web container on every repeat invocation.
-        output.print(f"{provider.value} is already enabled on {bench.name}")
+        # An already-enabled bench is this command's goal state already reached, so it stops
+        # instead of recreating the container for nothing. `fm update --newrelic` had no such
+        # check and force-recreated the web container on every repeat invocation.
         return
 
     with spinner(output, f"Enabling {provider.value}"):

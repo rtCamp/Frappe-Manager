@@ -116,12 +116,13 @@ def out():
     handler = get_global_output_handler()
     with (
         patch.object(handler, "print") as p,
+        patch.object(handler, "info") as i,
         patch.object(handler, "warning") as w,
         patch.object(handler, "display_error") as e,
         patch.object(handler, "print_data") as pd,
         patch.object(handler, "stop"),
     ):
-        yield SimpleNamespace(print=p, warning=w, display_error=e, print_data=pd, handler=handler)
+        yield SimpleNamespace(print=p, info=i, warning=w, display_error=e, print_data=pd, handler=handler)
 
 
 def texts(mock) -> list[str]:
@@ -2071,13 +2072,13 @@ def test_status_uses_http_for_a_domain_without_its_own_certificate(out, tmp_path
 
 
 # --- disable ----------------------------------------------------------------- #
-def test_disable_when_nothing_is_enabled_reports_it_and_does_not_reload(out, tmp_path):
+def test_disable_when_nothing_is_enabled_stays_silent_and_does_not_reload(out, tmp_path):
     services, _, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
     _write_bench_config(benches, "mybench")
     r = _run_maintenance_disable(services, benches)
     assert r.exit is None
-    assert texts(out.print) == ["Maintenance was not enabled"]
+    assert texts(out.print) == []
     services.nginx_controller.reload.assert_not_called()
 
 
@@ -2145,8 +2146,9 @@ def test_enable_writes_the_page_and_fragment_for_every_domain_then_reloads(out, 
     services.nginx_controller.reload.assert_called_once_with()
     body = joined(out.print)
     assert "Maintenance enabled for: mybench, alias.example.com (serving 404)" in body
-    assert "Allowed IPs: 203.0.113.7" in body
-    assert "Allowed paths: /hook*" in body
+    info_body = joined(out.info)
+    assert "Allowed IPs: 203.0.113.7" in info_body
+    assert "Allowed paths: /hook*" in info_body
     assert "/fm-bypass/off" in body
 
 

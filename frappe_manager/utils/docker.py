@@ -284,7 +284,7 @@ def fix_host_path_ownership(
 
     if output:
         dirs_str = ", ".join(str(p.name) for p in needs_fix)
-        output.print(f"Fixing ownership of {dirs_str} (Docker created as root)...")
+        output.info(f"Found {dirs_str} owned by root; fixing ownership")
 
     # Mount each path at its identical absolute path so the chown command runs unmodified inside
     # the container.

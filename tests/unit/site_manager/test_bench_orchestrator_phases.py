@@ -1135,7 +1135,7 @@ def test_the_gate_reports_every_check_by_severity(tmp_path, monkeypatch):
 
     assert f"{db_probe.CHECK_CHARACTER_SET}: latin1" in str(harness.output.display_error.call_args_list)
     assert f"{db_probe.CHECK_TLS_IN_FORCE}: plaintext" in str(harness.output.warning.call_args_list)
-    assert f"{db_probe.CHECK_CONNECT}: connected" in str(harness.output.print.call_args_list)
+    assert f"{db_probe.CHECK_CONNECT}: connected" in str(harness.output.info.call_args_list)
 
 
 def test_a_database_entry_that_vanishes_mid_create_is_an_operation_failure(tmp_path):
@@ -2712,7 +2712,7 @@ def test_an_applied_change_regenerates_the_compose_before_saving_the_config(tmp_
     harness.orchestrator().update_alias_domains(add_domains=["a.example.com"])
 
     assert _aliases(harness) == ["a.example.com", "b.example.com"]
-    assert f"Adding aliases to '{SITE}': a.example.com" in str(harness.output.print.call_args_list)
+    assert f"Added aliases to '{SITE}': a.example.com" in str(harness.output.print.call_args_list)
     harness.events.before("generate_compose", "save_bench_config")
     assert harness.bench.docker_client.compose.up.call_args.kwargs == {
         "services": ["nginx"],
@@ -2805,7 +2805,7 @@ def test_removing_an_alias_needs_no_certificate_advice(tmp_path):
     harness.orchestrator().update_alias_domains(remove_domains=["a.example.com"])
 
     assert _aliases(harness) == []
-    assert f"Removing aliases from '{SITE}': a.example.com" in str(harness.output.print.call_args_list)
+    assert f"Removed aliases from '{SITE}': a.example.com" in str(harness.output.print.call_args_list)
     assert "fm ssl add" not in str(harness.output.print.call_args_list)
 
 

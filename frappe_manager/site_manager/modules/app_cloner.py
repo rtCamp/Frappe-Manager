@@ -114,10 +114,6 @@ class AppCloner:
                         verb = "Cloned" if freshly_cloned else "Reused existing"
                         if not freshly_cloned:
                             self.skipped_apps.append(app_name)
-                        if self.output:
-                            self.output.print(f"{verb} {app_name}", emoji_code=":white_check_mark:")
-                        # The printed line omits the path to stay readable, and the path appears
-                        # nowhere else, so the file record carries it.
                         self.logger.info(f"{verb} {app_name} at {clone_path}")
                     except Exception as e:
                         failed_apps.append((app.name, str(e)))
@@ -233,7 +229,7 @@ class AppCloner:
                 result[actual_app_name] = final_app_path
 
                 if self.output:
-                    self.output.print(f"Extracted {actual_app_name}", emoji_code=":white_check_mark:")
+                    self.output.info(f"Extracted {actual_app_name}")
 
             except Exception as e:
                 self.logger.error(f"Failed to extract {app.name}: {e}")

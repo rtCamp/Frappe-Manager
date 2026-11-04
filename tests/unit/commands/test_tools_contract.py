@@ -269,18 +269,18 @@ class TestDisableBench:
         assert world.prints == ["Disabled Admin-tools"]
 
     @pytest.mark.parametrize("compose_exists", [True, False], ids=["existing-compose", "no-compose"])
-    def test_already_disabled_bench_reports_and_saves_nothing(self, world, compose_exists):
+    def test_already_disabled_bench_saves_nothing(self, world, compose_exists):
         world.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = compose_exists
         world.config.admin_tools = False
 
         result = world.run_disable()
 
         assert result is None
-        assert world.prints == ["Admin tools is already disabled"]
+        assert world.prints == []
         world.bench.admin_tools.disable.assert_not_called()
         assert world.saves == 0
 
-    def test_compose_missing_still_reports_already_disabled_even_if_config_says_enabled(self, world):
+    def test_compose_missing_still_counts_as_disabled_even_if_config_says_enabled(self, world):
         """The OR condition: a missing compose file means the containers are not there to stop,
         whatever `bench_config.admin_tools` still claims."""
         world.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = False
@@ -289,7 +289,7 @@ class TestDisableBench:
         result = world.run_disable()
 
         assert result is None
-        assert world.prints == ["Admin tools is already disabled"]
+        assert world.prints == []
         world.bench.admin_tools.disable.assert_not_called()
         assert world.saves == 0
 

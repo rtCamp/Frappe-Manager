@@ -208,13 +208,13 @@ def _configure_dns_credentials(
         bench.bench_config.export_to_toml(bench.bench_config.root_path)
 
         output.print(
-            f"[fm.ok]{provider_name}[/fm.ok] credentials configured for bench '{benchname}'",
+            f"Configured [fm.ok]{provider_name}[/fm.ok] credentials for bench '{benchname}'",
             emoji_code=":white_check_mark:",
         )
-        output.print(
+        output.info(
             "[fm.muted]These credentials will be used for DNS-01 challenges on this bench[/fm.muted]", emoji_code=""
         )
-        output.print(
+        output.info(
             f"[fm.muted]Saved to: \\[ssl.dns_providers.{label}] in {bench.bench_config.root_path}[/fm.muted]",
             emoji_code="",
         )
@@ -233,7 +233,7 @@ def _configure_dns_credentials(
 
     output.print(f"✅ Global [fm.ok]{provider_name}[/fm.ok] credentials '{label}' configured")
     if label == DNS_PROVIDER.cloudflare.value:
-        output.print(
+        output.info(
             "[fm.muted]This is the default set: every bench uses it unless a certificate names another[/fm.muted]"
         )
     else:
@@ -241,4 +241,4 @@ def _configure_dns_credentials(
             "[fm.muted]Bind a certificate to it with: fm ssl add <bench> <domain> --challenge dns01 "
             f"--dns-provider {label}[/fm.muted]"
         )
-    output.print(f"[fm.muted]Saved to: \\[ssl.dns_providers.{label}] in {CLI_FM_CONFIG_PATH}[/fm.muted]")
+    output.info(f"[fm.muted]Saved to: \\[ssl.dns_providers.{label}] in {CLI_FM_CONFIG_PATH}[/fm.muted]")

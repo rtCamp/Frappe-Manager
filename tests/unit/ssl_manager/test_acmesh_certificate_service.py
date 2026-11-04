@@ -170,7 +170,7 @@ class TestAcmeShCertificateServiceEnsureInstalled:
             assert call_args[1]["shell"] is True
 
             mock_output_handler.change_head.assert_called_with("Installing acme.sh")
-            mock_output_handler.print.assert_any_call("acme.sh installed successfully")
+            mock_output_handler.print.assert_any_call("acme.sh installed")
 
     def test_ensure_installed_raises_on_failure(self, mock_logger, tmp_path, mock_output_handler):
         """Test that installation failure raises exception."""

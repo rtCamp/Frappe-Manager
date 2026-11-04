@@ -145,9 +145,6 @@ class MigrationErrorHandler:
 
         self.executor.output.print(f"For error specifics, refer to {CLI_DIR}/logs/fm.log", emoji_code="")
 
-        if not failed_print_head or not passed_print_head:
-            self.executor.output.print("=" * 60, emoji_code="")
-
     def _prompt_archive_or_rollback(self) -> str:
         """
         Prompt user to choose between archiving failed benches or rolling back all.
@@ -189,7 +186,7 @@ class MigrationErrorHandler:
 
             if rollback_decision == "yes":
                 return "no"
-            self.executor.output.print("\nSkipping rollback. Bench remains in current state.", emoji_code="")
+            self.executor.output.print("\nSkipping rollback. Bench remains in current state", emoji_code="")
             self.executor.output.print(
                 f"You can manually fix the bench or retry with: fm migrate {bench_name}",
                 emoji_code="",
@@ -258,11 +255,9 @@ class MigrationErrorHandler:
         if self.executor.global_services_need_migration:
             self.executor.fm_config_manager.set_system_migration_version(self.executor.rollback_version)
 
-        self.executor.output.print("", emoji_code="")
-        self.executor.output.print("Rollback complete.", emoji_code="")
+        self.executor.output.print("Rollback complete", emoji_code="")
 
         if show_cli_downgrade_instructions:
-            self.executor.output.print("", emoji_code="")
             self.executor.output.print(
                 f"To revert FM CLI to v{self.executor.rollback_version.version!s}, run:",
                 emoji_code="",
@@ -271,8 +266,6 @@ class MigrationErrorHandler:
                 f"  uv tool install frappe-manager=={self.executor.rollback_version.version!s}",
                 emoji_code="",
             )
-
-        self.executor.output.print("", emoji_code="")
 
     def finalize_success(self):
         """

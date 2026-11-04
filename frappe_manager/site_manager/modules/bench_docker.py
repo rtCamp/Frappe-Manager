@@ -280,7 +280,7 @@ class BenchDockerOps:
                         spec.name, f"{prefix}{CLI_DEFAULT_DELIMETER}{spec.name}"
                     )
 
-        self.output.print(f"Rendered image-mode compose pinned to {deploy_image}")
+        self.output.info(f"Rendered image-mode compose pinned to {deploy_image}")
         return nginx_image
 
     def _seed_nginx_conf(self, conf_dir: Path, nginx_image: str) -> None:
@@ -395,8 +395,6 @@ class BenchDockerOps:
                     destination=fnm_dir_abs,
                     docker=self.docker_client,
                 )
-
-        self.output.print("Created all required directories")
 
         return True
 

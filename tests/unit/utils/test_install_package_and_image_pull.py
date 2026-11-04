@@ -143,7 +143,7 @@ def test_every_image_is_attempted_even_after_a_failure():
         ),
         patch.object(handler, "live_lines"),
         patch.object(handler, "change_head"),
-        patch.object(handler, "print") as printed,
+        patch.object(handler, "info") as printed,
         patch.object(handler, "display_error") as errored,
     ):
         result = pull_docker_images()

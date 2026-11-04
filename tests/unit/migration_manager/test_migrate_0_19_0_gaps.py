@@ -116,6 +116,10 @@ def printed(migration) -> list[str]:
     return [c.args[0] for c in migration.output.print.call_args_list if c.args]
 
 
+def debugs(migration) -> list[str]:
+    return [c.args[0] for c in migration.output.debug.call_args_list if c.args]
+
+
 class TestNonWholeMebibyteUploadLimit:
     """``max_file_size % (1024 * 1024) == 0`` picks floor division vs rounding."""
 
@@ -167,7 +171,7 @@ class TestNonWholeMebibyteUploadLimit:
         site_config_path(bench).write_text(json.dumps({"max_file_size": max_file_size}))
 
         assert migration._resolve_upload_limit(bench) == expected
-        assert f"Using existing site_config.json max_file_size: {expected} ({max_file_size} bytes)" in printed(
+        assert f"Using existing site_config.json max_file_size: {expected} ({max_file_size} bytes)" in debugs(
             migration
         )
 

@@ -176,7 +176,7 @@ def test_the_alias_move_is_reported(step, tmp_path):
 
     step._write_sites_table(bench)
 
-    printed = [call.args[0] for call in step.output.print.call_args_list if call.args]
+    printed = [call.args[0] for call in step.output.info.call_args_list if call.args]
     assert f'Moved alias_domains under \\[sites."{SITE}"]' in printed
 
 
@@ -784,7 +784,7 @@ def test_the_removal_is_reported(step, tmp_path):
 
     step._refresh_nginx_default_conf(bench)
 
-    assert any(SITE in str(c.args[0]) for c in step.output.print.call_args_list if c.args)
+    assert any(SITE in str(c.args[0]) for c in step.output.info.call_args_list if c.args)
 
 
 def test_a_bench_with_no_generated_conf_is_left_alone(step, tmp_path):

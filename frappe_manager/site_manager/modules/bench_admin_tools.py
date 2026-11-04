@@ -89,7 +89,6 @@ class BenchAdminTools:
     def create(self):
         self.output.change_head("Generating admin tools configuration")
         self.generate_compose()
-        self.output.print("Generating admin tools configuration: Done")
 
     def _site_location_path(self, site: str) -> Path:
         """One site's tool locations: a drop-in inside that site's own directory."""

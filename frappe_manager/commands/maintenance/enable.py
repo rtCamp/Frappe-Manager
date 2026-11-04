@@ -217,8 +217,8 @@ def enable(
     base = public_url(domains[0], public_scheme(bool(domain_ssl.get(domains[0])), front), http_port, https_port)
     output.print(f"Maintenance enabled for: {', '.join(domains)} (serving {response_code})")
     if allow_ip:
-        output.print(f"Allowed IPs: {', '.join(allow_ip)}")
+        output.info(f"Allowed IPs: {', '.join(allow_ip)}")
     if allow_path:
-        output.print(f"Allowed paths: {', '.join(allow_path)}")
+        output.info(f"Allowed paths: {', '.join(allow_path)}")
     output.print(f"Bypass (sets a cookie so you see the real site): {base}/fm-bypass/{token}")
     output.print(f"Drop the bypass again: {base}/fm-bypass/off")

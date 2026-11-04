@@ -190,7 +190,7 @@ class SSLCertificateManager:
                 actual_cert_type = declared_field(certificate, "acme_client", "letsencrypt")
 
             if test_ca:
-                self.output_handler.print(f"[fm.ok]Certificate validated successfully for {certificate.domain}[/fm.ok]")
+                self.output_handler.print(f"[fm.ok]Certificate validated for {certificate.domain}[/fm.ok]")
                 self.output_handler.print("[fm.warn]Skipped: Creating symlinks (test-CA rehearsal)[/fm.warn]", emoji_code="⏭️ ")
                 self.output_handler.print(
                     "[fm.warn]Skipped: Creating vhost.d redirect config (test-CA rehearsal)[/fm.warn]",
@@ -213,7 +213,7 @@ class SSLCertificateManager:
                 )
 
                 self.dropins.set(certificate.domain, "https-redirect", https_redirect_conf())
-                self.output_handler.print(f"Created vhost.d redirect config for {certificate.domain}")
+                self.output_handler.info(f"Created vhost.d redirect config for {certificate.domain}")
                 self.logger.debug("Enabled HTTPS redirect", extra_fields={"domain": certificate.domain})
 
                 self.certificates.append(certificate)
@@ -440,10 +440,10 @@ class SSLCertificateManager:
             )
 
             self.dropins.set(certificate.domain, "https-redirect", https_redirect_conf())
-            self.output_handler.print(f"Created vhost.d redirect config for {certificate.domain}")
+            self.output_handler.info(f"Created vhost.d redirect config for {certificate.domain}")
 
         self.nginx_controller.restart()
-        self.output_handler.print("All individual certificates generated successfully")
+        self.output_handler.print("All individual certificates generated")
 
     def _renew_single_certificate(
         self,
@@ -478,24 +478,23 @@ class SSLCertificateManager:
         if not service:
             raise RuntimeError(f"No service found for domain {certificate.domain}")
 
-        self.output_handler.print(f"Renewing certificate for {certificate.domain}", emoji_code="🔄")
         renewal_success = service.renew_certificate(certificate, test_ca=test_ca)
 
         reissued_paths = None
         if not renewal_success:
             self.output_handler.print(
-                "[fm.warn]Certificate not found in acme.sh, re-issuing...[/fm.warn]",
+                "[fm.warn]Certificate not found in acme.sh, re-issuing[/fm.warn]",
                 emoji_code="⚠️",
             )
             key_path, fullchain_path = service.generate_certificate(certificate, test_ca=test_ca)
             reissued_paths = (key_path, fullchain_path)
 
             if not test_ca:
-                self.output_handler.print(f"[fm.ok]Certificate re-issued successfully for {certificate.domain}[/fm.ok]")
+                self.output_handler.print(f"[fm.ok]Certificate re-issued for {certificate.domain}[/fm.ok]")
 
         if test_ca:
             self.output_handler.print(
-                f"[fm.ok]Certificate renewal validated successfully for {certificate.domain}[/fm.ok]",
+                f"[fm.ok]Certificate renewal validated for {certificate.domain}[/fm.ok]",
             )
             self.output_handler.print("[fm.warn]️Skipped: Updating symlinks (test-CA rehearsal)[/fm.warn]", emoji_code="⏭ ")
             if not skip_nginx_restart:
@@ -534,7 +533,7 @@ class SSLCertificateManager:
             if not skip_nginx_restart:
                 self.nginx_controller.restart()
 
-            self.output_handler.print(f"Successfully renewed {certificate.domain}")
+            self.output_handler.print(f"Certificate renewed for {certificate.domain}")
             return True
 
         return False

@@ -86,7 +86,7 @@ def ngrok(
     with spinner(output, "Setting up ngrok tunnel"):
         if not auth_token and fm_config_manager.ngrok_auth_token:
             auth_token = fm_config_manager.ngrok_auth_token
-            output.print("Using ngrok auth token from config file", emoji_code=":key:")
+            output.info("Using ngrok auth token from config file", emoji_code=":key:")
         elif not auth_token:
             output.display_error(
                 "Ngrok auth token is required. Please provide it with --auth-token or set NGROK_AUTHTOKEN environment variable.",
@@ -98,8 +98,6 @@ def ngrok(
         if auth_token != fm_config_manager.ngrok_auth_token:
             if fm_config_manager.ngrok_auth_token:
                 output.print("Replacing saved auth token", emoji_code=":new:")
-            else:
-                output.print("New auth token provided", emoji_code=":new:")
 
             if save_token is None:
                 with temporary_stop(output):
@@ -112,12 +110,11 @@ def ngrok(
                 should_save = "yes" if save_token else "no"
 
             if should_save == "yes":
-                output.print("Saving auth token to config...", emoji_code=":floppy_disk:")
                 fm_config_manager.ngrok_auth_token = auth_token
                 fm_config_manager.export_to_toml()
                 output.print("Saved ngrok auth token to config", emoji_code=":white_check_mark:")
 
-        output.print(f"Creating ngrok tunnel for {tunnel_host}", emoji_code=":link:")
+        output.info(f"Creating ngrok tunnel for {tunnel_host}", emoji_code=":link:")
 
         # No local except: `create_tunnel` raises NgrokTunnelError with the token already removed,
         # and main.py's handler renders it once. Catching to re-print produced the SAME raw text

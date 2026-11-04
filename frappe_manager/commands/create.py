@@ -613,11 +613,6 @@ def _add_site_to_bench(
     # and the flags default off precisely so nothing else does this by accident.
     bench = bench_service.get_bench(benchname, start_workers_if_stopped=True, start_admin_tools_if_stopped=True)
 
-    output.print(
-        f"Adding site [fm.info]{site}[/fm.info] to bench [fm.info]{benchname}[/fm.info].",
-        emoji_code=":globe_with_meridians:",
-    )
-
     database = database or DatabaseConfig()
 
     # Recorded BEFORE `new-site`, because `get_site_config_data` and the TLS paths are keyed by site
@@ -1359,12 +1354,12 @@ def create(
         raise typer.Exit(e.exit_code) from e
 
     if bench_config.apps_from:
-        output.print(
+        output.info(
             f"Mount bench: seeding workspace from baked image [fm.info]{bench_config.apps_from}[/fm.info].",
             emoji_code=":package:",
         )
     if bench_config.runtime == BenchRuntime.image and bench_config.deployments and bench_config.deployments.current:
-        output.print(
+        output.info(
             f"Image bench: creating the site from pre-built image "
             f"[fm.info]{bench_config.deployments.current.app_image}[/fm.info].",
             emoji_code=":package:",
@@ -1441,7 +1436,7 @@ def create(
     # nothing the moment the two differ.
     site_database = bench_config.get_database_config(sitename)
     if site_database is not None:
-        output.print(
+        output.info(
             f"External database: this site lives on [fm.info]{site_database.host}:{site_database.resolved_port}"
             f"[/fm.info] in schema [fm.info]{site_database.name}[/fm.info], not the mariadb container",
             emoji_code=":floppy_disk:",
@@ -1485,7 +1480,7 @@ def create(
 
         for result in validation_result.results:
             if result.success:
-                output.print(result.display_message, emoji_code=":white_check_mark:")
+                output.info(result.display_message, emoji_code=":white_check_mark:")
             else:
                 output.display_error(result.display_message, emoji_code=":cross_mark:")
 

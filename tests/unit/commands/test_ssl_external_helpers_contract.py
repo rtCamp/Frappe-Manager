@@ -142,6 +142,9 @@ class Harness:
     def prints(self) -> list[str]:
         return [c.args[0] if c.args else c.kwargs["message"] for c in self.output.print.call_args_list]
 
+    def infos(self) -> list[str]:
+        return [c.args[0] if c.args else c.kwargs["message"] for c in self.output.info.call_args_list]
+
     def heads(self) -> list[str]:
         return [c.args[0] for c in self.output.change_head.call_args_list]
 
@@ -274,7 +277,7 @@ def test_add_with_cname_builds_a_certificate_carrying_the_delegation(h):
     # The field, not a class, is what makes acme.sh receive --challenge-alias.
     assert cert.delegation_cname == "deleg.fm.com"
     assert cert.challenge_type == LETSENCRYPT_PREFERRED_CHALLENGE.dns01
-    assert "Using CNAME delegation: deleg.fm.com" in h.prints()
+    assert "Using CNAME delegation: deleg.fm.com" in h.infos()
 
 
 def test_add_cname_single_validation_success_prints_verified_and_continues(h):
@@ -286,7 +289,7 @@ def test_add_cname_single_validation_success_prints_verified_and_continues(h):
         validator.validate_cname_for_acme.assert_called_once_with(DOMAIN, "deleg.fm.com")
         validator.wait_for_cname_propagation.assert_not_called()
 
-    assert "CNAME record verified" in h.prints()
+    assert "CNAME record verified" in h.infos()
     assert f"Validating DNS configuration for {DOMAIN}" in h.heads()
     h.cert_manager.add_certificate.assert_called_once()
 
@@ -395,7 +398,7 @@ def test_add_http01_valid_a_record_reports_resolved_ip(h):
         validator.validate_a_record.return_value = SimpleNamespace(valid=True, actual_value="203.0.113.7")
         _add(h, challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01, skip_dns_check=False)
 
-    assert "Domain resolves to 203.0.113.7" in h.prints()
+    assert "Domain resolves to 203.0.113.7" in h.infos()
     h.output.warning.assert_not_called()
 
 
@@ -1360,7 +1363,7 @@ def test_list_appends_detected_domains_without_ssl_and_a_tip(h, listing):
     assert no_ssl_card.name == "plain.example.com"
     assert "no ssl" in no_ssl_card.meta
     assert _facts(no_ssl_card) == {}
-    assert h.prints() == [
+    assert h.infos() == [
         "\n[fm.warn]💡 Tip: Add SSL certificates for non-SSL domains:[/fm.warn]",
         "[fm.muted]  fm ssl add --standalone <domain>[/fm.muted]",
     ]

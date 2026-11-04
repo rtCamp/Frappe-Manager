@@ -77,7 +77,7 @@ def add_apps(
 
     Fetching an app's code and installing it into a site's database are different things. A plain fm apps add BENCH fetches the code and adds the app to the bench's sites/apps.txt, so any site created afterwards gets it, and installs it into nothing. It does not write an \[\[apps]] entry in bench_config.toml -- that is a bake config's job, which is why fm apps list reports such an app as present on disk but not recorded. fm apps add BENCH/SITE installs and migrates that one site, and fm apps add BENCH/all does every site the bench serves, reporting failures per site and exiting non-zero without stopping at the first.
 
-    An image-runtime bench ships app changes by baking a new image: fm bake BENCH --apps APP:REF, then fm switch.
+    An image-runtime bench ships app changes by baking a standalone image with the apps: fm bake --apps APP:REF --app-image REPO:TAG, then fm switch.
     """
 
     services_manager = ctx.obj["services"]
@@ -92,8 +92,8 @@ def add_apps(
 
     if bench.bench_config.runtime == BenchRuntime.image:
         output.display_error(
-            f"{bench.name} is image runtime; apps ship by baking them in -- "
-            f"'fm bake {bench.name} --apps APP:REF', then 'fm switch {bench.name} <image>'.",
+            f"{bench.name} is image runtime; apps ship by baking them into a standalone image -- "
+            f"'fm bake --apps APP:REF --app-image REPO:TAG', then 'fm switch {bench.name} <image>'.",
         )
         raise typer.Exit(1)
 

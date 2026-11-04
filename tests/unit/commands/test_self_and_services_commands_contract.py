@@ -177,7 +177,6 @@ def test_an_already_stopped_service_is_still_skipped(out):
     h.run(global_only=True)
 
     assert h.calls == []
-    assert "Skipping already stopped service mariadb" in joined(out.print)
 
 
 def test_a_bench_that_could_not_be_stopped_makes_the_command_exit_nonzero(out):
@@ -637,7 +636,6 @@ def test_clearing_when_nothing_was_trusted_touches_no_container(tmp_path, out):
     clear(h.ctx)
 
     h.services.docker_client.compose.up.assert_not_called()
-    assert "No proxies were trusted" in joined(out.print)
 
 
 def test_the_self_call_warning_is_keyed_on_domains_not_bench_names(tmp_path, out, monkeypatch):
@@ -844,7 +842,7 @@ def test_a_no_op_start_still_says_it_skipped(out):
     start_services(ctx, ServicesEnum.mariadb)
 
     services.start_service.assert_not_called()
-    assert "Skipping already running service mariadb" in joined(out.print)
+    assert "Skipped mariadb: already running" in joined(out.print)
 
 
 def test_starting_a_switched_off_service_says_so_instead_of_reporting_success(out):

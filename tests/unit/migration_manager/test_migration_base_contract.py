@@ -433,7 +433,7 @@ def test_a_bench_already_at_the_migration_version_is_skipped(bench_loop, calls, 
     migration.migrate_benches()
 
     assert calls == []
-    assert any("already at v0.9.0" in str(c.args) for c in output.print.call_args_list)
+    assert any("already at v0.9.0" in str(c.args) for c in output.info.call_args_list)
 
 
 def test_a_bench_beyond_the_migration_version_is_skipped(bench_loop, calls):

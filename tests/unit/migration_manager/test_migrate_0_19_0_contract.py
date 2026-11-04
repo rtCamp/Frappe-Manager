@@ -82,6 +82,14 @@ def printed(migration) -> list[str]:
     return [c.args[0] for c in migration.output.print.call_args_list if c.args]
 
 
+def infos(migration) -> list[str]:
+    return [c.args[0] for c in migration.output.info.call_args_list if c.args]
+
+
+def debugs(migration) -> list[str]:
+    return [c.args[0] for c in migration.output.debug.call_args_list if c.args]
+
+
 @pytest.fixture
 def migration():
     """A migration whose every collaborator is a mock and which is NOT a dev build."""
@@ -245,7 +253,7 @@ class TestEnvBackupAndUndo:
         migration.undo_bench_migrate(bench)
 
         assert (fb / "env" / "OLD").read_text() == "old"
-        assert "Removing new env/" not in printed(migration), "nothing to remove when env/ is absent"
+        assert "Removed new env/" not in printed(migration), "nothing to remove when env/ is absent"
 
     def test_undo_restores_first_bashrc_backup_only(self, migration, bench):
         first = Mock(src=Path("/w/.bashrc"))
@@ -365,7 +373,7 @@ class TestMigrateBenchOrchestration:
     def test_success_message_names_bench_and_version(self, migration, bench):
         self._instrument(migration, [])
         migration.migrate_bench(bench)
-        assert "Successfully migrated test-bench to v0.19.0" in printed(migration)
+        assert "Migrated test-bench to v0.19.0" in printed(migration)
 
     def test_upload_limit_is_resolved_once_and_shared_by_all_three_writers(self, migration, bench):
         seen = []
@@ -531,9 +539,7 @@ class TestMigrateBenchConfigToml:
         doc = tomlkit.parse(text)
         assert doc["ssl_certificates"][0]["challenge_type"] == "dns01"
         assert doc["use_uv"] is True
-        msgs = printed(migration)
-        assert msgs[0] == "Migrating bench_config.toml"
-        assert msgs[-1] == "Updated SSL configuration format"
+        assert "Updated SSL configuration format" in infos(migration)
 
     def test_config_without_ssl_still_gains_the_new_fields(self, migration, bench):
         path = bench.path / "bench_config.toml"
@@ -592,7 +598,7 @@ class TestUpdateServiceImages:
 
     def test_message_reports_old_and_new_tag(self, migration):
         migration._update_service_images({"frappe": {"image": "ghcr.io/rtcamp/frappe-manager-frappe:v0.18.2"}})
-        assert "Updated frappe image: v0.18.2 → v0.19.0" in printed(migration)
+        assert "Updated frappe image: v0.18.2 → v0.19.0" in infos(migration)
 
 
 class TestTransformNginxEnvironment:
@@ -779,19 +785,6 @@ services:
 
         assert path.read_text() == body, "x-version must NOT be bumped when there are no services"
 
-    @pytest.mark.parametrize(
-        ("method", "message"),
-        [
-            ("_migrate_docker_compose_yml", "Migrating docker-compose.yml"),
-            ("_migrate_workers_compose_yml", "Migrating docker-compose.workers.yml"),
-        ],
-    )
-    def test_each_announces_its_own_file(self, migration, bench, method, message):
-        path = bench.path / "c.yml"
-        path.write_text("services: {}\n")
-        getattr(migration, method)(bench, path)
-        assert printed(migration)[0] == message
-
     @pytest.mark.parametrize("method", ["_migrate_docker_compose_yml", "_migrate_workers_compose_yml"])
     def test_both_default_restart_policy_to_unless_stopped_without_bench_config(self, migration, bench, method):
         path = bench.path / "c.yml"
@@ -819,7 +812,7 @@ class TestResolveUploadLimit:
 
     def test_default_when_nothing_configured(self, migration, bench):
         assert migration._resolve_upload_limit(bench) == "50M"
-        assert "Using default upload_limit: 50M" in printed(migration)
+        assert "Using default upload_limit: 50M" in debugs(migration)
 
     def test_bench_config_is_used_when_site_config_has_no_max_file_size(self, migration, bench):
         (bench.path / "bench_config.toml").write_text('upload_limit = "300M"\n')
@@ -861,7 +854,7 @@ class TestResolveUploadLimit:
         """SUSPICION pinned: a string max_file_size is swallowed by ``except Exception``."""
         self._site_config(bench, {"max_file_size": "50M"})
         assert migration._resolve_upload_limit(bench) == "50M"
-        assert "Using default upload_limit: 50M" in printed(migration)
+        assert "Using default upload_limit: 50M" in debugs(migration)
 
     def test_empty_bench_config_upload_limit_falls_through_to_default(self, migration, bench):
         (bench.path / "bench_config.toml").write_text('upload_limit = ""\n')
@@ -886,7 +879,7 @@ class TestWriteUploadLimitVhostd:
         services_path = self._services_path(bench)
         migration._write_upload_limit_vhostd(bench, "200M")
         assert self._fragment(services_path, "test-bench").read_text() == "client_max_body_size 200m;\n"
-        assert "Set upload limit (200M) for 1 domain(s)" in printed(migration)
+        assert "Set upload limit (200M) for 1 domain(s)" in infos(migration)
 
     def test_alias_domains_are_included(self, migration, bench):
         services_path = self._services_path(bench)
@@ -896,7 +889,7 @@ class TestWriteUploadLimitVhostd:
 
         assert self._fragment(services_path, "a.test").exists()
         assert self._fragment(services_path, "b.test").exists()
-        assert "Set upload limit (50M) for 3 domain(s)" in printed(migration)
+        assert "Set upload limit (50M) for 3 domain(s)" in infos(migration)
 
     def test_existing_vhost_files_are_backed_up_before_modification(self, migration, bench):
         services_path = self._services_path(bench)
@@ -915,7 +908,7 @@ class TestWriteUploadLimitVhostd:
         self._services_path(bench)
         (bench.path / "bench_config.toml").write_text("alias_domains = []\n")
         migration._write_upload_limit_vhostd(bench, "50M")
-        assert "Set upload limit (50M) for 1 domain(s)" in printed(migration)
+        assert "Set upload limit (50M) for 1 domain(s)" in infos(migration)
 
     def test_writes_a_fragment_never_a_marker(self, migration, bench):
         """RULE: a bench-tier migration writes fragments, never a `# fm:<name>` marker, because
@@ -942,7 +935,7 @@ class TestWriteUploadLimitSiteConfig:
         migration._write_upload_limit_site_config(bench, "50M")
 
         assert json.loads(p.read_text())["max_file_size"] == 123
-        assert any("already set (123), skipping" in m for m in printed(migration))
+        assert any("already set (123), skipping" in m for m in debugs(migration))
 
     @pytest.mark.parametrize(
         ("limit", "expected"),
@@ -994,7 +987,7 @@ class TestWriteUploadLimitNginxConf:
         assert self._conf(bench).read_text() == "client_max_body_size 200m;\n"
         migration.backup_manager.track_new_file.assert_called_once_with(self._conf(bench))
         migration.backup_manager.backup.assert_not_called()
-        assert "Created custom nginx upload-limit.conf" in printed(migration)
+        assert "Created custom nginx upload-limit.conf" in infos(migration)
 
     def test_pre_existing_file_is_backed_up_and_not_tracked_as_new(self, migration, bench):
         conf = self._conf(bench)
@@ -1017,7 +1010,7 @@ class TestWriteUploadLimitNginxConf:
         assert "listen 80;" in default_conf.read_text()
         backed = [c.args[0] for c in migration.backup_manager.backup.call_args_list]
         assert default_conf in backed, "default.conf is backed up before being rewritten"
-        assert "Removed duplicate client_max_body_size from default.conf" in printed(migration)
+        assert "Removed duplicate client_max_body_size from default.conf" in infos(migration)
 
     def test_default_conf_without_the_directive_is_neither_backed_up_nor_rewritten(self, migration, bench):
         default_conf = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
@@ -1058,7 +1051,7 @@ class TestCleanupAdminToolsNginxConfig:
 
         assert not conf.exists()
         assert not htpasswd.exists()
-        assert "Cleaned up stale admin-tools nginx config" in printed(migration)
+        assert "Cleaned up stale admin-tools nginx config" in infos(migration)
 
     def test_htpasswd_removal_is_silent_and_independent(self, migration, bench):
         http_auth = bench.path / "configs" / "nginx" / "conf" / "http_auth"
@@ -1090,7 +1083,6 @@ class TestPullBenchImages:
         bench.compose.pull.return_value = ok()
         migration._pull_bench_images(bench)
         bench.compose.pull.assert_called_once_with(stream=False)
-        assert "✓ Images ready" in printed(migration)
 
     def test_failure_raises_migration_exception_in_bench(self, migration, bench):
         bench.compose.pull.return_value = fail(1)
@@ -1100,7 +1092,7 @@ class TestPullBenchImages:
     def test_announcement_includes_the_resolved_tag(self, migration, bench):
         bench.compose.pull.return_value = ok()
         migration._pull_bench_images(bench)
-        assert "Pulling updated images (v0.19.0)..." in printed(migration)
+        assert "Pulling updated images (v0.19.0)" in printed(migration)
 
 
 class TestUpdateGlobalNginxProxyImage:
@@ -1184,11 +1176,6 @@ class TestMigrateServices:
         migration.output.display_error.assert_called_once_with("Failed to pull one or more Docker images")
         migration.services_manager.compose.up.assert_not_called()
 
-    def test_undo_services_migrate_is_a_message_only(self, migration):
-        migration.undo_services_migrate()
-        assert "No services rollback needed for v0.19.0" in printed(migration)
-        migration.services_manager.compose.up.assert_not_called()
-
 
 class TestResolveRuntimeVersions:
     def test_versions_from_config_short_circuit_auto_detection(self, migration, bench):
@@ -1227,7 +1214,7 @@ class TestResolveRuntimeVersions:
         assert doc["python_version"] == "3.12"
         assert doc["node_version"] == "20"
         assert doc["name"] == "test-bench"
-        assert "Updated bench_config.toml with detected versions" in printed(migration)
+        assert "Updated bench_config.toml with detected versions" in infos(migration)
 
     def test_nothing_is_persisted_when_detection_returns_nothing(self, migration, bench):
         path = bench.path / "bench_config.toml"
@@ -1275,7 +1262,7 @@ class TestResolveRuntimeVersions:
 
         assert (py, node) == ("3.12", "20")
         assert path.read_text() == ""
-        assert "Updated bench_config.toml with detected versions" not in printed(migration)
+        assert "Updated bench_config.toml with detected versions" not in infos(migration)
 
 
 class TestChooseBestPythonVersion:
@@ -1351,8 +1338,8 @@ class TestAutoDetectRuntimeVersions:
 
         migration._choose_best_python_version.assert_called_once_with("3.11", None)
         migration._choose_best_node_version.assert_called_once_with("18", None)
-        assert "Detected current Python: 3.11" in printed(migration)
-        assert "Detected current Node: 18" in printed(migration)
+        assert "Detected current Python: 3.11" in debugs(migration)
+        assert "Detected current Node: 18" in debugs(migration)
 
     def test_docker_failures_are_swallowed_and_yield_no_current_version(self, migration, bench):
         bench.compose.run.side_effect = RuntimeError("no such container")
@@ -1413,8 +1400,8 @@ class TestAutoDetectRuntimeVersions:
 
         migration._choose_best_python_version.assert_called_once_with("3.11", ">=3.10,<3.13")
         migration._choose_best_node_version.assert_called_once_with("18", ">=18")
-        assert "Frappe requires Python: >=3.10,<3.13" in printed(migration)
-        assert "Frappe requires Node: >=18" in printed(migration)
+        assert "Frappe requires Python: >=3.10,<3.13" in debugs(migration)
+        assert "Frappe requires Node: >=18" in debugs(migration)
 
     def test_frappe_app_without_readable_requirements_prints_nothing(self, migration, bench):
         (bench.path / "workspace" / "frappe-bench" / "apps" / "frappe").mkdir(parents=True)
@@ -1518,7 +1505,7 @@ class TestRebuildRuntimeEnvironment:
         migration._rebuild_runtime_environment(bench)
 
         assert order == []
-        assert "Runtime environment already up to date" in printed(migration)
+        assert "Runtime environment already up to date" in debugs(migration)
 
     def test_current_runtime_still_restarts_when_images_changed_and_bench_runs(self, migration, bench):
         order: list[str] = []
@@ -1888,7 +1875,7 @@ class TestReinstallAppsAndRebuild:
         migration._reinstall_apps_and_rebuild(bench)
 
         bench.compose.run.assert_not_called()
-        assert "No env or Node changes — skipping app reinstall and build" in printed(migration)
+        assert "No env or Node changes — skipping app reinstall and build" in debugs(migration)
 
     def test_env_only_rebuild_omits_the_node_steps(self, migration, bench):
         migration._env_was_rebuilt = True
@@ -2117,7 +2104,7 @@ class TestGenerateFmWebServerScript:
         assert path.stat().st_mode & 0o777 == 0o755
         migration.backup_manager.track_new_file.assert_called_once_with(path)
         migration.backup_manager.backup.assert_not_called()
-        assert "Generated fm-web-server.sh" in printed(migration)
+        assert "Generated fm-web-server.sh" in infos(migration)
 
     def test_pre_existing_script_is_backed_up_under_the_template_bench_name(self, migration, tmp_path):
         """SUSPICION pinned: ``bench_name`` here is the literal template value
@@ -2149,7 +2136,7 @@ class TestRestartServices:
 
         assert not (confd / "default.conf").exists(), "entrypoint must regenerate it"
         assert (confd / "default.conf.migration.bak").read_text() == "old vhost"
-        assert "Backed up and removed stale nginx default.conf for regeneration" in printed(migration)
+        assert "Backed up and removed stale nginx default.conf for regeneration" in infos(migration)
 
     def test_forced_recreate_of_the_four_core_services(self, migration, bench):
         migration._restart_services(bench)

@@ -241,7 +241,7 @@ class BenchWorkers:
                 "site-network",
             ).with_version(get_current_fm_version()).with_restart(self.bench.bench_config.restart_policy.value).commit()
 
-            self.output.print(f"{' '.join(workers_expected_service_names)} configurations generated")
+            self.output.info(f"{' '.join(workers_expected_service_names)} configurations generated")
             return True
 
         if self.compose_file_manager.exists():

@@ -344,7 +344,7 @@ def _describe_redis(redis: RedisConfig | None) -> str:
 def _refuse_immutable_runtime(bench: Bench, output) -> None:
     output.display_error(
         f"{bench.name} is image runtime; code, apps, Python/Node and developer mode are immutable -- "
-        "ship changes with 'fm bake' then 'fm switch', install apps with 'fm apps add'. "
+        "ship changes with 'fm bake' then 'fm switch'. "
         "'fm update' on an image bench still changes environment, restart policy and the database CA, "
         "and APM is 'fm telemetry enable'.",
     )

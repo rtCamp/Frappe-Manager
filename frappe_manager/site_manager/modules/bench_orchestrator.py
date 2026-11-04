@@ -349,7 +349,7 @@ class BenchOrchestrator:
         bench.bench_config.apps_list = [AppConfig.from_string(n) for n in baked]
         # The seeded path prints the equivalent fact; an image-runtime create said nothing, so
         # "which apps is this bench actually serving?" had no answer after it finished.
-        self.output.print(f"Image provides {len(baked)} app(s): {', '.join(baked)}")
+        self.output.print(f"Found {len(baked)} app(s) in {image}: {', '.join(baked)}")
 
         if not bench_only:
             # The same gate the mount runtime runs between phase 1 and phase 2, placed at the first
@@ -437,7 +437,6 @@ class BenchOrchestrator:
         self.output.change_head("Configuring common_site_config.json")
         common_site_config_data = bench.bench_config.get_commmon_site_config_data()
         bench.set_common_bench_config(common_site_config_data)
-        self.output.print("Configured common_site_config.json")
 
         bench.supervisor.setup_supervisor(bench.path, force=True, use_run=True)
 
@@ -481,7 +480,7 @@ class BenchOrchestrator:
         host_run_cp(image, f"{CONTAINER_SITES_DIR}/apps.txt", str(apps_txt), bench.docker_client)
         baked = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
         bench.bench_config.apps_list = [AppConfig.from_string(n) for n in baked]
-        self.output.print(f"Seeded workspace from {image} (apps: {', '.join(baked)})")
+        self.output.info(f"Seeded workspace from {image} (apps: {', '.join(baked)})")
 
         if overrides:
             self._apply_seed_overrides(overrides, frappe_bench_dir, baked)
@@ -540,7 +539,6 @@ class BenchOrchestrator:
             pull="never",
             force_recreate=False,
         )
-        self.output.print("Started bench services")
 
         bench.site_manager.wait_for_required_services()
 
@@ -749,7 +747,7 @@ class BenchOrchestrator:
             self.output.change_head("Installing the database CA")
             db_tls.install_site_ca(bench.path, site, Path(database.ca))
             mysql_home = db_tls.site_mysql_home(site)
-            self.output.print(f"Installed {database.ca} for {site} and refreshed the CA bundle")
+            self.output.info(f"Installed {database.ca} for {site} and refreshed the CA bundle")
 
         attach = config.attach_existing_site
         # Only a password the OPERATOR supplied can be authenticated. On the provisioning path fm
@@ -923,7 +921,7 @@ class BenchOrchestrator:
             elif check.status is db_probe.CheckStatus.warn:
                 self.output.warning(f"{check.name}: {check.detail}")
             else:
-                self.output.print(f"{check.name}: {check.detail}")
+                self.output.info(f"{check.name}: {check.detail}")
 
     def _report_attach_warnings(self) -> None:
         """The two attach warnings the probe cannot collect, because they are not about the server.
@@ -1104,7 +1102,7 @@ class BenchOrchestrator:
         self.output.change_head(f"Attaching {bench.name} to the existing site in {database.name}")
         bench.site_manager.create_site_dirs(bench.site_name)
         self.output.print(
-            f"Created the site directories for {bench.site_name}. Nothing was written to {database.name} on {database.host}."
+            f"Created site dirs for {bench.site_name}; nothing written to {database.name} on {database.host}"
         )
 
         # Attach never calls `create_bench_site` -- it wraps `new-site`/`bootstrap_database`, which DROPs
@@ -1118,7 +1116,7 @@ class BenchOrchestrator:
         # `--default-site` is how an operator asks for that on purpose.
         if read_default_site(bench.path) is None or self.bench.bench_config.set_default_site:
             bench.set_common_bench_config({"default_site": bench.site_name})
-            self.output.print(f"Recorded {bench.site_name} as the bench's default site")
+            self.output.info(f"Recorded {bench.site_name} as the bench's default site")
 
     def _disable_migrate_for_attach(self) -> None:
         """Turn `[switch].migrate` off as soon as the attach decision is made.
@@ -1260,7 +1258,7 @@ class BenchOrchestrator:
             setup_supervisor=False,
             start=bench.bench_config.runtime != BenchRuntime.image,
         )
-        self.output.print("Configured bench workers")
+        self.output.info("Configured bench workers")
 
         # A site's site_config.json and the proxy vhost can both take the limit once one exists,
         # and the proxy vhost can take the HSTS override too. Without this a new bench advertised
@@ -1269,7 +1267,7 @@ class BenchOrchestrator:
         # unrelated `fm start` or (upload limit only) `fm update --upload-limit`.
         self.output.change_head("Applying upload size limit")
         bench.apply_upload_limit()
-        self.output.print(f"Applied upload size limit ({bench.bench_config.upload_limit})")
+        self.output.info(f"Applied upload size limit ({bench.bench_config.upload_limit})")
         bench.apply_hsts()
 
         from datetime import datetime
@@ -1309,9 +1307,6 @@ class BenchOrchestrator:
         if not bench_only and not bench.is_bench_created():
             raise Exception("Bench site is inactive or unresponsive.")
 
-        self.output.print("Bench infrastructure ready")
-        # The printed line has no room for the name; on a host with several benches the file
-        # record is useless without it.
         self.logger.info(f"{bench.name}: bench infrastructure verified and ready")
 
     def _phase6_install_apps(self) -> bool:
@@ -1326,7 +1321,6 @@ class BenchOrchestrator:
 
         try:
             bench.app_manager.install_apps_to_site()
-            self.output.print("All apps installed successfully")
 
             self.output.change_head("Running bench migrate")
             if not self._run_bench_migrate():
@@ -1364,7 +1358,7 @@ class BenchOrchestrator:
             )
             return False
         else:
-            self.output.print("Database migrations completed")
+            self.output.info("Database migrations completed")
             return True
 
     def _run_bench_migrate(self) -> bool:
@@ -1508,7 +1502,7 @@ class BenchOrchestrator:
         bench.docker_ops.check_required_docker_images_available()
 
         if reconfigure_common_site_config:
-            self.output.print("Reconfiguring common_site_config with defaults")
+            self.output.debug("Reconfiguring common_site_config with defaults")
             bench.sync_bench_common_site_config()
 
         self.output.change_head("Starting bench services")
@@ -1530,7 +1524,7 @@ class BenchOrchestrator:
             # case where the tools were already up and `enable()` was never called.
             if force or not bench.admin_tools.is_running():
                 bench.admin_tools.enable(force_recreate_container=force)
-                self.output.print("Started admin tools services")
+                self.output.info("Started admin tools services")
 
             if not bench._is_service_running("nginx"):
                 bench.docker_ops.start(services=["nginx"], force_recreate=False, pull="never")
@@ -1538,18 +1532,18 @@ class BenchOrchestrator:
         bench.site_manager.wait_for_required_services()
 
         if reconfigure_supervisor:
-            self.output.print("Reconfiguring supervisord")
+            self.output.debug("Reconfiguring supervisord")
             bench.supervisor.setup_supervisor(bench.path, force=True)
 
         if reconfigure_workers:
-            self.output.print("Reconfiguring workers")
+            self.output.debug("Reconfiguring workers")
             bench.sync_workers_compose(
                 include_default_workers=include_default_workers,
                 include_custom_workers=include_custom_workers,
             )
 
         if sync_dev_packages:
-            self.output.print("Syncing dev packages")
+            self.output.debug("Syncing dev packages")
             if bench.bench_config.environment_type == FMBenchEnvType.dev:
                 bench.install_dev_packages()
             else:
@@ -1563,10 +1557,14 @@ class BenchOrchestrator:
                 pull="never",
                 force_recreate=force,
             )
-            self.output.print("Started bench workers services")
 
         bench.save_bench_config()
-        self.output.print("Started bench services")
+        running_now = [
+            status.get("Service")
+            for status in bench.docker_ops.docker_client.compose.get_all_services_status()
+            if status.get("State") == "running"
+        ]
+        self.output.print(f"{len(running_now)} container(s) up: {', '.join(sorted(s for s in running_now if s))}")
 
     def update_alias_domains(
         self,
@@ -1648,9 +1646,9 @@ class BenchOrchestrator:
             return
 
         if added_domains:
-            self.output.print(f"Adding aliases to '{target}': {', '.join(added_domains)}")
+            self.output.print(f"Added aliases to '{target}': {', '.join(added_domains)}")
         if removed_domains:
-            self.output.print(f"Removing aliases from '{target}': {', '.join(removed_domains)}")
+            self.output.print(f"Removed aliases from '{target}': {', '.join(removed_domains)}")
 
         updated_aliases = sorted(current_aliases)
         entry.alias_domains = updated_aliases
@@ -1675,7 +1673,6 @@ class BenchOrchestrator:
 
             self.output.change_head("Saving configuration")
             bench.save_bench_config()
-            self.output.print("Configuration saved")
 
             if added_domains:
                 self.output.print("To add SSL certificates for new alias domains, use:", emoji_code="")
@@ -1700,7 +1697,7 @@ class BenchOrchestrator:
 
         self.output.change_head("Updating compose configuration")
         bench.generate_compose(bench.bench_config.export_to_compose_inputs())
-        self.output.print("Updated compose configuration with new domains")
+        self.output.info("Updated compose configuration with new domains")
 
         self.output.change_head("Applying changes")
 

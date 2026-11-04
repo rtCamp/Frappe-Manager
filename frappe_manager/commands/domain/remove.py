@@ -117,4 +117,4 @@ def remove_domain(
         # `active()` names them and the result was reduced to a reload bool: re-adding this
         # domain elsewhere starts clean, and only this line says what was dropped.
         output.info(f"Removed proxy config for {domain}: {', '.join(concerns)}")
-    output.print("Alias domains updated successfully")
+    output.print("Alias domains updated")

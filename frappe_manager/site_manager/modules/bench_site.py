@@ -187,7 +187,7 @@ class BenchSiteManager:
                 service_name = command_output.split(" ")[0]
                 simplified_service_name = service_name.split(":")[0]
                 simplified_service_name = simplified_service_name.split(CLI_DEFAULT_DELIMETER)[-1]
-                self.output.print(command_output.replace(service_name, simplified_service_name), highlight=False)
+                self.output.debug(command_output.replace(service_name, simplified_service_name), highlight=False)
 
     def _redis_endpoint(self, url: str, which: str) -> tuple[str, int]:
         """Host and port out of a `redis://` or `rediss://` URL, for the readiness probe.

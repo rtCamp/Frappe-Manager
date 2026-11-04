@@ -226,17 +226,17 @@ class BenchAppManager:
                             python_version_requirement,
                         ):
                             if frappe_python_req:
-                                self.output.print(
+                                self.output.debug(
                                     f"✓ Python {current_major}.{current_minor} already satisfies {python_version_requirement} "
                                     f"(Frappe requires: {frappe_python_req}) - skipping installation",
                                 )
                             else:
-                                self.output.print(
+                                self.output.debug(
                                     f"✓ Python {current_major}.{current_minor} already satisfies {python_version_requirement} - skipping installation",
                                 )
                             python_version_requirement = None
                         else:
-                            self.output.print(
+                            self.output.debug(
                                 f"Python {current_major}.{current_minor} does not satisfy {python_version_requirement} - will recreate venv",
                             )
 
@@ -283,12 +283,11 @@ fi
                             candidates.sort(reverse=True)
                             selected_version = candidates[0]
                             selected_python_full = selected_version[3]
-                            self.output.print(
+                            self.output.debug(
                                 f"Found Python {selected_version[0]}.{selected_version[1]}.{selected_version[2]} satisfying {python_version_requirement}",
                             )
 
                     if not selected_python_full:
-                        self.output.print(f"Installing Python {python_version} via uv..")
                         quoted_pkg = shlex.quote(f"cpython-{python_version}")
                         install_cmd = f"uv python install {quoted_pkg}"
                         self._container_run(install_cmd, use_run=use_run)
@@ -316,7 +315,7 @@ fi
                         if not selected_python_full:
                             selected_python_full = f"cpython-{python_version}"
 
-                        self.output.print(f"Installed Python {python_version} via uv")
+                        self.output.info(f"Installed Python {python_version} via uv")
 
                     if selected_python_full:
                         update_symlink_cmd = f"""
@@ -337,7 +336,7 @@ fi
                         self.output.print(f"Created virtual environment with Python {selected_version_str}")
                         venv_recreated = True
                     else:
-                        self.output.print(f"Skipping venv recreation - Python {selected_python_full} set as default")
+                        self.output.debug(f"Skipping venv recreation - Python {selected_python_full} set as default")
 
                 except Exception as e:
                     self.output.warning(f"Failed to setup Python {python_version}: {e}")
@@ -383,17 +382,17 @@ fi
 
                         if self._node_version_satisfies_requirement(current_major, node_version_requirement):
                             if frappe_node_req:
-                                self.output.print(
+                                self.output.debug(
                                     f"Node {current_major} already satisfies {node_version_requirement} "
                                     f"(Frappe requires: {frappe_node_req}) - skipping installation",
                                 )
                             else:
-                                self.output.print(
+                                self.output.debug(
                                     f"Node {current_major} already satisfies {node_version_requirement} - skipping installation",
                                 )
                             node_version_requirement = None
                         else:
-                            self.output.print(
+                            self.output.debug(
                                 f"Node {current_major} does not satisfy {node_version_requirement} - will install",
                             )
 
@@ -413,14 +412,13 @@ fi
                         output_text = " ".join(result.combined)
                         if f"v{node_version}" in output_text:
                             needs_install = False
-                            self.output.print(f"Node {node_version} already installed")
+                            self.output.debug(f"Node {node_version} already installed")
 
                     if needs_install:
-                        self.output.print(f"Installing Node {node_version} via fnm..")
                         install_cmd = f"fnm install {node_version}"
                         install_result = self._container_capture(install_cmd, use_run=use_run)
                         if install_result and install_result.exit_code == 0:
-                            self.output.print(f"Installed Node {node_version} via fnm")
+                            self.output.info(f"Installed Node {node_version} via fnm")
                         else:
                             raise Exception(
                                 f"fnm install {node_version} failed with exit code {install_result.exit_code if install_result else 'unknown'}",
@@ -429,7 +427,7 @@ fi
                     set_default_cmd = f"fnm default {node_version}"
                     default_result = self._container_capture(set_default_cmd, use_run=use_run)
                     if default_result and default_result.exit_code == 0:
-                        self.output.print(f"Set Node {node_version} as default")
+                        self.output.info(f"Set Node {node_version} as default")
                     else:
                         self.output.warning(f"Could not set Node {node_version} as default, but continuing")
 
@@ -437,7 +435,7 @@ fi
                     verify_yarn = "yarn --version"
                     yarn_result = self._container_capture(verify_yarn, use_run=use_run)
                     if yarn_result and yarn_result.exit_code == 0:
-                        self.output.print(f"Yarn is available for Node {node_version}")
+                        self.output.debug(f"Yarn is available for Node {node_version}")
                     else:
                         self.output.warning(
                             f"Yarn not available after Node {node_version} installation - corepack may have failed"
@@ -517,7 +515,7 @@ fi
             List of AppConfig objects with corrected module names after cloning
         """
         if not apps_list:
-            self.output.print("No apps to install")
+            self.output.debug("No apps to install")
             return []
 
         apps_config = apps_list
@@ -538,7 +536,7 @@ fi
                 summary = f"Cloned {fresh} apps successfully"
                 if reused:
                     summary += f"; reused {reused} already present ({', '.join(sorted(cloner.skipped_apps))})"
-                self.output.print(summary)
+                self.output.info(summary)
 
                 self._update_apps_txt(apps_config)
                 self._update_apps_list_with_corrected_names(apps_config)
@@ -621,11 +619,11 @@ fi
                 src = tmp_dir / app.name
                 target = apps_dir / app.name
                 if app.name in existing:
-                    self.output.print(f"Replacing app {app.name} ({app.repo}:{app.ref or 'default'})")
+                    self.output.info(f"Replacing app {app.name} ({app.repo}:{app.ref or 'default'})")
                 else:
                     if app.name != "frappe":  # the framework is never "installed to site"
                         added.append(app.name)
-                    self.output.print(f"Adding app {app.name} ({app.repo}:{app.ref or 'default'})")
+                    self.output.info(f"Adding app {app.name} ({app.repo}:{app.ref or 'default'})")
                 if target.exists():
                     if stash:
                         if stash_dir is None:
@@ -702,7 +700,7 @@ fi
                             ]
                         )
                         self._container_run(fallback_cmd, use_run=use_run)
-                    self.output.warning("UV installation failed on first attempt, succeeded on retry")
+                    self.output.print("Installed apps via uv pip fallback (first attempt failed)")
                 except Exception:
                     raise
 

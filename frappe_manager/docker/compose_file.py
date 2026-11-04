@@ -473,7 +473,7 @@ class ComposeFile:
             del self.yml["services"][container]["user"]
         except KeyError:
             output = get_global_output_handler()
-            output.warning("user not present")
+            output.debug(f"{container}: user key already absent from compose")
 
     def remove_container_name(self, container):
         """Drop the fixed ``container_name`` so the service can be scaled

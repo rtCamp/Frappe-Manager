@@ -251,7 +251,7 @@ class DevCertificateService:
         # fullchain = leaf cert + CA cert (chain format required by nginx)
         fullchain_path.write_bytes(leaf_cert.public_bytes(serialization.Encoding.PEM) + self.ca_cert_path.read_bytes())
 
-        self.output.print(f"Dev certificate generated for {certificate.domain}")
+        self.output.info(f"Dev certificate generated for {certificate.domain}")
         return key_path, fullchain_path
 
     def renew_certificate(self, certificate: SSLCertificate, test_ca: bool = False) -> bool:
@@ -277,5 +277,4 @@ class DevCertificateService:
             shutil.rmtree(dest_dir)
             self.output.info(f"Removed dev certificate directory: {dest_dir}")
 
-        self.output.print(f"Dev certificate removed for {certificate.domain}")
         return True

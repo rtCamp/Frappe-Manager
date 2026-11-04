@@ -160,6 +160,9 @@ class SSLHarness:
     def print_emojis(self) -> list[str]:
         return [c.kwargs.get("emoji_code") for c in self.output.print.call_args_list]
 
+    def infos(self) -> list[str]:
+        return [c.args[0] for c in self.output.info.call_args_list]
+
     def heads(self) -> list[str]:
         return [c.args[0] for c in self.output.change_head.call_args_list]
 
@@ -393,8 +396,7 @@ def test_add_with_cname_builds_a_certificate_carrying_the_delegation(h):
 def test_add_with_cname_tells_the_user_delegation_is_in_use(h):
     _add(h, challenge=DNS01, cname="alias-example-com.fm.test")
 
-    assert "Using CNAME delegation: alias-example-com.fm.test" in h.prints()
-    assert ":information:" in h.print_emojis()
+    assert "Using CNAME delegation: alias-example-com.fm.test" in h.infos()
 
 
 @pytest.mark.timeout(15)
@@ -467,11 +469,10 @@ def test_host_name_carries_no_published_port(h, monkeypatch):
     assert h.site_config_writes() == [(DOMAIN, {"host_name": f"https://{DOMAIN}"})]
     assert h.prints() == [
         f"SSL certificate added for {DOMAIN}",
-        "Certificate has been issued and configured.",
         f"Run 'fm start {BENCH}' to apply it (recreates only the services whose definition "
         "changed; running jobs are undisturbed until then).",
     ]
-    assert h.print_emojis() == [":white_check_mark:", ":zap:", ":information:"]
+    assert h.print_emojis() == [":white_check_mark:", ":information:"]
 
 
 @pytest.mark.timeout(15)
@@ -1424,7 +1425,6 @@ def test_create_announces_and_delegates_to_generate_compose(t):
 
     generate.assert_called_once_with()
     assert t.heads() == ["Generating admin tools configuration"]
-    assert t.prints() == ["Generating admin tools configuration: Done"]
 
 
 @pytest.mark.timeout(15)

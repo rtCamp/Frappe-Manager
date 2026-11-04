@@ -240,7 +240,7 @@ class MigrationExecutor:
                     # The scriptable plan viewer: the plan above IS the output, and the
                     # non-interactive path without --yes is a refusal by design, so this is the
                     # only way automation can see it. Exit clean, touch nothing, never prompt.
-                    self.output.print("Dry run: nothing migrated.", emoji_code="")
+                    self.output.print("Dry run: nothing migrated", emoji_code="")
                     return True
 
                 if not self.auto_proceed:
@@ -258,20 +258,18 @@ class MigrationExecutor:
                     self.output.print("Proceeding with migration (--yes)", emoji_code="")
 
             if continue_migration == "no":
-                self.output.print("", emoji_code="")
                 self.output.print(
-                    f"Migration aborted. To revert to v{self.prev_version.version!s}, run:",
+                    f"\nMigration aborted. To revert to v{self.prev_version.version!s}, run:",
                     emoji_code="",
                 )
-                self.output.print(f"  uv tool install frappe-manager=={self.prev_version.version!s}", emoji_code="")
-                self.output.print("", emoji_code="")
+                self.output.print(f"  uv tool install frappe-manager=={self.prev_version.version!s}\n", emoji_code="")
                 return False
 
         if self.dry_run:
             # Reached when something needed migrating but discovery selected nothing to show; the
             # shown-plan path returned above. NOT the already-current case, which the gate at the
             # top of this method returns before discovery ever runs.
-            self.output.print("Dry run: nothing migrated.", emoji_code="")
+            self.output.print("Dry run: nothing migrated", emoji_code="")
             return True
 
         # The undo stack is synced BEFORE each error handler runs, not only on success: a
@@ -327,7 +325,7 @@ class MigrationExecutor:
                 continue
             size = sum(dir_size(p) for p in stale)
             self.output.print(
-                f"{len(stale)} backup session(s) beyond the configured keep of {keep} "
+                f"Found {len(stale)} backup session(s) beyond the configured keep of {keep} "
                 f"({format_size(size)}); trim with '{command}'",
                 emoji_code="",
             )

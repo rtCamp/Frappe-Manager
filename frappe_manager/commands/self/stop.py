@@ -57,7 +57,7 @@ def stop(
         bench_names = bench_service.get_bench_names()
 
         if not bench_names:
-            output.print("No benches found")
+            output.info("No benches found")
         else:
             for bench_name in bench_names:
                 try:
@@ -80,7 +80,6 @@ def stop(
             # down before the database it fronts, so nothing is ever reachable-but-databaseless.
             for service in reversed([s for s in ServicesEnum if s != ServicesEnum.all]):
                 if not services_manager.is_service_running(service.value):
-                    output.print(f"Skipping already stopped service {service.value}")
                     continue
 
                 services_manager.stop_service(services=[service.value])

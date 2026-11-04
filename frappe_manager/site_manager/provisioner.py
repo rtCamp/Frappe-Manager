@@ -103,7 +103,7 @@ def provision(
                 detected_python = extract_python_version_requirement(frappe_app_path)
                 if detected_python:
                     bench_config.python_version = detected_python
-                    output.print(f"Detected Python version requirement: {detected_python}")
+                    output.info(f"Detected Python version requirement: {detected_python}")
             elif not skip_version_check:
                 # The same check `fm update` runs, at the first moment a create can run it: the
                 # requirement lives in frappe's own metadata, so it is unknowable until the clone
@@ -124,7 +124,7 @@ def provision(
                 detected_node = extract_node_version_requirement(frappe_app_path)
                 if detected_node:
                     bench_config.node_version = detected_node
-                    output.print(f"Detected Node version requirement: {detected_node}")
+                    output.info(f"Detected Node version requirement: {detected_node}")
             elif not skip_version_check:
                 _refuse_incompatible_runtime(
                     output,

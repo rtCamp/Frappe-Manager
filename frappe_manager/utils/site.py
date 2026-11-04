@@ -310,7 +310,7 @@ def pull_docker_images() -> bool:
         except DockerException as e:
             failures.setdefault(pull_failure_cause(image, e), []).append(image)
         else:
-            output.print(f"[fm.ok]Pulled[/fm.ok] [fm.info]{image}[/fm.info]")
+            output.info(f"[fm.ok]Pulled[/fm.ok] [fm.info]{image}[/fm.info]")
 
     for cause, images_failed in failures.items():
         # display_error, not error(): error() always re-raises, which aborted the loop on the

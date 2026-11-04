@@ -313,7 +313,6 @@ class BenchSupervisor:
         newrelic = self.config.get_telemetry_config("newrelic")
         if newrelic and newrelic.enabled and newrelic.license_key:
             self._write_newrelic_config(config_dir)
-        self.output.print("Configured supervisor configs")
 
     def setup_newrelic(self, bench_path, force: bool = False) -> None:
         """Refresh the gunicorn wrapper and, when the agent is on, seed its config.

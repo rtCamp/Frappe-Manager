@@ -494,7 +494,7 @@ class Bench:
                 raise_error=False,
             )
             if certificate_updated:
-                self.output.print("Certificate Updated")
+                self.output.print("Updated certificate")
 
             if self.bench_config.admin_tools:
                 # "Enabled" only when it was not enabled before. The re-apply branch rewrites the
@@ -531,9 +531,9 @@ class Bench:
         try:
             changed = self.bench_config.export_to_toml(self.bench_config.root_path)
             if changed and print_message:
-                # No logger.info beside it: the FileSink already writes every print into fm.log,
+                # No logger.info beside it: the FileSink already writes every info call into fm.log,
                 # so the pair put the same sentence in the same file twice.
-                self.output.print("Saved bench config")
+                self.output.info("Saved bench config")
             elif changed:
                 # The four callers passing print_message=False have no print for the sink to
                 # mirror, so without this their saves leave no trace in the file at all.
@@ -1158,7 +1158,7 @@ class Bench:
         """
         log_file_paths = self.get_log_file_paths()
         if not log_file_paths:
-            self.output.print("[fm.warn]No log files found.[/fm.warn]")
+            self.output.print("[fm.warn]No log files found[/fm.warn]")
             return
 
         # Opened inside the try so a path that vanished between the existence check and
@@ -1213,7 +1213,7 @@ class Bench:
                 ops.logs(services=[service], follow=follow)
 
         except KeyboardInterrupt:
-            self.output.print("Detected CTRL+C. Exiting..")
+            pass
 
     def attach_to_bench(
         self, user: str, extensions: list[str], workdir: str, debugger: bool = False, attach: bool = True
@@ -1665,7 +1665,7 @@ class Bench:
             self.remove_database_and_user(entry.site)
         else:
             self.output.print(
-                f"[fm.info]{entry.site}[/fm.info]: skipping database deletion from {entry.engine.value}"
+                f"[fm.info]{entry.site}[/fm.info]: skipped database deletion from {entry.engine.value}"
             )
 
         return None
@@ -1804,13 +1804,13 @@ class Bench:
                 site_config = self.get_bench_site_config(target)
                 if "admin_password" in site_config:
                     admin_pass = site_config["admin_password"]
-                    self.output.print("Using admin_password defined in site_config.json")
+                    self.output.debug("Used admin_password defined in site_config.json")
 
             if not admin_pass:
                 common_site_config = self.get_common_bench_config()
                 if "admin_password" in common_site_config:
                     admin_pass = common_site_config["admin_password"]
-                    self.output.print("Using admin_password defined in common_site_config.json")
+                    self.output.debug("Used admin_password defined in common_site_config.json")
 
         if not admin_pass:
             # Nothing recorded anywhere, and a reinstall replaces the password regardless: minting
@@ -1893,7 +1893,7 @@ class Bench:
             if not moved_out
         ]
         if not redis_services:
-            self.output.print("Bench uses an external redis for both sides. Skipping redis service restart")
+            self.output.debug("Skipped redis service restart: bench uses an external redis for both sides")
             return
 
         self.output.change_head(f"Restarting redis services - {' '.join(redis_services)}")

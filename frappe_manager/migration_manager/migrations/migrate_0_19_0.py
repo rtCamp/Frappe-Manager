@@ -94,16 +94,16 @@ class MigrationV0190(MigrationBase):
             supervisor_conf = supervisor_config_dir / "supervisor.conf"
             if supervisor_conf.exists():
                 self.backup_manager.backup(supervisor_conf, bench_name=bench.name)
-                self.output.print("Backed up supervisor.conf")
+                self.output.info("Backed up supervisor.conf")
 
             for conf_file in supervisor_config_dir.glob("*.fm.supervisor.conf"):
                 self.backup_manager.backup(conf_file, bench_name=bench.name)
-                self.output.print(f"Backed up {conf_file.name}")
+                self.output.info(f"Backed up {conf_file.name}")
 
         nginx_default_conf = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
         if nginx_default_conf.exists():
             self.backup_manager.backup(nginx_default_conf, bench_name=bench.name)
-            self.output.print("Backed up nginx default.conf")
+            self.output.info("Backed up nginx default.conf")
 
     def _backup_env_for_rollback(self, bench: MigrationBench):
         """Move existing env/ to env.backup.migration for rollback support.
@@ -121,7 +121,7 @@ class MigrationV0190(MigrationBase):
         if env_backup_path.exists():
             shutil.rmtree(env_backup_path)
         shutil.move(str(env_dir), str(env_backup_path))
-        self.output.print("Moved env/ to env.backup.migration")
+        self.output.info("Moved env/ to env.backup.migration")
 
     def undo_bench_migrate(self, bench: MigrationBench):
         """
@@ -137,11 +137,11 @@ class MigrationV0190(MigrationBase):
 
         if env_backup_path.exists():
             if env_dir.exists():
-                self.output.print("Removing new env/")
                 shutil.rmtree(env_dir)
+                self.output.print("Removed new env/")
 
-            self.output.print("Restoring env/ from env.backup.migration")
             shutil.move(str(env_backup_path), str(env_dir))
+            self.output.print("Restored env/ from env.backup.migration")
 
         bm = getattr(self, "backup_manager", None)
         if bm is not None:
@@ -188,11 +188,10 @@ class MigrationV0190(MigrationBase):
 
         self._rebuild_runtime_environment(bench)
 
-        self.output.print(f"Successfully migrated {bench.name} to {self.version.version_string()}")
+        self.output.print(f"Migrated {bench.name} to {self.version.version_string()}")
 
     def _migrate_bench_config_toml(self, bench: MigrationBench, config_path: Path):
         """Transform bench_config.toml: [ssl] → [[ssl_certificates]], add new fields."""
-        self.output.print("Migrating bench_config.toml")
 
         content = config_path.read_text()
         doc = tomlkit.parse(content)
@@ -204,7 +203,7 @@ class MigrationV0190(MigrationBase):
 
         toml_document.save(config_path, doc)
         if ssl_transformed:
-            self.output.print("Updated SSL configuration format")
+            self.output.info("Updated SSL configuration format")
 
     def _transform_ssl_config(self, doc: tomlkit.TOMLDocument, bench_name: str) -> bool:
         """Transform [ssl] table to [[ssl_certificates]] array with proper field names.
@@ -287,7 +286,6 @@ class MigrationV0190(MigrationBase):
 
     def _migrate_docker_compose_yml(self, bench: MigrationBench, compose_path: Path):
         """Update compose: v0.18.0 → current version images, SITENAME → SITE_MAPPINGS."""
-        self.output.print("Migrating docker-compose.yml")
 
         with _round_trip_compose(compose_path) as compose_data:
             if compose_data is None:
@@ -330,7 +328,7 @@ class MigrationV0190(MigrationBase):
             if new_image != old_image:
                 service_config["image"] = new_image
                 self._images_updated = True
-                self.output.print(f"Updated {service_name} image: v{old_version} → {effective_tag}")
+                self.output.info(f"Updated {service_name} image: v{old_version} → {effective_tag}")
 
     def _transform_nginx_environment(self, services: dict[str, Any], upload_limit: str):
         """Transform nginx SITENAME → SITE_MAPPINGS environment variable."""
@@ -351,7 +349,7 @@ class MigrationV0190(MigrationBase):
             # Convert plain site name to JSON mapping expected by nginx entrypoint
             site_mapping = json.dumps({sitename_value: sitename_value})
             nginx_env["SITE_MAPPINGS"] = site_mapping
-            self.output.print(f"Migrated SITENAME → SITE_MAPPINGS ({site_mapping})")
+            self.output.info(f"Migrated SITENAME → SITE_MAPPINGS ({site_mapping})")
 
         if "HTTPS_METHOD" not in nginx_env:
             nginx_env["HTTPS_METHOD"] = "noredirect"
@@ -367,7 +365,7 @@ class MigrationV0190(MigrationBase):
                 # Convert plain site name to JSON mapping expected by nginx entrypoint
                 site_mapping = json.dumps({sitename_value: sitename_value})
                 new_env.append(f"SITE_MAPPINGS={site_mapping}")
-                self.output.print(f"Migrated SITENAME → SITE_MAPPINGS ({site_mapping})")
+                self.output.info(f"Migrated SITENAME → SITE_MAPPINGS ({site_mapping})")
             else:
                 new_env.append(env_var)
 
@@ -410,7 +408,7 @@ class MigrationV0190(MigrationBase):
                         resolved = f"{max_file_size // (1024 * 1024)}M"
                     else:
                         resolved = f"{round(max_file_size / (1024 * 1024))}M"
-                    self.output.print(
+                    self.output.debug(
                         f"Using existing site_config.json max_file_size: {resolved} ({max_file_size} bytes)"
                     )
                     return resolved
@@ -422,10 +420,10 @@ class MigrationV0190(MigrationBase):
             config = tomlkit.parse(bench_config_path.read_text())
             upload_limit = config.get("upload_limit")
             if upload_limit:
-                self.output.print(f"Using bench_config.toml upload_limit: {upload_limit}")
+                self.output.debug(f"Using bench_config.toml upload_limit: {upload_limit}")
                 return upload_limit
 
-        self.output.print("Using default upload_limit: 50M")
+        self.output.debug("Using default upload_limit: 50M")
         return "50M"
 
     def _write_upload_limit_vhostd(self, bench: MigrationBench, upload_limit: str):
@@ -466,7 +464,8 @@ class MigrationV0190(MigrationBase):
         written = domains_needing_upload_limit(domains)
         for domain in written:
             dropins.set(domain, "upload-limit", upload_limit_conf(size))
-        self.output.print(f"Set upload limit ({upload_limit}) for {len(written)} domain(s)")
+        if written:
+            self.output.info(f"Set upload limit ({upload_limit}) for {len(written)} domain(s)")
 
     def _write_upload_limit_site_config(self, bench: MigrationBench, upload_limit: str):
         """Update site_config.json max_file_size to match upload_limit (only if not already set)."""
@@ -479,7 +478,7 @@ class MigrationV0190(MigrationBase):
         try:
             site_config = json.loads(site_config_path.read_text())
             if "max_file_size" in site_config:
-                self.output.print(
+                self.output.debug(
                     f"site_config.json max_file_size already set ({site_config['max_file_size']}), skipping"
                 )
                 return
@@ -495,7 +494,7 @@ class MigrationV0190(MigrationBase):
 
             site_config["max_file_size"] = size_bytes
             site_config_path.write_text(json.dumps(site_config, indent=4))
-            self.output.print(f"Updated site_config.json (max_file_size: {size_bytes} bytes)")
+            self.output.info(f"Updated site_config.json (max_file_size: {size_bytes} bytes)")
         except Exception:
             self.output.print("Warning: Could not update site_config.json max_file_size")
 
@@ -518,7 +517,7 @@ class MigrationV0190(MigrationBase):
         if not was_pre_existing:
             self.backup_manager.track_new_file(upload_limit_conf)
 
-        self.output.print("Created custom nginx upload-limit.conf")
+        self.output.info("Created custom nginx upload-limit.conf")
 
         # Strip any client_max_body_size baked into default.conf by older FM versions — duplicate directives make nginx error.
         default_conf = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
@@ -528,11 +527,10 @@ class MigrationV0190(MigrationBase):
             if old != cleaned:
                 self.backup_manager.backup(default_conf, bench_name=bench.name)
                 default_conf.write_text(cleaned)
-                self.output.print("Removed duplicate client_max_body_size from default.conf")
+                self.output.info("Removed duplicate client_max_body_size from default.conf")
 
     def _migrate_workers_compose_yml(self, bench: MigrationBench, compose_path: Path):
         """Update worker compose: v0.18.0 → current version images."""
-        self.output.print("Migrating docker-compose.workers.yml")
 
         with _round_trip_compose(compose_path) as compose_data:
             if compose_data is None:
@@ -552,7 +550,7 @@ class MigrationV0190(MigrationBase):
 
         if admin_tools_config.exists():
             admin_tools_config.unlink()
-            self.output.print("Cleaned up stale admin-tools nginx config")
+            self.output.info("Cleaned up stale admin-tools nginx config")
 
         if htpasswd_file.exists():
             htpasswd_file.unlink()
@@ -560,14 +558,12 @@ class MigrationV0190(MigrationBase):
     def _pull_bench_images(self, bench: MigrationBench):
         from frappe_manager.migration_manager.migration_exceptions import MigrationExceptionInBench
 
-        self.output.print(f"Pulling updated images ({self._get_image_tag_for_migration()})...", emoji_code="📦")
+        self.output.print(f"Pulling updated images ({self._get_image_tag_for_migration()})", emoji_code="📦")
 
         result = bench.compose.pull(stream=False)
 
         if result.exit_code != 0:
             raise MigrationExceptionInBench(f"Failed to pull images for {bench.name}. Docker pull failed.")
-
-        self.output.print("✓ Images ready", emoji_code="✅")
 
     def _update_global_nginx_proxy_image(self):
         """Update global-nginx-proxy image from jwilder/nginx-proxy:1.6 to 1.11."""
@@ -616,11 +612,11 @@ class MigrationV0190(MigrationBase):
                 self.output.display_error(error_msg)
                 raise Exception(error_msg)
 
-        self.output.print(f"All {self.version.version_string()} images pulled successfully")
+        self.output.print(f"All {self.version.version_string()} images pulled")
         self.logger.info("[migrate_services] Docker image pull completed successfully")
 
         # Recreate global-nginx-proxy to pick up the updated image tag.
-        self.output.print("Restarting global-nginx-proxy with new image...")
+        self.output.print("Restarting global-nginx-proxy with new image")
         self.services_manager.compose.up(
             services=["global-nginx-proxy"],
             force_recreate=True,
@@ -630,7 +626,6 @@ class MigrationV0190(MigrationBase):
 
     def undo_services_migrate(self):
         """No global services rollback needed."""
-        self.output.print(f"No services rollback needed for {self.version.version_string()}")
 
     def _resolve_runtime_versions(
         self,
@@ -668,8 +663,8 @@ class MigrationV0190(MigrationBase):
             )
 
         if not target_python or not target_node:
-            self.output.print(
-                "No Python/Node versions in config, auto-detecting from container and Frappe requirements...",
+            self.output.debug(
+                "No Python/Node versions in config, auto-detecting from container and Frappe requirements",
             )
             self.logger.info("[_resolve_runtime_versions] Auto-detecting versions...")
             target_python, target_node = self._auto_detect_runtime_versions(bench)
@@ -683,7 +678,7 @@ class MigrationV0190(MigrationBase):
                 if target_node:
                     config_doc["node_version"] = target_node
                 toml_document.save(bench_config_path, config_doc)
-                self.output.print("Updated bench_config.toml with detected versions")
+                self.output.info("Updated bench_config.toml with detected versions")
 
         return target_python, target_node, config_doc
 
@@ -798,7 +793,7 @@ fi
         env_current, node_current = self._check_runtime_current(bench, target_python, target_node)
 
         if env_current and node_current:
-            self.output.print("Runtime environment already up to date")
+            self.output.debug("Runtime environment already up to date")
 
             if self._images_updated and (bench.running or bench.workers_running):
                 self._restart_services(bench)
@@ -807,8 +802,8 @@ fi
         with spinner(self.output, "Rebuilding runtime environment (pyenv/nvm → uv/fnm)"):  # type: ignore[arg-type]
             self._ensure_runtime_dirs(bench)
 
-            self.output.print("Cleaning up old runtime directories...")
             self._cleanup_old_runtime_dirs(bench)
+            self.output.debug("Cleaned up old runtime directories")
 
             # Rebuild decision uses both the config comparison and the runtime check; first run (prev is None) always rebuilds.
             # --rerun does not force a rebuild by itself — only when versions changed or the environment is unhealthy.
@@ -818,24 +813,23 @@ fi
             if self._env_was_rebuilt and target_python:
                 # Backup follows the same decision path as env_was_rebuilt, so it only runs when a rebuild will actually happen.
                 self._backup_env_for_rollback(bench)
-                self.output.print(f"Setting up Python {target_python} with uv...")
+                self.output.info(f"Setting up Python {target_python} with uv")
                 self._setup_python_with_uv(bench, target_python)
 
             if self._node_was_setup and target_node:
-                self.output.print(f"Setting up Node {target_node} with fnm...")
+                self.output.info(f"Setting up Node {target_node} with fnm")
                 self._setup_node_with_fnm(bench, target_node)
 
-            self.output.print("Reinstalling apps and rebuilding assets...")
+            self.output.info("Reinstalling apps and rebuilding assets")
             self._reinstall_apps_and_rebuild(bench)
 
-            self.output.print("Regenerating supervisor configuration...")
             self._regenerate_supervisor_config(bench)
+            self.output.debug("Regenerated supervisor configuration")
 
             if bench.running or bench.workers_running:
-                self.output.print("Recreating & restarting services (force-recreate)...")
+                self.output.info("Recreating & restarting services (force-recreate)")
                 self._restart_services(bench)
 
-        self.output.print("Runtime environment rebuilt successfully")
         self.logger.info(f"[_rebuild_runtime_environment] Completed successfully for {bench.name}")
 
     def _setup_python_with_uv(self, bench: MigrationBench, python_version: str):
@@ -1013,7 +1007,7 @@ echo "Old runtime directories cleaned up"
         self.logger.debug(f"[_reinstall_apps_and_rebuild] Starting for {bench.name}")
 
         if not self._env_was_rebuilt and not self._node_was_setup:
-            self.output.print("No env or Node changes — skipping app reinstall and build")
+            self.output.debug("No env or Node changes — skipping app reinstall and build")
             return
 
         if self._env_was_rebuilt:
@@ -1204,7 +1198,7 @@ bench build""",
         if not was_pre_existing:
             self.backup_manager.track_new_file(wrapper_path)
 
-        self.output.print("Generated fm-web-server.sh")
+        self.output.info("Generated fm-web-server.sh")
 
     def _restart_services(self, bench: MigrationBench):
         try:
@@ -1216,7 +1210,7 @@ bench build""",
 
                 shutil.copy2(str(nginx_default_conf), str(backup_path))
                 nginx_default_conf.unlink()
-                self.output.print("Backed up and removed stale nginx default.conf for regeneration")
+                self.output.info("Backed up and removed stale nginx default.conf for regeneration")
 
             bench.compose.up(services=["frappe", "socketio", "schedule", "nginx"], force_recreate=True, detach=True)
 
@@ -1260,7 +1254,7 @@ bench build""",
                 if match:
                     major, minor = match.group(1), match.group(2)
                     current_python = f"{major}.{minor}"
-                    self.output.print(f"Detected current Python: {current_python}")
+                    self.output.debug(f"Detected current Python: {current_python}")
         except Exception as e:
             self.logger.debug(f"Could not detect current Python (expected during migration): {e}")
 
@@ -1273,7 +1267,7 @@ bench build""",
                 match = re.search(r"v(\d+)\.\d+\.\d+", output)
                 if match:
                     current_node = match.group(1)
-                    self.output.print(f"Detected current Node: {current_node}")
+                    self.output.debug(f"Detected current Node: {current_node}")
         except Exception as e:
             self.logger.debug(f"Could not detect current Node (expected during migration): {e}")
 
@@ -1287,9 +1281,9 @@ bench build""",
             frappe_node_req = extract_node_version_requirement(frappe_app_path)
 
             if frappe_python_req:
-                self.output.print(f"Frappe requires Python: {frappe_python_req}")
+                self.output.debug(f"Frappe requires Python: {frappe_python_req}")
             if frappe_node_req:
-                self.output.print(f"Frappe requires Node: {frappe_node_req}")
+                self.output.debug(f"Frappe requires Node: {frappe_node_req}")
 
         final_python = self._choose_best_python_version(current_python, frappe_python_req)
         final_node = self._choose_best_node_version(current_node, frappe_node_req)
@@ -1314,7 +1308,7 @@ bench build""",
         if frappe_requirement:
             frappe_min_version = parse_python_version_for_runtime(frappe_requirement)
             if frappe_min_version:
-                self.output.print(f"Frappe minimum Python: {frappe_min_version}")
+                self.output.debug(f"Frappe minimum Python: {frappe_min_version}")
 
         if current:
             current_tuple = tuple(map(int, current.split(".")))
@@ -1330,29 +1324,29 @@ bench build""",
                         max_ver = (int(match_max.group(1)), int(match_max.group(2)))
 
                         if min_ver <= current_tuple < max_ver:
-                            self.output.print(f"Current Python {current} satisfies Frappe requirement")
+                            self.output.debug(f"Current Python {current} satisfies Frappe requirement")
                             return current
-                        self.output.print(
+                        self.output.debug(
                             f"Current Python {current} doesn't satisfy requirement, upgrading to {frappe_min_version}",
                         )
                         return frappe_min_version
                     if current_tuple >= min_ver:
-                        self.output.print(f"Current Python {current} satisfies Frappe requirement")
+                        self.output.debug(f"Current Python {current} satisfies Frappe requirement")
                         return current
-                    self.output.print(
+                    self.output.debug(
                         f"Current Python {current} doesn't satisfy requirement, upgrading to {frappe_min_version}",
                     )
                     return frappe_min_version
 
             if current_tuple >= (3, 10):
-                self.output.print(f"Keeping current Python {current}")
+                self.output.debug(f"Keeping current Python {current}")
                 return current
 
         if frappe_min_version:
-            self.output.print(f"Using Frappe minimum Python: {frappe_min_version}")
+            self.output.debug(f"Using Frappe minimum Python: {frappe_min_version}")
             return frappe_min_version
 
-        self.output.print("Using safe default Python: 3.11")
+        self.output.debug("Using safe default Python: 3.11")
         return "3.11"
 
     def _choose_best_node_version(self, current: str | None, frappe_requirement: str | None) -> str | None:
@@ -1368,7 +1362,7 @@ bench build""",
         if frappe_requirement:
             frappe_min_version = parse_node_version_for_runtime(frappe_requirement)
             if frappe_min_version:
-                self.output.print(f"Frappe minimum Node: {frappe_min_version}")
+                self.output.debug(f"Frappe minimum Node: {frappe_min_version}")
 
         if current:
             current_major = int(current)
@@ -1377,20 +1371,20 @@ bench build""",
                 frappe_major = int(frappe_min_version)
 
                 if current_major >= frappe_major:
-                    self.output.print(f"Current Node {current} satisfies Frappe requirement")
+                    self.output.debug(f"Current Node {current} satisfies Frappe requirement")
                     return current
-                self.output.print(
+                self.output.debug(
                     f"Current Node {current} doesn't satisfy requirement, upgrading to {frappe_min_version}",
                 )
                 return frappe_min_version
 
             if current_major >= 18:
-                self.output.print(f"Keeping current Node {current}")
+                self.output.debug(f"Keeping current Node {current}")
                 return current
 
         if frappe_min_version:
-            self.output.print(f"Using Frappe minimum Node: {frappe_min_version}")
+            self.output.debug(f"Using Frappe minimum Node: {frappe_min_version}")
             return frappe_min_version
 
-        self.output.print("Using safe default Node: 18")
+        self.output.debug("Using safe default Node: 18")
         return "18"

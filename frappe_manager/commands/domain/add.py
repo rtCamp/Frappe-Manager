@@ -134,4 +134,4 @@ def add_domain(
     # `update_alias_domains` (site_manager/modules/bench_orchestrator.py:1376) saves the config,
     # reloads nginx and prints the "fm ssl add" follow-up hint for each newly added domain itself.
     bench.update_alias_domains(add_domains=domains, site=site)
-    output.print("Alias domains updated successfully")
+    output.print("Alias domains updated")

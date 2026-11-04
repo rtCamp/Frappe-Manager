@@ -422,7 +422,7 @@ class BakeManager:
                 shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True)
             else:
                 shutil.copy2(src, dest)
-            self.output.print(f"Included {src_str} -> frappe-bench/{dest_rel}")
+            self.output.info(f"Included {src_str} -> frappe-bench/{dest_rel}")
 
     @staticmethod
     def parse_manifest_architectures(manifest_json: str) -> set[str] | None:
@@ -495,16 +495,16 @@ class BakeManager:
         nginx_tag = nginx_tag or self.default_nginx_image(tag)
         dockerfile = self._runtime_dockerfile()
 
-        self.output.print(f"Baking image {tag}")
-        self.output.print(f"Companion image: {nginx_tag}")
-        self.output.print(f"Base image: {base_image}")
+        self.output.info(f"Baking image {tag}")
+        self.output.info(f"Companion image: {nginx_tag}")
+        self.output.info(f"Base image: {base_image}")
 
         build_config = self.bench_config.build
         source_kind = (build_config.source if build_config else None) or "provision"
         configured = build_config.platform if build_config else None
         platform, cross_info = self.resolve_target_platform(configured, self._daemon_arch(), source_kind)
         if platform:
-            self.output.print(f"Target platform: {platform} (from config)")
+            self.output.info(f"Target platform: {platform} (from config)")
         if cross_info:
             self.output.warning(cross_info)
         if platform:
@@ -526,14 +526,14 @@ class BakeManager:
                 self.output.change_head("Snapshotting bench workspace")
                 apps = self._populate_context_from_workspace(frappe_bench_dir)
                 self.bench_config.apps_list = apps
-                self.output.print(f"Baking apps (workspace snapshot): {', '.join(a.name for a in apps)}")
+                self.output.info(f"Baking apps (workspace snapshot): {', '.join(a.name for a in apps)}")
             else:
                 frappe_bench_dir.mkdir(parents=True, exist_ok=True)
 
                 self.output.change_head("Resolving bench apps")
                 apps = self._resolve_bake_apps()
                 self.bench_config.apps_list = apps
-                self.output.print(f"Baking apps: {', '.join(a.name for a in apps)}")
+                self.output.info(f"Baking apps: {', '.join(a.name for a in apps)}")
 
                 self.output.change_head("Preparing build context")
                 self._seed_bench_skeleton(frappe_bench_dir, base_image)

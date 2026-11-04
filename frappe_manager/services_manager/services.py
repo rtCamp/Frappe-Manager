@@ -206,7 +206,7 @@ class ServicesManager:
                 self.output.change_head(f"Starting fm's {service}: a site on this host uses it")
                 self.docker_client.compose.up(services=[service], detach=True, pull="missing")
             else:
-                self.output.print(f"Stopping fm's {service}: no site on this host uses it.")
+                self.output.print(f"Stopped fm's {service}: no site on this host uses it")
                 self.docker_client.compose.rm(services=[service], stop=True, force=True)
 
     def check_postgres_datadir_major(self) -> None:
@@ -365,7 +365,7 @@ class ServicesManager:
             if not cidr or network in existing:
                 continue
             if any(ipaddress.IPv4Network(cidr).overlaps(u) for u in used):
-                self.output.print(f"{cidr} is taken on this host now; picking another range for {network}")
+                self.output.debug(f"Picked a different range for {network}: {cidr} is taken on this host now")
                 setattr(fm_config.network, field, None)
                 if field == "subnet_cidr":
                     fm_config.network.proxy_ip = None
@@ -385,14 +385,10 @@ class ServicesManager:
             self._networks_before_install = set(self.docker_client.network_ls())
             self._created_this_run = True
             try:
-                self.output.print(
-                    f"Creating global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
-                    emoji_code=":construction:",
-                )
                 self.create(clean_install=True)
                 self.docker_client.compose.pull(stream=False)
                 self.output.print(
-                    f"Created global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
+                    f"Created global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue]",
                 )
                 self.ensure_shared_networks()
                 if start:
@@ -442,7 +438,7 @@ class ServicesManager:
                 # makes creation be skipped forever. Re-validate before replaying its compose.
                 self.heal_unstarted_stack()
                 for name in self.ensure_shared_networks():
-                    self.output.print(f"Recreated missing shared network {name}")
+                    self.output.info(f"Recreated missing shared network {name}")
                 services = self.compose_file_manager.get_services_list(exclude_disabled=True)
                 containers = self.compose_file_manager.get_container_names().values()
                 all_statuses = self.docker_client.compose.get_all_services_status()
@@ -710,7 +706,7 @@ class ServicesManager:
                 fm_config.network.subnet_cidr = subnet_cidr
                 fm_config.network.proxy_ip = proxy_ip
                 fm_config.export_to_toml()
-                self.output.print(f"Detected running network: {subnet_cidr}, proxy at {proxy_ip}")
+                self.output.debug(f"Detected running network: {subnet_cidr}, proxy at {proxy_ip}")
             else:
                 self.output.change_head("Configuring global frontend network")
                 cidr = find_available_subnet(get_docker_network_subnets())
@@ -718,7 +714,7 @@ class ServicesManager:
                 fm_config.network.subnet_cidr = net_config["subnet_cidr"]
                 fm_config.network.proxy_ip = net_config["proxy_ip"]
                 fm_config.export_to_toml()
-                self.output.print(f"Assigned subnet {net_config['subnet_cidr']}, proxy IP {net_config['proxy_ip']}")
+                self.output.info(f"Assigned subnet {net_config['subnet_cidr']}, proxy IP {net_config['proxy_ip']}")
 
         if not fm_config.network.backend_subnet_cidr:
             running_backend = detect_running_network("fm-backend-network", docker=self.docker_client)
@@ -731,7 +727,7 @@ class ServicesManager:
                 if fm_config.network.subnet_cidr:
                     used_subnets.append(ipaddress.IPv4Network(fm_config.network.subnet_cidr))
                 fm_config.network.backend_subnet_cidr = str(find_available_subnet(used_subnets))
-                self.output.print(f"Assigned backend subnet {fm_config.network.backend_subnet_cidr}")
+                self.output.info(f"Assigned backend subnet {fm_config.network.backend_subnet_cidr}")
             fm_config.export_to_toml()
 
         for network, cidr in (

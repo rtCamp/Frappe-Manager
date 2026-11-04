@@ -176,7 +176,7 @@ class BenchDevTools:
             if reason_is_flag
             else "the 'code' CLI is not on this machine, so nothing was launched"
         )
-        self.output.print(f"Prepared '{self.bench_name}' for VS Code; {reason}.", emoji_code=":information:")
+        self.output.print(f"Prepared '{self.bench_name}' for VS Code; {reason}", emoji_code=":information:")
         self.output.print(
             "To connect from another machine: open VS Code there, Remote-SSH to this host, then run "
             f"'Dev Containers: Attach to Running Container' and pick {self._frappe_container_display_name()}.",
@@ -294,7 +294,7 @@ class BenchDevTools:
 
         self._sync_vscode_config_files(workdir)
         self._install_ruff()
-        self.output.print("Synced vscode debugger configuration")
+        self.output.info("Synced vscode debugger configuration")
 
     def _vscode_config_files(self) -> dict:
         from frappe_manager.site_manager import get_vscode_launch_json, get_vscode_settings_json, get_vscode_tasks_json
@@ -358,7 +358,7 @@ class BenchDevTools:
         """Backup existing config file."""
         backup_path = file_path.parent / f"{file_path.stem}.{datetime.now().strftime('%d-%b-%y--%H-%M-%S')}.json"
         shutil.copy2(file_path, backup_path)
-        self.output.print(f"Backup previous '{file_path.name}' : {backup_path}")
+        self.output.print(f"Backed up previous '{file_path.name}' to {backup_path}")
 
     def _install_ruff(self) -> None:
         """Install ruff in the container environment."""

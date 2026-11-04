@@ -225,6 +225,10 @@ class UpdateWorld:
         return [c.args[0] for c in self.output.print.call_args_list if c.args]
 
     @property
+    def infos(self) -> list[str]:
+        return [c.args[0] for c in self.output.info.call_args_list if c.args]
+
+    @property
     def warnings(self) -> list[str]:
         return [c.args[0] for c in self.output.warning.call_args_list if c.args]
 
@@ -262,7 +266,7 @@ def world(tmp_path):
 
 IMMUTABLE_REFUSAL = (
     f"{BENCH} is image runtime; code, apps, Python/Node and developer mode are immutable -- "
-    "ship changes with 'fm bake' then 'fm switch', install apps with 'fm apps add'. "
+    "ship changes with 'fm bake' then 'fm switch'. "
     "'fm update' on an image bench still changes environment, restart policy and the database CA, "
     "and APM is 'fm telemetry enable'."
 )
@@ -386,7 +390,7 @@ class TestExternalDatabaseCaRefresh:
         )
         assert (
             "Running containers read the new CA on their next database connection; no restart needed."
-            in world.prints
+            in world.infos
         )
         assert world.compose_up_calls == []
         world.bench.restart_web_containers_services.assert_not_called()
@@ -833,7 +837,7 @@ class TestPythonAndNodeVersions:
 
         world.run(python_version="3.12")
 
-        assert "Found 2 installed apps: frappe, erpnext" in world.prints
+        assert "Found 2 installed apps: frappe, erpnext" in world.infos
         kwargs = world.bench.app_manager.install_apps.call_args.kwargs
         assert [app.name for app in kwargs["apps_list"]] == ["frappe", "erpnext"]
         assert kwargs["github_token"] is world.config.github_token
@@ -1019,7 +1023,7 @@ class TestSwitchTargetImageResolution:
 
         assert ship.orchestrator.deploy.call_args.args == ("local/mybench:t1",)
         assert ship.orchestrator.deploy.call_args.kwargs["migrate_override"] is False
-        assert "Rollback: migrate disabled for this run (override with --migrate)." in ship.prints
+        assert "Rollback: migrate disabled for this run (override with --migrate)" in ship.prints
 
     def test_an_explicit_migrate_flag_survives_a_rollback(self, ship):
         ship.config.deployments = _deploy_state()

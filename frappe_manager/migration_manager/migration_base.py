@@ -151,7 +151,7 @@ class MigrationBase(ABC):
             bench_version = get_bench_migration_version(bench.path)
 
             if not self.migration_executor.rerun and bench_version >= self.version:
-                self.output.print(
+                self.output.info(
                     f"Bench {bench_name} already at v{bench_version}, skipping migration to v{self.version}",
                 )
                 continue
@@ -422,6 +422,6 @@ class MigrationBase(ABC):
         # dump and a real one are otherwise the same sentence.
         size = backup_gz_file_backup_data_path.stat().st_size
         self.output.print(
-            f"[fm.info]{site}[/fm.info] db backup completed successfully: "
+            f"[fm.info]{site}[/fm.info] db backup completed: "
             f"{backup_gz_file_backup_data_path} ({format_size(size)})"
         )

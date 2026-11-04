@@ -190,7 +190,7 @@ class CustomCertificateService:
                 certificate.domain, detail=f"could not write certificate files to '{dest_dir}': {e}"
             ) from e
 
-        self.output.print(f"Custom certificate imported for {certificate.domain}")
+        self.output.info(f"Custom certificate imported for {certificate.domain}")
         return key_dest, fullchain_dest
 
     def renew_certificate(self, certificate: SSLCertificate, test_ca: bool = False) -> bool:

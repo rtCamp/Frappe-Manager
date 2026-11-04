@@ -229,7 +229,7 @@ def switch(
     # Rollback safety default: old code must never migrate a newer schema.
     if previous and migrate is None:
         migrate = False
-        output.print("Rollback: migrate disabled for this run (override with --migrate).")
+        output.print("Rollback: migrate disabled for this run (override with --migrate)")
 
     dumps: dict[str, Path] = {}
     if restore_db:

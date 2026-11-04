@@ -225,9 +225,9 @@ def _add_bench_certificate(
             except SSLDNSProviderNotConfigured as e:
                 output.display_error(str(e))
                 raise typer.Exit(1) from None
-            output.print(f"Using DNS credentials '{dns_provider}'", emoji_code=":information:")
+            output.info(f"Using DNS credentials '{dns_provider}'", emoji_code=":information:")
         if cname:
-            output.print(f"Using CNAME delegation: {cname}", emoji_code=":information:")
+            output.info(f"Using CNAME delegation: {cname}", emoji_code=":information:")
 
     _replace_existing_custom_certificate(output, bench, domain, custom=custom, yes=yes)
 
@@ -257,7 +257,6 @@ def _add_bench_certificate(
             # Non-fatal -- site config may not exist yet if site isn't created
             output.debug(f"Could not update host_name to {host_name}: {e}")
         output.print(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
-        output.print("Certificate has been issued and configured.", emoji_code=":zap:")
 
         if _regenerate_bench_compose(bench, output):
             output.print(

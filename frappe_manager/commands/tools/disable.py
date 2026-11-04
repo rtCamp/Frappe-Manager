@@ -49,9 +49,8 @@ def disable(
         return
 
     if not bench.admin_tools.compose_file_manager.compose_path.exists() or not bench.bench_config.admin_tools:
-        # Report and stop, rather than raising: an already-disabled bench is not an error, it is
-        # this command's own goal state already reached.
-        output.print("Admin tools is already disabled")
+        # Stop rather than raising: an already-disabled bench is not an error, it is this
+        # command's own goal state already reached.
         return
 
     with spinner(output, "Disabling admin tools"):
