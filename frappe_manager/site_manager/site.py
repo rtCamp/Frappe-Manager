@@ -497,15 +497,16 @@ class Bench:
                 self.output.print("Certificate Updated")
 
             if self.bench_config.admin_tools:
+                # "Enabled" only when it was not enabled before. The re-apply branch rewrites the
+                # config of tools that were already running, which is not an enable.
                 if not self.admin_tools.compose_file_manager.compose_path.exists():
                     self.sync_admin_tools_compose()
+                    self.output.print("Enabled Admin-tools")
                 else:
                     self.admin_tools.enable(force_configure=True)
-                self.output.print("Enabled Admin-tools")
+                    self.output.info("Re-applied admin-tools configuration")
 
-            elif not self.admin_tools.compose_file_manager.compose_path.exists():
-                self.output.print("Admin tools is already disabled")
-            else:
+            elif self.admin_tools.compose_file_manager.compose_path.exists():
                 self.admin_tools.disable()
                 self.output.print("Disabled Admin-tools")
 

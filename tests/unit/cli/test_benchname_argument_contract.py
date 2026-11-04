@@ -790,7 +790,7 @@ class TestSitenameCallbackWithNoValue:
             sitename_callback(None)
         assert isinstance(excinfo.value, FrappeManagerException)
         assert "Bench name is required in non-interactive mode" in str(excinfo.value)
-        assert "fm list" in str(excinfo.value)
+        assert any("fm list" in s for s in excinfo.value.suggestions)
         assert isinstance(excinfo.value.__cause__, EOFError)
         display_error.assert_not_called()
 

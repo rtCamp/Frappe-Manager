@@ -753,13 +753,13 @@ class TestNonInteractiveRoute:
             handler.prompt_ask(**_infra_prompt_kwargs())
 
         assert "Cannot prompt in non-interactive mode: How would you like to proceed?" in str(exc.value)
-        assert "Use: 'fm services migrate' (run migration explicitly)" in str(exc.value)
+        assert "Use: 'fm services migrate' (run migration explicitly)" in exc.value.suggestions
 
         with pytest.raises(NonInteractiveError) as bench_exc:
             handler.prompt_ask(**_bench_prompt_kwargs("mysite.localhost"))
 
         assert "Cannot prompt in non-interactive mode: Migrate bench 'mysite.localhost' now?" in str(bench_exc.value)
-        assert "Use: 'fm migrate mysite.localhost' (run migration explicitly)" in str(bench_exc.value)
+        assert "Use: 'fm migrate mysite.localhost' (run migration explicitly)" in bench_exc.value.suggestions
 
 
 # --------------------------------------------------------------------------- #

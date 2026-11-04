@@ -197,21 +197,28 @@ class MigrationV0190(MigrationBase):
         content = config_path.read_text()
         doc = tomlkit.parse(content)
 
-        self._transform_ssl_config(doc, bench.name)
+        # The transform early-returns when there is no [ssl] table or it is already a list, so
+        # the line below follows its answer rather than the fact that it was called.
+        ssl_transformed = self._transform_ssl_config(doc, bench.name)
         self._add_new_config_fields(doc)
 
         toml_document.save(config_path, doc)
-        self.output.print("Updated SSL configuration format")
+        if ssl_transformed:
+            self.output.print("Updated SSL configuration format")
 
-    def _transform_ssl_config(self, doc: tomlkit.TOMLDocument, bench_name: str):
-        """Transform [ssl] table to [[ssl_certificates]] array with proper field names."""
+    def _transform_ssl_config(self, doc: tomlkit.TOMLDocument, bench_name: str) -> bool:
+        """Transform [ssl] table to [[ssl_certificates]] array with proper field names.
+
+        Returns True only when a table was actually transformed, so the caller does not report
+        a format change on a bench that had no [ssl] table or was already migrated.
+        """
         if "ssl" not in doc:
-            return
+            return False
 
         old_ssl = doc["ssl"]
 
         if isinstance(old_ssl, list):
-            return
+            return False
 
         old_ssl_dict = cast("dict[str, Any]", old_ssl)
 
@@ -232,6 +239,7 @@ class MigrationV0190(MigrationBase):
 
         del doc["ssl"]
         doc["ssl_certificates"] = [ssl_cert]
+        return True
 
     def _move_dns_credentials(self, doc: tomlkit.TOMLDocument, old_ssl_dict: dict[str, Any]):
         """Move api_token/api_key from ssl to dns_providers.cloudflare if present."""

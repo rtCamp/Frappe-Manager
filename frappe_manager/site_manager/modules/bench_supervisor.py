@@ -328,7 +328,7 @@ class BenchSupervisor:
         config_dir = bench_dir / "config"
         config_dir.mkdir(parents=True, exist_ok=True)
 
-        self.output.change_head("Configuring supervisor configs")
+        self.output.change_head("Refreshing the gunicorn wrapper")
 
         try:
             _, context = self.generate_supervisor_config(bench_path)
@@ -338,10 +338,16 @@ class BenchSupervisor:
         self._write_gunicorn_wrapper(config_dir, context)
 
         newrelic = self.config.get_telemetry_config("newrelic")
-        if newrelic and newrelic.enabled and newrelic.license_key:
+        wrote_newrelic = bool(newrelic and newrelic.enabled and newrelic.license_key)
+        if wrote_newrelic:
             self._write_newrelic_config(config_dir, force=force)
 
-        self.output.print("Configured supervisor configs")
+        # This method writes the gunicorn wrapper and, when the agent is on, newrelic.ini. It
+        # never touches the split supervisor configs, which is what the old wording claimed.
+        if wrote_newrelic:
+            self.output.print("Refreshed the gunicorn wrapper and newrelic.ini")
+        else:
+            self.output.print("Refreshed the gunicorn wrapper")
 
     def _write_split_configs(self, config, config_dir) -> None:
         import configparser

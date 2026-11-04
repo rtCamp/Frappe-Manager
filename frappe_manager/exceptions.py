@@ -71,21 +71,18 @@ class NonInteractiveError(FrappeManagerException):
             message: Human-readable error description
             suggestions: List of suggested solutions for the user
         """
-        if suggestions:
-            solutions_text = "\n".join(f"  • {s}" for s in suggestions)
-            full_message = f"{message}\n\nSolutions:\n{solutions_text}"
-        else:
+        # NOT formatted into the message: the top-level handler in main.py renders `suggestions`
+        # as bullets, so a "Solutions:" block baked in here printed every suggestion twice, at
+        # two different indents, on every non-interactive refusal fm makes.
+        if not suggestions:
             suggestions = [
                 "Provide required arguments explicitly",
                 "Run without --non-interactive for prompts",
                 "Use --help for available options",
             ]
-            solutions_text = "\n".join(f"  • {s}" for s in suggestions)
-            full_message = f"{message}\n\nSolutions:\n{solutions_text}"
-        # Passed through to the base rather than assigned here: it owns `suggestions`, so setting
-        # the attribute before calling it just gets overwritten. `--json` reports them as `next`,
-        # and a program should not parse bullets back out of an error string.
-        super().__init__(full_message, suggestions=suggestions)
+        # `--json` reports them as `next`, and a program should not parse bullets back out of
+        # an error string.
+        super().__init__(message, suggestions=suggestions)
 
 
 class MissingArgumentError(NonInteractiveError):

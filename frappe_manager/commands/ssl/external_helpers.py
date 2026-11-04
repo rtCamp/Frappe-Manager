@@ -233,7 +233,6 @@ def _add_external_certificate(
 
         output.change_head("Reloading nginx to apply configuration")
         nginx_controller.reload()
-        output.print("Nginx reloaded successfully", emoji_code=":white_check_mark:")
 
         # Empty cert list: this cert is registered via add_certificate() below.
         cert_manager = _build_certificate_manager([], storage_config, link_manager, nginx_controller, output)
@@ -262,7 +261,6 @@ def _add_external_certificate(
                 output.print("Created HTTPS configuration", emoji_code=":white_check_mark:")
 
                 nginx_controller.reload()
-                output.print("Nginx reloaded with HTTPS enabled", emoji_code=":white_check_mark:")
             except Exception as post_cert_error:
                 # HTTPS config or reload failed -- cert was already issued; clean up to avoid orphan
                 output.change_head("Cleaning up after HTTPS configuration failure")
@@ -414,7 +412,6 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
         output.print("Removed nginx configuration", emoji_code=":white_check_mark:")
 
         nginx_controller.reload()
-        output.print("Nginx reloaded", emoji_code=":white_check_mark:")
 
         external_manager.remove_domain(domain)
 

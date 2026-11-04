@@ -388,10 +388,10 @@ def test_no_terminal_and_no_yes_refuses_instead_of_resetting():
 
 
 def test_the_refusal_names_the_flag_that_unblocks_it():
-    """A refusal an operator cannot act on is just a wall. NonInteractiveError folds its
-    suggestions into str()."""
+    """A refusal an operator cannot act on is just a wall. The flag rides in `suggestions`,
+    which the top-level handler renders as bullets -- once."""
     result = _run(interactive=False)
-    assert "--yes" in str(result.raised)
+    assert any("--yes" in s for s in result.raised.suggestions)
 
 
 def test_yes_still_works_without_a_terminal():

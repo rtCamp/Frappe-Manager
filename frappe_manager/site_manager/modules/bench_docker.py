@@ -417,8 +417,9 @@ class BenchDockerOps:
         self.output.change_head("Starting bench services")
 
         self.docker_client.compose.up(services=services or [], detach=True, pull=pull, force_recreate=force_recreate)
-
-        self.output.print("Started bench services")
+        # No completion line here: `compose.up` on an already-running bench starts nothing, so
+        # "Started bench services" would claim work that did not happen. The caller reports
+        # STATE read back from docker (bench_orchestrator.py:1519) and owns the answer.
 
     def stop(self, timeout: int = 10) -> None:
         """

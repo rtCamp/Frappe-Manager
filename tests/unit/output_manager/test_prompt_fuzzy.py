@@ -26,7 +26,7 @@ class TestRichOutputHandlerPromptFuzzy:
                 required_flag="bench_name positional argument",
             )
 
-        assert "bench_name positional argument" in str(exc_info.value)
+        assert any("bench_name positional argument" in s for s in exc_info.value.suggestions)
         assert "Cannot prompt in non-interactive mode" in str(exc_info.value)
 
     def test_prompt_fuzzy_non_interactive_with_default_returns_default(self):
@@ -61,7 +61,7 @@ class TestJSONOutputHandlerPromptFuzzy:
                 required_flag="bench_name positional argument",
             )
 
-        assert "bench_name positional argument" in str(exc_info.value)
+        assert any("bench_name positional argument" in s for s in exc_info.value.suggestions)
 
     def test_prompt_fuzzy_returns_default_when_provided(self):
         """JSONOutputHandler returns default if provided."""
@@ -86,7 +86,7 @@ class TestSilentOutputHandlerPromptFuzzy:
                 required_flag="bench_name positional argument",
             )
 
-        assert "bench_name positional argument" in str(exc_info.value)
+        assert any("bench_name positional argument" in s for s in exc_info.value.suggestions)
 
     def test_prompt_fuzzy_returns_default_when_provided(self):
         """SilentOutputHandler returns default if provided."""
