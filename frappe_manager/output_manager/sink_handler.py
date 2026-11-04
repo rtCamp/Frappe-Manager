@@ -150,12 +150,12 @@ class SinkOutputHandler(OutputHandler):
 
     def prompt_ask(self, prompt: str = "", choices=None, default: str | None = None, force_yes: bool = False, required_flag: str | None = None, **kwargs) -> str:
         if self.terminal is None:
-            # Answers the caller already gave are read BEFORE refusing: order matters here, and
-            # the refusal firing first is what made `--yes` useless without a terminal.
+            # `--yes` is read BEFORE refusing: it means "do the thing I typed", so a headless run
+            # that passed it has answered. A `default` is NOT taken here, unlike `prompt_fuzzy`
+            # below: these prompts gate state changes, and the migration gate's default is
+            # "update", so honouring it would start a migration nobody asked for.
             if force_yes:
                 return "yes" if not choices or "yes" in choices else choices[0]
-            if default is not None:
-                return default
             from frappe_manager.exceptions import NonInteractiveError
 
             raise NonInteractiveError(prompt, [f"Pass {required_flag}"] if required_flag else None)
