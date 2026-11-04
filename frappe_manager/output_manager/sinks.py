@@ -88,10 +88,22 @@ def _mask_fact(label: str, value: str) -> str:
 
 
 def _masked(data: Any) -> Any:
-    """A card with its credentials replaced; anything else untouched."""
+    """Credentials replaced, in a card by its labels and in a mapping by its keys.
+
+    A mapping used to fall through untouched while the card view of the same facts was masked,
+    so `fm auth status` wrote the real password into fm.log and the card beside it printed
+    `password=***`. The masking has to recognise both shapes or it protects only the one the
+    author happened to pick.
+    """
     from frappe_manager.output_manager.railcard import Card
 
-    return data.masked(_mask_fact) if isinstance(data, Card) else data
+    if isinstance(data, Card):
+        return data.masked(_mask_fact)
+    if isinstance(data, dict):
+        return {key: (MASK if isinstance(key, str) and is_secret_label(key) else _masked(value)) for key, value in data.items()}
+    if isinstance(data, list):
+        return [_masked(item) for item in data]
+    return data
 
 
 class EventSink:
