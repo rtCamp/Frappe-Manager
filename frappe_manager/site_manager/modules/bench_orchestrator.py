@@ -1612,7 +1612,7 @@ class BenchOrchestrator:
 
         # A site's own name is its canonical domain, so it cannot also be one of its alternates.
         if target in add_list:
-            self.output.warning(f"Skipping '{target}' - a site's own domain cannot be its alias")
+            self.output.info(f"Dropped '{target}' from the alias additions: a site's own domain cannot be its alias")
             add_list = [d for d in add_list if d != target]
 
         if target in remove_list:
@@ -1636,7 +1636,7 @@ class BenchOrchestrator:
         added_domains = []
         for domain in add_list:
             if domain in current_aliases:
-                self.output.warning(f"Domain '{domain}' is already an alias of '{target}'. Skipping")
+                self.output.info(f"Domain '{domain}' already an alias of '{target}'; skipped")
             else:
                 current_aliases.add(domain)
                 added_domains.append(domain)
@@ -1648,7 +1648,7 @@ class BenchOrchestrator:
         removed_domains = []
         for domain in remove_list:
             if domain not in current_aliases:
-                self.output.warning(f"Domain '{domain}' is not an alias of '{target}'. Skipping")
+                self.output.info(f"Domain '{domain}' not an alias of '{target}'; skipped")
             else:
                 current_aliases.remove(domain)
                 removed_domains.append(domain)

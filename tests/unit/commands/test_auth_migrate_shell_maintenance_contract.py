@@ -1184,7 +1184,7 @@ def test_a_bench_that_raised_is_reported_as_failed_and_never_stamped(out, tmp_pa
     assert r.exit.exit_code == 1
     r.set_bench_version.assert_not_called()
     assert "Migration failed" in render(out.print_data.call_args.args[0])
-    assert "Check logs for details" in joined(out.display_error)
+    assert "fm.log" in joined(out.display_error)
 
 
 def test_all_exits_nonzero_when_only_some_benches_failed(out, tmp_path):

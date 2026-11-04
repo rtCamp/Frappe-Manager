@@ -281,7 +281,7 @@ def test_the_listing_exit_names_every_bench_it_could_not_read(listing):
     with pytest.raises(typer.Exit):
         list_certificates(listing.ctx, address="all", standalone=False)
 
-    assert f"Could not list: {BENCHES[0]}, {BENCHES[2]}" in listing.errors()
+    assert f"Could not list certificates for: {BENCHES[0]}, {BENCHES[2]}" in listing.errors()
 
 
 def test_a_listing_where_every_bench_is_readable_exits_zero(listing):
@@ -506,7 +506,7 @@ def test_the_exit_names_every_bench_that_failed(renewing):
         _renew_all(renewing)
 
     summary = renewing.output.display_error.call_args.args[0]
-    assert summary == "Renewal failed for: alpha.localhost, gamma.localhost"
+    assert summary.startswith("Renewal failed for: alpha.localhost, gamma.localhost.")
 
 
 def test_a_run_where_every_bench_succeeds_does_not_exit_nonzero(renewing):

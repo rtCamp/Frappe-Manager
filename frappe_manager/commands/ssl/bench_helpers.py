@@ -340,8 +340,10 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
         output.display_error(f"Certificate not found: {e}")
         raise typer.Exit(1) from None
     except Exception as e:
-        output.display_error(f"Failed to remove certificate: {e}")
-        output.display_error(f"Error details: {e!s}")
+        output.display_error(
+            f"Failed to remove the certificate for {domain}: {e}. nginx was not reloaded, so the "
+            "bench's SSL configuration may be inconsistent until this is retried."
+        )
         raise typer.Exit(1) from None
 
 def _dns_provider_facts(bench_config: "BenchConfig", cert: SSLCertificate | None) -> tuple[str | None, bool]:

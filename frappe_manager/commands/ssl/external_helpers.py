@@ -325,10 +325,13 @@ def _add_external_certificate(
             output.print(f"3. Access your app at: {public_url(domain, 'https', https_port=https_port)}", emoji_code="")
 
     except ValueError as e:
-        output.display_error(f"Failed to add certificate: {e}")
+        output.display_error(f"Failed to add certificate for {domain}: {e}")
         raise typer.Exit(1)
     except Exception as e:
-        output.display_error(f"Failed to add certificate: {e}")
+        output.display_error(
+            f"Failed to add certificate for {domain}: {e}. If this left an nginx configuration "
+            f"behind, 'fm ssl remove --standalone {domain}' cleans it up."
+        )
         raise typer.Exit(1)
 
 
@@ -415,7 +418,10 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
         output.print(f"SSL certificate removed for {domain}", emoji_code=":white_check_mark:")
 
     except Exception as e:
-        output.display_error(f"Failed to remove certificate: {e}")
+        output.display_error(
+            f"Failed to remove certificate for {domain}: {e}. Re-running "
+            f"'fm ssl remove --standalone {domain}' finds and cleans up anything left behind."
+        )
         raise typer.Exit(1)
 
 
@@ -690,7 +696,10 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, test_ca: bool, 
         return
 
     except Exception as e:
-        output.display_error(f"Failed to renew certificate: {e}")
+        output.display_error(
+            f"Failed to renew certificate for {domain}: {e}. The current certificate is "
+            "unaffected and keeps serving until it expires."
+        )
         raise typer.Exit(1)
 
 
@@ -731,6 +740,8 @@ def _renew_all_external_certificates(ctx: typer.Context, test_ca: bool, force: b
 
     if failed:
         output.display_error(
-            f"Failed to renew {len(failed)} of {len(external_domains)} certificate(s): {', '.join(failed)}"
+            f"Failed to renew {len(failed)} of {len(external_domains)} certificate(s): "
+            f"{', '.join(failed)}. Each keeps serving its current certificate until it expires; "
+            "see the errors above for each domain."
         )
         raise typer.Exit(1)

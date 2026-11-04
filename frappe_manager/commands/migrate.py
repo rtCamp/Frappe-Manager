@@ -5,7 +5,7 @@ import typer
 from rich.table import Table
 from typer_examples import example
 
-from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
+from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY, CLI_LOG_DIRECTORY
 from frappe_manager.commands.arguments import BenchAllArgument
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.bench_migration_state import (
@@ -237,5 +237,5 @@ def migrate(
     output.print_data(table)
 
     if benches_failed:
-        output.display_error("Check logs for details", emoji_code=":warning:")
+        output.display_error(f"Check {CLI_LOG_DIRECTORY / 'fm.log'} for details", emoji_code=":warning:")
         raise typer.Exit(1)

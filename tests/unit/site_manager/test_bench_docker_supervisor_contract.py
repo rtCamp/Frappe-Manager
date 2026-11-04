@@ -1443,7 +1443,7 @@ class TestGuardsThatRefuseAnAction:
         ops.docker_client.compose.logs.assert_called_once_with(services=[], follow=False, stream=True)
 
     @pytest.mark.timeout(15)
-    def test_removing_containers_without_a_compose_file_warns_instead_of_failing(self, tmp_path):
+    def test_removing_containers_without_a_compose_file_is_a_no_op_not_a_failure(self, tmp_path):
         """`fm delete` on a half-created bench must still finish."""
         ops = _ops(tmp_path)
         ops.compose_file_manager.exists.return_value = False
@@ -1451,7 +1451,7 @@ class TestGuardsThatRefuseAnAction:
         ops.remove_containers()
 
         ops.docker_client.compose.down.assert_not_called()
-        ops.output.warning.assert_called_once_with("Bench compose file not found. Skipping containers removal.")
+        ops.output.info.assert_called_once_with("Skipped containers removal: no bench compose file found")
 
     @pytest.mark.timeout(15)
     def test_removing_containers_takes_volumes_down_with_orphans(self, tmp_path):
@@ -2222,13 +2222,32 @@ class TestRestartSupervisorService:
             sup.restart_supervisor_service("frappe", force=True)
 
     @pytest.mark.timeout(15)
-    def test_a_missing_socket_warns_but_still_reports_success(self, monkeypatch):
-        """Dev mode does not use the socket, so its absence must not fail a restart
-        that supervisorctl already accepted."""
+    def test_a_missing_socket_with_the_service_still_running_does_not_warn(self, monkeypatch):
+        """A dev bench's web program never creates the socket, so its absence alone must not
+        fail -- or warn about -- a restart that supervisorctl already accepted and the
+        container still reports as running."""
         monkeypatch.setattr(f"{SUPERVISOR_MODULE}.time.sleep", lambda _: None)
         sup = _supervisor()
         sup.docker_client = self._client()
         sup.docker_client.compose.exec.side_effect = [MagicMock()] + [_docker_exception("nope")] * 3
+
+        assert sup.restart_supervisor_service("frappe", timeout=3) is True
+        sup.output.warning.assert_not_called()
+
+    @pytest.mark.timeout(15)
+    def test_a_missing_socket_with_the_service_no_longer_running_warns(self, monkeypatch):
+        """The socket missing AND the container no longer reporting as running is a real
+        problem, verified the same way the top of the method verifies it."""
+        monkeypatch.setattr(f"{SUPERVISOR_MODULE}.time.sleep", lambda _: None)
+        sup = _supervisor()
+        sup.docker_client = self._client()
+        sup.docker_client.compose.exec.side_effect = [MagicMock()] + [_docker_exception("nope")] * 3
+        # The pre-restart check (top of the method) must still see it running, or the call
+        # never reaches the restart at all; only the POST-timeout check reports it gone.
+        sup.docker_client.compose.get_all_services_status.side_effect = [
+            [{"Service": "frappe", "State": "running"}],
+            [{"Service": "frappe", "State": "exited"}],
+        ]
 
         assert sup.restart_supervisor_service("frappe", timeout=3) is True
         sup.output.warning.assert_called_once()

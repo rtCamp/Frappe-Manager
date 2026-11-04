@@ -156,7 +156,10 @@ def add_apps(
             bench.restart_workers_containers_services(use_container_restart=False)
 
     if failed:
-        output.display_error(f"Apps grafted, but these sites failed: {', '.join(failed)}")
+        output.display_error(
+            f"Apps grafted, but these sites failed: {', '.join(failed)} (see the errors above). "
+            f"Retry with 'fm apps add {bench.name}/<site> ...' once fixed."
+        )
         raise typer.Exit(1)
 
     if targets:

@@ -22,9 +22,9 @@ Contracts pinned:
    is the only key that finds the right `site_config.json`.
 3. **The destructive guards.** `remove_database_and_user` refuses to do anything without
    a `name` key; it refuses to drop a database that `check_db_exists` denies, and a user
-   that `check_user_exists` denies, warning instead. Database and user are decided
-   independently (no early return), the database is dropped before the user, and the
-   user drop is always `remove_all_host=True` (every host grant, not just `%`).
+   that `check_user_exists` denies, reporting the no-op instead. Database and user are
+   decided independently (no early return), the database is dropped before the user, and
+   the user drop is always `remove_all_host=True` (every host grant, not just `%`).
 4. **What `sync_common_site_config` writes.** Redis only, config driven: an external
    `[redis]` is used verbatim, otherwise the per-bench redis container addresses are
    minted from the container prefix; `redis_socketio` follows the QUEUE, which is the key
@@ -95,6 +95,10 @@ class _Harness:
     @property
     def warnings(self):
         return [c.args[0] for c in self.output.warning.call_args_list]
+
+    @property
+    def infos(self):
+        return [c.args[0] for c in self.output.info.call_args_list]
 
     @property
     def printed(self):
@@ -381,7 +385,7 @@ def test_removal_without_a_name_refuses_all_database_work(tmp_path, conn_info):
 
 
 @pytest.mark.usefixtures("conn_info")
-def test_missing_database_is_warned_about_and_never_dropped(tmp_path):
+def test_missing_database_is_a_no_op_and_never_dropped(tmp_path):
     h = _Harness(tmp_path)
     h.db.check_db_exists.return_value = False
     h.db.check_user_exists.return_value = False
@@ -390,7 +394,7 @@ def test_missing_database_is_warned_about_and_never_dropped(tmp_path):
 
     h.db.check_db_exists.assert_called_once_with("site1_local_db")
     h.db.remove_db.assert_not_called()
-    assert "mariadb: Bench db [fm.info]site1_local_db[/fm.info] not found. Skipping.." in h.warnings
+    assert "Bench db [fm.info]site1_local_db[/fm.info] not found in mariadb, skipped removal" in h.infos
 
 
 @pytest.mark.usefixtures("conn_info")
@@ -406,7 +410,7 @@ def test_existing_database_is_dropped_and_reported(tmp_path):
 
 
 @pytest.mark.usefixtures("conn_info")
-def test_missing_user_is_warned_about_and_never_dropped(tmp_path):
+def test_missing_user_is_a_no_op_and_never_dropped(tmp_path):
     h = _Harness(tmp_path)
     h.db.check_db_exists.return_value = True
     h.db.check_user_exists.return_value = False
@@ -415,7 +419,7 @@ def test_missing_user_is_warned_about_and_never_dropped(tmp_path):
 
     h.db.check_user_exists.assert_called_once_with("site1_local_user")
     h.db.remove_user.assert_not_called()
-    assert "mariadb: Bench db user [fm.info]site1_local_user[/fm.info] not found. Skipping.." in h.warnings
+    assert "Bench db user [fm.info]site1_local_user[/fm.info] not found in mariadb, skipped removal" in h.infos
 
 
 @pytest.mark.usefixtures("conn_info")

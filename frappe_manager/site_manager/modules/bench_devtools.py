@@ -376,7 +376,7 @@ class BenchDevTools:
             )
         except DockerException as e:
             self.logger.error(f"ruff installation exception: {capture_and_format_exception()}")
-            self.output.warning("Not able to install ruff in env")
+            self.output.warning("Could not install ruff in the container; VS Code linting will be silently absent")
 
     def _attach_to_container(self, vscode_cmd: str) -> None:
         """Attach to the container using VS Code."""

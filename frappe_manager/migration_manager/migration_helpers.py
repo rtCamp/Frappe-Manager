@@ -56,7 +56,7 @@ class MigrationBench:
             sites = tomlkit.parse(config_path.read_text()).get("sites") or {}
         except Exception as e:
             if self.output:
-                self.output.warning(f"Failed to read [sites] from bench_config.toml: {e}")
+                self.output.warning(f"Failed to read \\[sites] from bench_config.toml: {e}")
             return [self.name]
 
         return [str(site) for site in sites] or [self.name]

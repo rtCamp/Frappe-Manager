@@ -108,7 +108,7 @@ def renew(
         try:
             bench = Bench.get_object(address, services_manager, output_handler=output)
         except Exception as e:
-            output.display_error(f"{address}: {e}")
+            output.display_error(f"Could not load bench {address}: {e}")
             failed.append(address)
             continue
 
@@ -148,9 +148,15 @@ def renew(
         except Exception as e:
             # Report and carry on. Aborting here meant one bench's ACME failure left every bench
             # after it unrenewed, which on a scheduled run is discovered when a certificate expires.
-            output.display_error(f"{address}: {e}")
+            output.display_error(
+                f"Failed to renew certificate(s) for {address}: {e}. They keep serving their "
+                "current certificate until it expires."
+            )
             failed.append(address)
 
     if failed:
-        output.display_error(f"Renewal failed for: {', '.join(failed)}")
+        output.display_error(
+            f"Renewal failed for: {', '.join(failed)}. Each keeps serving its current certificate "
+            "until it expires; see the errors above for each bench."
+        )
         raise typer.Exit(1)

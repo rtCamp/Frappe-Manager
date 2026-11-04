@@ -86,5 +86,8 @@ def stop(
                 output.print(f"Stopped service {service.value}")
 
     if benches_failed:
-        output.display_error(f"Still running: {', '.join(benches_failed)}")
+        output.display_error(
+            f"Still running: {', '.join(benches_failed)}. Retry with 'fm stop <bench>' for each, "
+            "or see the errors above for the cause."
+        )
         raise typer.Exit(1)

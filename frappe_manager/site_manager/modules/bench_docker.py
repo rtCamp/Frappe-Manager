@@ -451,7 +451,7 @@ class BenchDockerOps:
             )
             self.output.print("Removed bench containers")
         else:
-            self.output.warning("Bench compose file not found. Skipping containers removal.")
+            self.output.info("Skipped containers removal: no bench compose file found")
 
     def shell(
         self,

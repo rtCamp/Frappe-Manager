@@ -1137,7 +1137,9 @@ def test_a_ruff_install_failure_is_a_warning_not_a_failed_attach(devtools):
 
     tools._setup_debugger_config("/workspace/frappe-bench")
 
-    tools.output.warning.assert_called_once_with("Not able to install ruff in env")
+    tools.output.warning.assert_called_once_with(
+        "Could not install ruff in the container; VS Code linting will be silently absent"
+    )
     assert (tools.bench_path / "workspace" / "frappe-bench" / ".vscode" / "launch.json").exists()
 
 

@@ -105,6 +105,10 @@ class _Harness:
     def warnings(self) -> list[str]:
         return [c.args[0] for c in self.output.warning.call_args_list]
 
+    @property
+    def infos(self) -> list[str]:
+        return [c.args[0] for c in self.output.info.call_args_list]
+
 
 @pytest.fixture
 def harness(tmp_path):
@@ -275,17 +279,17 @@ class TestRestartWorkersFmxCyclePath:
         assert "--worker-kill-poll 0.25" in cmd
 
     @pytest.mark.timeout(15)
-    def test_missing_fmx_warns_and_falls_back_to_supervisorctl(self, harness):
+    def test_missing_fmx_falls_back_to_supervisorctl(self, harness):
         h = harness()
         h.main_client.compose.exec.side_effect = _docker_exception("executable not found")
         h.workers_client.compose.exec.side_effect = _docker_exception("executable not found")
 
         h.coordinator.restart_workers_containers_services(use_container_restart=False, force=False)
 
-        assert h.warnings == [
-            "fmx restart unavailable in schedule (old image?); falling back to supervisorctl",
-            "fmx restart unavailable in long-worker (old image?); falling back to supervisorctl",
-            "fmx restart unavailable in short-worker (old image?); falling back to supervisorctl",
+        assert h.infos == [
+            "Fell back to supervisorctl for schedule: fmx restart unavailable (old image?)",
+            "Fell back to supervisorctl for long-worker: fmx restart unavailable (old image?)",
+            "Fell back to supervisorctl for short-worker: fmx restart unavailable (old image?)",
         ]
         # the fallback is never the forceful stop+start
         assert h.restart_supervisor.call_args_list == [
@@ -300,14 +304,14 @@ class TestRestartWorkersFmxCyclePath:
         ]
 
     @pytest.mark.timeout(15)
-    def test_fallback_that_restarts_nothing_warns_but_claims_no_restart(self, harness):
+    def test_fallback_that_restarts_nothing_reports_the_fallback_but_claims_no_restart(self, harness):
         h = harness(supervisor_restarted=False)
         h.main_client.compose.exec.side_effect = _docker_exception()
         h.workers_client.compose.exec.side_effect = _docker_exception()
 
         h.coordinator.restart_workers_containers_services(use_container_restart=False, force=False)
 
-        assert len(h.warnings) == 3
+        assert len(h.infos) == 3
         assert h.prints == []
 
 

@@ -743,8 +743,9 @@ class ServicesManager:
                 # The operator SET this in fm_config and it silently never lands on disk, so the
                 # services come up on an address range they did not choose.
                 self.output.warning(
-                    f"Configured subnet {cidr} could not be applied to the {network} network: "
-                    "the rendered compose file has no ipam config to pin it to."
+                    f"Configured subnet {cidr} could not be applied to the {network} network: the "
+                    "rendered compose file has no ipam config to pin it to, so it comes up on "
+                    "whatever subnet docker picks"
                 )
 
         # Pin the proxy's static IP without dropping any other networks it's on
@@ -764,8 +765,9 @@ class ServicesManager:
                 proxy_service["networks"] = nets
             except KeyError:
                 self.output.warning(
-                    f"Configured proxy IP {fm_config.network.proxy_ip} could not be applied: "
-                    "the rendered compose file has no nginx-proxy service to pin it to."
+                    f"Configured proxy IP {fm_config.network.proxy_ip} could not be applied: the "
+                    "rendered compose file has no nginx-proxy service to pin it to, so nginx-proxy "
+                    "keeps its previous address"
                 )
 
     def ensure_shared_networks(self) -> list[str]:
@@ -960,7 +962,7 @@ class ServicesManager:
         except DockerException as e:
             # `fm shell` for a bench execs into the container and propagates its status; the global
             # shell must agree, otherwise a script cannot tell a failed command from a clean exit.
-            self.output.warning(f"Shell exited with error code: {e.output.exit_code}")
+            self.output.info(f"Shell exited with code {e.output.exit_code}")
             raise typer.Exit(e.output.exit_code) from e
 
     def remove_itself(self):

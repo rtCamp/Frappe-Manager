@@ -436,7 +436,7 @@ class BenchWorkerCoordinator:
             # a kill-ladder error -- is reported as "old image?" and rerouted. The guess belongs
             # on the terminal; the actual cause belongs in the file.
             self.logger.debug(f"{service}: fmx cycle failed, falling back to supervisorctl: {e}")
-            self.output.warning(f"fmx restart unavailable in {service} (old image?); falling back to supervisorctl")
+            self.output.info(f"Fell back to supervisorctl for {service}: fmx restart unavailable (old image?)")
             is_restarted = self.restart_supervisor_service(service, docker_client_obj=docker_client_obj, force=False)
             if is_restarted:
                 self.output.print(f"Restarted supervisor processes - {service}")

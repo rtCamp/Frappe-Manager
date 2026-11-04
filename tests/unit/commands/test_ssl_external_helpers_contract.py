@@ -306,7 +306,8 @@ def test_add_cname_validation_failure_with_wrong_target_reports_current_value(h)
     assert exc.value.exit_code == 1
     assert [c.args[0] for c in h.output.display_error.call_args_list] == [
         "DNS validation failed",
-        "Failed to add certificate: 1",
+        f"Failed to add certificate for {DOMAIN}: 1. If this left an nginx configuration behind, "
+        f"'fm ssl remove --standalone {DOMAIN}' cleans it up.",
     ]
     prints = h.prints()
     assert f"  _acme-challenge.{DOMAIN}  →  _acme-challenge.deleg.fm.com" in prints
@@ -372,7 +373,8 @@ def test_add_wait_for_dns_timeout_aborts_before_touching_nginx(h):
     # it and appends a second, less useful error line. Pinned as-is (suspected wart).
     assert [c.args[0] for c in h.output.display_error.call_args_list] == [
         "DNS propagation timeout",
-        "Failed to add certificate: 1",
+        f"Failed to add certificate for {DOMAIN}: 1. If this left an nginx configuration behind, "
+        f"'fm ssl remove --standalone {DOMAIN}' cleans it up.",
     ]
     assert "CNAME record did not propagate within 5 minutes." in h.prints()
     h.StandaloneNginxConfigManager.assert_not_called()
@@ -581,7 +583,10 @@ def test_add_issuance_failure_removes_nginx_config_and_exits(h):
     assert h.nginx_controller.reload.call_count == 2
     h.standalone_nginx.create_https_config.assert_not_called()
     h.external_manager.add_domain.assert_not_called()
-    h.output.display_error.assert_called_once_with("Failed to add certificate: acme boom")
+    h.output.display_error.assert_called_once_with(
+        f"Failed to add certificate for {DOMAIN}: acme boom. If this left an nginx configuration "
+        f"behind, 'fm ssl remove --standalone {DOMAIN}' cleans it up."
+    )
     assert "Cleaning up after certificate generation failure" in h.heads()
     # Issuance cleanup does NOT try to remove a certificate: there is none yet.
     h.cert_manager.remove_certificate_by_domain.assert_not_called()
@@ -596,7 +601,10 @@ def test_add_issuance_failure_with_failing_cleanup_debugs_and_still_exits(h):
 
     h.output.debug.assert_called_once_with("Failed to clean up nginx config: cleanup boom")
     # the original error, not the cleanup error, is what the user is told about
-    h.output.display_error.assert_called_once_with("Failed to add certificate: acme boom")
+    h.output.display_error.assert_called_once_with(
+        f"Failed to add certificate for {DOMAIN}: acme boom. If this left an nginx configuration "
+        f"behind, 'fm ssl remove --standalone {DOMAIN}' cleans it up."
+    )
 
 
 def test_add_https_config_failure_also_revokes_the_issued_certificate(h):
@@ -611,7 +619,10 @@ def test_add_https_config_failure_also_revokes_the_issued_certificate(h):
     h.standalone_nginx.remove_config.assert_called_once_with(DOMAIN)
     assert "Cleaning up after HTTPS configuration failure" in h.heads()
     assert "Cleaned up nginx configuration and certificate" in h.prints()
-    h.output.display_error.assert_called_once_with("Failed to add certificate: https boom")
+    h.output.display_error.assert_called_once_with(
+        f"Failed to add certificate for {DOMAIN}: https boom. If this left an nginx configuration "
+        f"behind, 'fm ssl remove --standalone {DOMAIN}' cleans it up."
+    )
     h.external_manager.add_domain.assert_not_called()
 
 
@@ -622,7 +633,10 @@ def test_add_https_reload_failure_takes_the_same_cleanup_path(h):
         _add(h)
 
     h.cert_manager.remove_certificate_by_domain.assert_called_once_with(DOMAIN)
-    h.output.display_error.assert_called_once_with("Failed to add certificate: reload boom")
+    h.output.display_error.assert_called_once_with(
+        f"Failed to add certificate for {DOMAIN}: reload boom. If this left an nginx configuration "
+        f"behind, 'fm ssl remove --standalone {DOMAIN}' cleans it up."
+    )
 
 
 def test_add_https_cleanup_failure_uses_its_own_debug_message(h):
@@ -642,14 +656,16 @@ def test_add_https_cleanup_failure_uses_its_own_debug_message(h):
     assert h.nginx_controller.reload.call_count == 2
 
 
-def test_add_value_error_reports_the_same_message_as_any_other_exception(h):
+def test_add_value_error_reports_the_domain_without_a_cleanup_hint(h):
+    """A ValueError here comes from building the certificate request itself, before anything is
+    created, so there is nothing to clean up and the message says only the operation and cause."""
     h.standalone_nginx.create_http_config.side_effect = ValueError("bad value")
 
     with pytest.raises(typer.Exit) as exc:
         _add(h)
 
     assert exc.value.exit_code == 1
-    h.output.display_error.assert_called_once_with("Failed to add certificate: bad value")
+    h.output.display_error.assert_called_once_with(f"Failed to add certificate for {DOMAIN}: bad value")
 
 
 def test_remove_rejects_unknown_domain(h):
@@ -767,7 +783,8 @@ def test_remove_aborts_when_domain_config_vanished(h):
 
     assert exc.value.exit_code == 1
     h.output.display_error.assert_called_once_with(
-        f"Failed to remove certificate: Domain config not found for {DOMAIN}"
+        f"Failed to remove certificate for {DOMAIN}: Domain config not found for {DOMAIN}. "
+        f"Re-running 'fm ssl remove --standalone {DOMAIN}' finds and cleans up anything left behind."
     )
     h.external_manager.to_ssl_certificate.assert_not_called()
 
@@ -781,7 +798,9 @@ def test_remove_aborts_when_certificate_object_cannot_be_rebuilt(h):
 
     assert exc.value.exit_code == 1
     h.output.display_error.assert_called_once_with(
-        f"Failed to remove certificate: Could not create certificate object for {DOMAIN}"
+        f"Failed to remove certificate for {DOMAIN}: Could not create certificate object for "
+        f"{DOMAIN}. Re-running 'fm ssl remove --standalone {DOMAIN}' finds and cleans up anything "
+        "left behind."
     )
     h.SSLCertificateManager.assert_not_called()
 
@@ -794,7 +813,10 @@ def test_remove_failure_leaves_the_toml_entry_in_place(h):
         external_helpers._remove_external_certificate(h.ctx, DOMAIN, yes=True)
 
     assert exc.value.exit_code == 1
-    h.output.display_error.assert_called_once_with("Failed to remove certificate: rm boom")
+    h.output.display_error.assert_called_once_with(
+        f"Failed to remove certificate for {DOMAIN}: rm boom. Re-running "
+        f"'fm ssl remove --standalone {DOMAIN}' finds and cleans up anything left behind."
+    )
     h.external_manager.remove_domain.assert_not_called()
 
 
@@ -892,7 +914,8 @@ def test_renew_aborts_when_certificate_object_cannot_be_rebuilt(h):
 
     assert exc.value.exit_code == 1
     h.output.display_error.assert_called_once_with(
-        f"Failed to renew certificate: Could not create certificate object for {DOMAIN}"
+        f"Failed to renew certificate for {DOMAIN}: Could not create certificate object for "
+        f"{DOMAIN}. The current certificate is unaffected and keeps serving until it expires."
     )
     h.SSLCertificateManager.assert_not_called()
 
@@ -905,7 +928,10 @@ def test_renew_failure_message_differs_from_remove_and_add(h):
         external_helpers._renew_external_certificate(h.ctx, DOMAIN, test_ca=False)
 
     assert exc.value.exit_code == 1
-    h.output.display_error.assert_called_once_with("Failed to renew certificate: renew boom")
+    h.output.display_error.assert_called_once_with(
+        f"Failed to renew certificate for {DOMAIN}: renew boom. The current certificate is "
+        "unaffected and keeps serving until it expires."
+    )
     assert f"Certificate renewal for {DOMAIN} completed" not in h.prints()
 
 
@@ -988,7 +1014,10 @@ def test_renew_all_warns_and_continues_when_one_domain_fails(h):
     assert exc.value.exit_code == 1
     h.output.warning.assert_called_once_with("Failed to renew a.example.com: first failed")
     assert one.call_count == 2
-    h.output.display_error.assert_called_once_with("Failed to renew 1 of 2 certificate(s): a.example.com")
+    h.output.display_error.assert_called_once_with(
+        "Failed to renew 1 of 2 certificate(s): a.example.com. Each keeps serving its current "
+        "certificate until it expires; see the errors above for each domain."
+    )
 
 
 def test_renew_all_propagates_a_typer_exit_from_a_single_domain(h):
@@ -1006,7 +1035,10 @@ def test_renew_all_propagates_a_typer_exit_from_a_single_domain(h):
     reason = h.output.warning.call_args.args[0].split(":", 1)[1].strip()
     assert reason
     assert reason != "1"
-    h.output.display_error.assert_called_once_with("Failed to renew 1 of 1 certificate(s): a.example.com")
+    h.output.display_error.assert_called_once_with(
+        "Failed to renew 1 of 1 certificate(s): a.example.com. Each keeps serving its current "
+        "certificate until it expires; see the errors above for each domain."
+    )
 
 
 def test_renew_all_real_error_message_survives_the_new_typer_exit_arm(h):

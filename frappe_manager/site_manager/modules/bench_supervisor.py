@@ -204,10 +204,21 @@ class BenchSupervisor:
             except DockerException:
                 time.sleep(interval)
 
-        # Socket not found, but don't fail - it might be dev mode where socket isn't used
-        self.output.warning(
-            f"Supervisor socket {socket_path} not found after restart, but services may still be running",
-        )
+        # The socket alone can go missing for reasons that say nothing about health (a dev
+        # bench's web program never creates one). Re-run the same liveness check the top of
+        # this method trusts, and only warn when THAT also says the service is not up.
+        try:
+            statuses = docker_client_obj.compose.get_all_services_status()
+            still_running = any(
+                status["Service"] == service and status["State"] == "running" for status in statuses
+            )
+        except DockerException:
+            still_running = False
+
+        if not still_running:
+            self.output.warning(
+                f"Supervisor socket {socket_path} not found after restart, and {service} is not reported running",
+            )
         return True
 
     def _get_gunicorn_workers(self) -> int:

@@ -709,7 +709,10 @@ class Bench:
         except Exception as e:
             extra["error"] = str(e)
             self.logger.warning(f"Failed to re-seed nginx conf for bench: {self.name}", extra_fields=extra)
-            self.output.warning(f"Could not repair bench nginx config: {e!s}")
+            self.output.warning(
+                f"Could not repair bench nginx config ({e!s}); nginx will fail to start without "
+                "configs/nginx/conf/nginx.conf"
+            )
 
     def start(
         self,
@@ -757,7 +760,10 @@ class Bench:
                     self.services.nginx_controller.reload()
             except Exception as e:
                 self.logger.warning(f"Failed to refresh bench nginx overlay: {self.name}", extra_fields=extra)
-                self.output.warning(f"Could not refresh bench nginx config: {e!s}")
+                self.output.warning(
+                    f"Could not refresh bench nginx config ({e!s}); real-client-IP restoration, "
+                    "upload limit and HSTS may be stale until the next start"
+                )
             self.orchestrator.start_bench(
                 force=force,
                 reconfigure_workers=reconfigure_workers,

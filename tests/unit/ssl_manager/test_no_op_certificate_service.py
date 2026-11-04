@@ -92,8 +92,9 @@ class TestNoOpCertificateServiceRenewCertificate:
 class TestNoOpCertificateServiceRemoveCertificate:
     """Tests for NoOpCertificateService.remove_certificate method."""
 
-    def test_remove_certificate_shows_warning(self, tmp_path, mock_output_handler, mock_certificate, mocker):
-        """Test that remove_certificate shows a warning message."""
+    def test_remove_certificate_does_not_warn(self, tmp_path, mock_output_handler, mock_certificate, mocker):
+        """Having no certificate is the configured state when SSL is disabled for a domain, not a
+        failure -- this must not warn about it."""
         service = NoOpCertificateService(
             root_dir=tmp_path / "ssl",
             output_handler=mock_output_handler,
@@ -101,11 +102,7 @@ class TestNoOpCertificateServiceRemoveCertificate:
 
         service.remove_certificate(mock_certificate)
 
-        # Verify warning was called with domain
-        mock_output_handler.warning.assert_called_once()
-        call_args = mock_output_handler.warning.call_args[0][0]
-        assert mock_certificate.domain in call_args
-        assert "doesn't have certificate issued" in call_args
+        mock_output_handler.warning.assert_not_called()
 
     def test_remove_certificate_does_not_delete_files(self, tmp_path, mock_output_handler, mock_certificate, mocker):
         """Test that remove_certificate doesn't delete any files."""

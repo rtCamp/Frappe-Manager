@@ -765,15 +765,17 @@ def test_remove_reports_a_missing_certificate_as_a_single_error(h):
 
 
 @pytest.mark.timeout(15)
-def test_remove_reports_an_unexpected_failure_twice(h):
-    """SUSPICION (pinned): the generic handler prints the same exception under two labels."""
+def test_remove_reports_an_unexpected_failure_once(h):
+    """An unexpected removal failure is reported as ONE clear message, not the same exception
+    printed twice under different labels."""
     h.cert_manager.remove_certificate_by_domain.side_effect = RuntimeError("boom")
 
     with pytest.raises(typer.Exit) as exc:
         _remove(h)
 
     assert exc.value.exit_code == 1
-    assert h.errors() == ["Failed to remove certificate: boom", "Error details: boom"]
+    assert len(h.errors()) == 1
+    assert h.errors()[0].startswith(f"Failed to remove the certificate for {DOMAIN}: boom")
     h.bench.set_bench_site_config.assert_not_called()
 
 

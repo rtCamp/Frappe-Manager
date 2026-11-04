@@ -303,9 +303,9 @@ def fix_host_path_ownership(
                 output.print("Ownership fixed")
             return True
         if output:
-            output.warning("Could not fix ownership (non-critical)")
+            output.warning(f"Could not fix ownership of {dirs_str}: files stay root-owned in the container")
         return False
     except Exception as e:
         if output:
-            output.warning(f"Could not fix ownership: {e}")
+            output.warning(f"Could not fix ownership of {dirs_str}: files stay root-owned in the container ({e})")
         return False

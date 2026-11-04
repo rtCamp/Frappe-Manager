@@ -290,7 +290,7 @@ class MigrationExecutor:
             # policy as any other failure, then re-raised so the exit status stays an interrupt
             # (a second Ctrl+C during the prompt still raises straight through).
             self.undo_stack = self.orchestrator.undo_stack
-            self.output.warning("Interrupted (Ctrl+C) mid-migration.")
+            self.output.info("Interrupted mid-migration (Ctrl+C)")
             self.error_handler.handle_system_migration_failure(Exception("interrupted by Ctrl+C"))
             raise
         except Exception as e:

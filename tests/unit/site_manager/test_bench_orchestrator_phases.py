@@ -2636,13 +2636,13 @@ def _add_sibling_site(harness: _Harness, *aliases: str) -> None:
 
 
 def test_a_sites_own_domain_cannot_be_added_as_its_own_alias(tmp_path):
-    """Skipped with a warning rather than refused: the rest of the request still applies."""
+    """Dropped, not refused: the rest of the request still applies."""
     harness = _Harness(_config(tmp_path), tmp_path)
 
     harness.orchestrator().update_alias_domains(add_domains=[SITE, "extra.example.com"])
 
     assert _aliases(harness) == ["extra.example.com"]
-    assert f"Skipping '{SITE}'" in str(harness.output.warning.call_args_list)
+    assert f"Dropped '{SITE}'" in str(harness.output.info.call_args_list)
 
 
 def test_a_sites_own_domain_cannot_be_removed_at_all(tmp_path):
@@ -2697,9 +2697,9 @@ def test_a_no_op_request_saves_nothing_and_touches_no_container(tmp_path):
     assert harness.events.has("save_bench_config") is False
     assert harness.bench.generate_compose.called is False
     assert "No changes to apply" in str(harness.output.print.call_args_list)
-    warned = str(harness.output.warning.call_args_list)
-    assert f"is already an alias of '{SITE}'" in warned
-    assert f"is not an alias of '{SITE}'" in warned
+    infoed = str(harness.output.info.call_args_list)
+    assert f"already an alias of '{SITE}'" in infoed
+    assert f"not an alias of '{SITE}'" in infoed
 
 
 def test_an_applied_change_regenerates_the_compose_before_saving_the_config(tmp_path):

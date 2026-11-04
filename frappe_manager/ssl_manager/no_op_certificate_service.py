@@ -20,7 +20,6 @@ class NoOpCertificateService(SSLCertificateService):
         return True
 
     def remove_certificate(self, certificate: "SSLCertificate") -> bool:
-        self.output.warning(f"{certificate.domain} doesn't have certificate issued")
         return False
 
     def generate_certificate(self, certificate: "SSLCertificate", test_ca: bool = False) -> tuple[Path, Path]:

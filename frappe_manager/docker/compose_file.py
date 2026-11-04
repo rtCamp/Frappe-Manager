@@ -452,14 +452,20 @@ class ComposeFile:
 
         except KeyError as e:
             output = get_global_output_handler()
-            output.warning(f"Error setting volume names: {e!s}")
+            output.warning(
+                f"{self.compose_path}: could not prefix volume names ({e!s}); volumes keep their "
+                "unprefixed names, which can collide with another bench's"
+            )
 
     def set_secret_file_path(self, secret_name, file_path):
         try:
             self.yml["secrets"][secret_name]["file"] = file_path
         except KeyError:
             output = get_global_output_handler()
-            output.warning("Not able to set secrets in compose")
+            output.warning(
+                f"{self.compose_path}: no 'secrets.{secret_name}' entry; the service expecting it "
+                "will not get its password"
+            )
 
     def get_secret_file_path(self, secret_name) -> Path:
         try:

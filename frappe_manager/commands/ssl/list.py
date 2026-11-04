@@ -125,7 +125,7 @@ def _list_all_certificates(ctx: typer.Context):
         try:
             rows = _bench_certificate_data(ctx, bench_name)
         except Exception as e:
-            output.display_error(f"{bench_name}: {e}")
+            output.display_error(f"Could not read certificates for bench {bench_name}: {e}")
             failed.append(bench_name)
             continue
         width = max((len(row["domain"]) for row in rows), default=0)
@@ -133,7 +133,7 @@ def _list_all_certificates(ctx: typer.Context):
             output.data_raw(_survey_line(row, width))
 
     if failed:
-        output.display_error(f"Could not list: {', '.join(failed)}")
+        output.display_error(f"Could not list certificates for: {', '.join(failed)} (see the errors above)")
         raise typer.Exit(1)
 
 

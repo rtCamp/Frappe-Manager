@@ -1937,7 +1937,7 @@ class MigrationV100(MigrationBase):
         self.output.print(f"Global database engine is now {MARIADB_IMAGE}")
         if dump_path is not None:
             self.output.print(f"Pre-upgrade dump of every database kept at {dump_path}")
-        self.output.warning(
+        self.output.info(
             f"{MARIADB_IMAGE} is the engine frappe v16 tests against. Benches still on frappe v15 will print a "
             "MariaDB version warning when creating or restoring a site, because v15 is tested on 10.6 and warns from "
             "10.9 up. Nothing else changes for them, and a v15 bench that needs an older engine can be pointed at its "

@@ -308,7 +308,9 @@ class AcmeShCertificateService:
                 if dns_creds:
                     env.update(dns_creds)
             except Exception as e:
-                self.output.display_error(f"Failed to get DNS credentials: {e}")
+                self.output.display_error(
+                    f"Failed to get DNS credentials for {certificate.domain}: {e}. No certificate was issued."
+                )
                 raise
 
             delegation_cname = declared_field(certificate, "delegation_cname")
@@ -321,8 +323,10 @@ class AcmeShCertificateService:
         exit_code = self._stream_acmesh_command(args, env=env, show_live_output=True)
 
         if exit_code != 0:
-            error_msg = f"Certificate generation failed for {certificate.domain}"
-            self.output.display_error(error_msg)
+            self.output.display_error(
+                f"Certificate generation failed for {certificate.domain}; no certificate was "
+                "issued. See the acme.sh output above for the cause."
+            )
             raise SSLCertificateGenerateFailed(certificate.domain)
 
         cert_dir = self.acmesh_home / certificate.domain
@@ -335,8 +339,10 @@ class AcmeShCertificateService:
         fullchain_path = cert_dir / "fullchain.cer"
 
         if not fullchain_path.exists() or not key_path.exists():
-            error_msg = f"Certificate files not found after generation in {cert_dir}"
-            self.output.display_error(error_msg)
+            self.output.display_error(
+                f"acme.sh reported success for {certificate.domain} but left no certificate files "
+                f"in {cert_dir}; nothing was issued or linked, so retrying is safe."
+            )
             raise SSLCertificateNotFoundError(certificate.domain)
 
         if test_ca:
@@ -392,7 +398,10 @@ class AcmeShCertificateService:
                 if dns_creds:
                     env.update(dns_creds)
             except Exception as e:
-                self.output.display_error(f"Failed to get DNS credentials: {e}")
+                self.output.display_error(
+                    f"Failed to get DNS credentials for {certificate.domain}: {e}. The current "
+                    "certificate is unaffected and keeps serving until it expires."
+                )
                 raise
 
         use_staging = os.getenv("FM_LETSENCRYPT_STAGING", "").lower() in ("1", "true", "yes")
@@ -422,7 +431,10 @@ class AcmeShCertificateService:
         exit_code = self._stream_acmesh_command(args, env=env, show_live_output=True)
 
         if exit_code != 0:
-            self.output.display_error(f"Certificate renewal failed for {certificate.domain}")
+            self.output.display_error(
+                f"Certificate renewal failed for {certificate.domain}; the current certificate is "
+                "unaffected and keeps serving until it expires. See the acme.sh output above for the cause."
+            )
             return False
 
         cert_dir = self.acmesh_home / certificate.domain
@@ -455,7 +467,11 @@ class AcmeShCertificateService:
             self.output.info(f"Certificate renewed successfully for {certificate.domain}")
             return True
 
-        self.output.display_error(f"Renewed certificate files not found for {certificate.domain}")
+        self.output.display_error(
+            f"acme.sh reported a successful renewal for {certificate.domain} but left no "
+            f"certificate files in {cert_dir}; the previous certificate in "
+            f"{self.root_dir / certificate.domain} was not replaced and keeps serving until it expires."
+        )
         return False
 
     def remove_certificate(self, certificate: SSLCertificate) -> bool:
@@ -493,6 +509,10 @@ class AcmeShCertificateService:
 
         success = result.returncode == 0
         if not success:
-            self.output.display_error(f"Failed to remove certificate for {certificate.domain}")
+            self.output.display_error(
+                f"acme.sh refused to deregister {certificate.domain}: "
+                f"{result.stderr.strip() or 'no output'}. The local certificate files are already "
+                "removed, so this is harmless bookkeeping on acme.sh's side."
+            )
 
         return success

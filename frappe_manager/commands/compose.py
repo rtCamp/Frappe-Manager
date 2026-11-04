@@ -122,7 +122,10 @@ def compose(
     )
 
     if not compose_files:
-        output.display_error(f"No docker-compose files found in {bench_path}")
+        output.display_error(
+            f"No docker-compose files found in {bench_path}; nothing to run docker compose "
+            f"against. Run 'fm start {benchname}' to regenerate them."
+        )
         raise typer.Exit(1)
 
     compose_cmd = ["docker", "compose"]

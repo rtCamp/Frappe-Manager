@@ -120,7 +120,7 @@ def _signal_scoped(output, undo: Callable[[], None], what: str) -> Iterator[None
     try:
         yield
     except BaseException:
-        output.warning(f"Interrupted: {what}")
+        output.info(f"Interrupted: {what}")
         undo()
         raise
     finally:

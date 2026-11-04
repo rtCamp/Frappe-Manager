@@ -695,7 +695,7 @@ def test_a_nonzero_shell_exit_is_propagated_as_the_commands_exit_code(tmp_path):
         manager.shell("mariadb")
 
     assert excinfo.value.exit_code == 130
-    assert "130" in manager.output.warning.call_args.args[0]
+    assert "130" in manager.output.info.call_args.args[0]
 
 
 def test_removing_the_stack_deletes_the_whole_services_directory(tmp_path):
