@@ -251,6 +251,8 @@ class BenchWorkers:
             # skip this down entirely and unlink the compose file over still-running containers.
             self.docker_client.compose.down(volumes=False, timeout=5, stream=False)
             self.compose_file_manager.compose_path.unlink()
+        else:
+            self.output.print("No workers configured for the bench")
 
         return False
 

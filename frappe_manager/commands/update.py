@@ -390,6 +390,7 @@ def _apply_plan(bench: Bench, plan: UpdatePlan, output) -> None:
         bench.bench_config.developer_mode = plan.developer_mode
         output.change_head(f"{'Enabling' if plan.developer_mode else 'Disabling'} frappe developer mode")
         bench.set_common_bench_config({"developer_mode": plan.developer_mode})
+        output.print(f"{'Enabled' if plan.developer_mode else 'Disabled'} frappe developer mode")
 
     if plan.environment is not None:
         bench.bench_config.environment_type = plan.environment
@@ -543,6 +544,9 @@ def _apply_container_work(bench: Bench, plan: UpdatePlan, output) -> None:
             if key.startswith("redis_")
         }
         bench.set_common_bench_config(redis_keys)
+        output.print(
+            f"Pointed the bench at redis_cache={redis_keys['redis_cache']}, redis_queue={redis_keys['redis_queue']}"
+        )
 
     if plan.regenerate_compose:
         compose_inputs = bench.bench_config.export_to_compose_inputs()
@@ -576,10 +580,20 @@ def _apply_container_work(bench: Bench, plan: UpdatePlan, output) -> None:
         if moved_out:
             output.change_head(f"Removing fm's own {', '.join(moved_out)}")
             bench.docker_client.compose.rm(services=moved_out, stop=True, force=True)
+            remaining = {status.get("Service") for status in bench.docker_client.compose.get_all_services_status()}
+            removed = [service for service in moved_out if service not in remaining]
+            if removed:
+                output.print(f"Removed {', '.join(removed)}")
 
     if plan.recreate_everything:
         output.change_head("Recreating containers")
         bench.docker_client.compose.up(detach=True, force_recreate=True)
+        running = sorted(
+            status.get("Service")
+            for status in bench.docker_client.compose.get_all_services_status()
+            if status.get("State") == "running"
+        )
+        output.print(f"Recreated {len(running)} container(s): {', '.join(running)}")
         # The workers and admin-tools containers are separate compose projects with their own
         # DockerClient; recreating the bench project alone leaves them running under the OLD
         # restart policy while the rendered compose files claim the new one.
@@ -593,6 +607,12 @@ def _apply_container_work(bench: Bench, plan: UpdatePlan, output) -> None:
         services = sorted(plan.recreate_services)
         output.change_head(f"Recreating {', '.join(services)}")
         bench.docker_client.compose.up(services=services, detach=True, force_recreate=True)
+        running = sorted(
+            status.get("Service")
+            for status in bench.docker_client.compose.get_all_services_status()
+            if status.get("Service") in services and status.get("State") == "running"
+        )
+        output.print(f"Recreated {len(running)} container(s): {', '.join(running)}")
 
     if plan.run_runtime_setup:
         _setup_runtime(bench, plan, output)

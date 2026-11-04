@@ -195,6 +195,9 @@ DEFAULT_RESULTS = {
     "_snapshot_compose": {"return_value": {"snap": b"x"}},
     "drain_workers": {"return_value": True},
     "_health_check": {"return_value": True},
+    # list[str] of pinned worker service names; empty keeps the phase-order transcript free of
+    # the `__bool__`/`__iter__` magic-method calls an unconfigured MagicMock would log.
+    "_pin_workers": {"return_value": []},
     # Test double for the label lookup: explicit wins, else the recorded pair (`_nginx_for`).
     # Not manager-attached (see the `rig` fixture) -- resolving a companion is not a pipeline
     # PHASE the phase-order tests pin, so it never appears in `r.order`.

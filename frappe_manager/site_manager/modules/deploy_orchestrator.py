@@ -163,14 +163,15 @@ def rolling_eligible(
     return maintenance_mode
 
 
-def pin_workers_to_image(workers, sites: Sequence[str], deploy_image: str, deploy_nginx_image: str) -> None:
+def pin_workers_to_image(workers, sites: Sequence[str], deploy_image: str, deploy_nginx_image: str) -> list[str]:
     """Pin the workers compose to ``deploy_image`` + its companion ``deploy_nginx_image`` with
     image-mode data binds.
 
     Thin delegator over the compose_shape projection -- the same specs the
     workers' own generate_compose uses, with ``deploy_image``/``deploy_nginx_image`` as the
     candidate pair. No-op when the bench has no workers compose. Idempotent; user extras
-    (override.yml / non-managed mounts) pass through untouched.
+    (override.yml / non-managed mounts) pass through untouched. Returns the pinned service
+    names, empty when the no-op branches are taken.
     """
     from frappe_manager.site_manager.modules.compose_shape import (
         RenderContext,
@@ -179,15 +180,16 @@ def pin_workers_to_image(workers, sites: Sequence[str], deploy_image: str, deplo
     )
 
     if not workers.compose_path.exists():
-        return
+        return []
     cfm = workers.compose_file_manager
     svcs = cfm.get_services_list()
     if not svcs:
-        return
+        return []
     with cfm:
         ctx = RenderContext(deploy_image=deploy_image, deploy_nginx_image=deploy_nginx_image)
         specs = worker_service_specs(workers.bench.bench_config, svcs, ctx)
         apply_specs(cfm, specs, sites)
+    return list(svcs)
 
 
 def _parse_app_names(lines) -> set[str]:
@@ -569,13 +571,16 @@ class DeployOrchestrator:
         except Exception as e:
             self.logger.debug(f"could not stop {container_id}: {e}")
 
-    def _rm(self, container_id: str) -> None:
+    def _rm(self, container_id: str) -> bool:
         try:
             self._raw_docker("rm", "-f", container_id)
         except Exception as e:
             # Leaves a stray container holding the old image, which is also why a later prune
             # finds that image still referenced.
             self.logger.debug(f"could not remove {container_id}: {e}")
+            return False
+        else:
+            return True
 
     def _stop_rm(self, container_id: str, drain: float = 3.0) -> None:
         self._stop(container_id)
@@ -583,7 +588,7 @@ class DeployOrchestrator:
             time.sleep(drain)
         self._rm(container_id)
 
-    def _rename(self, container_id: str, name: str) -> None:
+    def _rename(self, container_id: str, name: str) -> bool:
         # A canonical container may still exist if a prior deploy was interrupted.
         try:
             self._raw_docker("rename", container_id, name)
@@ -595,6 +600,9 @@ class DeployOrchestrator:
                 f"Could not rename {container_id} to {name} ({e}); fm may report this bench as down "
                 "even though it is serving."
             )
+            return False
+        else:
+            return True
 
     def _abort_rolling(
         self,
@@ -655,7 +663,9 @@ class DeployOrchestrator:
             # is accepted, and pin workers to the new image.
             self.output.change_head("Rolling: rendering scalable image compose")
             self.docker_ops.render_image_compose(new_image, new_nginx_image, rolling=True)
-            self._pin_workers(new_image, new_nginx_image)
+            pinned = self._pin_workers(new_image, new_nginx_image)
+            pinned_note = f", pinned {', '.join(pinned)}" if pinned else ""
+            self.output.print(f"Rolling: rendered scalable compose for {new_image}{pinned_note}")
 
             # Add the new frappe replica alongside the old (old keeps serving).
             self.output.change_head("Rolling: starting new frappe replica")
@@ -663,6 +673,7 @@ class DeployOrchestrator:
             new_frappe = self._new_container_id("frappe", old_ids["frappe"])
             if not new_frappe or not self._container_health(new_frappe):
                 raise DeployError("new frappe replica failed health check; kept old, no swap")
+            self.output.print(f"Rolling: new frappe replica {new_frappe[:12]} healthy on {new_image}")
 
             # Add the new nginx replica (now resolves both frappe replicas).
             self.output.change_head("Rolling: starting new nginx replica")
@@ -670,6 +681,7 @@ class DeployOrchestrator:
             new_nginx = self._new_container_id("nginx", old_ids["nginx"])
             if not new_nginx or not self._container_health(new_nginx):
                 raise DeployError("new nginx replica failed health check; kept old, no swap")
+            self.output.print(f"Rolling: new nginx replica {new_nginx[:12]} healthy on {new_nginx_image}")
         except Exception:
             self._abort_rolling(web, old_ids, old_image, old_nginx_image, snaps)
             raise
@@ -687,22 +699,27 @@ class DeployOrchestrator:
         for cid in old_ids["nginx"]:
             self._stop(cid)
         self._reload_nginx(new_nginx)  # re-resolve frappe upstream on survivor
-        for cid in old_ids["nginx"]:
-            self._rm(cid)
+        removed = sum(1 for cid in old_ids["nginx"] if self._rm(cid))
         for cid in old_ids["frappe"]:
             self._stop(cid)
         self._reload_nginx(new_nginx)  # drop the just-stopped old frappe upstream
-        for cid in old_ids["frappe"]:
-            self._rm(cid)
+        removed += sum(1 for cid in old_ids["frappe"] if self._rm(cid))
         self._reload_nginx(new_nginx)
+        if removed:
+            self.output.print(f"Rolling: drained {removed} old web replica(s)")
 
         # Survivors are compose replica #2; rename to the canonical names and re-render the
         # canonical (container_name-bearing) compose WITHOUT a `compose up`, so
         # get_container_names() keeps matching and no recreate (no blip) happens.
         self.output.change_head("Rolling: restoring canonical container names")
-        self._rename(new_frappe, canonical["frappe"])
-        self._rename(new_nginx, canonical["nginx"])
+        renamed = []
+        if self._rename(new_frappe, canonical["frappe"]):
+            renamed.append(canonical["frappe"])
+        if self._rename(new_nginx, canonical["nginx"]):
+            renamed.append(canonical["nginx"])
         self.docker_ops.render_image_compose(new_image, new_nginx_image, rolling=False)
+        if renamed:
+            self.output.print(f"Rolling: restored canonical names {', '.join(renamed)}")
 
         # Bring the non-web code tiers (socketio, schedule) + workers to the new image. These are
         # out of the /api HTTP path, so a brief socketio reconnect is acceptable.
@@ -726,8 +743,8 @@ class DeployOrchestrator:
             return None
         return cfm, workers.docker_client, svcs
 
-    def _pin_workers(self, deploy_image: str, deploy_nginx_image: str) -> None:
-        pin_workers_to_image(self.bench.workers, self.sites, deploy_image, deploy_nginx_image)
+    def _pin_workers(self, deploy_image: str, deploy_nginx_image: str) -> list[str]:
+        return pin_workers_to_image(self.bench.workers, self.sites, deploy_image, deploy_nginx_image)
 
     def _up_workers(self) -> None:
         info = self._worker_services()
@@ -873,6 +890,7 @@ class DeployOrchestrator:
             raise DeployError(
                 f"Restoring {db_dump} into {db_name} failed: {e}\n{external_dump_tls_hint(site)}",
             ) from e
+        self.output.print(f"Restored {db_dump.name} into {site}")
 
     def _confirm_restore(
         self,
@@ -999,13 +1017,17 @@ class DeployOrchestrator:
         stale_timeout = self.workers_config.stale_timeout
         py = (
             "import sys; "
-            "from fmx.rq_controller import control_rq_workers, ActionEnum, wait_for_rq_workers_suspended; "
+            "from fmx.rq_controller import control_rq_workers, ActionEnum, wait_for_rq_workers_suspended, "
+            "get_rq_worker_status; "
             "control_rq_workers(ActionEnum.suspend); "
-            f"sys.exit(0 if wait_for_rq_workers_suspended({timeout}, {poll}, "
-            f"skip_stale={skip_stale}, stale_timeout={stale_timeout}) else 3)"
+            f"ok = wait_for_rq_workers_suspended({timeout}, {poll}, "
+            f"skip_stale={skip_stale}, stale_timeout={stale_timeout}); "
+            "status = get_rq_worker_status() if ok else None; "
+            "print(len(status['workers']) if status else 0); "
+            "sys.exit(0 if ok else 3)"
         )
         try:
-            self._exec_frappe(f'{FMX_PYTHON} -c "{py}"')
+            result = self._exec_frappe(f'{FMX_PYTHON} -c "{py}"')
         except Exception as e:
             detail = _exec_error_text(e)
             # Checked BEFORE the exit status: fmx reports an unreachable queue on stderr but still
@@ -1040,6 +1062,12 @@ class DeployOrchestrator:
                 "installs one that supports draining."
             ) from e
         self.output.info(f"Workers idle, queue {self._queue_endpoint()} (waited up to {timeout}s)")
+        drained = 0
+        for line in getattr(result, "stdout", None) or []:
+            text = line.strip() if isinstance(line, str) else ""
+            if text.isdigit():
+                drained = int(text)
+        self.output.print(f"Drained {drained} RQ worker(s)")
         return True
 
     def _queue_endpoint(self) -> str:
@@ -1183,10 +1211,12 @@ class DeployOrchestrator:
         if common:
             self.output.change_head("Merging common_site_config keys")
             self.bench.set_common_bench_config(common)
+            self.output.print(f"Merged common_site_config keys: {', '.join(common)}")
         if site_keys:
             for site in self.sites:
                 self.output.change_head(f"Merging site_config keys into {site}")
                 self.bench.set_bench_site_config(site, site_keys)
+                self.output.print(f"Merged site_config keys into {site}: {', '.join(site_keys)}")
 
     def _hook_script(self, value: str, deploy_image: str, extra_env: dict[str, str] | None = None) -> str:
         """``set -e`` + exported env + resolved content, so no exec env passthrough is needed."""
@@ -1556,6 +1586,7 @@ class DeployOrchestrator:
         # Fetch: registry login+pull, or verify a save_load-loaded image is present.
         self.output.change_head(f"Fetching image {new_image}")
         self._fetch_image(new_image, new_nginx_image)
+        self.output.print(f"Verified {new_image} and {new_nginx_image} present on the daemon")
 
         # Pre-flight boot check; a failing boot aborts before anything below mutates state.
         self.output.change_head("Pre-flight boot check")
@@ -1584,7 +1615,9 @@ class DeployOrchestrator:
         # abort path restores the snapshots (old stack keeps serving).
         self.output.change_head("Rendering image-mode compose")
         self.docker_ops.render_image_compose(new_image, new_nginx_image)
-        self._pin_workers(new_image, new_nginx_image)
+        pinned = self._pin_workers(new_image, new_nginx_image)
+        if pinned:
+            self.output.print(f"Pinned workers ({', '.join(pinned)}) to {new_image}")
 
         requested = self.switch_config.migrate if migrate_override is None else migrate_override
         migrate = bool(requested)
@@ -1617,6 +1650,7 @@ class DeployOrchestrator:
             if maintenance and self._frappe_running():
                 self.output.change_head("Enabling maintenance mode")
                 self.set_maintenance_mode(1)
+                self.output.print("Enabled maintenance mode")
 
             # Drain workers (old container); a gate like `fm restart`: proceeding past a
             # timed-out drain would take the backup while a still-busy worker keeps writing, so

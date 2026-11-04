@@ -219,7 +219,9 @@ class _Harness:
             "create_compose_dirs", formatter=lambda **kw: f"create_compose_dirs(copy_runtimes={kw['copy_runtimes']})"
         )
         bench.docker_client.images.return_value = []
-        bench.docker_client.pull.side_effect = events.hook("pull", formatter=lambda image, **_k: f"pull({image})")
+        bench.docker_client.pull.side_effect = events.hook(
+            "pull", result=SubprocessOutput([], [], [], 0), formatter=lambda image, **_k: f"pull({image})"
+        )
         bench.set_common_bench_config.side_effect = events.hook("common_site_config")
         bench.sync_bench_common_site_config.side_effect = events.hook("sync_common_site_config")
         bench.supervisor.setup_supervisor.side_effect = events.hook("setup_supervisor")

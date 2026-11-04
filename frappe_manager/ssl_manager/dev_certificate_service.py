@@ -267,6 +267,7 @@ class DevCertificateService:
 
         self.output.change_head(f"Renewing dev certificate for {certificate.domain}")
         self.generate_certificate(certificate, test_ca=test_ca)
+        self.output.print(f"Renewed the dev certificate for {certificate.domain}")
         return True
 
     def remove_certificate(self, certificate: SSLCertificate) -> bool:

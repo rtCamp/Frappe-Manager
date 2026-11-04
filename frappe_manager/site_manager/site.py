@@ -1357,6 +1357,7 @@ class Bench:
         self.output.live_lines(
             cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE
         )
+        self.output.print(f"Published the site map to nginx for {self.name}")
 
     def remove_site(
         self, site: str, delete_fm_managed_db: bool | None = None, delete_backups: bool = False

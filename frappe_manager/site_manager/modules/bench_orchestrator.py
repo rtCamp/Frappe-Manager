@@ -226,6 +226,7 @@ class BenchOrchestrator:
                 clear_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", bench.site_name, "clear-cache"])
                 try:
                     bench.app_manager._container_run(clear_cmd)
+                    self.output.print(f"Cleared website route cache for {bench.site_name}")
                 except Exception as e:
                     # File-only until now, while the documented symptom -- the fresh site 404ing
                     # until someone runs clear-cache by hand -- lands on the operator with no
@@ -401,6 +402,8 @@ class BenchOrchestrator:
         compose_inputs["environment"]["frappe"]["FRAPPE_ENV"] = bench.bench_config.environment_type.value
 
         bench.generate_compose(compose_inputs)
+        services = bench.compose_file_manager.get_services_list()
+        self.output.print(f"Generated bench compose with {len(services)} service(s): {', '.join(sorted(services))}")
 
         base_image = bench.bench_config.base_image
         if base_image:
@@ -408,7 +411,9 @@ class BenchOrchestrator:
 
             if not image_present(bench.docker_client, base_image):
                 self.output.change_head(f"Pulling base image {base_image}")
-                bench.docker_client.pull(base_image, stream=False)
+                pull_result = bench.docker_client.pull(base_image, stream=False)
+                if pull_result.exit_code == 0:
+                    self.output.print(f"Pulled base image {base_image}")
         # Seeded creates get .uv/.fnm (and everything else) from the SEED image --
         # pre-copying runtimes from the base image would version-mismatch the venv.
         bench.create_compose_dirs(
@@ -814,6 +819,7 @@ class BenchOrchestrator:
             config.get_site_config_data(site, provisioning=decision.flow is db_probe.Flow.provision),
             site=site,
         )
+        self.output.print(f"Wrote sites/{site}/site_config.json")
 
         if self._attaching:
             self._disable_migrate_for_attach()
