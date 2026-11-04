@@ -229,6 +229,10 @@ config-example:
 docs-lint:
     uv run python scripts/docslint.py
 
+# Ratchet on the shape of operator output: four exact style counts that may only fall.
+output-lint:
+    uv run python scripts/outputlint.py
+
 # Refuse commits that ship behavior with no changelog entry. Pass a ref to audit older history.
 changelog-check since="":
     uv run python scripts/changelog_check.py {{since}}

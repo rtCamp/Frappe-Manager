@@ -64,6 +64,12 @@ jobs:
         run: |
           uv run python scripts/docslint.py
 
+      # The always-on channel reached 653 lines one commit at a time while -v sat at 23.
+      # Four counts that may only fall; a line in the wrong shape has to displace an old one.
+      - name: Check the shape of operator output
+        run: |
+          uv run python scripts/outputlint.py
+
       # Fires on the commit, where writing the entry is cheap. The v1.0.0 cycle shipped 289
       # commits with zero changelog entries and nobody noticed for three weeks.
       - name: Check every commit has a changelog entry
