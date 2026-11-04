@@ -548,7 +548,13 @@ class Bench:
     def exists(self):
         return self.path.exists()
 
-    def create(self, bench_only: bool = False, remove_on_failure: bool = False, skip_version_check: bool = False):
+    def create(
+        self,
+        bench_only: bool = False,
+        remove_on_failure: bool = False,
+        skip_version_check: bool = False,
+        drop_provisioned_db: bool | None = None,
+    ):
         """
         Create this bench.
 
@@ -566,7 +572,10 @@ class Bench:
         self.logger.debug(f"Starting bench creation: {self.name}", extra_fields=extra)
         try:
             self.orchestrator.create_bench(
-                bench_only, remove_on_failure=remove_on_failure, skip_version_check=skip_version_check
+                bench_only,
+                remove_on_failure=remove_on_failure,
+                skip_version_check=skip_version_check,
+                drop_provisioned_db=drop_provisioned_db,
             )
             self.logger.info(f"Bench created successfully: {self.name}", extra_fields=extra)
         except Exception as e:
@@ -629,6 +638,9 @@ class Bench:
         if not site_config_path.exists():
             site_config_path.write_text("{}")
         save_dict_to_file(config, site_config_path)
+        # The only marker was a change_head, which erases itself: this file carries the site's
+        # database and TLS settings, so a plain run left no trace it had been written.
+        self.output.info(f"Wrote sites/{site}/site_config.json ({len(config)} key(s))")
 
     def get_common_bench_config(self):
         return self.info_display.get_common_config()

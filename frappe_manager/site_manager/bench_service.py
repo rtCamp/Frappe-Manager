@@ -114,6 +114,7 @@ class BenchService:
         bench_only: bool = False,
         remove_on_failure: bool = False,
         skip_version_check: bool = False,
+        drop_provisioned_db: bool | None = None,
     ) -> Bench:
         """
         Create a new bench.
@@ -157,7 +158,12 @@ class BenchService:
             output_handler=self.output,
         )
 
-        bench.create(bench_only=bench_only, remove_on_failure=remove_on_failure, skip_version_check=skip_version_check)
+        bench.create(
+            bench_only=bench_only,
+            remove_on_failure=remove_on_failure,
+            skip_version_check=skip_version_check,
+            drop_provisioned_db=drop_provisioned_db,
+        )
         return bench
 
     def delete_bench(

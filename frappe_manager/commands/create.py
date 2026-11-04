@@ -941,7 +941,7 @@ def create(
         bool,
         typer.Option(
             "--remove-on-failure",
-            help="On failure, skip the removal prompt and remove the bench directory and its containers, interactively or not, instead of asking (interactive) or declining and reporting (non-interactive). The command still exits non-zero either way: this cleans up, it does not turn the failure into success. Never drops a schema on an external database (--db-host); that stays declined whether this is passed or not.",
+            help="On failure, skip the removal prompt and remove the bench directory and its containers, interactively or not, instead of asking (interactive) or declining and reporting (non-interactive). The command still exits non-zero either way: this cleans up, it does not turn the failure into success. Says nothing about a schema on an external database (--db-host): that is --drop-provisioned-db's decision, and unanswered it stays declined.",
             show_default=False,
         ),
     ] = False,
@@ -1207,6 +1207,15 @@ def create(
         typer.Option(
             "--encryption-key",
             help="The attached site's encryption_key, - to read from stdin. Without it Frappe mints a new one and existing encrypted secrets stop being readable.",
+            show_default=False,
+            rich_help_panel=_PANEL_DATABASE,
+        ),
+    ] = None,
+    drop_provisioned_db: Annotated[
+        bool | None,
+        typer.Option(
+            "--drop-provisioned-db/--keep-provisioned-db",
+            help="Answer, without being asked, what happens to a schema and login this run created on an external database (--db-host) when the create then fails. Left unset, fm asks interactively and refuses non-interactively rather than guessing, because dropping a schema is not something --yes is allowed to decide for you.",
             show_default=False,
             rich_help_panel=_PANEL_DATABASE,
         ),
@@ -1506,4 +1515,5 @@ def create(
             bench_only=bench_only,
             remove_on_failure=remove_on_failure,
             skip_version_check=skip_version_check,
+            drop_provisioned_db=drop_provisioned_db,
         )

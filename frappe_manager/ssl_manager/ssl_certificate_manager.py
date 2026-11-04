@@ -679,6 +679,10 @@ class SSLCertificateManager:
         service.remove_certificate(certificate)
 
         self.nginx_controller.restart()
+        # Reached from a site delete and from an ssl_type=none update, neither of which says
+        # anything on success -- so a cert went and the proxy bounced with no trace. The
+        # `fm ssl remove` command takes a different path and prints its own line.
+        self.output_handler.print(f"Removed the certificate for {certificate.domain} and restarted the proxy")
 
     def remove_all_certificates(self):
         """

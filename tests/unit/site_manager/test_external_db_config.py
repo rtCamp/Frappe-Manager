@@ -15,6 +15,7 @@ all `bench worker` and `bench schedule` (no `--site`) ever read.
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from pydantic import ValidationError
@@ -366,6 +367,8 @@ def test_create_bench_site_config_writes_a_file_that_does_not_exist_yet(tmp_path
     bench.path = tmp_path
     bench.name = bench_name
     bench.bench_config = _bc(tmp_path, sites={site: SiteConfig()})
+    # The write records itself at -v now; the stand-in skips __init__, so it needs the channel.
+    bench.output = MagicMock()
 
     Bench.create_bench_site_config(bench, {"db_name": "app_prod", "db_host": "mydb.example.com"})
 

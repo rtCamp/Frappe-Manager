@@ -110,9 +110,14 @@ class BenchOrchestrator:
         # own version requirement readable. Held on the instance rather than passed through every
         # phase signature, like `_provisioned` above.
         self._skip_version_check: bool = False
+        self._drop_provisioned_db: bool | None = None
 
     def create_bench(
-        self, bench_only: bool = False, remove_on_failure: bool = False, skip_version_check: bool = False
+        self,
+        bench_only: bool = False,
+        remove_on_failure: bool = False,
+        skip_version_check: bool = False,
+        drop_provisioned_db: bool | None = None,
     ) -> None:
         """
         Orchestrate the complete bench creation workflow using 5-phase approach.
@@ -160,6 +165,7 @@ class BenchOrchestrator:
         """
         bench = self.bench
         self._skip_version_check = skip_version_check
+        self._drop_provisioned_db = drop_provisioned_db
 
         bench.docker_ops.check_required_docker_images_available()
 
@@ -1195,15 +1201,21 @@ class BenchOrchestrator:
         if not admin_user or not admin_password:
             return
 
-        self.output.stop()
-        answer = self.output.prompt_ask(
-            prompt=(
-                f"This run created schema '{database.name}' and login '{database.login_user}'@'%' on"
-                f" '{database.host}'. Neither existed when it started. Drop them?"
-            ),
-            choices=["yes", "no"],
-            default="no",
-        )
+        # A decision, not a permission: dropping a schema changes WHAT happens, so it gets its
+        # own flag and `--yes` must never answer it. Unset, we still ask.
+        if self._drop_provisioned_db is not None:
+            answer = "yes" if self._drop_provisioned_db else "no"
+        else:
+            self.output.stop()
+            answer = self.output.prompt_ask(
+                prompt=(
+                    f"This run created schema '{database.name}' and login '{database.login_user}'@'%' on"
+                    f" '{database.host}'. Neither existed when it started. Drop them?"
+                ),
+                choices=["yes", "no"],
+                default="no",
+                required_flag="--drop-provisioned-db or --keep-provisioned-db",
+            )
         if answer != "yes":
             self.output.print(f"Left schema {database.name} on {database.host} exactly as it is")
             return
