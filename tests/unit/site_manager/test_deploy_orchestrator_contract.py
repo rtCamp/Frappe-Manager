@@ -2007,8 +2007,17 @@ class TestRollingSwap:
         return orch
 
     def _docker_argv(self, orch):
-        """``(verb, container)`` per raw-docker call, ignoring the ``rm -f`` flag."""
-        return [tuple(a for a in c.args if a != "-f")[:2] for c in orch._raw_docker.call_args_list]
+        """``(verb, container)`` per raw-docker call that CHANGES something.
+
+        `_rm` inspects before removing, because `docker rm -f` exits 0 on a container that is
+        not there and the drain count would otherwise include it. That probe is not a step in
+        the swap's order, so it is not recorded here.
+        """
+        return [
+            tuple(a for a in c.args if a != "-f")[:2]
+            for c in orch._raw_docker.call_args_list
+            if c.args[0] != "inspect"
+        ]
 
     def test_frappe_is_scaled_before_nginx(self, tmp_path):
         orch = self._swap(tmp_path)
@@ -2044,6 +2053,22 @@ class TestRollingSwap:
         orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
         renames = [c.args for c in orch._raw_docker.call_args_list if c.args[0] == "rename"]
         assert renames == [("rename", "newF", "shop-frappe"), ("rename", "newN", "shop-nginx")]
+
+    def test_a_container_that_is_not_there_is_not_counted_as_drained(self, tmp_path):
+        """`docker rm -f` exits 0 for a name that does not exist, so a stale replica id would
+        otherwise be counted as a replica this deploy removed."""
+        orch = make_orch(tmp_path)
+        orch.logger = MagicMock()
+
+        def _absent(*args):
+            if args[0] == "inspect":
+                raise DockerException("docker inspect", SubprocessOutput([], [], [], 1))
+            return SubprocessOutput([], [], [], 0)
+
+        orch._raw_docker = MagicMock(side_effect=_absent)
+
+        assert orch._rm("gone") is False
+        assert [c.args[0] for c in orch._raw_docker.call_args_list] == ["inspect"]
 
     def test_the_non_web_tiers_follow_the_swap(self, tmp_path):
         orch = self._swap(tmp_path)

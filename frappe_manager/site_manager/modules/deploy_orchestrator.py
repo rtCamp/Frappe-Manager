@@ -572,6 +572,15 @@ class DeployOrchestrator:
             self.logger.debug(f"could not stop {container_id}: {e}")
 
     def _rm(self, container_id: str) -> bool:
+        # `docker rm -f` is idempotent since 20.10: it exits 0 for a name that does not exist.
+        # Taking that as success made the drain line count replicas it never removed, so the
+        # container is confirmed present first and the count means what it says.
+        try:
+            self._raw_docker("inspect", "--format", "{{.Id}}", container_id)
+        except Exception:
+            self.logger.debug(f"not removing {container_id}: no such container")
+            return False
+
         try:
             self._raw_docker("rm", "-f", container_id)
         except Exception as e:
