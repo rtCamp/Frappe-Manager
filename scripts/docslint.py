@@ -289,6 +289,108 @@ def check_source_flags(real: set[str]) -> dict[str, set[str]]:
     return unknown
 
 
+def fm_command_spec() -> dict[tuple[str, ...], dict]:
+    """Per-command shape from the live app: its flags, which take a value, and how many
+    positionals it accepts.
+
+    The flat flag set above answers "does this flag exist ANYWHERE in fm", which is not the
+    question a recovery message raises. `fm ssl add <bench> <domain>` names a real command and
+    no flags at all, and Click still refuses it: that command takes ONE combined argument.
+    """
+    import click
+    import typer.main
+
+    from frappe_manager.commands import app
+
+    spec: dict[tuple[str, ...], dict] = {}
+
+    def walk(cmd, path: tuple[str, ...]) -> None:
+        flags: dict[str, bool] = {}
+        max_pos = 0
+        for param in cmd.params:
+            if isinstance(param, click.Option):
+                takes_value = not param.is_flag and param.nargs != 0
+                for name in list(param.opts) + list(param.secondary_opts):
+                    flags[name] = takes_value
+            elif isinstance(param, click.Argument):
+                max_pos = 99 if param.nargs == -1 else max_pos + param.nargs
+        spec[path] = {
+            "flags": flags,
+            "max_pos": max_pos,
+            # `fm shell` and `fm compose` hand argv to another program; their positionals and
+            # unknown flags belong to whatever runs inside.
+            "allow_extra": bool(cmd.context_settings.get("allow_extra_args")),
+            "group": isinstance(cmd, click.Group),
+        }
+        if isinstance(cmd, click.Group):
+            for name, sub in cmd.commands.items():
+                walk(sub, (*path, name))
+
+    walk(typer.main.get_command(app), ())
+    return spec
+
+
+# A token that follows a command without being a subcommand: a placeholder to substitute, or a
+# concrete example value.
+_PLACEHOLDER = re.compile(r"^(<[^>]+>|\{[^}]+\}|[A-Z][A-Z0-9_/:-]*|[a-z0-9][\w.-]*\.(localhost|com|dev|test))$")
+
+
+def check_message_commands(spec: dict[tuple[str, ...], dict]) -> list[str]:
+    """`fm ...` invocations in fm's own messages that the CLI would refuse.
+
+    Catches a flag named on a command that does not own it, and the wrong number of
+    positionals -- the acme.sh helper told operators to run `fm ssl add <benchname> <domain>`
+    and Click answered "Got unexpected extra argument".
+
+    It CANNOT catch a command that is legal by signature and refused by its own body: `fm bake
+    BENCH --apps APP:REF` declares both and rejects the pair at runtime. No declaration-based
+    checker can see that, so it stays a human rule. Do not widen this docstring without
+    widening the check.
+    """
+    problems: list[str] = []
+    for path, text in source_strings():
+        for match in re.finditer(r"(?<![\w-])fm ((?:[a-z][a-z0-9-]*)(?: [^\s'\"`,;]+)*)", text):
+            tokens = match.group(1).split()
+            chain: tuple[str, ...] = ()
+            index = 0
+            while index < len(tokens) and (*chain, tokens[index]) in spec:
+                chain = (*chain, tokens[index])
+                index += 1
+            if not chain or spec[chain]["group"] or spec[chain]["allow_extra"]:
+                continue
+            shape = spec[chain]
+            command = "fm " + " ".join(chain)
+            positionals = 0
+            expect_value = False
+            for token in tokens[index:]:
+                # Messages write flags as prose: a rich tag can be glued on (`--dev[/fm.muted]`),
+                # a negatable pair is written `--push/--no-push`, and a trailing bracket belongs
+                # to the sentence. Judge the flag, not the punctuation around it.
+                token = re.sub(r"\[/?[\w.]+\]", "", token).strip("().,;:'\"`")
+                if not token:
+                    continue
+                if expect_value:
+                    expect_value = False
+                elif token.startswith("-"):
+                    names = token.split("=", 1)[0].split("/")
+                    if any(name in FOREIGN for name in names):
+                        continue
+                    missing = [name for name in names if name not in shape["flags"]]
+                    if missing:
+                        problems.append(f"{path}: '{command}' does not accept {', '.join(missing)}")
+                        continue
+                    expect_value = shape["flags"][names[0]] and "=" not in token
+                elif _PLACEHOLDER.match(token):
+                    positionals += 1
+                else:
+                    break
+            if positionals > shape["max_pos"]:
+                problems.append(
+                    f"{path}: '{command}' takes {shape['max_pos']} argument(s), the message passes {positionals}"
+                )
+    return problems
+
+
 def main() -> int:
     os.chdir(ROOT)
     files = hand_written()
@@ -320,7 +422,12 @@ def main() -> int:
     for flag, where in sorted(unknown_src.items()):
         print(f"  {flag:<32} {sorted(where)[:2]}")
 
-    failed = bool(dash_hits or absolute or broken or unknown or unknown_src)
+    bad_commands = check_message_commands(fm_command_spec())
+    print(f"fm commands in fm's own messages that would be refused: {len(bad_commands)}")
+    for line in bad_commands[:12]:
+        print(f"  {line}")
+
+    failed = bool(dash_hits or absolute or broken or unknown or unknown_src or bad_commands)
     if not failed:
         print(f"\nclean: {len(files)} hand-written docs checked against {len(fm | fmx)} real flags")
     return 1 if failed else 0

@@ -238,7 +238,7 @@ def _configure_dns_credentials(
         )
     else:
         output.print(
-            "[fm.muted]Bind a certificate to it with: fm ssl add <bench> <domain> --challenge dns01 "
+            "[fm.muted]Bind a certificate to it with: fm ssl add <bench>/<domain> --challenge dns01 "
             f"--dns-provider {label}[/fm.muted]"
         )
     output.info(f"[fm.muted]Saved to: \\[ssl.dns_providers.{label}] in {CLI_FM_CONFIG_PATH}[/fm.muted]")
