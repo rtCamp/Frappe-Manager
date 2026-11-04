@@ -448,10 +448,11 @@ class ServicesManager:
                 all_running = all(running_statuses.get(s) == "running" for s in services)
 
                 if not all_running:
-                    self.output.print(
-                        f"Started non running global services [blue]{', '.join(services)}[/blue].",
-                    )
+                    stopped = [s for s in services if running_statuses.get(s) != "running"]
                     self.docker_client.compose.up(services=[], detach=True, pull="missing")
+                    # After the up, not before it: the old line announced the start while the
+                    # containers were still down, and stood even if the up then failed.
+                    self.output.print(f"Started global services [blue]{', '.join(stopped)}[/blue]")
 
         self.database_manager: DatabaseServiceManager = MariaDBManager(
             DatabaseServerServiceInfo.import_from_compose_file("mariadb", self.compose_file_manager),

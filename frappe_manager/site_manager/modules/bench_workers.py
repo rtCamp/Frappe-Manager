@@ -178,9 +178,10 @@ class BenchWorkers:
         # removal on the workers file removes every main-stack container too.
         removed_services = sorted(set(prev_services) - set(workers_expected_service_names))
         if removed_services:
-            self.output.print(f"Removing dropped worker service(s): {', '.join(removed_services)}")
+            self.output.change_head(f"Removing dropped worker service(s): {', '.join(removed_services)}")
             try:
                 self.docker_client.compose.rm(services=removed_services, stop=True, force=True, stream=False)
+                self.output.print(f"Removed dropped worker service(s): {', '.join(removed_services)}")
             except DockerException as e:
                 self.output.warning(f"Could not remove dropped worker container(s) ({e}); remove manually")
 
@@ -357,9 +358,11 @@ class BenchWorkerCoordinator:
         Args:
             backup_manager: BackupManager instance containing backups
         """
-        self.output.print("Rolling back to previous workers configuration")
         for backup in backup_manager.backups:
             backup_manager.restore(backup, force=True)
+        # After the loop: announced up front, this line stood even when a restore raised and
+        # the previous configuration was never put back.
+        self.output.print(f"Rolled back {len(backup_manager.backups)} workers configuration file(s)")
 
     def backup_workers_supervisor_conf(self) -> BackupManager:
         """

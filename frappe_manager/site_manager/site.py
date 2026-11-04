@@ -872,6 +872,7 @@ class Bench:
             # main compose down above removes them as orphans of the shared project).
             try:
                 self.admin_tools.docker_client.compose.down(remove_orphans=True, volumes=True, timeout=5, stream=False)
+                self.output.print("Removed bench admin tools containers")
             except Exception as e:
                 # Best-effort for CONTAINERS is safe (the sweep below re-checks them), but volumes
                 # are not re-checked, so a failure here can orphan fm__<bench>__mailpit-data.
@@ -879,9 +880,8 @@ class Bench:
                 self.logger.warning(f"{self.name}: admin-tools compose down failed: {e}")
                 self.output.warning(
                     "Admin-tools cleanup failed; a mailpit-data volume may be left behind "
-                    f"(check 'docker volume ls' for {get_container_name_prefix(self.name)}__mailpit-data)."
+                    f"(check 'docker volume ls' for {get_container_name_prefix(self.name)}__mailpit-data)"
                 )
-            self.output.print("Removed bench admin tools containers")
 
         self._sweep_leftover_containers()
 

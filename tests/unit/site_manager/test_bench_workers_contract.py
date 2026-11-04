@@ -612,7 +612,7 @@ class TestSyncWorkersCompose:
         # a failed regen must never fall through to "unchanged" or to a start
         h.workers.generate_compose.assert_not_called()
         h.workers_client.compose.up.assert_not_called()
-        assert "Rolling back to previous workers configuration" in h.prints
+        assert any(p.startswith("Rolled back ") for p in h.prints)
 
 
 class TestBackupWorkersSupervisorConf:
