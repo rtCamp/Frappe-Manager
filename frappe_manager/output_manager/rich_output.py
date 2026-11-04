@@ -237,14 +237,10 @@ class RichOutputHandler(OutputHandler):
 
     def display_error(self, text: str, emoji_code: str = ":no_entry:") -> None:
         """
-        Display error message without raising exception.
+        Report a failure without raising. See `OutputHandler.display_error`.
 
         An error ENDS the current operation: any active spinner is stopped
         first, so call sites never need a manual ``output.stop()`` before it.
-
-        Args:
-            text: The error message
-            emoji_code: Emoji code to display (e.g., ":no_entry:")
         """
         if self._spinner_active:
             self.stop()
@@ -252,18 +248,10 @@ class RichOutputHandler(OutputHandler):
 
     def error(self, text: str, exception: Exception, emoji_code: str = ":no_entry:") -> None:
         """
-        Display an error message and raise the exception.
-
-        This method always raises the provided exception after displaying the error message.
-        Use display_error() if you want to display an error without raising an exception.
-
-        Args:
-            text: The error message
-            exception: Exception to raise after displaying (required)
-            emoji_code: Emoji code to display (e.g., ":no_entry:")
+        Re-raise a caught exception after displaying it. See `OutputHandler.error`.
 
         Raises:
-            Exception: Always raises the provided exception
+            Exception: always re-raises `exception`.
         """
         self.display_error(text, emoji_code)
 

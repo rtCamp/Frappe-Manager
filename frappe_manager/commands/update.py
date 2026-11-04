@@ -302,7 +302,8 @@ def update(
         try:
             db_tls.validate_ca_source(plan.db_ca)
         except (FileNotFoundError, PermissionError, ValueError) as e:
-            output.error(str(e), exception=typer.Exit(code=2))
+            output.display_error(str(e))
+            raise typer.Exit(code=2) from e
 
     report_plan(
         output,

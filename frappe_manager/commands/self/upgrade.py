@@ -56,5 +56,6 @@ def upgrade(
             output.print(f"fm is already up to date (v{fm_version})")
     except Exception as e:
         output = get_global_output_handler()
+        # error() re-raises `e` itself; a trailing `raise typer.Exit(1)` here would be dead
+        # code that silently renamed the real exception on anyone who read only the call site.
         output.error(f"Error occurred while updating the app: {e}", exception=e)
-        raise typer.Exit(1)

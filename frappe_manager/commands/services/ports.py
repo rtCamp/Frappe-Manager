@@ -11,7 +11,8 @@ from frappe_manager.output_manager import get_global_output_handler
 
 def _validate_port(output, flag: str, value: int) -> None:
     if not 1 <= value <= 65535:
-        output.error(f"{flag} {value} is not a port (1-65535)", exception=typer.Exit(code=1))
+        output.display_error(f"{flag} {value} is not a port (1-65535)")
+        raise typer.Exit(code=1)
 
 
 @example(
@@ -65,7 +66,8 @@ def ports(
     _validate_port(output, "--http", http)
     _validate_port(output, "--https", https)
     if http == https:
-        output.error("--http and --https cannot be the same port", exception=typer.Exit(code=1))
+        output.display_error("--http and --https cannot be the same port")
+        raise typer.Exit(code=1)
 
     fm_config = FMConfigManager.import_from_toml()
     # Deliberately NOT written yet. `prompt_ask` raises on a non-interactive host, so recording the

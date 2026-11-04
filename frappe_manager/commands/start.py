@@ -67,12 +67,12 @@ def start(
     # workers compose file is being regenerated, so a request fm cannot act on is refused instead
     # of accepted and dropped.
     if not include_default_workers and not include_custom_workers:
-        output.error(
+        output.display_error(
             "--no-include-default-workers with --no-include-custom-workers regenerates an EMPTY worker set, "
             "which deletes docker-compose.workers.yml and leaves the bench with no workers at all: keep one "
-            "of the two.",
-            exception=typer.Exit(code=2),
+            "of the two."
         )
+        raise typer.Exit(code=2)
 
     worker_scope_flags = [
         f"--{name.replace('_', '-')}"
@@ -80,12 +80,12 @@ def start(
         if ctx.get_parameter_source(name) == ParameterSource.COMMANDLINE
     ]
     if worker_scope_flags and not reconfigure_workers:
-        output.error(
+        output.display_error(
             f"{' and '.join(worker_scope_flags)} only apply with --reconfigure-workers, which is what "
             "regenerates docker-compose.workers.yml; on its own fm start leaves the worker set exactly "
-            "as it is already configured.",
-            exception=typer.Exit(code=2),
+            "as it is already configured."
         )
+        raise typer.Exit(code=2)
 
     check_bench_migration_required(benchname)
 

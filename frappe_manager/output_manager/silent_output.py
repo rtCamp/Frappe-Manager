@@ -21,7 +21,8 @@ class SilentOutputHandler(OutputHandler):
     - Automated scripts
     - Performance testing
 
-    All methods are no-ops except error() which still raises exceptions.
+    The terminal stays silent throughout, but a reported failure still reaches fm.log --
+    display_error() writes it there, and error() still raises.
     """
 
     def __init__(self, verbose: bool = False):
@@ -98,27 +99,29 @@ class SilentOutputHandler(OutputHandler):
 
     def display_error(self, text: str, emoji_code: str = ":no_entry:") -> None:
         """
-        Display error (no-op).
+        Record a failure to fm.log without printing it or raising. See `OutputHandler.display_error`.
 
-        Args:
-            text: Error message (ignored)
-            emoji_code: Emoji code (ignored)
+        The terminal stays silent, but an operator left with a bare non-zero exit still needs
+        the reason in the log -- a no-op here would erase it twice over, once on screen and
+        once in the only place left to look.
         """
+        from frappe_manager.logger import get_logger
+
+        get_logger(component="output").error(f"[OUTPUT] {text}")
 
     def error(self, text: str, exception: Exception, emoji_code: str = ":no_entry:") -> None:
         """
-        Display an error message and raise the exception.
-
-        This method always raises the provided exception (no-op for display).
-
-        Args:
-            text: The error message (ignored)
-            exception: Exception to raise (required)
-            emoji_code: Emoji code (ignored)
+        Re-raise a caught exception, its traceback recorded to fm.log first. See `OutputHandler.error`.
 
         Raises:
-            Exception: Always raises the provided exception
+            Exception: always re-raises `exception`.
         """
+        import traceback
+
+        from frappe_manager.logger import get_logger
+
+        detail = "".join(traceback.format_exception(type(exception), exception, exception.__traceback__))
+        get_logger(component="output").error(f"[OUTPUT] Exception detail:\n{detail}")
         raise exception
 
     def warning(self, text: str, emoji_code: str = ":warning:") -> None:

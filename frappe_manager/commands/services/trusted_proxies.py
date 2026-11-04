@@ -194,35 +194,35 @@ def set_trusted(
     if client_ip_header is not None and not _HEADER_TOKEN.match(client_ip_header):
         # Rejected BEFORE anything is written: this value is rendered verbatim into a file that
         # is bind-mounted into the live global proxy's /etc/nginx/conf.d.
-        output.error(
-            f"--client-ip-header {client_ip_header!r} is not a valid header name (allowed: letters, digits and '-')",
-            exception=typer.Exit(code=2),
+        output.display_error(
+            f"--client-ip-header {client_ip_header!r} is not a valid header name (allowed: letters, digits and '-')"
         )
+        raise typer.Exit(code=2)
 
     if not cdn and not trust and not local:
-        output.error(
-            "Nothing to trust: pass --local, --cdn cloudflare and/or --trust CIDR (or use 'trusted-proxies clear')",
-            exception=typer.Exit(code=2),
+        output.display_error(
+            "Nothing to trust: pass --local, --cdn cloudflare and/or --trust CIDR (or use 'trusted-proxies clear')"
         )
+        raise typer.Exit(code=2)
 
     ranges: list[str] = []
     resolved_header = client_ip_header
     if cdn:
         if cdn.lower() != "cloudflare":
-            output.error(
-                f"Unsupported CDN {cdn!r}; supported: cloudflare (use --trust for custom ranges)",
-                exception=typer.Exit(code=2),
+            output.display_error(
+                f"Unsupported CDN {cdn!r}; supported: cloudflare (use --trust for custom ranges)"
             )
+            raise typer.Exit(code=2)
         ranges += _fetch_cloudflare_ranges(output)
         if resolved_header is None:
             resolved_header = "CF-Connecting-IP"
     if local:
         gateway = get_frontend_gateway(docker=services.docker_client)
         if not gateway:
-            output.error(
-                "Could not read the fm frontend network's gateway; is the global stack created?",
-                exception=typer.Exit(code=1),
+            output.display_error(
+                "Could not read the fm frontend network's gateway; is the global stack created?"
             )
+            raise typer.Exit(code=1)
         ranges.append(f"{gateway}/32")
         if resolved_header is None:
             resolved_header = "X-Forwarded-For"
@@ -230,16 +230,17 @@ def set_trusted(
         try:
             validated = validate_cidrs(trust)
         except ValueError as e:
-            output.error(f"--trust: {e}", exception=typer.Exit(code=2))
+            output.display_error(f"--trust: {e}")
+            raise typer.Exit(code=2) from e
         # A loopback range can never match: fm's proxy is a container, and docker source-NATs a
         # connection from this machine to the bridge gateway. Trusting it would look configured
         # and quietly trust nobody, which is the worst of the three possible outcomes.
         loopback = [cidr for cidr in validated if ipaddress.ip_network(cidr).is_loopback]
         if loopback:
-            output.error(
-                f"--trust {loopback[0]} can never match: fm's proxy runs in a container and never sees a connection from this machine as loopback. Use --local instead.",
-                exception=typer.Exit(code=2),
+            output.display_error(
+                f"--trust {loopback[0]} can never match: fm's proxy runs in a container and never sees a connection from this machine as loopback. Use --local instead."
             )
+            raise typer.Exit(code=2)
         ranges += validated
         if resolved_header is None:
             resolved_header = "X-Forwarded-For"
@@ -259,10 +260,10 @@ def set_trusted(
     if valid is False:
         _restore_conf(conf_path, previous)
         services.set_forwarded_trust_conf()
-        output.error(
-            f"nginx rejected the configuration; {PROXY_CONF_FILENAME} was rolled back and the proxy left untouched",
-            exception=typer.Exit(code=1),
+        output.display_error(
+            f"nginx rejected the configuration; {PROXY_CONF_FILENAME} was rolled back and the proxy left untouched"
         )
+        raise typer.Exit(code=1)
 
     summary = f"trusting {len(ranges)} range(s), reading the client IP from {resolved_header}"
 

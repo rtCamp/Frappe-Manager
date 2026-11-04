@@ -179,24 +179,25 @@ def apply_auth(
     allow_path = allow_path or []
 
     if rotate and password is not None:
-        output.error(
-            "--rotate cannot be combined with --password (either pick the password yourself or let fm mint one)",
-            exception=typer.Exit(code=1),
+        output.display_error(
+            "--rotate cannot be combined with --password (either pick the password yourself or let fm mint one)"
         )
+        raise typer.Exit(code=1)
 
     allow_ips: list[str] = []
     if allow_ip:
         try:
             allow_ips = validate_cidrs(allow_ip)
         except ValueError as e:
-            output.error(f"--allow-ip: {e}", exception=typer.Exit(code=1))
+            output.display_error(f"--allow-ip: {e}")
+            raise typer.Exit(code=1) from e
 
     for path in allow_path:
         if not path.startswith("/"):
-            output.error(
-                f"--allow-path must be an absolute path prefix like /api/method/ping, got {path!r}",
-                exception=typer.Exit(code=1),
+            output.display_error(
+                f"--allow-path must be an absolute path prefix like /api/method/ping, got {path!r}"
             )
+            raise typer.Exit(code=1)
 
     if password == "-":
         password = read_password_from_stdin()
@@ -204,25 +205,25 @@ def apply_auth(
     bench, site, entry = resolve_scope(ctx, address, output)
 
     if site and tools_named:
-        output.error(
-            f"--tools cannot take a site part: one Adminer and one Mailpit serve the whole bench, on every hostname '{bench.name}' has, so acting on them for '{site}' alone would leave the same tools open on the others. Run 'fm auth enable {bench.name} --tools' to protect them for the bench.",
-            exception=typer.Exit(code=1),
+        output.display_error(
+            f"--tools cannot take a site part: one Adminer and one Mailpit serve the whole bench, on every hostname '{bench.name}' has, so acting on them for '{site}' alone would leave the same tools open on the others. Run 'fm auth enable {bench.name} --tools' to protect them for the bench."
         )
+        raise typer.Exit(code=1)
 
     # Per-site auth needs a per-site server block, but nginx conf renders once at the container's
     # first boot: an older bench's conf may include only `custom/*.conf`. Recording an override
     # there would be silent, and the status command would report a prompt nobody serves.
     if site and not bench.nginx_conf_serves_per_site():
-        output.error(
-            f"Bench '{bench.name}' nginx conf predates one server block per site, so '{site}' cannot carry auth of its own yet: nginx would include none of it and the site would keep following the bench. Run 'fm migrate' to re-render it, or recreate the nginx container with 'fm restart {bench.name} --nginx --recreate'. 'fm auth enable {bench.name}' for the whole bench works today.",
-            exception=typer.Exit(code=1),
+        output.display_error(
+            f"Bench '{bench.name}' nginx conf predates one server block per site, so '{site}' cannot carry auth of its own yet: nginx would include none of it and the site would keep following the bench. Run 'fm migrate' to re-render it, or recreate the nginx container with 'fm restart {bench.name} --nginx --recreate'. 'fm auth enable {bench.name}' for the whole bench works today."
         )
+        raise typer.Exit(code=1)
 
     if site and entry is None:
-        output.error(
-            f"Bench '{bench.name}' records no entry for site '{site}', so its own auth has nowhere to live. Run 'fm auth enable {bench.name}' to set the auth every site of the bench follows.",
-            exception=typer.Exit(code=1),
+        output.display_error(
+            f"Bench '{bench.name}' records no entry for site '{site}', so its own auth has nowhere to live. Run 'fm auth enable {bench.name}' to set the auth every site of the bench follows."
         )
+        raise typer.Exit(code=1)
 
     scope = f"{bench.name}/{site}" if site else bench.name
     stored = entry.auth if entry is not None else bench.bench_config.auth
@@ -238,10 +239,10 @@ def apply_auth(
     tools_on = bench_tools if (tools_target is None or site) else tools_target
 
     if allow_path and not web_on:
-        output.error(
-            f"--allow-path exempts paths on the web surface only, which {scope} does not protect (add --web)",
-            exception=typer.Exit(code=1),
+        output.display_error(
+            f"--allow-path exempts paths on the web surface only, which {scope} does not protect (add --web)"
         )
+        raise typer.Exit(code=1)
 
     # Only turning a surface ON adds exposure, so an idempotent re-run never gates.
     enabling_web = web_on and not current.web
@@ -259,12 +260,12 @@ def apply_auth(
             # /adminer/ and /mailpit/ over http since before this check existed and defaults on,
             # so refusing it too would break fm's own default state -- warn instead.
             if enabling_web:
-                output.error(
-                    # Certificate lookup is keyed by DOMAIN (`SSLCertificate.domain`), while the
-                    # `fm ssl add` hint below takes BENCH then the domain separately.
-                    f"Domain '{guarded_domain}' has no TLS certificate: basic auth sends the credentials base64-encoded on every request, so on the web surface they would travel in the clear in front of every path including /api. Add HTTPS with 'fm ssl add {bench.name}/{guarded_domain}', or pass --insecure to accept that.",
-                    exception=typer.Exit(code=1),
+                # Certificate lookup is keyed by DOMAIN (`SSLCertificate.domain`), while the
+                # `fm ssl add` hint below takes BENCH then the domain separately.
+                output.display_error(
+                    f"Domain '{guarded_domain}' has no TLS certificate: basic auth sends the credentials base64-encoded on every request, so on the web surface they would travel in the clear in front of every path including /api. Add HTTPS with 'fm ssl add {bench.name}/{guarded_domain}', or pass --insecure to accept that."
                 )
+                raise typer.Exit(code=1)
             output.warning(
                 f"Domain '{guarded_domain}' has no TLS certificate: basic auth sends the credentials base64-encoded on every request, so the admin tools credentials are effectively cleartext (--insecure silences this)"
             )
@@ -285,10 +286,10 @@ def apply_auth(
                 remedy = f"Re-bake the bench image so nginx picks up the fix: 'fm bake {bench.name}' followed by 'fm switch {bench.name}'."
             else:
                 remedy = f"Run 'fm migrate' to re-render it, or recreate the nginx container with 'fm restart {bench.name} --nginx --recreate'."
-            output.error(
-                f"Bench '{bench.name}' nginx conf ({default_conf}) predates the Authorization-header fix: with web auth on, nginx would forward the credentials it just checked and frappe would reject every authenticated request with 401. {remedy} The tools surface is unaffected, so 'fm auth enable {bench.name} --tools' works today.",
-                exception=typer.Exit(code=1),
+            output.display_error(
+                f"Bench '{bench.name}' nginx conf ({default_conf}) predates the Authorization-header fix: with web auth on, nginx would forward the credentials it just checked and frappe would reject every authenticated request with 401. {remedy} The tools surface is unaffected, so 'fm auth enable {bench.name} --tools' works today."
             )
+            raise typer.Exit(code=1)
 
     credentials_touched = user is not None or password is not None or rotate
 
@@ -315,7 +316,8 @@ def apply_auth(
         try:
             validate_credentials(new_user, new_password)
         except ValueError as e:
-            output.error(f"Invalid credentials: {e}", exception=typer.Exit(code=1))
+            output.display_error(f"Invalid credentials: {e}")
+            raise typer.Exit(code=1) from e
 
     new_allow_ips = allow_ips if allow_ip else ([] if clear_exemptions else current.allow_ips)
     new_allow_paths = allow_path if allow_path else ([] if clear_exemptions else current.allow_paths)

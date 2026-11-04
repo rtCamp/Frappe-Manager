@@ -367,7 +367,7 @@ class TestExternalDatabaseCaRefresh:
         """The recorded path is absolute but deliberately NOT resolved: symlink rotation must stick."""
         real = tmp_path / "archive" / "ca-2026.pem"
         real.parent.mkdir()
-        real.write_text("ca")
+        real.write_text("-----BEGIN CERTIFICATE-----\n")
         link = tmp_path / "live" / "ca.pem"
         link.parent.mkdir()
         link.symlink_to(real)
@@ -381,7 +381,7 @@ class TestExternalDatabaseCaRefresh:
 
     def test_success_reports_both_writes_and_promises_no_restart(self, world, tmp_path):
         ca = tmp_path / "ca.pem"
-        ca.write_text("ca")
+        ca.write_text("-----BEGIN CERTIFICATE-----\n")
 
         world.run(db_ca=ca)
 
@@ -404,7 +404,7 @@ class TestExternalDatabaseCaRefresh:
     )
     def test_install_failure_aborts_without_recording_the_path(self, world, tmp_path, error):
         ca = tmp_path / "ca.pem"
-        ca.write_text("ca")
+        ca.write_text("-----BEGIN CERTIFICATE-----\n")
         world.install_site_ca.side_effect = error
 
         with pytest.raises(typer.Exit) as exc:
@@ -420,7 +420,7 @@ class TestExternalDatabaseCaRefresh:
         keeps sending none -- the 'no restart needed' reassurance would claim a CA that is not in play."""
         world.database_config.ca = None
         ca = tmp_path / "ca.pem"
-        ca.write_text("ca")
+        ca.write_text("-----BEGIN CERTIFICATE-----\n")
 
         world.run(db_ca=ca)
 

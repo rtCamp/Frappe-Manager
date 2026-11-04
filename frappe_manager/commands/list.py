@@ -53,10 +53,10 @@ def list(
     if paths and (json_output or (ctx.obj.get("json") if ctx.obj else False)):
         # The json branch below returns without ever reading --paths; refusing beats
         # silently preferring one form (the JSON rows already carry name and path).
-        output.error(
-            "--paths cannot be combined with --json (the JSON rows already carry name and path)",
-            exception=typer.Exit(code=2),
+        output.display_error(
+            "--paths cannot be combined with --json (the JSON rows already carry name and path)"
         )
+        raise typer.Exit(code=2)
 
     if json_output or ctx.obj.get("json"):
         get_global_output_handler().set_json_results()

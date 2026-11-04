@@ -132,67 +132,69 @@ def restart(
     drain_explicit = ctx.get_parameter_source("drain") == ParameterSource.COMMANDLINE
 
     if rolling and recreate:
-        output.error("--rolling cannot be combined with --recreate", exception=typer.Exit(code=2))
+        output.display_error("--rolling cannot be combined with --recreate")
+        raise typer.Exit(code=2)
 
     if force and rolling:
-        output.error(
-            "--force cannot be combined with --rolling (the rolling swap replaces web containers gracefully)",
-            exception=typer.Exit(code=2),
+        output.display_error(
+            "--force cannot be combined with --rolling (the rolling swap replaces web containers gracefully)"
         )
+        raise typer.Exit(code=2)
 
     if force and drain_explicit and drain:
-        output.error(
-            "--force cannot be combined with --drain (drain waits for in-flight jobs; force kills them)",
-            exception=typer.Exit(code=2),
+        output.display_error(
+            "--force cannot be combined with --drain (drain waits for in-flight jobs; force kills them)"
         )
+        raise typer.Exit(code=2)
 
     if drain_explicit and drain and not workers:
-        output.error(
+        output.display_error(
             "--drain cannot be combined with --no-workers (drain suspends the worker tier "
-            "before restarting it; with workers excluded there is nothing to drain)",
-            exception=typer.Exit(code=2),
+            "before restarting it; with workers excluded there is nothing to drain)"
         )
+        raise typer.Exit(code=2)
 
     if service:
         if rolling:
-            output.error("--service cannot be combined with --rolling", exception=typer.Exit(code=2))
+            output.display_error("--service cannot be combined with --rolling")
+            raise typer.Exit(code=2)
         if drain_explicit and drain:
-            output.error(
-                "--service cannot be combined with --drain (drain applies to the worker group: --workers --drain)",
-                exception=typer.Exit(code=2),
+            output.display_error(
+                "--service cannot be combined with --drain (drain applies to the worker group: --workers --drain)"
             )
+            raise typer.Exit(code=2)
 
     # --rolling swaps the web containers and, at most, cycles the workers afterwards: its branch
     # returns before the redis, nginx and web legs below, so a scope flag it cannot honour is
     # refused here instead of being silently dropped.
     if rolling:
         if redis:
-            output.error(
+            output.display_error(
                 "--redis cannot be combined with --rolling (the rolling swap only replaces web containers; "
-                "bounce redis in its own run: fm restart <bench> --redis --no-web --no-workers)",
-                exception=typer.Exit(code=2),
+                "bounce redis in its own run: fm restart <bench> --redis --no-web --no-workers)"
             )
+            raise typer.Exit(code=2)
         if nginx:
-            output.error(
+            output.display_error(
                 "--nginx cannot be combined with --rolling (the rolling swap only replaces web containers; "
-                "restart nginx in its own run: fm restart <bench> --nginx --no-web --no-workers)",
-                exception=typer.Exit(code=2),
+                "restart nginx in its own run: fm restart <bench> --nginx --no-web --no-workers)"
             )
+            raise typer.Exit(code=2)
         if not web:
-            output.error(
-                "--no-web cannot be combined with --rolling (--rolling IS the zero-downtime web restart)",
-                exception=typer.Exit(code=2),
+            output.display_error(
+                "--no-web cannot be combined with --rolling (--rolling IS the zero-downtime web restart)"
             )
+            raise typer.Exit(code=2)
 
     # Nothing selected is a usage error, not a successful no-op: an empty selection would
     # otherwise silently skip the server health check and exit 0. --service replaces the group
     # flags, so it is exempt.
     if not service and not (web or workers or redis or nginx):
-        output.error(
+        output.display_error(
             "--no-web with --no-workers leaves nothing to restart: add --redis or --nginx, "
-            "or name a service with --service",
-            exception=typer.Exit(code=1),
+            "or name a service with --service"
         )
+        raise typer.Exit(code=1)
 
     # Targeted restarts are surgical and force means kill-fast: both imply no drain.
     if force or service:
@@ -217,11 +219,11 @@ def restart(
     # `systemctl try-restart` answers this the same way: something deliberately stopped is not
     # resurrected by a restart.
     if not bench.running:
-        output.error(
+        output.display_error(
             f"Bench '{benchname}' is not fully running, and restart only bounces what is: "
-            f"use 'fm start {benchname}'.",
-            exception=typer.Exit(code=1),
+            f"use 'fm start {benchname}'."
         )
+        raise typer.Exit(code=1)
 
     def _restart_workers(use_container_restart: bool) -> None:
         if not drain:
@@ -244,11 +246,11 @@ def restart(
             worker_services = set()
         unknown = [s for s in service if s not in bench_services | worker_services]
         if unknown:
-            output.error(
+            output.display_error(
                 f"Unknown service(s): {', '.join(unknown)}. "
-                f"Available: {', '.join(sorted(bench_services | worker_services))}",
-                exception=typer.Exit(code=1),
+                f"Available: {', '.join(sorted(bench_services | worker_services))}"
             )
+            raise typer.Exit(code=1)
 
         # Code services restart via supervisor (matching the group behavior);
         # infra services (nginx, redis, ...) have no supervisor programs.
@@ -293,10 +295,10 @@ def restart(
         from frappe_manager.site_manager.bench_config import BenchRuntime
 
         if bench.bench_config.runtime != BenchRuntime.image:
-            output.error(
-                "--rolling needs an image bench (mount benches restart web via supervisor, which is already fast)",
-                exception=typer.Exit(code=1),
+            output.display_error(
+                "--rolling needs an image bench (mount benches restart web via supervisor, which is already fast)"
             )
+            raise typer.Exit(code=1)
         # `rq_suspended` owns the resume, signals included: `rq:suspended` is a redis key that
         # outlives this process, so a leaked one leaves workers alive and consuming nothing.
         suspend = rq_suspended(orchestrator, output, action="restart") if (workers and drain) else nullcontext()

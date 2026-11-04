@@ -165,28 +165,24 @@ class OutputHandler(ABC):
     @abstractmethod
     def display_error(self, text: str, emoji_code: str = ":no_entry:") -> None:
         """
-        Display error message without raising exception.
+        Report a failure. This is the ONLY way to report one -- it never raises.
 
-        Args:
-            text: Error message
-            emoji_code: Optional emoji code
+        A call site that must stop after reporting raises immediately afterward, in its own
+        code: `display_error(...)` then `raise typer.Exit(N)`. That keeps the decision to stop
+        visible at the call site instead of hidden inside the handler.
         """
 
     @abstractmethod
     def error(self, text: str, exception: Exception, emoji_code: str = ":no_entry:") -> None:
         """
-        Display an error message and raise the exception.
+        Re-raise a CAUGHT exception after logging its traceback to fm.log.
 
-        This method always raises the provided exception after displaying the error message.
-        Use display_error() if you want to display an error without raising an exception.
-
-        Args:
-            text: The error message
-            exception: Exception to raise after displaying (required)
-            emoji_code: Optional emoji code (implementation-specific)
+        Reserved for a call site holding a genuine caught exception whose detail is worth
+        keeping. `typer.Exit` carries no traceback, so passing one here is control flow
+        wearing an error's clothes -- use display_error() + a visible `raise` for that instead.
 
         Raises:
-            Exception: Always raises the provided exception
+            Exception: always re-raises `exception`.
         """
 
     @abstractmethod
