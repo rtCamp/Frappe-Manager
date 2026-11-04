@@ -1071,16 +1071,30 @@ class Bench:
         timeout: int = 30,
         interval: int = 1,
         force: bool = False,
+        graceful: bool = False,
     ):
-        return self.supervisor.restart_supervisor_service(service, docker_client_obj, timeout, interval, force)
+        return self.supervisor.restart_supervisor_service(
+            service, docker_client_obj, timeout, interval, force, graceful=graceful
+        )
 
-    def restart_web_containers_services(self, use_container_restart: bool = False, force: bool = False):
+    def restart_web_containers_services(
+        self,
+        use_container_restart: bool = False,
+        force: bool = False,
+        graceful: bool = False,
+    ):
         """
         Restarts frappe server and socketio containers.
 
         Args:
             use_container_restart: If True, restart entire containers. If False, restart supervisor processes.
             force: If True, use aggressive restart (timeout=0 for container, stop+start for supervisor).
+            graceful: If True (supervisor mode only), deliver SIGHUP to the frappe (gunicorn)
+                container via supervisorctl so the gunicorn master keeps its listening socket
+                open while workers reload. Avoids the brief upstream connection-refused window
+                of a stop/start cycle. The socketio container is restarted normally because
+                node has no graceful-reload signal. Ignored when ``use_container_restart`` is
+                True.
         """
         web_services = [
             SiteServicesEnum.frappe.value,
@@ -1092,9 +1106,20 @@ class Bench:
         else:
             for service in web_services:
                 self.output.change_head(f"Restarting web services - {service}")
-                is_restarted = self.restart_supervisor_service(service, force=force)
+                # Graceful SIGHUP is only meaningful for the frappe (gunicorn) container.
+                # Node-socketio terminates on SIGHUP, so honour graceful only for frappe and
+                # fall back to a normal restart for socketio when graceful is requested.
+                service_graceful = graceful and service == SiteServicesEnum.frappe.value
+                is_restarted = self.restart_supervisor_service(
+                    service, force=force, graceful=service_graceful
+                )
                 if is_restarted:
-                    action = "Stopped and started" if force else "Restarted"
+                    if service_graceful:
+                        action = "Reloaded (SIGHUP)"
+                    elif force:
+                        action = "Stopped and started"
+                    else:
+                        action = "Restarted"
                     self.output.print(f"{action} supervisor processes - {service}")
 
     def restart_redis_services_containers(self):
