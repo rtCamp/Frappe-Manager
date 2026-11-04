@@ -246,6 +246,9 @@ def _install_with_app_hooks(
             output=output,
         )
 
+    # One summary per loop, not one line per app: the per-item detail is at -v, which is the
+    # same rule that collapsed the per-app clone lines.
+    installed: list[str] = []
     for app in apps:
         hooks = app.hooks
         host = hooks.host if hooks else None
@@ -253,14 +256,19 @@ def _install_with_app_hooks(
         run(app, hooks.before_deps if hooks else None, f"{app.name} before_deps", on_host=False)
         output.change_head(f"Installing Python dependencies for {app.name}")
         app_manager._install_python_deps_with_uv([app], use_uv=use_uv, use_run=use_run)  # noqa: SLF001
-        output.print(f"Installed Python dependencies for {app.name}")
+        output.info(f"Installed Python dependencies for {app.name}")
+        installed.append(app.name)
         run(app, hooks.after_deps if hooks else None, f"{app.name} after_deps", on_host=False)
         run(app, host.after_deps if host else None, f"{app.name} after_deps", on_host=True)
+
+    if installed:
+        output.print(f"Installed Python dependencies for {len(installed)} app(s): {', '.join(installed)}")
 
     output.change_head("Installing Node dependencies")
     app_manager._install_node_deps(use_run=use_run)  # noqa: SLF001
     output.print("Installed Node dependencies")
 
+    built: list[str] = []
     for app in apps:
         hooks = app.hooks
         host = hooks.host if hooks else None
@@ -268,8 +276,12 @@ def _install_with_app_hooks(
         run(app, hooks.before_build if hooks else None, f"{app.name} before_build", on_host=False)
         output.change_head(f"Building frontend assets for {app.name}")
         app_manager.build(app_list=[app.name], use_run=use_run)
-        output.print(f"Built frontend assets for {app.name}")
+        output.info(f"Built frontend assets for {app.name}")
+        built.append(app.name)
         run(app, hooks.after_build if hooks else None, f"{app.name} after_build", on_host=False)
         run(app, host.after_build if host else None, f"{app.name} after_build", on_host=True)
+
+    if built:
+        output.print(f"Built frontend assets for {len(built)} app(s): {', '.join(built)}")
 
     return apps

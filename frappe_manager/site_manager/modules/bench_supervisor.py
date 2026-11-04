@@ -337,14 +337,17 @@ class BenchSupervisor:
         self._write_gunicorn_wrapper(config_dir, context)
 
         newrelic = self.config.get_telemetry_config("newrelic")
-        wrote_newrelic = bool(newrelic and newrelic.enabled and newrelic.license_key)
-        if wrote_newrelic:
-            self._write_newrelic_config(config_dir, force=force)
+        # `_write_newrelic_config` leaves an existing file alone unless forced -- that is its
+        # whole point -- so the agent being enabled is not evidence the file was written.
+        wrote_newrelic = bool(newrelic and newrelic.enabled and newrelic.license_key) and self._write_newrelic_config(
+            config_dir, force=force
+        )
 
-        # This method writes the gunicorn wrapper and, when the agent is on, newrelic.ini. It
-        # never touches the split supervisor configs, which is what the old wording claimed.
+        # This method writes the gunicorn wrapper and, when the agent is on and the file is not
+        # already the operator's, newrelic.ini. It never touches the split supervisor configs,
+        # which is what the old wording claimed.
         if wrote_newrelic:
-            self.output.print("Refreshed the gunicorn wrapper and newrelic.ini")
+            self.output.print("Refreshed the gunicorn wrapper and seeded newrelic.ini")
         else:
             self.output.print("Refreshed the gunicorn wrapper")
 
@@ -388,7 +391,7 @@ class BenchSupervisor:
                 # file-only -- so the container vanished with no visible cause.
                 self.output.info(f"Dropped supervisor conf {stale.name}; its worker will not be recreated")
 
-    def _write_newrelic_config(self, config_dir, force: bool = False) -> None:
+    def _write_newrelic_config(self, config_dir, force: bool = False) -> bool:
         """Seed `config/newrelic.ini`, ONCE.
 
         The file is the user's, not fm's: agent tuning (sampling, tracer thresholds, ignored
@@ -412,7 +415,7 @@ class BenchSupervisor:
             # The reason enabling New Relic appeared to change nothing, file-only until now.
             self.logger.info("Kept existing newrelic.ini (user-owned; pass force to regenerate)")
             self.output.info("Kept your existing newrelic.ini; pass --force-config to regenerate it")
-            return
+            return False
 
         cfg = configparser.RawConfigParser()
 
@@ -463,6 +466,7 @@ class BenchSupervisor:
         cfg.write(buf)
         target.write_text(buf.getvalue())
         self.logger.info("Generated newrelic.ini")
+        return True
 
     def _write_gunicorn_wrapper(self, config_dir, context: dict) -> bool:
         from pathlib import Path
