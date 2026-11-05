@@ -79,7 +79,7 @@ fm info            # exit 2, caught by fm
 
 ### The event vocabulary
 
-Ten event types, named after what fm did rather than what it drew. The first line declares the schema version; fields may be added to this stream, but no field already emitted will be renamed or change meaning.
+Eleven event types, named after what fm did rather than what it drew. The first line declares the schema version; fields may be added to this stream, but no field already emitted will be renamed or change meaning. Event TYPES are additive too: a reader must ignore a type it does not recognise rather than treat the line as malformed, and a new type does not bump the version.
 
 | Event | When | Carries |
 |---|---|---|
@@ -88,9 +88,14 @@ Ten event types, named after what fm did rather than what it drew. The first lin
 | `command.started` | fm runs a child process | `cmd`, `argv` |
 | `command.output` | that process writes a line | `cmd`, `stream` (`out`/`err`), `text` |
 | `command.finished` | that process exits | `cmd`, `exit` |
+| `effect` | fm changed something | `text`, `changed` |
 | `result` | the command's own answer | `data` or `text` |
 | `warning`, `error` | as they occur | `text`, or `error` and `exception` |
 | `run.finished` | last line of every run | `ok`, `code` |
+
+`effect` is the one to read if you want to know what a run did to the host: a container restarted, a certificate issued, a schema dropped. `changed` is `false` on the deliberate non-changes a program still needs — a database left in place, a backup skipped because nothing changed, a `--test-ca` rehearsal that issues a real certificate and deploys nothing. Absence cannot say those things, because absence is also what a crash looks like.
+
+Every event carries `level` (`info`, `warn` or `error`), so finding what went wrong is one field rather than three shapes read together. Text fields are plain: the terminal's styling is stripped before an event is written.
 
 Every event carries `run`, the same correlation id fm stamps on each line of `~/frappe/logs/fm.log`, and every `command.*` event carries `cmd`, the same four characters that tag that command's lines in the log. So a run's stream and its log file can be read against each other:
 

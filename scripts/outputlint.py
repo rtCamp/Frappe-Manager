@@ -41,10 +41,10 @@ PACKAGE = Path(__file__).resolve().parent.parent / "frappe_manager"
 # Recorded on the commit that finished the reclassification. Lower these when you improve a line;
 # never raise one to make a new line fit.
 BASELINE = {
-    "gerund": 20,
-    "successfully": 2,
-    "trailing_period": 59,
-    "value_first": 20,
+    "gerund": 18,
+    "successfully": 1,
+    "trailing_period": 56,
+    "value_first": 14,
 }
 
 EXPLAIN = {
