@@ -53,5 +53,5 @@ package = true
 
 [dependency-groups]
 dev = [
-    "nuitka>=4.3.1",
+    "nuitka>=4.3.4",
 ]
