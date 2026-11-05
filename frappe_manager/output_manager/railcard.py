@@ -93,6 +93,25 @@ class Card:
             ],
         )
 
+    def to_dict(self) -> dict:
+        """The card's facts as data, for a sink whose reader is a program.
+
+        Beside ``masked`` and for the same reason: the rows are the card's business. Without it
+        a card reaching the event stream was serialised by ``json.dumps(default=str)``, which
+        renders a dataclass as its repr -- a consumer got a Python object string where it asked
+        for a result. Markup is stripped here because these values are written for a terminal.
+        """
+        from rich.text import Text
+
+        return {
+            "name": Text.from_markup(self.name).plain,
+            "meta": Text.from_markup(self.meta).plain,
+            "active": self.active,
+            "facts": {
+                label: Text.from_markup(value).plain for kind, label, value in self._rows if kind == "fact"
+            },
+        }
+
 
     def _headline(self) -> str:
         name_markup = f"[link={self.link}]{self.name}[/link]" if self.link else self.name

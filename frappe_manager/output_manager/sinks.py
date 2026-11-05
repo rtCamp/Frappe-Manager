@@ -1,7 +1,7 @@
 """The destinations a record goes to. Each decides what the record means for its own medium."""
 
 import logging
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 
 from frappe_manager.output_manager.record import MASK, OutputRecord, is_secret_label, mask_value
 
@@ -87,6 +87,31 @@ def _mask_fact(label: str, value: str) -> str:
     return MASK if is_secret_label(label) else mask_value(value)
 
 
+def _as_data(data: Any) -> Any:
+    """A payload a program can read, for the event stream only.
+
+    `json.dumps(default=str)` turns anything it does not know into a repr, so a card or a rich
+    table reached a consumer as `<rich.table.Table object at 0x...>`. A card knows its own
+    shape; a Table does not expose one, so it degrades to its plain text rather than a repr.
+    """
+    from rich.console import Console
+
+    from frappe_manager.output_manager.railcard import Card
+
+    if isinstance(data, Card):
+        return data.to_dict()
+    if isinstance(data, list):
+        return [_as_data(item) for item in data]
+    if isinstance(data, dict | str | int | float | bool) or data is None:
+        return data
+    if hasattr(data, "__rich__") or hasattr(data, "__rich_console__"):
+        console = Console(width=200, no_color=True, force_terminal=False)
+        with console.capture() as capture:
+            console.print(data)
+        return capture.get().rstrip()
+    return data
+
+
 def _masked(data: Any) -> Any:
     """Credentials replaced, in a card by its labels and in a mapping by its keys.
 
@@ -133,13 +158,35 @@ class EventSink:
         self._started = False
         self._started_at = time.monotonic()
 
+    # Severity by event type, so a consumer filters on one field instead of OR-ing three shapes
+    # (`error`, `step.finished ok=false`, `run.finished ok=false`). Terraform's stream does the
+    # same with @level.
+    _LEVELS: ClassVar[dict[str, str]] = {"error": "error", "warning": "warn"}
+
+    _TEXT_FIELDS = ("text", "error", "step")
+
     def _write(self, event: str, **fields: Any) -> None:
         import json
 
+        from rich.text import Text
+
         from frappe_manager.logger.ambient import current_context
 
+        # Messages are written for a terminal and carry rich markup; a parser must not be handed
+        # `[bold]` as part of the reason. The `--json` envelope already strips the same text
+        # (main.py), and these events were the surface that did not.
+        for key in self._TEXT_FIELDS:
+            value = fields.get(key)
+            if isinstance(value, str):
+                fields[key] = Text.from_markup(value).plain
+
         run = current_context().correlation_id
-        payload = {"event": event, "run": run[:8] if run else None, **{k: v for k, v in fields.items() if v is not None}}
+        payload = {
+            "event": event,
+            "run": run[:8] if run else None,
+            "level": self._LEVELS.get(event, "info"),
+            **{k: v for k, v in fields.items() if v is not None},
+        }
         print(json.dumps(payload, default=str), file=self.stream, flush=True)
 
     def start_run(self, argv: str) -> None:
@@ -185,7 +232,7 @@ class EventSink:
                 self._pending_close = True
         elif record.kind == "data":
             self._settle_pending(ok=True)
-            self._write("result", data=_masked(record.data))
+            self._write("result", data=_as_data(_masked(record.data)))
         elif record.kind == "data_raw":
             # The caller's own result as exact text. It is still a result, so it rides the stream
             # as one rather than being written straight to stdout, which is what put non-JSON
