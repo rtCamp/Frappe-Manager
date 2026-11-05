@@ -494,25 +494,25 @@ class Bench:
                 raise_error=False,
             )
             if certificate_updated:
-                self.output.print("Updated certificate")
+                self.output.effect("Updated certificate")
 
             if self.bench_config.admin_tools:
                 # "Enabled" only when it was not enabled before. The re-apply branch rewrites the
                 # config of tools that were already running, which is not an enable.
                 if not self.admin_tools.compose_file_manager.compose_path.exists():
                     self.sync_admin_tools_compose()
-                    self.output.print("Enabled Admin-tools")
+                    self.output.effect("Enabled Admin-tools")
                 else:
                     self.admin_tools.enable(force_configure=True)
                     self.output.info("Re-applied admin-tools configuration")
 
             elif self.admin_tools.compose_file_manager.compose_path.exists():
                 self.admin_tools.disable()
-                self.output.print("Disabled Admin-tools")
+                self.output.effect("Disabled Admin-tools")
 
             self.output.change_head("Restarting frappe server")
             self.restart_supervisor_service("frappe")
-            self.output.print("Restarted frappe server")
+            self.output.effect("Restarted frappe server")
             self.logger.info(f"Bench config synchronized: {self.name}", extra_fields=extra)
         except Exception as e:
             extra["error"] = str(e)
@@ -803,12 +803,12 @@ class Bench:
             if self.workers.compose_file_manager.exists():
                 self.output.change_head("Stopping bench workers services")
                 self.workers.docker_client.compose.stop(services=[], timeout=10)
-                self.output.print("Stopped bench workers services")
+                self.output.effect("Stopped bench workers services")
 
             if self.admin_tools.compose_file_manager.exists():
                 self.output.change_head("Stopping bench admin tools services")
                 self.admin_tools.stop()
-                self.output.print("Stopped bench admin tools services")
+                self.output.effect("Stopped bench admin tools services")
 
             self.logger.info(f"Bench stopped successfully: {self.name}", extra_fields=extra)
         except Exception as e:
@@ -851,7 +851,7 @@ class Bench:
                 ),
             )
 
-        self.output.print(f"Removed {len(leftover)} container(s) that had no compose file")
+        self.output.effect(f"Removed {len(leftover)} container(s) that had no compose file")
 
     def remove_containers_and_dirs(self):
         """Remove this bench's containers, then its directory.
@@ -872,7 +872,7 @@ class Bench:
         if self.compose_file_manager.exists():
             self.output.change_head("Removing bench containers")
             self.docker_ops.remove_containers(remove_volumes=True, timeout=5)
-            self.output.print("Removed bench containers")
+            self.output.effect("Removed bench containers")
 
         if self.workers.compose_file_manager.exists():
             self.output.change_head("Removing bench workers containers")
@@ -880,7 +880,7 @@ class Bench:
             self.output.live_lines(
                 cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE
             )
-            self.output.print("Removed bench workers containers")
+            self.output.effect("Removed bench workers containers")
 
         if self.admin_tools.compose_file_manager.exists():
             self.output.change_head("Removing bench admin tools containers")
@@ -890,7 +890,7 @@ class Bench:
             # main compose down above removes them as orphans of the shared project).
             try:
                 self.admin_tools.docker_client.compose.down(remove_orphans=True, volumes=True, timeout=5, stream=False)
-                self.output.print("Removed bench admin tools containers")
+                self.output.effect("Removed bench admin tools containers")
             except Exception as e:
                 # Best-effort for CONTAINERS is safe (the sweep below re-checks them), but volumes
                 # are not re-checked, so a failure here can orphan fm__<bench>__mailpit-data.
@@ -926,7 +926,7 @@ class Bench:
             except Exception:
                 raise BenchRemoveDirectoryError(self.name, self.path)
 
-        self.output.print("Removed all bench files and directories")
+        self.output.effect("Removed all bench files and directories")
 
     def is_bench_created(self, retry=60, interval=1) -> bool:
         curl_command = "curl -I --max-time {retry} --connect-timeout {retry} {headers} {url}"
@@ -1375,7 +1375,7 @@ class Bench:
         self.output.live_lines(
             cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE
         )
-        self.output.print(f"Published the site map to nginx for {self.name}")
+        self.output.effect(f"Published the site map to nginx for {self.name}")
 
     def remove_site(
         self, site: str, delete_fm_managed_db: bool | None = None, delete_backups: bool = False
@@ -1419,7 +1419,7 @@ class Bench:
             # The irreversible step of the command whose whole job is deleting, and it ran with
             # no message at any level. Always printed: you should not need a flag to learn that
             # your site's files are gone.
-            self.output.print(f"Deleted {site}'s files at {site_dir}")
+            self.output.effect(f"Deleted {site}'s files at {site_dir}")
 
         # Everything below is cleanup AFTER the dangerous part, so each piece warns and continues:
         # the schema and the directory are gone by now, and refusing to finish would leave the site
@@ -1550,7 +1550,7 @@ class Bench:
         if deleted:
             # The operator ASKED for these to go, and only the failures spoke. The keep branch
             # above already names its files; this one said nothing at all.
-            self.output.print(f"Deleted {deleted} database dump(s) for the removed site")
+            self.output.effect(f"Deleted {deleted} database dump(s) for the removed site")
 
     def _require_every_schema_resolved(self, outstanding: "list[tuple[SiteSchema, str]]") -> None:
         """The gate. Nothing may destroy the bench directory while a schema is unaccounted for."""
@@ -1660,9 +1660,10 @@ class Bench:
             # fm could drop this: the site's own grant carries DROP and its password is in
             # site_config.json. It does not, because the schema is not fm's to drop. Never dropped
             # and never asked about, only reported, so manual cleanup is possible.
-            self.output.print(
+            self.output.effect(
                 f"[fm.info]{entry.site}[/fm.info]: schema '[bold]{entry.schema}[/bold]' on "
-                f"'[bold]{entry.external_host}[/bold]' left in place (fm does not own it)"
+                f"'[bold]{entry.external_host}[/bold]' left in place (fm does not own it)",
+                changed=False,
             )
             return None
 
@@ -1682,8 +1683,9 @@ class Bench:
         if should_delete:
             self.remove_database_and_user(entry.site)
         else:
-            self.output.print(
-                f"[fm.info]{entry.site}[/fm.info]: skipped database deletion from {entry.engine.value}"
+            self.output.effect(
+                f"[fm.info]{entry.site}[/fm.info]: skipped database deletion from {entry.engine.value}",
+                changed=False,
             )
 
         return None
@@ -1852,7 +1854,7 @@ class Bench:
 
         self.site_manager.reset_bench_site(admin_pass, site=target)
 
-        self.output.print(f"Reset bench site {target}")
+        self.output.effect(f"Reset bench site {target}")
 
     def restart_supervisor_service(
         self,
@@ -1892,7 +1894,7 @@ class Bench:
                 is_restarted = self.restart_supervisor_service(service, force=force)
                 if is_restarted:
                     action = "Stopped and started" if force else "Restarted"
-                    self.output.print(f"{action} supervisor processes - {service}")
+                    self.output.effect(f"{action} supervisor processes - {service}")
 
     def restart_redis_services_containers(self):
         """Restart the redis containers fm actually owns.
@@ -1916,7 +1918,7 @@ class Bench:
 
         self.output.change_head(f"Restarting redis services - {' '.join(redis_services)}")
         self.docker_ops.restart_services(redis_services)
-        self.output.print(f"Restarted redis services - {' '.join(redis_services)}")
+        self.output.effect(f"Restarted redis services - {' '.join(redis_services)}")
 
     def restart_nginx_service(self, force: bool = False):
         """
@@ -1929,7 +1931,7 @@ class Bench:
         self.output.change_head("Restarting nginx service")
         self.docker_ops.restart_services(nginx_service, force=force)
         action = "Force restarted" if force else "Restarted"
-        self.output.print(f"{action} nginx service")
+        self.output.effect(f"{action} nginx service")
 
     def restart_workers_containers_services(self, use_container_restart: bool = False, force: bool = False):
         """Restarts workers and schedule containers"""
@@ -2088,7 +2090,7 @@ class Bench:
         if self.services.is_service_running("nginx-proxy"):
             self.services.nginx_controller.reload()
 
-        self.output.print(
+        self.output.effect(
             f"Upload size limit updated to {upload_limit} "
             f"(site_config: {self._parse_size_to_bytes(upload_limit)} bytes, nginx: {upload_limit.lower()})",
         )

@@ -142,6 +142,9 @@ class Harness:
     def prints(self) -> list[str]:
         return [c.args[0] if c.args else c.kwargs["message"] for c in self.output.print.call_args_list]
 
+    def effects(self) -> list[str]:
+        return [c.args[0] if c.args else c.kwargs["message"] for c in self.output.effect.call_args_list]
+
     def infos(self) -> list[str]:
         return [c.args[0] if c.args else c.kwargs["message"] for c in self.output.info.call_args_list]
 
@@ -237,7 +240,7 @@ def test_add_rejects_cname_without_dns01_and_shows_help(h):
     with pytest.raises(typer.Exit) as exc:
         _add(h, cname="deleg.fm.com", challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01)
 
-    assert exc.value.exit_code == 1
+    assert exc.value.exit_code == 2
     h.output.display_error.assert_called_once_with("CNAME delegation (--cname) requires DNS-01 challenge")
     h.output.data_raw.assert_called_once_with("USAGE-HELP")
     h.SSLStorageConfig.assert_not_called()
@@ -524,7 +527,7 @@ def test_add_test_ca_never_writes_an_https_vhost_and_saves_nothing(h):
     h.standalone_nginx.remove_config.assert_called_once_with(DOMAIN)
     assert h.nginx_controller.reload.call_count == 2
     h.external_manager.add_domain.assert_not_called()
-    assert f"SSL certificate added for {DOMAIN}" not in h.prints()
+    assert f"SSL certificate added for {DOMAIN}" not in h.effects()
 
 
 def test_add_test_ca_leaves_the_shared_confd_directory_exactly_as_it_found_it(h):
@@ -554,8 +557,8 @@ def test_add_without_test_ca_does_write_the_real_https_vhost(h):
 def test_add_success_prints_the_docker_compose_instructions(h):
     _add(h)
 
+    assert f"SSL certificate added for {DOMAIN}" in h.effects()
     prints = h.prints()
-    assert f"SSL certificate added for {DOMAIN}" in prints
     assert f"         VIRTUAL_HOST: {DOMAIN}" in prints
     assert "         - fm-frontend-network" in prints
     assert f"3. Access your app at: https://{DOMAIN}" in prints
@@ -618,7 +621,7 @@ def test_add_https_config_failure_also_revokes_the_issued_certificate(h):
     h.cert_manager.remove_certificate_by_domain.assert_called_once_with(DOMAIN)
     h.standalone_nginx.remove_config.assert_called_once_with(DOMAIN)
     assert "Cleaning up after HTTPS configuration failure" in h.heads()
-    assert "Cleaned up nginx configuration and certificate" in h.prints()
+    assert "Cleaned up nginx configuration and certificate" in h.effects()
     h.output.display_error.assert_called_once_with(
         f"Failed to add certificate for {DOMAIN}: https boom. If this left an nginx configuration "
         f"behind, 'fm ssl remove --standalone {DOMAIN}' cleans it up."
@@ -675,7 +678,7 @@ def test_remove_rejects_unknown_domain(h):
     with pytest.raises(typer.Exit) as exc:
         external_helpers._remove_external_certificate(h.ctx, DOMAIN, yes=True)
 
-    assert exc.value.exit_code == 1
+    assert exc.value.exit_code == 2
     h.output.display_error.assert_called_once_with(f"Certificate does not exist for external domain '{DOMAIN}'")
     h.SSLStorageConfig.assert_not_called()
 
@@ -770,7 +773,7 @@ def test_remove_orders_cert_removal_config_removal_reload_then_config_prune(h):
         ("reload", None),
         ("toml", DOMAIN),
     ]
-    assert f"SSL certificate removed for {DOMAIN}" in h.prints()
+    assert f"SSL certificate removed for {DOMAIN}" in h.effects()
     assert h.spinner_texts() == [f"Removing SSL certificate for {DOMAIN}"]
 
 
@@ -826,7 +829,7 @@ def test_renew_rejects_unknown_domain_with_a_list_hint(h):
     with pytest.raises(typer.Exit) as exc:
         external_helpers._renew_external_certificate(h.ctx, DOMAIN, test_ca=False)
 
-    assert exc.value.exit_code == 1
+    assert exc.value.exit_code == 2
     h.output.display_error.assert_called_once_with(f"No external certificate found for domain '{DOMAIN}'")
     assert h.prints() == ["To list external certificates: fm ssl list --standalone"]
 
@@ -842,7 +845,7 @@ def test_renew_repairs_a_missing_vhost_before_the_challenge(h):
 
     h.services.reconcile_standalone_vhosts.assert_called_once_with()
     h.nginx_controller.reload.assert_called_once_with()
-    assert f"Restored missing nginx configuration for: {DOMAIN}" in h.prints()
+    assert f"Restored missing nginx configuration for: {DOMAIN}" in h.effects()
 
 
 def test_renew_with_every_vhost_present_reloads_nothing(h):
@@ -894,7 +897,7 @@ def test_renew_forwards_test_ca_and_force_as_keywords(h, test_ca, force):
 
     h.cert_manager.renew_certificate.assert_called_once_with(domain=DOMAIN, test_ca=test_ca, force=force)
     assert h.spinner_texts() == [f"Renewing certificate for {DOMAIN}"]
-    assert f"Certificate renewal for {DOMAIN} completed" in h.prints()
+    assert f"Certificate renewal for {DOMAIN} completed" in h.effects()
 
 
 def test_renew_defaults_force_to_false(h):
@@ -932,7 +935,7 @@ def test_renew_failure_message_differs_from_remove_and_add(h):
         f"Failed to renew certificate for {DOMAIN}: renew boom. The current certificate is "
         "unaffected and keeps serving until it expires."
     )
-    assert f"Certificate renewal for {DOMAIN} completed" not in h.prints()
+    assert f"Certificate renewal for {DOMAIN} completed" not in h.effects()
 
 
 def test_renew_treats_a_not_due_certificate_as_a_warning_not_a_failure(h):
@@ -949,7 +952,7 @@ def test_renew_treats_a_not_due_certificate_as_a_warning_not_a_failure(h):
 
     h.output.warning.assert_called_once_with(not_due.message)
     h.output.display_error.assert_not_called()
-    assert f"Certificate renewal for {DOMAIN} completed" not in h.prints()
+    assert f"Certificate renewal for {DOMAIN} completed" not in h.effects()
 
 
 def test_renew_all_does_not_report_healthy_domains_as_failures(h):

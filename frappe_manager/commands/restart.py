@@ -194,7 +194,7 @@ def restart(
             "--no-web with --no-workers leaves nothing to restart: add --redis or --nginx, "
             "or name a service with --service"
         )
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=2)
 
     # Targeted restarts are surgical and force means kill-fast: both imply no drain.
     if force or service:
@@ -269,7 +269,7 @@ def restart(
                     bench.restart_supervisor_service(svc, force=force)
                 else:
                     bench.docker_ops.restart_services([svc], force=force)
-                output.print(f"Restarted {svc}")
+                output.effect(f"Restarted {svc}")
 
             # Same trap as the grouped path (`Bench.restart_web_containers_services`): nginx
             # caches its upstream addresses at config parse, so recreating the containers they

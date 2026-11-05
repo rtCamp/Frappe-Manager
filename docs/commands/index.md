@@ -68,7 +68,7 @@ Seven rules hold across every command, so a flag means the same thing everywhere
 
 **The exit code answers "did the thing I typed happen?"** Declining a confirmation exits non-zero, because the command was asked to act and did not. That is the same answer a non-interactive run without `--yes` gives, so a script cannot tell a human saying no from a refused flag, and neither reads as success. A command that finds nothing to do, such as `fm migrate` with no stale benches, exits 0: that one did finish.
 
-**Exit 2 means the command line was wrong; exit 1 means fm tried and could not.** A missing or invalid argument, an unknown flag, or a bad value is 2, whether the parser caught it or fm did: those are all "fix what you typed". Everything else fm refuses or fails is 1 -- a bench that does not exist, a declined confirmation, a drain that timed out, docker being unreachable. A script can therefore branch on 2 to mean "my invocation is broken" without enumerating messages. These two commands are the same mistake and answer the same way:
+**Exit 2 means the command line was wrong; exit 1 means fm tried and could not.** A missing or invalid argument, an unknown flag, a bad value, a flag combination fm refuses, or a name that does not exist is 2, whether Click caught it or fm did: those are all "fix what you typed". Everything else fm refuses or fails is 1 -- a declined confirmation, a drain that timed out, docker being unreachable. A script can therefore branch on 2 to mean "my invocation is broken" without enumerating messages. These two commands are the same mistake and answer the same way:
 
 ```bash
 fm create          # exit 2, caught by the parser

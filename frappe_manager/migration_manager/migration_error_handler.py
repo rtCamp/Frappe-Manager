@@ -228,7 +228,7 @@ class MigrationErrorHandler:
                 shutil.move(bench_info["object"].path, archive_bench_path)
                 # Naming the DESTINATION: a whole bench directory just moved on the operator's
                 # disk, and "Archived bench : x" left them with no idea where it went.
-                self.executor.output.print(
+                self.executor.output.effect(
                     f"[bold]Archived bench :[/bold] [fm.warn]{bench}[/fm.warn] -> {archive_bench_path}",
                     emoji_code="",
                 )
@@ -255,7 +255,7 @@ class MigrationErrorHandler:
         if self.executor.global_services_need_migration:
             self.executor.fm_config_manager.set_system_migration_version(self.executor.rollback_version)
 
-        self.executor.output.print("Rollback complete", emoji_code="")
+        self.executor.output.effect("Rollback complete", emoji_code="")
 
         if show_cli_downgrade_instructions:
             self.executor.output.print(

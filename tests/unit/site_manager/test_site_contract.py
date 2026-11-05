@@ -1519,7 +1519,7 @@ class TestHandleDatabaseDeletion:
 
         bench.remove_database_and_user.assert_not_called()
         bench.output.prompt_ask.assert_not_called()
-        printed = [str(c) for c in bench.output.print.call_args_list]
+        printed = [str(c) for c in bench.output.effect.call_args_list]
         # Where the data was left, so manual cleanup is possible.
         assert any("db.example.com" in line and "shopdb" in line for line in printed)
 
@@ -1604,7 +1604,7 @@ class TestMultiSiteRemoval:
 
         assert [c for c in calls if c[0] == "drop"] == [("drop", SITE)]
         assert calls.index(("dirs",)) > calls.index(("drop", SITE))
-        printed = [str(c) for c in bench.output.print.call_args_list]
+        printed = [str(c) for c in bench.output.effect.call_args_list]
         assert any("mydb.abc.rds.amazonaws.com" in line and "shop_prod" in line for line in printed)
 
     def test_the_second_site_is_still_attempted_after_the_first_one_fails(self, harness):
@@ -1718,7 +1718,7 @@ class TestRemoveContainersAndDirs:
         bench.remove_containers_and_dirs()
 
         bench.docker_client.rm.assert_not_called()
-        assert not any("no compose file" in str(c) for c in bench.output.print.call_args_list)
+        assert not any("no compose file" in str(c) for c in bench.output.effect.call_args_list)
 
     def test_a_failing_admin_tools_teardown_does_not_block_removal_but_warns(self, harness):
         """Containers are re-checked by the leftover sweep, volumes are not: a failed
@@ -1774,7 +1774,7 @@ class TestRemoveContainersAndDirs:
         with patch("frappe_manager.site_manager.site.shutil.rmtree", side_effect=PermissionError("root owned")):
             bench.remove_containers_and_dirs()
         assert harness.path.exists()
-        assert any("Removed all bench files" in str(c) for c in bench.output.print.call_args_list)
+        assert any("Removed all bench files" in str(c) for c in bench.output.effect.call_args_list)
 
     def test_a_permission_error_the_chown_cannot_fix_raises_the_named_error(self, harness):
         bench = self._bench(harness)
@@ -1890,7 +1890,7 @@ class TestReset:
         bench = self._resettable(harness)
         bench.reset(admin_password="explicit", site="b.example.com")
         bench.site_manager.reset_bench_site.assert_called_once_with("explicit", site="b.example.com")
-        printed = [str(c) for c in bench.output.print.call_args_list]
+        printed = [str(c) for c in bench.output.effect.call_args_list]
         assert any("b.example.com" in line for line in printed)
 
     def test_the_named_site_is_the_one_whose_password_is_read_and_recorded(self, harness):
@@ -1957,7 +1957,7 @@ class TestRestarts:
         bench.docker_ops = MagicMock()
         bench.restart_supervisor_service = MagicMock(return_value=False)
         bench.restart_web_containers_services()
-        printed = [str(c) for c in bench.output.print.call_args_list]
+        printed = [str(c) for c in bench.output.effect.call_args_list]
         assert not any("supervisor processes" in p for p in printed)
 
     def test_an_external_redis_bench_restarts_no_redis_container(self, harness):

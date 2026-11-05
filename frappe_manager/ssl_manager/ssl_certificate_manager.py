@@ -443,7 +443,7 @@ class SSLCertificateManager:
             self.output_handler.info(f"Created vhost.d redirect config for {certificate.domain}")
 
         self.nginx_controller.restart()
-        self.output_handler.print("All individual certificates generated")
+        self.output_handler.effect("All individual certificates generated")
 
     def _renew_single_certificate(
         self,
@@ -490,7 +490,7 @@ class SSLCertificateManager:
             reissued_paths = (key_path, fullchain_path)
 
             if not test_ca:
-                self.output_handler.print(f"[fm.ok]Certificate re-issued for {certificate.domain}[/fm.ok]")
+                self.output_handler.effect(f"[fm.ok]Certificate re-issued for {certificate.domain}[/fm.ok]")
 
         if test_ca:
             self.output_handler.print(

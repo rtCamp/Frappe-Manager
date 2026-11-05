@@ -127,6 +127,10 @@ class ToolsWorld:
         return [c.args[0] for c in self.output.print.call_args_list if c.args]
 
     @property
+    def effects(self) -> list[str]:
+        return [c.args[0] for c in self.output.effect.call_args_list if c.args]
+
+    @property
     def warnings(self) -> list[str]:
         return [c.args[0] for c in self.output.warning.call_args_list if c.args]
 
@@ -174,7 +178,7 @@ class TestEnableBench:
         world.bench.admin_tools.enable.assert_not_called()
         world.bench.ensure_fm_nginx_confs.assert_called_once_with()
         assert world.saves == 1
-        assert world.prints == ["Enabled Admin-tools"]
+        assert world.effects == ["Enabled Admin-tools"]
 
     def test_mailpit_flag_dropped_when_seeding_and_not_requested(self, world):
         world.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = False
@@ -266,7 +270,7 @@ class TestDisableBench:
         assert world.config.admin_tools is False
         world.bench.admin_tools.disable.assert_called_once_with()
         assert world.saves == 1
-        assert world.prints == ["Disabled Admin-tools"]
+        assert world.effects == ["Disabled Admin-tools"]
 
     @pytest.mark.parametrize("compose_exists", [True, False], ids=["existing-compose", "no-compose"])
     def test_already_disabled_bench_saves_nothing(self, world, compose_exists):

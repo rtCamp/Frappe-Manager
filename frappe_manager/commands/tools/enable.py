@@ -101,7 +101,7 @@ def enable(
         bench.ensure_fm_nginx_confs()
 
     bench.save_bench_config()
-    output.print("Enabled Admin-tools")
+    output.effect("Enabled Admin-tools")
 
     # Warn across the concern, never act across it: `fm auth enable` gives the mirror warning when
     # auth claims the tools surface on a bench serving none. Adminer is a database console, so the

@@ -1085,7 +1085,7 @@ class BenchOrchestrator:
         )
         # Only from here does a later failure have something to offer to undo.
         self._provisioned = database
-        self.output.print(f"Frappe created schema {database.name} and login {database.login_user} on {database.host}")
+        self.output.effect(f"Frappe created schema {database.name} and login {database.login_user} on {database.host}")
 
     def _attach_existing_site(self) -> None:
         """Build the site directory around a database that already holds a Frappe site.
@@ -1107,7 +1107,7 @@ class BenchOrchestrator:
 
         self.output.change_head(f"Attaching {bench.name} to the existing site in {database.name}")
         bench.site_manager.create_site_dirs(bench.site_name)
-        self.output.print(
+        self.output.effect(
             f"Created site dirs for {bench.site_name}; nothing written to {database.name} on {database.host}"
         )
 
@@ -1153,7 +1153,7 @@ class BenchOrchestrator:
         else:
             bench.bench_config.switch.migrate = False
         bench.save_bench_config()
-        self.output.print("Wrote \\[switch].migrate = false to bench_config.toml")
+        self.output.effect("Wrote \\[switch].migrate = false to bench_config.toml")
 
     def _skip_phase6_for_attach(self) -> bool:
         """Phase 6 does not run on attach.
@@ -1217,7 +1217,7 @@ class BenchOrchestrator:
                 required_flag="--drop-provisioned-db or --keep-provisioned-db",
             )
         if answer != "yes":
-            self.output.print(f"Left schema {database.name} on {database.host} exactly as it is")
+            self.output.effect(f"Left schema {database.name} on {database.host} exactly as it is", changed=False)
             return
 
         from frappe_manager.site_manager.modules.bench_site import BENCH_PYTHON
@@ -1252,7 +1252,7 @@ class BenchOrchestrator:
             )
             return
 
-        self.output.print(f"Dropped schema {database.name} and login {database.login_user} on {database.host}")
+        self.output.effect(f"Dropped schema {database.name} and login {database.login_user} on {database.host}")
 
     def _phase5_finalize(self, *, bench_only: bool = False) -> None:
         """Phase 5: Finalize bench infrastructure.
@@ -1412,7 +1412,7 @@ class BenchOrchestrator:
         assumes a site (it offers to tear the bench down when phase 6's apps did not install),
         which has no meaning on a create that never reached phase 6.
         """
-        self.output.print(f"Created bench: {self.bench.name}", emoji_code=":white_check_mark:")
+        self.output.effect(f"Created bench: {self.bench.name}", emoji_code=":white_check_mark:")
 
     def _handle_creation_failure(self, exception: Exception, *, remove_on_failure: bool = False):
         """Handle failures during bench creation with cleanup."""
@@ -1658,9 +1658,9 @@ class BenchOrchestrator:
             return
 
         if added_domains:
-            self.output.print(f"Added aliases to '{target}': {', '.join(added_domains)}")
+            self.output.effect(f"Added aliases to '{target}': {', '.join(added_domains)}")
         if removed_domains:
-            self.output.print(f"Removed aliases from '{target}': {', '.join(removed_domains)}")
+            self.output.effect(f"Removed aliases from '{target}': {', '.join(removed_domains)}")
 
         updated_aliases = sorted(current_aliases)
         entry.alias_domains = updated_aliases

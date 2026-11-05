@@ -732,7 +732,7 @@ def test_remove_dev_packages_builds_a_non_interactive_uninstall(devtools):
         user="frappe",
         stream=False,
     )
-    tools.output.print.assert_called_once_with("Removed dev packages from env")
+    tools.output.effect.assert_called_once_with("Removed dev packages from env")
 
 
 def test_install_dev_packages_builds_a_quiet_upgrading_install(devtools):
@@ -747,7 +747,7 @@ def test_install_dev_packages_builds_a_quiet_upgrading_install(devtools):
         user="frappe",
         stream=False,
     )
-    tools.output.print.assert_called_once_with("Installed dev packages in env")
+    tools.output.effect.assert_called_once_with("Installed dev packages in env")
 
 
 def test_a_failed_uninstall_raises_the_bench_scoped_error_carrying_pips_output(devtools):
@@ -1070,7 +1070,7 @@ def test_no_attach_prepares_without_looking_for_the_code_cli(devtools, monkeypat
 
     tools.attach_to_bench("frappe", [], "/workspace/frappe-bench", attach=False)
 
-    assert "--no-attach" in " ".join(str(c) for c in tools.output.print.call_args_list)
+    assert "--no-attach" in " ".join(str(c) for c in tools.output.effect.call_args_list)
 
 
 def test_the_devcontainer_metadata_forwards_the_bench_port(devtools):

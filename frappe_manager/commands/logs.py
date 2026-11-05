@@ -52,7 +52,7 @@ def logs(
         if service not in available_services:
             output.display_error(f"Service '{service}' not found")
             output.print(f"Available services: {', '.join(sorted(available_services))}")
-            raise typer.Exit(1)
+            raise typer.Exit(2)
 
     # The host log files outlive the containers, which is the point (see the docstring), but with
     # nothing said a stopped bench's last-run output reads as live: the audit found `fm logs` on a

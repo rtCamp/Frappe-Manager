@@ -102,7 +102,7 @@ class AcmeShCertificateService:
                 account_conf.write_text(content)
                 self.output.info(f"Enabled logging in {account_conf}")
 
-            self.output.print("acme.sh installed")
+            self.output.effect("acme.sh installed")
             AcmeShCertificateService._acmesh_installed = True
         except subprocess.CalledProcessError as e:
             error_msg = f"Failed to install acme.sh: {e.stderr}"
@@ -346,10 +346,11 @@ class AcmeShCertificateService:
             raise SSLCertificateNotFoundError(certificate.domain)
 
         if test_ca:
-            self.output.print(f"Certificate generated (staging) for {certificate.domain}")
-            self.output.print(
+            self.output.effect(f"Certificate generated (staging) for {certificate.domain}", changed=False)
+            self.output.effect(
                 "[fm.warn]Skipped: Copying certificate files (test-CA rehearsal)[/fm.warn]",
                 emoji_code=":fast_forward:",
+                changed=False,
             )
             return (key_path, fullchain_path)
 

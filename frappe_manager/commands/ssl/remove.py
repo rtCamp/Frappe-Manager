@@ -60,7 +60,7 @@ def remove_certificate(
             "domain fm serves back to plain HTTP in one command. Name a bench, and use 'BENCH/all' "
             "for every certificate of that one."
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if standalone:
         if domain:
@@ -69,13 +69,13 @@ def remove_certificate(
                 "An external domain belongs to no bench, so --standalone takes a bare domain: "
                 f"use 'fm ssl remove {domain} --standalone'."
             )
-            raise typer.Exit(1)
+            raise typer.Exit(2)
 
         if not address:
             output = get_output_handler(ctx)
             output.display_error("Domain is required in standalone mode")
             output.data_raw(ctx.get_help())
-            raise typer.Exit(1)
+            raise typer.Exit(2)
 
         _remove_external_certificate(ctx, address, yes)
         return
@@ -92,7 +92,7 @@ def remove_certificate(
             "to delete. 'BENCH/all' deletes every certificate the bench holds."
         )
         output.data_raw(ctx.get_help())
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     targets = _resolve_certificates_to_remove(ctx, address, domain)
     if not targets:

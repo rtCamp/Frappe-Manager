@@ -36,7 +36,7 @@ def ca_install():
         # The sentinel is what stops every later dev certificate from re-running the install. It
         # is written here for the same reason the issuing path writes it: only on success.
         paths.sentinel.touch()
-        output.print("Dev CA installed into this host's trust store", emoji_code=":lock:")
+        output.effect("Dev CA installed into this host's trust store", emoji_code=":lock:")
     else:
         # The manual steps were already printed by the trust store manager.
         raise typer.Exit(1)

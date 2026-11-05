@@ -116,7 +116,7 @@ class BenchDevTools:
                 self.bench_name,
                 _pip_failure_message("Not able pip uninstall dev packages.", e),
             ) from e
-        self.output.print("Removed dev packages from env")
+        self.output.effect("Removed dev packages from env")
 
     def install_dev_packages(self):
         """Install dev packages in the bench environment."""
@@ -133,7 +133,7 @@ class BenchDevTools:
                 self.bench_name,
                 _pip_failure_message("Not able pip install dev packages.", e),
             ) from e
-        self.output.print("Installed dev packages in env")
+        self.output.effect("Installed dev packages in env")
 
     def attach_to_bench(
         self, user: str, extensions: list[str], workdir: str, debugger: bool = False, attach: bool = True
@@ -176,7 +176,7 @@ class BenchDevTools:
             if reason_is_flag
             else "the 'code' CLI is not on this machine, so nothing was launched"
         )
-        self.output.print(f"Prepared '{self.bench_name}' for VS Code; {reason}", emoji_code=":information:")
+        self.output.effect(f"Prepared '{self.bench_name}' for VS Code; {reason}", emoji_code=":information:")
         self.output.print(
             "To connect from another machine: open VS Code there, Remote-SSH to this host, then run "
             f"'Dev Containers: Attach to Running Container' and pick {self._frappe_container_display_name()}.",
@@ -277,7 +277,7 @@ class BenchDevTools:
         # actually asked for different --extension/--user values. Not done: it puts a dev-tooling
         # key in every bench's compose including prod, and a future change to DEFAULT_EXTENSIONS
         # would then recreate frappe on the next compose regeneration.
-        self.output.print("Regenerated bench compose; recreating the frappe container to apply it")
+        self.output.effect("Regenerated bench compose; recreating the frappe container to apply it")
         self.docker_client.compose.up(
             services=["frappe"],
             detach=True,
@@ -358,7 +358,7 @@ class BenchDevTools:
         """Backup existing config file."""
         backup_path = file_path.parent / f"{file_path.stem}.{datetime.now().strftime('%d-%b-%y--%H-%M-%S')}.json"
         shutil.copy2(file_path, backup_path)
-        self.output.print(f"Backed up previous '{file_path.name}' to {backup_path}")
+        self.output.effect(f"Backed up previous '{file_path.name}' to {backup_path}")
 
     def _install_ruff(self) -> None:
         """Install ruff in the container environment."""

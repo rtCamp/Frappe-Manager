@@ -300,7 +300,7 @@ def fix_host_path_ownership(
         result = run_command_with_exit_code(cmd, stream=False)
         if isinstance(result, SubprocessOutput) and result.exit_code == 0:
             if output:
-                output.print("Ownership fixed")
+                output.effect("Ownership fixed")
             return True
         if output:
             output.warning(f"Could not fix ownership of {dirs_str}: files stay root-owned in the container")

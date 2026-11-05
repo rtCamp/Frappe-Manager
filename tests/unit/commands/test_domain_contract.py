@@ -84,6 +84,10 @@ class DomainWorld:
         return [c.args[0] for c in self.output.print.call_args_list if c.args]
 
     @property
+    def effects(self) -> list[str]:
+        return [c.args[0] for c in self.output.effect.call_args_list if c.args]
+
+    @property
     def warnings(self) -> list[str]:
         return [c.args[0] for c in self.output.warning.call_args_list if c.args]
 
@@ -120,7 +124,7 @@ class TestDomainAdd:
             ["www.new.com"], benches_root=world.benches_root, exclude_bench=BENCH, skip_check=False
         )
         world.bench.update_alias_domains.assert_called_once_with(add_domains=["www.new.com"], site="shop")
-        assert world.prints == ["Alias domains updated"]
+        assert world.effects == ["Alias domains updated"]
 
     def test_bare_bench_attaches_to_primary_site(self, world):
         world.add(["www.new.com"])
@@ -201,7 +205,7 @@ class TestDomainRemove:
         world.remove(domain="www.shop.com")
 
         world.bench.update_alias_domains.assert_called_once_with(remove_domains=["www.shop.com"], site="shop.local")
-        assert world.prints == ["Alias domains updated"]
+        assert world.effects == ["Alias domains updated"]
 
     def test_refuses_a_sites_own_canonical_domain(self, world):
         world.bench.bench_config.sites = {BENCH: SiteConfig(alias_domains=[])}
@@ -209,7 +213,7 @@ class TestDomainRemove:
         with pytest.raises(typer.Exit) as exc:
             world.remove(domain=BENCH)
 
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 2
         assert "not an alias" in world.errors[0]
         world.bench.update_alias_domains.assert_not_called()
 

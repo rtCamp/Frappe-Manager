@@ -64,7 +64,7 @@ def _refuse_incompatible_runtime(output, *, label, flag, wanted, requirement, va
     if suggested:
         output.print(f"Hint: Try {flag} {suggested}", emoji_code=":light_bulb:")
     output.print("Use --skip-version-check to bypass this validation (not recommended)")
-    raise typer.Exit(code=1)
+    raise typer.Exit(code=2)
 
 
 def provision(
@@ -205,7 +205,10 @@ def _run_build_hook(
         result = app_manager._container_run(f"bash {container_script}", capture_output=True, use_run=use_run)  # noqa: SLF001
         for line in getattr(result, "combined", None) or []:
             if line.strip():
-                output.print(line.strip())
+                # The operator's own hook script: another program's output, so it rides `relay`
+                # and not `print`. As a print it reached the terminal and nothing else -- no
+                # file log, no --events stream, and no cmd id to join its lines to the command.
+                output.relay(line.strip())
     except Exception as e:
         raise ProvisionHookError(f"{phase} hook (container) failed: {e}") from e
     finally:

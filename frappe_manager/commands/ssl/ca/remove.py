@@ -79,7 +79,7 @@ def ca_remove(
     removed, failures = manager.uninstall()
 
     for entry in removed:
-        output.print(f"Removed from {entry.store}", emoji_code="")
+        output.effect(f"Removed from {entry.store}", emoji_code="")
 
     # Always clear the sentinel, even when nothing was found: it is the flag that suppresses the
     # automatic install on the next dev certificate, and leaving it set after a removal is what
@@ -89,7 +89,7 @@ def ca_remove(
     if delete_ca:
         paths.cert.unlink(missing_ok=True)
         paths.key.unlink(missing_ok=True)
-        output.print("Deleted the CA key and certificate", emoji_code="")
+        output.effect("Deleted the CA key and certificate", emoji_code="")
 
     if failures:
         for failure in failures:

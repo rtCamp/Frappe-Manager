@@ -803,7 +803,7 @@ class TestBackupDecision:
         r = rig(switch=SwitchConfig(migrate=False, backup_db="auto"))
         r.orch.deploy(NEW_TAG)
         r.orch._backup_all.assert_not_called()
-        printed = " ".join(str(c.args) for c in r.orch.output.print.call_args_list)
+        printed = " ".join(str(c.args) for c in r.orch.output.effect.call_args_list)
         assert "backup_db=auto: no schema change" in printed
 
     def test_backup_db_auto_dumps_for_a_restore_only_deploy(self, rig, tmp_path):
@@ -814,7 +814,7 @@ class TestBackupDecision:
     def test_backup_db_false_is_silent_not_the_auto_message(self, rig):
         r = rig(switch=SwitchConfig(migrate=False, backup_db=False))
         r.orch.deploy(NEW_TAG)
-        printed = " ".join(str(c.args) for c in r.orch.output.print.call_args_list)
+        printed = " ".join(str(c.args) for c in r.orch.output.effect.call_args_list)
         assert "backup_db=auto" not in printed
 
     def test_the_insurance_dump_precedes_the_requested_restore(self, rig, tmp_path):

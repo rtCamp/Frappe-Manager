@@ -362,7 +362,7 @@ class TestTheGlobalStackIsGatedOnTheCommand:
         """
         result = cli_gate.invoke(["bake", "--apps", "frappe", "--source", "bogus"])
 
-        assert result.exit_code == 1, "guard should have refused the source, after the callback ran"
+        assert result.exit_code == 2, "guard should have refused the source, after the callback ran"
         assert self._checks(cli_gate) == []
 
     def test_a_bench_command_still_gets_the_stack_started(self, cli_gate):

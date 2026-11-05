@@ -168,14 +168,14 @@ def shell(
         output_early = get_global_output_handler()
         output_early.error(
             f"--service {service} has no site context: drop the '/{site}' from the address",
-            exception=typer.Exit(code=1),
+            exception=typer.Exit(code=2),
         )
 
     if command and ctx.args:
         output_early = get_global_output_handler()
         output_early.error(
             "-c cannot be combined with arguments after --: give the command one way",
-            exception=typer.Exit(code=1),
+            exception=typer.Exit(code=2),
         )
 
     if shell_path is not None and bench_console:
@@ -183,7 +183,7 @@ def shell(
         output_early.error(
             "--shell-path has no effect with --bench-console (the console is bench console "
             "or Python, not a shell): drop one of them",
-            exception=typer.Exit(code=1),
+            exception=typer.Exit(code=2),
         )
 
     check_bench_migration_required(address)
@@ -205,7 +205,7 @@ def shell(
     if service not in available_services:
         output.display_error(f"Service '{service}' not found")
         output.print(f"Available services: {', '.join(sorted(available_services))}")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     # `--run` always goes through /exec-entrypoint.sh, which gosu-drops to the bench's host
     # UID regardless of which user is given, so `--user` cannot be honoured on this path;
@@ -219,7 +219,7 @@ def shell(
     if bench_console:
         if service != "frappe":
             output.display_error("--bench-console only works with the frappe service")
-            raise typer.Exit(1)
+            raise typer.Exit(2)
 
         user = _get_default_user(service, user)
         output.stop()

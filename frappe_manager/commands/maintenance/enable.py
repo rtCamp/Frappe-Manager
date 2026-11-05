@@ -215,7 +215,7 @@ def enable(
 
     front, http_port, https_port = host_proxy_state()
     base = public_url(domains[0], public_scheme(bool(domain_ssl.get(domains[0])), front), http_port, https_port)
-    output.print(f"Maintenance enabled for: {', '.join(domains)} (serving {response_code})")
+    output.effect(f"Maintenance enabled for: {', '.join(domains)} (serving {response_code})")
     if allow_ip:
         output.info(f"Allowed IPs: {', '.join(allow_ip)}")
     if allow_path:

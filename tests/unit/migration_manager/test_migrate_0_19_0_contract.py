@@ -82,6 +82,10 @@ def printed(migration) -> list[str]:
     return [c.args[0] for c in migration.output.print.call_args_list if c.args]
 
 
+def effected(migration) -> list[str]:
+    return [c.args[0] for c in migration.output.effect.call_args_list if c.args]
+
+
 def infos(migration) -> list[str]:
     return [c.args[0] for c in migration.output.info.call_args_list if c.args]
 
@@ -253,7 +257,7 @@ class TestEnvBackupAndUndo:
         migration.undo_bench_migrate(bench)
 
         assert (fb / "env" / "OLD").read_text() == "old"
-        assert "Removed new env/" not in printed(migration), "nothing to remove when env/ is absent"
+        assert "Removed new env/" not in effected(migration), "nothing to remove when env/ is absent"
 
     def test_undo_restores_first_bashrc_backup_only(self, migration, bench):
         first = Mock(src=Path("/w/.bashrc"))
@@ -373,7 +377,7 @@ class TestMigrateBenchOrchestration:
     def test_success_message_names_bench_and_version(self, migration, bench):
         self._instrument(migration, [])
         migration.migrate_bench(bench)
-        assert "Migrated test-bench to v0.19.0" in printed(migration)
+        assert "Migrated test-bench to v0.19.0" in effected(migration)
 
     def test_upload_limit_is_resolved_once_and_shared_by_all_three_writers(self, migration, bench):
         seen = []
@@ -468,13 +472,13 @@ class TestMoveDnsCredentials:
         doc = tomlkit.parse("")
         migration._move_dns_credentials(doc, {})
         assert "dns_providers" not in doc
-        migration.output.print.assert_not_called()
+        migration.output.effect.assert_not_called()
 
     def test_api_token_only(self, migration):
         doc = tomlkit.parse("")
         migration._move_dns_credentials(doc, {"api_token": "tok"})
         assert doc["dns_providers"]["cloudflare"] == {"api_token": "tok"}
-        assert "Migrated DNS credentials to dns_providers.cloudflare" in printed(migration)
+        assert "Migrated DNS credentials to dns_providers.cloudflare" in effected(migration)
 
     def test_api_key_only(self, migration):
         doc = tomlkit.parse("")
@@ -1128,7 +1132,7 @@ class TestUpdateGlobalNginxProxyImage:
 
         assert cf.yml["services"]["global-nginx-proxy"]["image"] == "jwilder/nginx-proxy:1.11"
         cf.write_to_file.assert_called_once()
-        assert "Updated global-nginx-proxy image: jwilder/nginx-proxy:1.6 → jwilder/nginx-proxy:1.11" in printed(
+        assert "Updated global-nginx-proxy image: jwilder/nginx-proxy:1.6 → jwilder/nginx-proxy:1.11" in effected(
             migration
         )
 

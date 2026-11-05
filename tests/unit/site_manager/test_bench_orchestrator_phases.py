@@ -2154,7 +2154,7 @@ def test_a_creation_failure_offers_to_drop_the_schema_before_removing_the_bench(
 
     assert harness.output.prompt_ask.called is True
     assert harness.events.only("remove_bench") == ["remove_bench"]
-    left = " ".join(str(call) for call in harness.output.print.call_args_list)
+    left = " ".join(str(call) for call in harness.output.effect.call_args_list)
     assert f"Left schema {SCHEMA}" in left
 
 
@@ -2463,7 +2463,7 @@ def test_remove_on_failure_still_leaves_an_external_schema_declined(tmp_path):
     with pytest.raises(RuntimeError, match="phase 5 died"):
         _fail(orchestrator, "phase 5 died", remove_on_failure=True)
 
-    left = " ".join(str(call) for call in harness.output.print.call_args_list)
+    left = " ".join(str(call) for call in harness.output.effect.call_args_list)
     assert f"Left schema {SCHEMA}" in left
     assert harness.bench.site_manager._container_exec_argv.called is False
 
@@ -2712,7 +2712,7 @@ def test_an_applied_change_regenerates_the_compose_before_saving_the_config(tmp_
     harness.orchestrator().update_alias_domains(add_domains=["a.example.com"])
 
     assert _aliases(harness) == ["a.example.com", "b.example.com"]
-    assert f"Added aliases to '{SITE}': a.example.com" in str(harness.output.print.call_args_list)
+    assert f"Added aliases to '{SITE}': a.example.com" in str(harness.output.effect.call_args_list)
     harness.events.before("generate_compose", "save_bench_config")
     assert harness.bench.docker_client.compose.up.call_args.kwargs == {
         "services": ["nginx"],
@@ -2805,7 +2805,7 @@ def test_removing_an_alias_needs_no_certificate_advice(tmp_path):
     harness.orchestrator().update_alias_domains(remove_domains=["a.example.com"])
 
     assert _aliases(harness) == []
-    assert f"Removed aliases from '{SITE}': a.example.com" in str(harness.output.print.call_args_list)
+    assert f"Removed aliases from '{SITE}': a.example.com" in str(harness.output.effect.call_args_list)
     assert "fm ssl add" not in str(harness.output.print.call_args_list)
 
 

@@ -317,7 +317,7 @@ def bake(
         # Falling through to sitename_callback here would open the interactive bench picker and
         # bake whatever bench it lands on, instead of refusing a usage error.
         output.display_error("Standalone bake needs apps: pass --apps or a --config providing \\[\\[apps]].")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     standalone = benchname is None
 
@@ -331,16 +331,16 @@ def bake(
             raise typer.Exit(e.exit_code) from e
         if not bench_config.apps_list:
             output.display_error("Standalone bake needs apps: pass --apps or a --config providing \\[\\[apps]].")
-            raise typer.Exit(1)
+            raise typer.Exit(2)
     else:
         if apps_config or python_version or node_version:
             output.display_error("--apps/--python/--node are only for standalone bake (omit the bench name).")
-            raise typer.Exit(1)
+            raise typer.Exit(2)
         resolved_name = sitename_callback(benchname)
         bench_config_path = CLI_BENCHES_DIRECTORY / resolved_name / CLI_BENCH_CONFIG_FILE_NAME
         if not bench_config_path.exists():
             output.display_error(f"Bench '{resolved_name}' not found ({bench_config_path} missing).")
-            raise typer.Exit(1)
+            raise typer.Exit(2)
         # Image benches carry their apps inside the image and mount no editable workspace, so there
         # is nothing on disk to bake FROM. Refuse before any --config overlay is persisted.
         pre = BenchConfig.import_from_toml(bench_config_path)
@@ -371,7 +371,7 @@ def bake(
                 f"bake produces the image, so its output is named with a repository or a "
                 f"repository and a tag.",
             )
-            raise typer.Exit(1)
+            raise typer.Exit(2)
 
     explicit_tag: str | None = None
     if app_image:
@@ -386,7 +386,7 @@ def bake(
             f"version. The companion is built under exactly what is passed, so name the version too "
             f"(e.g. {nginx_image}:v42), or omit the flag to take the app image's tag.",
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if base_image:
         if bench_config.build is None:
@@ -396,7 +396,7 @@ def bake(
     if source is not None:
         if source not in ("provision", "workspace"):
             output.display_error("--source must be 'provision' or 'workspace'.")
-            raise typer.Exit(1)
+            raise typer.Exit(2)
         if bench_config.build is None:
             bench_config.build = BuildConfig()
         bench_config.build.source = source
@@ -405,7 +405,7 @@ def bake(
         output.display_error(
             "--source workspace requires a bench (it snapshots the bench's workspace); omit it for standalone bake.",
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if include:
         if bench_config.build is None:
@@ -419,7 +419,7 @@ def bake(
         output.display_error(str(e))
         raise typer.Exit(1) from e
 
-    output.print(f"Baked image: {built_tag}", emoji_code=":package:")
+    output.effect(f"Baked image: {built_tag}", emoji_code=":package:")
 
     # Repeated from the pre-build warning ON PURPOSE: that one could not name the tag, because it
     # did not exist yet, and a constraint stated four minutes ago has scrolled off the screen by

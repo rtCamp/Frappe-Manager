@@ -110,7 +110,7 @@ def test_add_site_still_announces_the_site_and_bench_by_name(monkeypatch):
 
     printed: list[str] = []
     output = MagicMock()
-    output.print.side_effect = lambda msg, **_kw: printed.append(msg)
+    output.effect.side_effect = lambda msg, **_kw: printed.append(msg)
 
     bench = MagicMock()
     bench.bench_config.sites = {}

@@ -83,7 +83,7 @@ def _apply_downstream_trust(services, output) -> None:
     if not services.is_service_running("nginx-proxy"):
         return
     services.docker_client.compose.up(services=["nginx-proxy"], detach=True, force_recreate=True, stream=False)
-    output.print("Recreated the proxy to apply its forwarded-header trust")
+    output.effect("Recreated the proxy to apply its forwarded-header trust")
 
 
 @example(
@@ -268,7 +268,7 @@ def set_trusted(
     summary = f"trusting {len(ranges)} range(s), reading the client IP from {resolved_header}"
 
     if valid is None:
-        output.print(f"Trusted proxies written ({summary}); the global proxy is not running, so it applies on next start")
+        output.effect(f"Trusted proxies written ({summary}); the global proxy is not running, so it applies on next start")
     else:
         _apply_downstream_trust(services, output)
         if services.nginx_controller.reload():
@@ -307,9 +307,9 @@ def clear(ctx: typer.Context):
     _apply_downstream_trust(services, output)
 
     if services.nginx_controller.reload():
-        output.print("No proxies are trusted any more; proxy reloaded")
+        output.effect("No proxies are trusted any more; proxy reloaded")
     else:
-        output.print("No proxies are trusted any more (the global proxy was not reloaded)")
+        output.effect("No proxies are trusted any more (the global proxy was not reloaded)")
 
     _refresh_bench_web_servers(ctx, output)
 

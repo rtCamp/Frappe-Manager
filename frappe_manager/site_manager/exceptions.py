@@ -68,6 +68,11 @@ class BenchNotFoundError(FileNotFoundError, BenchException):
             suggestions=["Run 'fm list' to see the benches on this host"],
         )
 
+    # A name that does not exist is a wrong command line, not a failure of the work: the same
+    # mistake caught by Click (a value outside an allowed set) already exits 2, and answering it
+    # with 1 here made the number depend on which half noticed.
+    exit_code = 2
+
 
 class BenchConfigNotFoundError(FileNotFoundError, BenchException):
     """Raised when a bench directory exists but carries no bench_config.toml.

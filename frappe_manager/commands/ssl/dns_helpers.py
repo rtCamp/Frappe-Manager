@@ -83,7 +83,7 @@ def _resolve_removal_target(output: OutputHandler, label: str | None, candidates
         if label not in candidates:
             available = f"Available: {', '.join(candidates)}" if candidates else "No labelled sets are stored there."
             output.display_error(f"No credential set labelled '{label}' in {scope}. {available}")
-            raise typer.Exit(1)
+            raise typer.Exit(2)
         return label
 
     # Guessing here deletes a credential the user did not name, and nothing would report which
@@ -93,7 +93,7 @@ def _resolve_removal_target(output: OutputHandler, label: str | None, candidates
             f"{scope} holds several credential sets: {', '.join(candidates)}. "
             "Pass [bold]--name <label>[/bold] to say which one to remove."
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     return candidates[0]
 
@@ -119,7 +119,7 @@ def _remove_dns_credentials(
         entries.pop(target)
         bench.bench_config.dns_providers = entries or None
         bench.bench_config.export_to_toml(bench.bench_config.root_path)
-        output.print(
+        output.effect(
             f"Removed [fm.ok]{target}[/fm.ok] credentials for bench '{benchname}'",
             emoji_code=":white_check_mark:",
         )
@@ -137,7 +137,7 @@ def _remove_dns_credentials(
     entries.pop(target)
     fm_config.dns_providers = entries or None
     fm_config.export_to_toml()
-    output.print(f"✅ Removed global [fm.ok]{target}[/fm.ok] credentials")
+    output.effect(f"✅ Removed global [fm.ok]{target}[/fm.ok] credentials")
 
 
 def _upsert_dns_provider_entry(
@@ -207,7 +207,7 @@ def _configure_dns_credentials(
 
         bench.bench_config.export_to_toml(bench.bench_config.root_path)
 
-        output.print(
+        output.effect(
             f"Configured [fm.ok]{provider_name}[/fm.ok] credentials for bench '{benchname}'",
             emoji_code=":white_check_mark:",
         )
@@ -231,7 +231,7 @@ def _configure_dns_credentials(
     _upsert_dns_provider_entry(fm_config.dns_providers, label, email=email, api_token=api_token, api_key=api_key)
     fm_config.export_to_toml()
 
-    output.print(f"✅ Global [fm.ok]{provider_name}[/fm.ok] credentials '{label}' configured")
+    output.effect(f"✅ Global [fm.ok]{provider_name}[/fm.ok] credentials '{label}' configured")
     if label == DNS_PROVIDER.cloudflare.value:
         output.info(
             "[fm.muted]This is the default set: every bench uses it unless a certificate names another[/fm.muted]"

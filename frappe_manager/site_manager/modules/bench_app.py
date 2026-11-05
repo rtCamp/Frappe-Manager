@@ -333,7 +333,7 @@ fi
                             if selected_version
                             else selected_python_full
                         )
-                        self.output.print(f"Created virtual environment with Python {selected_version_str}")
+                        self.output.effect(f"Created virtual environment with Python {selected_version_str}")
                         venv_recreated = True
                     else:
                         self.output.debug(f"Skipping venv recreation - Python {selected_python_full} set as default")
@@ -352,7 +352,7 @@ fi
             self.output.change_head("Recreating virtual environment")
             default_python = f"{CONTAINER_BENCH_DIR}/.uv/python-default/bin/python"
             self.recreate_venv(f"$( [ -x {default_python} ] && echo {default_python} || echo python3 )", use_run=use_run)
-            self.output.print("Recreated virtual environment")
+            self.output.effect("Recreated virtual environment")
             venv_recreated = True
 
         node_version_requirement = self.bench_config.node_version
@@ -551,15 +551,15 @@ fi
 
         self.output.change_head("Installing Python dependencies")
         self._install_python_deps_with_uv(apps_config, use_uv=use_uv, use_run=use_run)
-        self.output.print("Installed Python dependencies")
+        self.output.effect("Installed Python dependencies")
 
         self.output.change_head("Installing Node dependencies")
         self._install_node_deps(use_run=use_run)
-        self.output.print("Installed Node dependencies")
+        self.output.effect("Installed Node dependencies")
 
         self.output.change_head("Building frontend assets")
         self.build(use_run=use_run)
-        self.output.print("Built frontend assets")
+        self.output.effect("Built frontend assets")
 
         return apps_config
 
@@ -649,7 +649,7 @@ fi
         self._install_node_deps(use_run=use_run)
         self.output.change_head("Building assets for grafted apps")
         self.build(app_list=[a.name for a in overrides], use_run=use_run)
-        self.output.print(f"Grafted app(s): {', '.join(a.name for a in overrides)}")
+        self.output.effect(f"Grafted app(s): {', '.join(a.name for a in overrides)}")
         return added, stash_dir
 
     def _install_python_deps_with_uv(self, apps: list[AppConfig], use_uv: bool = True, use_run: bool = False) -> None:
@@ -818,7 +818,7 @@ fi
             self.install_app_to_site(app_name, site_name)
             # `site_name` is right there: on a multi-site bench "Installed app X in site" cannot
             # answer which site got it.
-            self.output.print(f"Installed app {app_name} in {site_name}")
+            self.output.effect(f"Installed app {app_name} in {site_name}")
 
     def build(self, app_list: list[str] | None = None, use_run: bool = False) -> None:
         """

@@ -58,4 +58,4 @@ def disable(
         bench.admin_tools.disable()
 
     bench.save_bench_config()
-    output.print("Disabled Admin-tools")
+    output.effect("Disabled Admin-tools")

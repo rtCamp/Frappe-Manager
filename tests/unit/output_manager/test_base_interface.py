@@ -55,6 +55,9 @@ class TestOutputHandlerInterface:
             def print(self, text: str, emoji_code=":zap:", prefix=None, **kwargs) -> None:
                 pass
 
+            def effect(self, text: str, changed: bool = True, emoji_code=":zap:", **kwargs) -> None:
+                pass
+
             def debug(self, text: str, emoji_code=":bug:", **kwargs) -> None:
                 pass
 

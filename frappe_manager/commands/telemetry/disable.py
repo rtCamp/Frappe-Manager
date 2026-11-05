@@ -55,4 +55,4 @@ def disable(
     with spinner(output, f"Disabling {provider.value}"):
         apply_newrelic(bench, output, enabled=False)
 
-    output.print(f"Disabled {provider.value} on {bench.name}")
+    output.effect(f"Disabled {provider.value} on {bench.name}")

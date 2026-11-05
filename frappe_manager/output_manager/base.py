@@ -141,6 +141,16 @@ class OutputHandler(ABC):
         """
 
     @abstractmethod
+    def effect(self, text: str, changed: bool = True, emoji_code: str = ":zap:", **kwargs) -> None:
+        """A mutation fm made (or deliberately didn't), typed for `--events json`.
+
+        Renders identically to `print` -- same emoji, same style -- so nothing on screen
+        changes; only the event stream tells the two apart. A method rather than a `print`
+        kwarg on purpose: the name makes the classification visible in a diff. `changed=False`
+        is for a deliberate non-change a watcher still needs ("left schema as it is").
+        """
+
+    @abstractmethod
     def debug(self, text: str, emoji_code: str = ":bug:", **kwargs) -> None:
         """
         Display debug message (only shown if verbose=True).

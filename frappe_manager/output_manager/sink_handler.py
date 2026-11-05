@@ -5,7 +5,7 @@ sink among them, not the thing the others are wrapped around: that inversion is 
 file mask by field, lets the stream carry facts rather than a transcript of the display API, and
 lets a person watch a run while a machine records it.
 
-The 16-method contract above it does not change. Roughly 1470 call sites do not move.
+The 17-method contract above it does not change. Roughly 1470 call sites do not move.
 """
 
 import traceback
@@ -88,6 +88,11 @@ class SinkOutputHandler(OutputHandler):
         self._emit("print", text, emoji_code=emoji_code, prefix=prefix)
         if self.terminal is not None:
             self.terminal.print(text, emoji_code=emoji_code, prefix=prefix, **kwargs)
+
+    def effect(self, text: str, changed: bool = True, emoji_code: str = ":zap:", **kwargs) -> None:
+        self._emit("effect", text, emoji_code=emoji_code, changed=changed)
+        if self.terminal is not None:
+            self.terminal.effect(text, changed=changed, emoji_code=emoji_code, **kwargs)
 
     def debug(self, text: str, emoji_code: str = ":bug:", **kwargs) -> None:
         self._emit("debug", text, emoji_code=emoji_code)

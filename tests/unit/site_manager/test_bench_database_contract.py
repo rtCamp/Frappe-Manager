@@ -104,6 +104,10 @@ class _Harness:
     def printed(self):
         return [c.args[0] for c in self.output.print.call_args_list]
 
+    @property
+    def effected(self):
+        return [c.args[0] for c in self.output.effect.call_args_list]
+
     def synced_config(self):
         assert self.set_config.call_count == 1
         return self.set_config.call_args.args[0]
@@ -381,6 +385,7 @@ def test_removal_without_a_name_refuses_all_database_work(tmp_path, conn_info):
     assert h.db.mock_calls == []
     assert h.warnings == []
     assert h.printed == []
+    assert h.effected == []
     h.output.change_head.assert_called_once()
 
 
@@ -406,7 +411,7 @@ def test_existing_database_is_dropped_and_reported(tmp_path):
     h.database.remove_database_and_user()
 
     h.db.remove_db.assert_called_once_with("site1_local_db")
-    assert "mariadb: Removed bench db [fm.info]site1_local_db[/fm.info]" in h.printed
+    assert "mariadb: Removed bench db [fm.info]site1_local_db[/fm.info]" in h.effected
 
 
 @pytest.mark.usefixtures("conn_info")
@@ -432,7 +437,7 @@ def test_existing_user_is_dropped_on_every_host(tmp_path):
     h.database.remove_database_and_user()
 
     assert h.db.remove_user.call_args == call("site1_local_user", remove_all_host=True)
-    assert "mariadb: Removed bench db users [fm.info]site1_local_user[/fm.info]" in h.printed
+    assert "mariadb: Removed bench db users [fm.info]site1_local_user[/fm.info]" in h.effected
 
 
 @pytest.mark.usefixtures("conn_info")

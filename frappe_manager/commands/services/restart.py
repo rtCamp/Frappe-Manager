@@ -46,7 +46,7 @@ def restart_services(
                 continue
 
             services_manager.restart_service(services=[service.value])
-            output.print(f"Restarted service {service.value}")
+            output.effect(f"Restarted service {service.value}")
     elif not refuse_if_switched_off(service_name.value):
         services_manager.restart_service(services=[service_name.value])
-        output.print(f"Restarted service {service_name.value}")
+        output.effect(f"Restarted service {service_name.value}")

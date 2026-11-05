@@ -31,7 +31,7 @@ def shell_services(
         get_global_output_handler().display_error(
             f"shell requires a single service; {ServicesEnum.all.value!r} is not supported"
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     services_manager: ServicesManager = ctx.obj["services"]
     services_manager.shell(service_name.value, user)

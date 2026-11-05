@@ -104,7 +104,7 @@ def _dropped(bench: Bench) -> list[str]:
 
 
 def _printed(output: MagicMock) -> str:
-    return "\n".join(str(call.args[0]) for call in output.print.call_args_list if call.args)
+    return "\n".join(str(call.args[0]) for call in output.effect.call_args_list if call.args)
 
 
 # --------------------------------------------------------------------------- fm delete

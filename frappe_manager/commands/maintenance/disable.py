@@ -81,4 +81,4 @@ def disable(
     services.nginx_controller.reload()
     # `disabled`, not `domains`: the loop skips domains with no active fragment, so printing
     # everything it was ASKED about named domains this run never touched.
-    output.print(f"Maintenance disabled for: {', '.join([*disabled, *orphans])}")
+    output.effect(f"Maintenance disabled for: {', '.join([*disabled, *orphans])}")

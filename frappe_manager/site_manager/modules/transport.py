@@ -329,6 +329,6 @@ def push_images(docker: DockerClient, images: list[str], output=None) -> None:
         except DockerException as e:
             raise TransportError(_push_failure_message(image, e, pushed)) from e
         if output is not None:
-            output.print(f"Pushed {image}", emoji_code=":white_check_mark:")
+            output.effect(f"Pushed {image}", emoji_code=":white_check_mark:")
         pushed.append(image)
 

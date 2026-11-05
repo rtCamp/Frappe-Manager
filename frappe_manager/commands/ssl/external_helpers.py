@@ -145,7 +145,7 @@ def _add_external_certificate(
     if cname and challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         output.display_error("CNAME delegation (--cname) requires DNS-01 challenge")
         output.data_raw(ctx.get_help())
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     output.change_head(f"Adding SSL certificate for {domain} (standalone mode)")
 
@@ -244,7 +244,7 @@ def _add_external_certificate(
             try:
                 standalone_nginx.remove_config(domain)
                 nginx_controller.reload()
-                output.print("Cleaned up nginx configuration", emoji_code=":white_check_mark:")
+                output.effect("Cleaned up nginx configuration", emoji_code=":white_check_mark:")
             except Exception as cleanup_error:
                 output.debug(f"Failed to clean up nginx config: {cleanup_error}")
             raise cert_error
@@ -273,7 +273,7 @@ def _add_external_certificate(
                 try:
                     standalone_nginx.remove_config(domain)
                     nginx_controller.reload()
-                    output.print("Cleaned up nginx configuration and certificate", emoji_code=":white_check_mark:")
+                    output.effect("Cleaned up nginx configuration and certificate", emoji_code=":white_check_mark:")
                 except Exception as cleanup_error:
                     output.debug(f"Failed to clean up after HTTPS config failure: {cleanup_error}")
                 raise post_cert_error
@@ -285,7 +285,7 @@ def _add_external_certificate(
             output.change_head("Cleaning up rehearsal nginx configuration")
             standalone_nginx.remove_config(domain)
             nginx_controller.reload()
-            output.print("Removed temporary nginx configuration (test-CA rehearsal)", emoji_code=":white_check_mark:")
+            output.effect("Removed temporary nginx configuration (test-CA rehearsal)", emoji_code=":white_check_mark:")
 
         if not test_ca:
             external_manager.add_domain(
@@ -300,7 +300,7 @@ def _add_external_certificate(
                 ),
             )
 
-            output.print(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
+            output.effect(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
             output.print("", emoji_code="")
             output.print("[fm.accent]To use this certificate in your Docker project:[/fm.accent]", emoji_code="")
             output.print("", emoji_code="")
@@ -366,11 +366,11 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
                     raise typer.Exit(1)
             orphan.remove_config(domain)
             services_manager.nginx_controller.reload()
-            output.print(f"Removed leftover nginx configuration for {domain}", emoji_code=":white_check_mark:")
+            output.effect(f"Removed leftover nginx configuration for {domain}", emoji_code=":white_check_mark:")
             return
 
         output.display_error(f"Certificate does not exist for external domain '{domain}'")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     domain_config = external_manager.get_domain(domain)
     output.change_head(f"Removing SSL certificate for {domain}")
@@ -415,7 +415,7 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
 
         external_manager.remove_domain(domain)
 
-        output.print(f"SSL certificate removed for {domain}", emoji_code=":white_check_mark:")
+        output.effect(f"SSL certificate removed for {domain}", emoji_code=":white_check_mark:")
 
     except Exception as e:
         output.display_error(
@@ -661,7 +661,7 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, test_ca: bool, 
     if not external_manager.domain_exists(domain):
         output.display_error(f"No external certificate found for domain '{domain}'")
         output.print("To list external certificates: fm ssl list --standalone", emoji_code="")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     # The HTTP-01 challenge is answered by the `location ^~ /.well-known/acme-challenge/` inside
     # this domain's standalone vhost. If that file went missing the renewal cannot succeed, and it
@@ -670,7 +670,7 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, test_ca: bool, 
     repaired = services_manager.reconcile_standalone_vhosts()
     if repaired:
         services_manager.nginx_controller.reload()
-        output.print(f"Restored missing nginx configuration for: {', '.join(repaired)}", emoji_code=":wrench:")
+        output.effect(f"Restored missing nginx configuration for: {', '.join(repaired)}", emoji_code=":wrench:")
 
     output.change_head(f"Renewing certificate for {domain}")
 
@@ -686,7 +686,7 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, test_ca: bool, 
 
         with spinner(output, f"Renewing certificate for {domain}"):
             cert_manager.renew_certificate(domain=domain, test_ca=test_ca, force=force)
-        output.print(f"Certificate renewal for {domain} completed", emoji_code=":white_check_mark:")
+        output.effect(f"Certificate renewal for {domain} completed", emoji_code=":white_check_mark:")
 
     # A not-yet-due certificate is a healthy state, not a failure: renew_certificate raises this
     # before any acme.sh call. The bench path in renew.py warns and exits 0; match it, otherwise

@@ -77,6 +77,9 @@ class SilentOutputHandler(OutputHandler):
             **kwargs: Additional arguments (ignored)
         """
 
+    def effect(self, text: str, changed: bool = True, emoji_code: str = ":zap:", **kwargs) -> None:
+        """Effect message (no-op)."""
+
     def debug(self, text: str, emoji_code: str = ":bug:", **kwargs) -> None:
         """
         Debug message (no-op).

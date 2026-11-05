@@ -225,6 +225,10 @@ class UpdateWorld:
         return [c.args[0] for c in self.output.print.call_args_list if c.args]
 
     @property
+    def effects(self) -> list[str]:
+        return [c.args[0] for c in self.output.effect.call_args_list if c.args]
+
+    @property
     def infos(self) -> list[str]:
         return [c.args[0] for c in self.output.info.call_args_list if c.args]
 
@@ -386,7 +390,7 @@ class TestExternalDatabaseCaRefresh:
         world.run(db_ca=ca)
 
         assert (
-            "Installed CA at /workspace/config/tls/db-ca.pem and rebuilt the bench ca-bundle.pem" in world.prints
+            "Installed CA at /workspace/config/tls/db-ca.pem and rebuilt the bench ca-bundle.pem" in world.effects
         )
         assert (
             "Running containers read the new CA on their next database connection; no restart needed."
@@ -706,7 +710,7 @@ class TestPythonAndNodeVersions:
         with pytest.raises(typer.Exit) as exc:
             world.run(python_version="3.9")
 
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 2
         assert world.config.python_version == "3.11"
         assert world.output.display_error.call_args.args[0] == "Python 3.9 does not satisfy >=3.11,<3.13"
         assert world.output.display_error.call_args.kwargs == {"emoji_code": ":cross_mark:"}
@@ -777,7 +781,7 @@ class TestPythonAndNodeVersions:
         with pytest.raises(typer.Exit) as exc:
             world.run(node_version="16")
 
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 2
         assert world.config.node_version == "18"
         assert "Hint: Try --node 18" in world.prints
         world.bench.app_manager.setup_python_and_node_environments.assert_not_called()
@@ -936,6 +940,10 @@ class DeployWorld:
     def prints(self) -> list[str]:
         return [c.args[0] for c in self.output.print.call_args_list if c.args]
 
+    @property
+    def effects(self) -> list[str]:
+        return [c.args[0] for c in self.output.effect.call_args_list if c.args]
+
     def _ctx(self):
         ctx = MagicMock(spec=typer.Context)
         ctx.obj = {"services": self.services, "fm_config_manager": self.fm_config}
@@ -1023,7 +1031,7 @@ class TestSwitchTargetImageResolution:
 
         assert ship.orchestrator.deploy.call_args.args == ("local/mybench:t1",)
         assert ship.orchestrator.deploy.call_args.kwargs["migrate_override"] is False
-        assert "Rollback: migrate disabled for this run (override with --migrate)" in ship.prints
+        assert "Rollback: migrate disabled for this run (override with --migrate)" in ship.effects
 
     def test_an_explicit_migrate_flag_survives_a_rollback(self, ship):
         ship.config.deployments = _deploy_state()
@@ -1168,7 +1176,7 @@ class TestPrune:
         ]
         ship.output.prompt_ask.assert_not_called()
         assert ship.prints[0] == "Releases : would prune 2 release(s), keep 3 · 1 backup dir(s) · 1 image(s)"
-        assert ship.prints[-1].startswith("Done     :")
+        assert ship.effects[-1].startswith("Done     :")
 
     def test_without_yes_the_prompt_gates_execution_and_default_no_aborts(self, ship):
         ship.orchestrator.prune_releases.return_value = {
@@ -1234,7 +1242,7 @@ class TestPruneAllCategories:
 
         assert sorted(p.name for p in root.iterdir()) == ["s2", "s3", "s4"]  # newest 3 kept
         assert any(p.startswith("Backups  : would remove migrations: 2 session(s) beyond keep 3") for p in ship.prints)
-        assert any(p.startswith("Done     :") for p in ship.prints)
+        assert any(p.startswith("Done     :") for p in ship.effects)
         assert any(p.startswith("Total    :") for p in ship.prints)  # reclaimable, in the plan
 
     def test_logs_category_rotates_in_place_and_keeps_the_inode(self, ship):
@@ -1274,7 +1282,7 @@ class TestKeepFloor:
         with pytest.raises(typer.Exit) as exc:
             ship.prune(keep_releases=keep)
 
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 2
         assert ship.errors == [KEEP_FLOOR_REFUSAL]
         ship.orchestrator.prune_releases.assert_not_called()
 
@@ -1282,7 +1290,7 @@ class TestKeepFloor:
         with pytest.raises(typer.Exit) as exc:
             ship.switch(image="local/mybench:t9", keep=0)
 
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 2
         assert ship.errors == [KEEP_FLOOR_REFUSAL]
         ship.orchestrator.deploy.assert_not_called()
 

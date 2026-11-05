@@ -42,7 +42,7 @@ def stop(
 
     if global_only and benches_only:
         output.print("[fm.error]Error:[/fm.error] --global-only and --benches-only are mutually exclusive. Choose one.")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=2)
 
     stop_global = not benches_only
     stop_benches = not global_only
@@ -69,7 +69,7 @@ def stop(
                     # strictly wider than the predicate -- always run it, like `fm stop` does.
                     with spinner(output, f"Stopping {bench_name}"):
                         bench.stop()
-                    output.print(f"Stopped bench {bench_name}")
+                    output.effect(f"Stopped bench {bench_name}")
                 except Exception as e:
                     output.warning(f"Failed to stop {bench_name}: {e}")
                     benches_failed.append(bench_name)
@@ -83,7 +83,7 @@ def stop(
                     continue
 
                 services_manager.stop_service(services=[service.value])
-                output.print(f"Stopped service {service.value}")
+                output.effect(f"Stopped service {service.value}")
 
     if benches_failed:
         output.display_error(

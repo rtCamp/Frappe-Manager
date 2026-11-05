@@ -208,7 +208,7 @@ def test_no_token_anywhere_refuses_the_command():
 
     result = _run_ngrok(config)
 
-    assert result.exit.exit_code == 1
+    assert result.exit.exit_code == 2
     result.tunnel.assert_not_called()
 
 
@@ -267,7 +267,7 @@ def test_a_domain_the_bench_does_not_serve_is_refused_by_name():
     )
 
     assert world.exit is not None
-    assert world.exit.exit_code == 1
+    assert world.exit.exit_code == 2
     world.tunnel.assert_not_called()
 
 

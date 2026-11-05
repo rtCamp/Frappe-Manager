@@ -571,7 +571,7 @@ def test_add_refuses_a_bare_all(adding):
     with pytest.raises(typer.Exit) as exc:
         add_certificate(adding.ctx, address="all")
 
-    assert exc.value.exit_code == 1
+    assert exc.value.exit_code == 2
     assert "'all' is not accepted here" in adding.errors()
     adding.issue.assert_not_called()
 
@@ -589,7 +589,7 @@ def test_remove_refuses_a_bare_all(removing):
     with pytest.raises(typer.Exit) as exc:
         remove_certificate(removing.ctx, address="all")
 
-    assert exc.value.exit_code == 1
+    assert exc.value.exit_code == 2
     assert "'all' is not accepted here" in removing.errors()
     removing.delete.assert_not_called()
 
@@ -667,7 +667,7 @@ def test_add_without_a_domain_refuses_rather_than_guessing(adding):
     with pytest.raises(typer.Exit) as exc:
         add_certificate(adding.ctx, address=BENCH)
 
-    assert exc.value.exit_code == 1
+    assert exc.value.exit_code == 2
     assert "BENCH/DOMAIN" in adding.errors()
     adding.issue.assert_not_called()
 
@@ -676,7 +676,7 @@ def test_remove_without_a_domain_refuses_rather_than_guessing(removing):
     with pytest.raises(typer.Exit) as exc:
         remove_certificate(removing.ctx, address=BENCH, yes=True)
 
-    assert exc.value.exit_code == 1
+    assert exc.value.exit_code == 2
     assert "BENCH/DOMAIN" in removing.errors()
     removing.delete.assert_not_called()
 
@@ -716,6 +716,6 @@ def test_the_offer_never_widens_the_blast_radius_to_every_bench(adding, picks_do
     with pytest.raises(typer.Exit) as exc:
         add_certificate(adding.ctx, address=RESERVED_BENCH_NAME)
 
-    assert exc.value.exit_code == 1
+    assert exc.value.exit_code == 2
     assert not picks_domain.called
     adding.issue.assert_not_called()

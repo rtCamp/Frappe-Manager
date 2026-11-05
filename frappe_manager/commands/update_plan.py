@@ -440,7 +440,7 @@ def plan_update(
                 if suggested:
                     output.print(f"Hint: Try --python {suggested}", emoji_code=":light_bulb:")
                 output.print("Use --skip-version-check to bypass this validation (not recommended)")
-                raise typer.Exit(code=1)
+                raise typer.Exit(code=2)
 
         if node_version and frappe_node_req and not skip_version_check:
             is_compatible, error_msg = validate_node_version_compatibility(node_version, frappe_node_req)
@@ -453,7 +453,7 @@ def plan_update(
                 if suggested:
                     output.print(f"Hint: Try --node {suggested}", emoji_code=":light_bulb:")
                 output.print("Use --skip-version-check to bypass this validation (not recommended)")
-                raise typer.Exit(code=1)
+                raise typer.Exit(code=2)
 
     if db_ca is not None:
         assert database_config is not None

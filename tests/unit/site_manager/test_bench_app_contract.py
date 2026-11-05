@@ -1525,7 +1525,7 @@ class TestSetupEnvironmentsPython:
         venv_cmd = _find(_commands(manager), VENV_MARKER)[0]
         assert f"mv env {manager.VENV_BACKUP}" in venv_cmd
         assert "uv venv env --python cpython-3.11.9-linux-aarch64-gnu --seed --link-mode=copy" in venv_cmd
-        assert _said(manager.output.print, "Created virtual environment with Python cpython-3.11.9-linux-aarch64-gnu")
+        assert _said(manager.output.effect, "Created virtual environment with Python cpython-3.11.9-linux-aarch64-gnu")
 
     def test_recreate_rebuilds_even_when_the_current_python_already_satisfies(self, tmp_path):
         """The repair verb's whole reason to exist is an env/ whose Python is FINE. A satisfied
@@ -1583,7 +1583,7 @@ class TestSetupEnvironmentsPython:
         )
 
         assert manager.setup_python_and_node_environments(recreate_python_env=True) is True
-        assert _said(manager.output.print, "Created virtual environment with Python 3.13.2")
+        assert _said(manager.output.effect, "Created virtual environment with Python 3.13.2")
 
     def test_an_unparseable_requirement_skips_the_python_stage_silently(self, tmp_path):
         manager = _manager(tmp_path)

@@ -160,6 +160,12 @@ class SSLHarness:
     def print_emojis(self) -> list[str]:
         return [c.kwargs.get("emoji_code") for c in self.output.print.call_args_list]
 
+    def effects(self) -> list[str]:
+        return [c.args[0] for c in self.output.effect.call_args_list]
+
+    def effect_emojis(self) -> list[str]:
+        return [c.kwargs.get("emoji_code") for c in self.output.effect.call_args_list]
+
     def infos(self) -> list[str]:
         return [c.args[0] for c in self.output.info.call_args_list]
 
@@ -284,7 +290,7 @@ def test_add_refuses_a_domain_absent_from_the_bench_config(h):
     with pytest.raises(typer.Exit) as exc:
         _add(h, domain="stranger.example.com")
 
-    assert exc.value.exit_code == 1
+    assert exc.value.exit_code == 2
     # The refusal must name the allowed domains and the exact command that would add one.
     message = h.errors()[0]
     assert "stranger.example.com" in message
@@ -308,7 +314,7 @@ def test_add_refuses_cname_with_http01_challenge(h):
     with pytest.raises(typer.Exit) as exc:
         _add(h, challenge=HTTP01, cname="delegated.fm.test")
 
-    assert exc.value.exit_code == 1
+    assert exc.value.exit_code == 2
     assert h.errors() == ["CNAME delegation (--cname) can only be used with DNS-01 challenge"]
     h.cert_manager.add_certificate.assert_not_called()
     # Still before the head change.
@@ -331,7 +337,7 @@ def test_add_refuses_cname_on_a_dev_certificate_but_only_after_announcing_the_wo
     with pytest.raises(typer.Exit) as exc:
         _add(h, challenge=DNS01, cname="delegated.fm.test", dev=True)
 
-    assert exc.value.exit_code == 1
+    assert exc.value.exit_code == 2
     assert h.errors() == ["--cname is not applicable to dev certificates"]
     # The dev/cname guard sits *below* change_head, unlike the other two.
     assert h.heads() == [f"Adding SSL certificate for {DOMAIN}"]
@@ -467,12 +473,13 @@ def test_host_name_carries_no_published_port(h, monkeypatch):
     _add(h, test_ca=False)
 
     assert h.site_config_writes() == [(DOMAIN, {"host_name": f"https://{DOMAIN}"})]
+    assert h.effects() == [f"SSL certificate added for {DOMAIN}"]
+    assert h.effect_emojis() == [":white_check_mark:"]
     assert h.prints() == [
-        f"SSL certificate added for {DOMAIN}",
         f"Run 'fm start {BENCH}' to apply it (recreates only the services whose definition "
         "changed; running jobs are undisturbed until then).",
     ]
-    assert h.print_emojis() == [":white_check_mark:", ":information:"]
+    assert h.print_emojis() == [":information:"]
 
 
 @pytest.mark.timeout(15)
@@ -590,7 +597,7 @@ def test_add_regen_failure_warns_and_skips_the_converge_instruction_but_does_not
     assert any("Could not update" in w and "disk full" in w for w in h.warnings())
     assert not any("fm start" in p for p in h.prints())
     # The certificate itself is unaffected by a compose-regen failure.
-    assert f"SSL certificate added for {DOMAIN}" in h.prints()
+    assert f"SSL certificate added for {DOMAIN}" in h.effects()
 
 
 @pytest.mark.timeout(15)
@@ -619,7 +626,7 @@ def test_remove_regen_failure_warns_but_does_not_abort(h):
 
     assert any("Could not update" in w and "disk full" in w for w in h.warnings())
     assert not any("fm start" in p for p in h.prints())
-    assert f"SSL certificate removed for {DOMAIN}" in h.prints()
+    assert f"SSL certificate removed for {DOMAIN}" in h.effects()
 
 
 @pytest.mark.timeout(15)
@@ -630,7 +637,7 @@ def test_add_treats_a_failed_host_name_write_as_non_fatal(h):
     _add(h, test_ca=False)
 
     assert any("Could not update host_name to https://" in d for d in h.debugs())
-    assert f"SSL certificate added for {DOMAIN}" in h.prints()
+    assert f"SSL certificate added for {DOMAIN}" in h.effects()
 
 
 @pytest.mark.timeout(15)
@@ -651,7 +658,7 @@ def test_remove_refuses_a_domain_absent_from_the_bench_config(h):
     with pytest.raises(typer.Exit) as exc:
         _remove(h, domain="stranger.example.com")
 
-    assert exc.value.exit_code == 1
+    assert exc.value.exit_code == 2
     # Names what the bench DOES serve, as `fm domain remove` already did: the short form left the
     # operator guessing at the spelling, which is the whole reason a bare label failed here while
     # working in `fm update`.
@@ -707,8 +714,8 @@ def test_remove_reverts_host_name_to_http_and_confirms(h):
     _remove(h)
 
     assert h.site_config_writes() == [(DOMAIN, {"host_name": f"http://{DOMAIN}"})]
+    assert h.effects() == [f"SSL certificate removed for {DOMAIN}"]
     assert h.prints() == [
-        f"SSL certificate removed for {DOMAIN}",
         f"Run 'fm start {BENCH}' to apply it (recreates only the services whose definition "
         "changed; running jobs are undisturbed until then).",
     ]
@@ -733,7 +740,7 @@ def test_remove_treats_a_failed_host_name_write_as_non_fatal(h):
     _remove(h)
 
     assert any("Could not update host_name to http://" in d for d in h.debugs())
-    assert f"SSL certificate removed for {DOMAIN}" in h.prints()
+    assert f"SSL certificate removed for {DOMAIN}" in h.effects()
 
 
 @pytest.mark.timeout(15)
@@ -746,7 +753,7 @@ def test_remove_swallows_a_certificate_not_found_raised_by_the_host_name_write(h
     _remove(h)
 
     assert h.errors() == []
-    assert f"SSL certificate removed for {DOMAIN}" in h.prints()
+    assert f"SSL certificate removed for {DOMAIN}" in h.effects()
 
 
 @pytest.mark.timeout(15)
@@ -1335,6 +1342,9 @@ class ToolsHarness:
     def prints(self) -> list[str]:
         return [c.args[0] for c in self.output.print.call_args_list]
 
+    def effects(self) -> list[str]:
+        return [c.args[0] for c in self.output.effect.call_args_list]
+
     def heads(self) -> list[str]:
         return [c.args[0] for c in self.output.change_head.call_args_list]
 
@@ -1579,7 +1589,7 @@ def test_configure_mailpit_adds_the_three_keys_and_preserves_the_rest(t):
 
     config = t.read_common_site_config()
     assert config == {"db_host": "mariadb", "developer_mode": 1, **MAILPIT_CONF}
-    assert t.prints() == ["Configured Mailpit as default mail server"]
+    assert t.effects() == ["Configured Mailpit as default mail server"]
 
 
 @pytest.mark.timeout(15)
@@ -1598,7 +1608,7 @@ def test_remove_mailpit_deletes_only_the_keys_it_owns(t):
     t.tools.remove_mailpit_as_default_server()
 
     assert t.read_common_site_config() == {"db_host": "mariadb"}
-    assert t.prints() == ["Removed Mailpit as default mail server"]
+    assert t.effects() == ["Removed Mailpit as default mail server"]
 
 
 @pytest.mark.timeout(15)

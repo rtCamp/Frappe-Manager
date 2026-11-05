@@ -1223,7 +1223,7 @@ class TestRestartServices:
         ops.restart_services(["frappe", "nginx"], force=True)
 
         ops.docker_client.compose.restart.assert_called_once_with(services=["frappe", "nginx"], timeout=0)
-        ops.output.print.assert_called_once_with("Force restarted services - frappe nginx")
+        ops.output.effect.assert_called_once_with("Force restarted services - frappe nginx")
 
     @pytest.mark.timeout(15)
     def test_graceful_restart_reports_the_enabled_services_only(self, tmp_path):
@@ -1232,7 +1232,7 @@ class TestRestartServices:
 
         ops.restart_services(["frappe", "redis-cache"])
 
-        ops.output.print.assert_called_once_with("Restarted services - frappe")
+        ops.output.effect.assert_called_once_with("Restarted services - frappe")
 
 
 class TestShellArgv:

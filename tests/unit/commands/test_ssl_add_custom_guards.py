@@ -56,7 +56,7 @@ class TestCustomMutualExclusivity:
         with pytest.raises(typer.Exit) as exc:
             add_certificate(_ctx(), address=BENCH, custom=True, dev=True)
 
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 2
         assert _errors(output) == ["--custom cannot be used with --dev"]
         issue.assert_not_called()
 

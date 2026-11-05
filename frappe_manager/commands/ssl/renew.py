@@ -75,7 +75,7 @@ def renew(
                 "An external domain belongs to no bench, so --standalone takes a bare domain: "
                 f"use 'fm ssl renew {domain} --standalone'."
             )
-            raise typer.Exit(1)
+            raise typer.Exit(2)
         if address == RESERVED_BENCH_NAME:
             _renew_all_external_certificates(ctx, test_ca, force)
             return
@@ -83,7 +83,7 @@ def renew(
             output = get_output_handler(ctx)
             output.display_error("Domain required for standalone renewal")
             output.data_raw(ctx.get_help())
-            raise typer.Exit(1)
+            raise typer.Exit(2)
         _renew_external_certificate(ctx, address, test_ca, force)
         return
 
@@ -125,13 +125,13 @@ def renew(
                         f"Configured certificates: {', '.join(cert_domains) if cert_domains else 'None'}\n"
                         f"To add a certificate, use: fm ssl add {address}/{domain}",
                     )
-                    raise typer.Exit(1)
+                    raise typer.Exit(2)
                 domain = target
 
                 with spinner(output, f"Renewing certificate for {domain}"):
                     bench.ssl.renew_certificate(domain, test_ca=test_ca, force=force)
                 if not test_ca:
-                    output.print(f"Certificate renewed for {domain}", emoji_code=":white_check_mark:")
+                    output.effect(f"Certificate renewed for {domain}", emoji_code=":white_check_mark:")
             else:
                 # No domain, or `BENCH/all`: every certificate the bench holds. The two mean the
                 # same thing, because a bench's certificates ARE its domains' certificates.

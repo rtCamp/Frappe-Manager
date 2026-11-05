@@ -213,6 +213,10 @@ class RichOutputHandler(OutputHandler):
 
         self._emit(self.stderr, msg, **kwargs)
 
+    def effect(self, text: str, changed: bool = True, emoji_code: str = ":zap:", **kwargs) -> None:
+        """Renders exactly like `print`; `changed` only reaches the event stream."""
+        self.print(text, emoji_code=emoji_code, **kwargs)
+
     def debug(self, text: str, emoji_code: str = ":bug:", **kwargs) -> None:
         """Reasoning: probes, resolution, fallbacks. Shown at `-vv`.
 

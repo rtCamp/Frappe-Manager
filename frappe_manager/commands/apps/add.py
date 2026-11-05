@@ -163,7 +163,7 @@ def add_apps(
         raise typer.Exit(1)
 
     if targets:
-        output.print(f"Grafted apps applied to {', '.join(targets)}: {', '.join(a.name for a in apps_overrides)}")
+        output.effect(f"Grafted apps applied to {', '.join(targets)}: {', '.join(a.name for a in apps_overrides)}")
     else:
         output.print(
             f"Grafted app code into the bench: {', '.join(a.name for a in apps_overrides)}. "

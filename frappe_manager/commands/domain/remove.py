@@ -37,7 +37,7 @@ def remove_domain(
             f"fm domain remove takes one address, the domain itself: fm domain remove BENCH/DOMAIN. "
             f"Did you mean 'fm domain remove {bench}/{extra[0]}'?"
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     check_bench_migration_required(address)
 
@@ -48,7 +48,7 @@ def remove_domain(
 
     if not domain:
         output.display_error(f"fm domain remove needs a domain: use {bench.name}/DOMAIN.")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if not bench.running:
         raise BenchNotRunning(bench_name=bench.name)
@@ -73,7 +73,7 @@ def remove_domain(
         else:
             known = ", ".join(f"'{s}'" for s in sorted(sites)) or "no sites"
             output.display_error(f"'{domain}' is not a served alias of bench '{bench.name}'. It serves {known}.")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     # A certificate outlives the domain it was issued for unless something deals with it here:
     # nginx stops answering immediately, but the material and its private key stay on disk, and
@@ -90,7 +90,7 @@ def remove_domain(
         if cert.ssl_type == SUPPORTED_SSL_TYPES.dev:
             output.change_head(f"Removing the dev certificate for {domain}")
             bench.certificate_manager.remove_certificate_by_domain(domain)
-            output.print(f"Removed the dev certificate for {domain}; it regenerates if you add the domain back")
+            output.effect(f"Removed the dev certificate for {domain}; it regenerates if you add the domain back")
         else:
             output.display_error(
                 f"'{domain}' holds a {cert.ssl_type.value} certificate, which fm will not discard on your behalf: "
@@ -117,4 +117,4 @@ def remove_domain(
         # `active()` names them and the result was reduced to a reload bool: re-adding this
         # domain elsewhere starts clean, and only this line says what was dropped.
         output.info(f"Removed proxy config for {domain}: {', '.join(concerns)}")
-    output.print("Alias domains updated")
+    output.effect("Alias domains updated")

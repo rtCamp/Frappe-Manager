@@ -955,7 +955,7 @@ def test_push_images_pushes_every_tag_in_order():
     output = MagicMock()
     push_images(docker, ["r:t", "", "r-nginx:t"], output)
     assert docker.push.call_args_list == [call("r:t", stream=False), call("r-nginx:t", stream=False)]
-    assert [c.args[0] for c in output.print.call_args_list] == ["Pushed r:t", "Pushed r-nginx:t"]
+    assert [c.args[0] for c in output.effect.call_args_list] == ["Pushed r:t", "Pushed r-nginx:t"]
 
 
 def test_push_images_raises_and_names_the_failed_image_the_host_and_what_already_pushed():

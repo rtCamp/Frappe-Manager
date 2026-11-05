@@ -113,7 +113,7 @@ class MigrationBase(ABC):
 
         self.undo_services_migrate()
 
-        self.output.print(f"[bold]v{self.version!s}[/bold] rollback successful")
+        self.output.effect(f"[bold]v{self.version!s}[/bold] rollback successful")
 
     def services_basic_backup(self):
         if not self.services_manager.compose_file_manager.exists():
@@ -421,7 +421,7 @@ class MigrationBase(ABC):
         # IS the stated rollback path reached no surface at all. Size included because an empty
         # dump and a real one are otherwise the same sentence.
         size = backup_gz_file_backup_data_path.stat().st_size
-        self.output.print(
+        self.output.effect(
             f"[fm.info]{site}[/fm.info] db backup completed: "
             f"{backup_gz_file_backup_data_path} ({format_size(size)})"
         )

@@ -138,17 +138,17 @@ class MigrationV0190(MigrationBase):
         if env_backup_path.exists():
             if env_dir.exists():
                 shutil.rmtree(env_dir)
-                self.output.print("Removed new env/")
+                self.output.effect("Removed new env/")
 
             shutil.move(str(env_backup_path), str(env_dir))
-            self.output.print("Restored env/ from env.backup.migration")
+            self.output.effect("Restored env/ from env.backup.migration")
 
         bm = getattr(self, "backup_manager", None)
         if bm is not None:
             for backup in bm.backups:
                 if backup.src.name == ".bashrc":
                     bm.restore(backup, force=True)
-                    self.output.print("Restored .bashrc from backup")
+                    self.output.effect("Restored .bashrc from backup")
                     break
 
         nginx_default_conf = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
@@ -157,7 +157,7 @@ class MigrationV0190(MigrationBase):
             if nginx_default_conf.exists():
                 nginx_default_conf.unlink()
             shutil.move(str(nginx_default_backup), str(nginx_default_conf))
-            self.output.print("Restored nginx default.conf from backup")
+            self.output.effect("Restored nginx default.conf from backup")
 
     def migrate_bench(self, bench: MigrationBench):
         """Migrate bench from v0.18.0 to current version."""
@@ -188,7 +188,7 @@ class MigrationV0190(MigrationBase):
 
         self._rebuild_runtime_environment(bench)
 
-        self.output.print(f"Migrated {bench.name} to {self.version.version_string()}")
+        self.output.effect(f"Migrated {bench.name} to {self.version.version_string()}")
 
     def _migrate_bench_config_toml(self, bench: MigrationBench, config_path: Path):
         """Transform bench_config.toml: [ssl] → [[ssl_certificates]], add new fields."""
@@ -259,7 +259,7 @@ class MigrationV0190(MigrationBase):
         dns_providers_table["cloudflare"] = cloudflare_table
         doc["dns_providers"] = dns_providers_table
 
-        self.output.print("Migrated DNS credentials to dns_providers.cloudflare")
+        self.output.effect("Migrated DNS credentials to dns_providers.cloudflare")
 
     def _add_new_config_fields(self, doc: tomlkit.TOMLDocument):
         """Add alias_domains, upload_limit, restart_policy, use_uv if missing."""
@@ -587,7 +587,7 @@ class MigrationV0190(MigrationBase):
         if old_image != new_image:
             nginx_service["image"] = new_image
             cf.write_to_file()
-            self.output.print(f"Updated global-nginx-proxy image: {old_image} → {new_image}")
+            self.output.effect(f"Updated global-nginx-proxy image: {old_image} → {new_image}")
             self.logger.info(f"[_update_global_nginx_proxy_image] Updated: {old_image} → {new_image}")
 
     def migrate_services(self):
@@ -612,11 +612,11 @@ class MigrationV0190(MigrationBase):
                 self.output.display_error(error_msg)
                 raise Exception(error_msg)
 
-        self.output.print(f"All {self.version.version_string()} images pulled")
+        self.output.effect(f"All {self.version.version_string()} images pulled")
         self.logger.info("[migrate_services] Docker image pull completed successfully")
 
         # Recreate global-nginx-proxy to pick up the updated image tag.
-        self.output.print("Restarting global-nginx-proxy with new image")
+        self.output.effect("Restarting global-nginx-proxy with new image")
         self.services_manager.compose.up(
             services=["global-nginx-proxy"],
             force_recreate=True,

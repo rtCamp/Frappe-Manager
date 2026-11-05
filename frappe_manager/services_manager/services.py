@@ -206,7 +206,7 @@ class ServicesManager:
                 self.output.change_head(f"Starting fm's {service}: a site on this host uses it")
                 self.docker_client.compose.up(services=[service], detach=True, pull="missing")
             else:
-                self.output.print(f"Stopped fm's {service}: no site on this host uses it")
+                self.output.effect(f"Stopped fm's {service}: no site on this host uses it")
                 self.docker_client.compose.rm(services=[service], stop=True, force=True)
 
     def check_postgres_datadir_major(self) -> None:
@@ -387,7 +387,7 @@ class ServicesManager:
             try:
                 self.create(clean_install=True)
                 self.docker_client.compose.pull(stream=False)
-                self.output.print(
+                self.output.effect(
                     f"Created global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue]",
                 )
                 self.ensure_shared_networks()
@@ -452,7 +452,7 @@ class ServicesManager:
                     self.docker_client.compose.up(services=[], detach=True, pull="missing")
                     # After the up, not before it: the old line announced the start while the
                     # containers were still down, and stood even if the up then failed.
-                    self.output.print(f"Started global services [blue]{', '.join(stopped)}[/blue]")
+                    self.output.effect(f"Started global services [blue]{', '.join(stopped)}[/blue]")
 
         self.database_manager: DatabaseServiceManager = MariaDBManager(
             DatabaseServerServiceInfo.import_from_compose_file("mariadb", self.compose_file_manager),

@@ -179,16 +179,16 @@ def _add_bench_certificate(
             f"Allowed domains: {', '.join(allowed_domains)}\n"
             f"To add an alias domain, use: fm domain add {benchname} {domain}",
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
     domain = resolved
 
     if cname and challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         output.display_error("CNAME delegation (--cname) can only be used with DNS-01 challenge")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if dns_provider and challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         output.display_error("A DNS credential label (--dns-provider) can only be used with DNS-01 challenge")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     output.change_head(f"Adding SSL certificate for {domain}")
 
@@ -197,10 +197,10 @@ def _add_bench_certificate(
     if dev:
         if cname:
             output.display_error("--cname is not applicable to dev certificates")
-            raise typer.Exit(1)
+            raise typer.Exit(2)
         if dns_provider:
             output.display_error("--dns-provider is not applicable to dev certificates")
-            raise typer.Exit(1)
+            raise typer.Exit(2)
         cert = SSLCertificate(
             domain=domain,
             ssl_type=SUPPORTED_SSL_TYPES.dev,
@@ -224,7 +224,7 @@ def _add_bench_certificate(
                 resolve_dns_provider(cert, bench.bench_config)
             except SSLDNSProviderNotConfigured as e:
                 output.display_error(str(e))
-                raise typer.Exit(1) from None
+                raise typer.Exit(2) from None
             output.info(f"Using DNS credentials '{dns_provider}'", emoji_code=":information:")
         if cname:
             output.info(f"Using CNAME delegation: {cname}", emoji_code=":information:")
@@ -256,7 +256,7 @@ def _add_bench_certificate(
         except Exception as e:
             # Non-fatal -- site config may not exist yet if site isn't created
             output.debug(f"Could not update host_name to {host_name}: {e}")
-        output.print(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
+        output.effect(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
 
         if _regenerate_bench_compose(bench, output):
             output.print(
@@ -285,7 +285,7 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
             f"Domain '{domain}' is not configured for bench '{benchname}'. It serves "
             f"{', '.join(repr(d) for d in sorted(bench.bench_config.domains))}."
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
     domain = resolved
 
     output.change_head(f"Removing SSL certificate for {domain}")
@@ -327,7 +327,7 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
         except Exception as e:
             output.debug(f"Could not update host_name to {host_name}: {e}")
 
-        output.print(f"SSL certificate removed for {domain}", emoji_code=":white_check_mark:")
+        output.effect(f"SSL certificate removed for {domain}", emoji_code=":white_check_mark:")
 
         if _regenerate_bench_compose(bench, output):
             output.print(

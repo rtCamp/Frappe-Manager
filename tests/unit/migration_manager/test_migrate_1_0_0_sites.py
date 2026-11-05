@@ -1398,7 +1398,7 @@ def test_the_operator_is_told_where_the_dump_is(step, tmp_path, monkeypatch):
 
     step._upgrade_global_db_engine()
 
-    printed = " ".join(str(c.args[0]) for c in step.output.print.call_args_list if c.args)
+    printed = " ".join(str(c.args[0]) for c in step.output.effect.call_args_list if c.args)
     assert "dump.sql.gz" in printed
 
 

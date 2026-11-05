@@ -1201,7 +1201,7 @@ class DeployOrchestrator:
             for app in new:
                 try:
                     self._exec_frappe(f"{BENCH_BIN} --site {site} install-app {app}")
-                    self.output.print(f"Installed app '{app}' on {site}")
+                    self.output.effect(f"Installed app '{app}' on {site}")
                 except Exception as e:
                     raise DeployError(f"Failed to install new app '{app}' on {site} during finalize: {e}") from e
 
@@ -1364,11 +1364,11 @@ class DeployOrchestrator:
                 raise
             collected.extend(getattr(result, "combined", None) or [])
             if site:
-                self.output.print(f"Migrations applied to {site}")
+                self.output.effect(f"Migrations applied to {site}")
 
         _persist()
         if custom:
-            self.output.print("Migrations applied")
+            self.output.effect("Migrations applied")
         return True
 
     def _notify_after_migrate(self, new_image: str) -> None:
@@ -1698,7 +1698,7 @@ class DeployOrchestrator:
                         "set \\[switch].rollback_db = false to deploy without a database rollback.",
                     )
             elif requested_backup == "auto":
-                self.output.print("Backup skipped (backup_db=auto: no schema change)")
+                self.output.effect("Backup skipped (backup_db=auto: no schema change)", changed=False)
 
             # Restore recorded dumps (rollback path), after the insurance backup of the CURRENT
             # state but before migrate/swap. ``requested``: these are the operator's --restore-db,
@@ -1855,7 +1855,7 @@ class DeployOrchestrator:
             self.set_maintenance_mode(0)
 
         self._record(new_image, migrate_status, nginx_image=new_nginx_image, backups=db_dumps)
-        self.output.print(f"Deployed {new_image}", emoji_code=":rocket:")
+        self.output.effect(f"Deployed {new_image}", emoji_code=":rocket:")
 
         # Opt-in housekeeping: prune old releases only when the caller asked
         # (--keep N); never by default, and never failing a successful deploy.
@@ -1884,7 +1884,7 @@ class DeployOrchestrator:
         snaps = self._snapshot_compose()
         self._fetch_image(image, nginx_image)
         self._rolling_swap(image, nginx_image, image, nginx_image, snaps)
-        self.output.print(f"Rolling restart complete on {image}", emoji_code=":arrows_counterclockwise:")
+        self.output.effect(f"Rolling restart complete on {image}", emoji_code=":arrows_counterclockwise:")
 
     def prune_releases(self, keep: int | None = None, dry_run: bool = False) -> dict:
         """Prune old releases: history rows, recorded DB-dump dirs, local images.
@@ -1957,7 +1957,7 @@ class DeployOrchestrator:
         state.history = kept
         self.config.deployments = state
         self.config.export_to_toml(self._config_path())
-        self.output.print(
+        self.output.effect(
             f"Pruned {summary['entries']} old release(s): {len(summary['backups'])} backup dir(s), "
             f"{removed_images} image(s); kept {summary['kept']}",
             emoji_code=":broom:",
@@ -2036,4 +2036,4 @@ class DeployOrchestrator:
                 f"Previous image is now {state.previous.app_image} -- running `fm rollback` again would re-deploy it.",
                 emoji_code=":information:",
             )
-        self.output.print(f"Rolled back to {previous_image}", emoji_code=":rewind:")
+        self.output.effect(f"Rolled back to {previous_image}", emoji_code=":rewind:")

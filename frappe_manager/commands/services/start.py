@@ -44,11 +44,11 @@ def start_services(
                 continue
 
             services_manager.start_service(services=[service.value])
-            output.print(f"Started service {service.value}")
+            output.effect(f"Started service {service.value}")
     elif refuse_if_switched_off(service_name.value):
         pass
     elif not services_manager.is_service_running(service_name.value):
         services_manager.start_service(services=[service_name.value])
-        output.print(f"Started service {service_name.value}")
+        output.effect(f"Started service {service_name.value}")
     else:
         output.print(f"Skipped {service_name.value}: already running")

@@ -143,6 +143,9 @@ class EventSink:
     characters the log line carries, so one run's file and stream join on either.
     """
 
+    # Fields may be added and none renamed; TYPES may be added too, so a consumer must ignore an
+    # event name it does not know rather than treat the line as malformed. `v` says nothing about
+    # the vocabulary and is not bumped for a new type.
     SCHEMA_VERSION = 1
     # Declared, not inferred: the handler used to find this sink by probing for a private method,
     # which is the shape-guessing the split exists to remove and breaks the moment another sink
@@ -239,6 +242,8 @@ class EventSink:
             # lines into a JSONL stream in the first place.
             self._settle_pending(ok=True)
             self._write("result", text=record.text)
+        elif record.kind == "effect":
+            self._write("effect", text=record.text, changed=record.fields.get("changed", True))
         elif record.kind == "warning":
             self._write("warning", text=record.text)
         elif record.kind in ("error", "display_error"):

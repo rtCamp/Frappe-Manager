@@ -194,7 +194,7 @@ def uninstall(
                     failures.append(f"container {name}: {e}")
         # What WENT, not what was planned: reporting len(plan.containers) told the operator eight
         # were removed while three of them sat in `failures` printed directly below.
-        output.print(f"Removed {removed_containers} container(s)")
+        output.effect(f"Removed {removed_containers} container(s)")
 
     # After the containers, never before: docker refuses to remove a volume or a network that is
     # still referenced, and `docker rm -v` above only took the anonymous ones.
@@ -207,7 +207,7 @@ def uninstall(
                     removed_volumes += 1
                 else:
                     failures.append(f"volume {name}: could not be removed")
-        output.print(f"Removed {removed_volumes} volume(s)")
+        output.effect(f"Removed {removed_volumes} volume(s)")
 
     if docker is not None and plan.networks:
         removed_networks = 0
@@ -218,7 +218,7 @@ def uninstall(
                     removed_networks += 1
                 else:
                     failures.append(f"network {network}: could not be removed")
-        output.print(f"Removed {removed_networks} network(s)")
+        output.effect(f"Removed {removed_networks} network(s)")
 
     if plan.paths:
         freed = 0
@@ -231,7 +231,7 @@ def uninstall(
                     freed += entry.size
         # Summing only the entries that survived _remove_path: plan.total_size counted the
         # root-owned mariadb directory -- the documented failure -- as space reclaimed.
-        output.print(f"Removed {format_size(freed)} of files")
+        output.effect(f"Removed {format_size(freed)} of files")
 
     # CLI_DIR itself only goes when nothing was asked to be kept inside it; --only and
     # --keep-backups both leave a populated tree that must survive.
@@ -248,13 +248,13 @@ def uninstall(
                     removed_images += 1
                 except Exception as e:
                     failures.append(f"image {image}: {e}")
-        output.print(f"Removed {removed_images} image(s)")
+        output.effect(f"Removed {removed_images} image(s)")
 
     if plan.trust:
         removed, trust_failures = TrustStoreManager(output).uninstall()
         failures += trust_failures
         if removed:
-            output.print(f"Removed fm's dev CA from {len(removed)} trust store(s)")
+            output.effect(f"Removed fm's dev CA from {len(removed)} trust store(s)")
 
     if failures:
         for failure in failures:
@@ -272,7 +272,7 @@ def uninstall(
                 "networks and images were not touched. Re-run this with docker running to remove them."
             )
         else:
-            output.print("fm's state is gone from this host.", emoji_code=":wastebasket:")
+            output.effect("fm's state is gone from this host.", emoji_code=":wastebasket:")
         output.print(_package_removal_hint(), emoji_code="", soft_wrap=True, highlight=False)
 
 

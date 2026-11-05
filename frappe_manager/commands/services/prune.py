@@ -187,4 +187,4 @@ def prune_services(
         reclaimed += log_plan.rotate_size
         execute_log_prune(log_plan)
 
-    output.print(f"Done     : ~{format_size(reclaimed)} reclaimed", emoji_code="")
+    output.effect(f"Done     : ~{format_size(reclaimed)} reclaimed", emoji_code="")

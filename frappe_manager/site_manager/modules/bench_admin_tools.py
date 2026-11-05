@@ -232,7 +232,7 @@ class BenchAdminTools:
         self.output.change_head("Configuring Mailpit as default mail server")
         config = self._apply_mailpit_conf(self._get_common_site_config())
         self._save_common_site_config(config)
-        self.output.print("Configured Mailpit as default mail server")
+        self.output.effect("Configured Mailpit as default mail server")
 
     def remove_mailpit_as_default_server(self):
         """Strip the Mailpit fallback everywhere it may live: the common config AND every site's
@@ -243,7 +243,7 @@ class BenchAdminTools:
         self._save_common_site_config(config)
         for site in self.bench.bench_config.site_names:
             self.remove_mailpit_for_site(site)
-        self.output.print("Removed Mailpit as default mail server")
+        self.output.effect("Removed Mailpit as default mail server")
 
     def configure_mailpit_for_site(self, site: str):
         """Write the Mailpit fallback into ONE site's site_config.json; the bench's other sites
@@ -254,7 +254,7 @@ class BenchAdminTools:
             raise BenchException(self.bench_name, message=f"sites/{site}/site_config.json not found.")
         config = self._apply_mailpit_conf(json.loads(config_path.read_bytes()))
         config_path.write_text(json.dumps(config))
-        self.output.print(f"Configured Mailpit as the default mail server for {site}")
+        self.output.effect(f"Configured Mailpit as the default mail server for {site}")
 
     def remove_mailpit_for_site(self, site: str):
         config_path = self._site_config_path(site)

@@ -708,7 +708,7 @@ def _add_site_to_bench(
     output.change_head("Publishing the new site's address")
     bench.republish_site_map()
 
-    output.print(
+    output.effect(
         f"Added [fm.info]{site}[/fm.info]. The bench now serves "
         f"{', '.join(bench.bench_config.site_names)}.",
         emoji_code=":white_check_mark:",

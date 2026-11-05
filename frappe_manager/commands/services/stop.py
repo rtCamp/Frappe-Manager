@@ -33,9 +33,9 @@ def stop_services(
                 continue
 
             services_manager.stop_service(services=[service.value])
-            output.print(f"Stopped service {service.value}")
+            output.effect(f"Stopped service {service.value}")
     elif services_manager.is_service_running(service_name.value):
         services_manager.stop_service(services=[service_name.value])
-        output.print(f"Stopped service {service_name.value}")
+        output.effect(f"Stopped service {service_name.value}")
     else:
         output.print(f"Skipped {service_name.value}: already stopped")

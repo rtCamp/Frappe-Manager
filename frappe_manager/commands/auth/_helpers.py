@@ -182,7 +182,7 @@ def apply_auth(
         output.display_error(
             "--rotate cannot be combined with --password (either pick the password yourself or let fm mint one)"
         )
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=2)
 
     allow_ips: list[str] = []
     if allow_ip:
@@ -190,14 +190,14 @@ def apply_auth(
             allow_ips = validate_cidrs(allow_ip)
         except ValueError as e:
             output.display_error(f"--allow-ip: {e}")
-            raise typer.Exit(code=1) from e
+            raise typer.Exit(code=2) from e
 
     for path in allow_path:
         if not path.startswith("/"):
             output.display_error(
                 f"--allow-path must be an absolute path prefix like /api/method/ping, got {path!r}"
             )
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=2)
 
     if password == "-":
         password = read_password_from_stdin()
@@ -208,7 +208,7 @@ def apply_auth(
         output.display_error(
             f"--tools cannot take a site part: one Adminer and one Mailpit serve the whole bench, on every hostname '{bench.name}' has, so acting on them for '{site}' alone would leave the same tools open on the others. Run 'fm auth enable {bench.name} --tools' to protect them for the bench."
         )
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=2)
 
     # Per-site auth needs a per-site server block, but nginx conf renders once at the container's
     # first boot: an older bench's conf may include only `custom/*.conf`. Recording an override
@@ -242,7 +242,7 @@ def apply_auth(
         output.display_error(
             f"--allow-path exempts paths on the web surface only, which {scope} does not protect (add --web)"
         )
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=2)
 
     # Only turning a surface ON adds exposure, so an idempotent re-run never gates.
     enabling_web = web_on and not current.web
@@ -317,7 +317,7 @@ def apply_auth(
             validate_credentials(new_user, new_password)
         except ValueError as e:
             output.display_error(f"Invalid credentials: {e}")
-            raise typer.Exit(code=1) from e
+            raise typer.Exit(code=2) from e
 
     new_allow_ips = allow_ips if allow_ip else ([] if clear_exemptions else current.allow_ips)
     new_allow_paths = allow_path if allow_path else ([] if clear_exemptions else current.allow_paths)

@@ -419,7 +419,7 @@ def _apply_plan(bench: Bench, plan: UpdatePlan, output) -> None:
     if plan.default_site is not None:
         output.change_head(f"Making {plan.default_site} the bench's default site")
         bench.set_common_bench_config({"default_site": plan.default_site})
-        output.print(f"Default site is now {plan.default_site}")
+        output.effect(f"Default site is now {plan.default_site}")
 
     # `_apply_upload_limit` owns its own save plus the three writes that actually enforce the limit
     # (proxy vhost.d, the bench custom conf, site_config), and reloads nginx once if anything
@@ -464,7 +464,7 @@ def _apply_upload_limit(bench: Bench, plan: UpdatePlan, output) -> None:
         bench.apply_upload_limit()
         if bench.services.is_service_running("nginx-proxy"):
             bench.services.nginx_controller.reload()
-        output.print(f"Upload size limit for {site} updated to {plan.upload_limit}")
+        output.effect(f"Upload size limit for {site} updated to {plan.upload_limit}")
     else:
         output.change_head(f"Updating upload size limit to {plan.upload_limit}")
         bench.update_upload_limit(plan.upload_limit)
@@ -639,7 +639,7 @@ def _install_db_ca(bench: Bench, plan: UpdatePlan, output) -> None:
     # Absolute, but deliberately not resolved: a rotation is usually driven through a stable symlink
     # (certbot's live/ layout is the idiom), and following it would record the versioned file instead.
     database_config.ca = str(plan.db_ca.absolute())
-    output.print(f"Installed CA at {container_ca_path} and rebuilt the bench ca-bundle.pem")
+    output.effect(f"Installed CA at {container_ca_path} and rebuilt the bench ca-bundle.pem")
     # No restart notice: config/ is bind-mounted as a directory into frappe, socketio, schedule and
     # the workers, and the copy rewrites the same file in place, so running containers already see it.
     if plan.db_ca_had_previous:
@@ -664,7 +664,7 @@ def _setup_runtime(bench: Bench, plan: UpdatePlan, output) -> None:
     venv_recreated = bench.app_manager.setup_python_and_node_environments(
         use_run=True, recreate_python_env=plan.recreate_python_env
     )
-    output.print("Runtime versions updated")
+    output.effect("Runtime versions updated")
 
     if venv_recreated:
         # `recreate_venv` left the pre-repair venv as env.bak and this is the only place that can
@@ -688,7 +688,7 @@ def _setup_runtime(bench: Bench, plan: UpdatePlan, output) -> None:
                     skip_clone=True,
                     use_run=True,
                 )
-                output.print("All apps reinstalled")
+                output.effect("All apps reinstalled")
             else:
                 output.warning("No apps.txt found, skipping app reinstallation")
         except Exception:

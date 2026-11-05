@@ -97,7 +97,7 @@ class NginxController:
             else:
                 self.docker_client.compose.exec(service=self.service_name, command="nginx -s reload", stream=False)
             if reloaded:
-                self.output.print(f"Reloaded {which}")
+                self.output.effect(f"Reloaded {which}")
             return reloaded
         return False
 
@@ -114,7 +114,7 @@ class NginxController:
             self.docker_client.compose.restart(services=[self.service_name], stream=False)
             # Past tense, and said ONCE: this used to repeat the spinner head verbatim, after the
             # restart had already returned.
-            self.output.print("Restarted nginx")
+            self.output.effect("Restarted nginx")
         else:
             # Restarting a stopped service is a silent no-op, so a certificate could be reported
             # "added" having never been served.

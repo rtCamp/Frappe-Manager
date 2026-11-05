@@ -44,7 +44,7 @@ class TestNginxControllerReload:
         controller.reload()
 
         mock_output.change_head.assert_called_once_with("Reloading bench nginx")
-        mock_output.print.assert_called_once_with("Reloaded bench nginx")
+        mock_output.effect.assert_called_once_with("Reloaded bench nginx")
 
         mock_docker_client.compose.exec.assert_called_once_with(
             service="nginx",
@@ -70,7 +70,7 @@ class TestNginxControllerReload:
         controller.reload()
 
         mock_output.change_head.assert_called_once_with("Reloading the global proxy")
-        mock_output.print.assert_called_once_with("Reloaded the global proxy")
+        mock_output.effect.assert_called_once_with("Reloaded the global proxy")
 
         calls = mock_docker_client.compose.exec.call_args_list
         assert len(calls) == 2
@@ -113,7 +113,7 @@ class TestNginxControllerReload:
         # HUP + failed reload + successful retry
         assert mock_docker_client.compose.exec.call_count == 3
         mock_output.warning.assert_not_called()
-        mock_output.print.assert_called_once_with("Reloaded the global proxy")
+        mock_output.effect.assert_called_once_with("Reloaded the global proxy")
 
     def test_reload_does_not_execute_when_not_running(self, mocker, mock_compose_file_manager, mock_docker_client):
         """Test that reload does not execute docker command when compose is not running."""
@@ -130,7 +130,7 @@ class TestNginxControllerReload:
 
         mock_output.change_head.assert_called_once_with("Reloading the global proxy")
         mock_docker_client.compose.exec.assert_not_called()
-        mock_output.print.assert_not_called()
+        mock_output.effect.assert_not_called()
 
     def test_reload_uses_correct_service_name(self, mocker, mock_compose_file_manager, mock_docker_client):
         """Test that reload uses the correct service name from initialization."""
@@ -170,7 +170,7 @@ class TestNginxControllerRestart:
         # The heading announces the attempt; the line after it reports the OUTCOME. Both used to
         # be the identical string, the second printed after the restart had already returned.
         mock_output.change_head.assert_called_once_with("Restarting nginx")
-        mock_output.print.assert_called_once_with("Restarted nginx")
+        mock_output.effect.assert_called_once_with("Restarted nginx")
 
         # Verify docker restart was called with correct parameters
         mock_docker_client.compose.restart.assert_called_once_with(services=["nginx-proxy"], stream=False)
@@ -190,7 +190,7 @@ class TestNginxControllerRestart:
 
         mock_output.change_head.assert_called_once_with("Restarting nginx")
         mock_docker_client.compose.restart.assert_not_called()
-        mock_output.print.assert_not_called()
+        mock_output.effect.assert_not_called()
 
     def test_restart_uses_correct_service_name(self, mocker, mock_compose_file_manager, mock_docker_client):
         """Test that restart uses the correct service name from initialization."""

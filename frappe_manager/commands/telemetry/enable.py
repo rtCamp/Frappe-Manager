@@ -95,4 +95,4 @@ def enable(
     with spinner(output, f"Enabling {provider.value}"):
         apply_newrelic(bench, output, enabled=True, license_key=license_key, force_config=force_config)
 
-    output.print(f"Enabled {provider.value} on {bench.name}")
+    output.effect(f"Enabled {provider.value} on {bench.name}")

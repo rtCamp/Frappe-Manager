@@ -127,6 +127,6 @@ def migrate_services(
     # [schema].version (and its rollback path the only rewinder), so a crash
     # between "migration done" and "version recorded" has no window to leave the two apart.
 
-    output.print(
+    output.effect(
         f"Global services & configuration: [fm.warn]v{global_services_version}[/fm.warn] → [fm.ok]v{current_version}[/fm.ok]"
     )

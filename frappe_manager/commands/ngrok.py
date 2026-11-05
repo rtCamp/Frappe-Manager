@@ -77,7 +77,7 @@ def ngrok(
             output.display_error(
                 f"bench '{bench.name}' does not serve '{requested}'. It serves {', '.join(repr(d) for d in served)}."
             )
-            raise typer.Exit(1)
+            raise typer.Exit(2)
         requested = resolved
     tunnel_host = requested or bench.primary_domain
 
@@ -91,7 +91,7 @@ def ngrok(
             output.display_error(
                 "Ngrok auth token is required. Please provide it with --auth-token or set NGROK_AUTHTOKEN environment variable.",
             )
-            raise typer.Exit(1)
+            raise typer.Exit(2)
 
         # Guarded on "different from what is stored", not "nothing is stored": narrowing this to
         # only "nothing stored" would silently discard an explicit --save-token replacement token.
@@ -112,7 +112,7 @@ def ngrok(
             if should_save == "yes":
                 fm_config_manager.ngrok_auth_token = auth_token
                 fm_config_manager.export_to_toml()
-                output.print("Saved ngrok auth token to config", emoji_code=":white_check_mark:")
+                output.effect("Saved ngrok auth token to config", emoji_code=":white_check_mark:")
 
         output.info(f"Creating ngrok tunnel for {tunnel_host}", emoji_code=":link:")
 

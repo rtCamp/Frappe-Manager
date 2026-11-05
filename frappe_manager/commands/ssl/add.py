@@ -176,14 +176,14 @@ def add_certificate(
     if dev and standalone:
         output = get_output_handler(ctx)
         output.display_error("--dev cannot be used with --standalone mode")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     # An external domain's config has no field to record the label, so a binding made here would be
     # dropped on the next read and the certificate would renew against the default account instead.
     if dns_provider and standalone:
         output = get_output_handler(ctx)
         output.display_error("--dns-provider is bench mode only; external domains use the default DNS credentials")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     # Both of these steer the standalone branch's DNS pre-check. The bench branch has no such
     # pre-check to skip or poll, and _add_bench_certificate takes neither, so accepting them here
@@ -194,41 +194,41 @@ def add_certificate(
             "--skip-dns-check is --standalone only; a bench certificate is issued without a DNS pre-check, "
             "so there is nothing to skip"
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if wait_for_dns and not standalone:
         output = get_output_handler(ctx)
         output.display_error(
             "--wait-for-dns is --standalone only; a bench certificate is issued without waiting on DNS propagation"
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if custom and dev:
         output = get_output_handler(ctx)
         output.display_error("--custom cannot be used with --dev")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if custom and standalone:
         output = get_output_handler(ctx)
         output.display_error("--custom is bench mode only; --standalone is not supported yet")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if custom and test_ca:
         output = get_output_handler(ctx)
         output.display_error(
             "--custom cannot be used with --test-ca: there is no staging server to rehearse an import against"
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if custom and cname:
         output = get_output_handler(ctx)
         output.display_error("--cname is not applicable to --custom (there is no ACME challenge to delegate)")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if custom and dns_provider:
         output = get_output_handler(ctx)
         output.display_error("--dns-provider is not applicable to --custom (there is no ACME challenge to authenticate)")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     # --challenge always defaults to http01 (LETSENCRYPT_PREFERRED_CHALLENGE.http01), so `challenge
     # is None` can never distinguish "the user asked for it" from "nothing was passed" -- only the
@@ -236,23 +236,23 @@ def add_certificate(
     if custom and ctx.get_parameter_source("challenge") == ParameterSource.COMMANDLINE:
         output = get_output_handler(ctx)
         output.display_error("--challenge is not applicable to --custom: there is no ACME challenge to perform")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if not custom and (cert or key or ca):
         output = get_output_handler(ctx)
         output.display_error("--cert/--key/--ca require --custom")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if custom and (not cert or not key):
         output = get_output_handler(ctx)
         output.display_error("--custom requires both --cert and --key")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     for flag_name, path in (("--cert", cert), ("--key", key), ("--ca", ca)):
         if path and not path.exists():
             output = get_output_handler(ctx)
             output.display_error(f"{flag_name} file not found: {path}")
-            raise typer.Exit(1)
+            raise typer.Exit(2)
 
     # Checked only once the address is known (below, in both modes): a policy refusal that fires
     # before the arity check told an operator to "use --challenge dns01" when they had not named a
@@ -269,7 +269,7 @@ def add_certificate(
             "cross Let's Encrypt's rate limit in one command. Name a bench, and use 'BENCH/all' for "
             "every domain of that one."
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     if standalone:
         if domain:
@@ -278,13 +278,13 @@ def add_certificate(
                 "An external domain belongs to no bench, so --standalone takes a bare domain: "
                 f"use 'fm ssl add {domain} --standalone'."
             )
-            raise typer.Exit(1)
+            raise typer.Exit(2)
 
         if not address:
             output = get_output_handler(ctx)
             output.display_error("Domain is required in standalone mode")
             output.data_raw(ctx.get_help())
-            raise typer.Exit(1)
+            raise typer.Exit(2)
 
         _refuse_http01_on_a_moved_proxy(ctx, challenge, dev, custom)
         _add_external_certificate(ctx, address, challenge, cname, test_ca, skip_dns_check, wait_for_dns)
@@ -302,7 +302,7 @@ def add_certificate(
             "certificate is for. 'BENCH/all' issues one for every domain the bench serves."
         )
         output.data_raw(ctx.get_help())
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     _refuse_http01_on_a_moved_proxy(ctx, challenge, dev, custom)
 

@@ -87,7 +87,7 @@ def _reject_impossible_keep(output, keep: int | None) -> None:
     """
     if keep is not None and keep < 1:
         output.display_error("--keep must be at least 1: the current release is never pruned.")
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
 
 def _find_current_deploy_backups(state) -> "tuple[dict[str, str], str | None]":
@@ -229,7 +229,7 @@ def switch(
     # Rollback safety default: old code must never migrate a newer schema.
     if previous and migrate is None:
         migrate = False
-        output.print("Rollback: migrate disabled for this run (override with --migrate)")
+        output.effect("Rollback: migrate disabled for this run (override with --migrate)", changed=False)
 
     dumps: dict[str, Path] = {}
     if restore_db:

@@ -143,7 +143,7 @@ def test_a_missing_address_is_reported_before_the_port_refusal(add):
     with pytest.raises(typer.Exit) as exc:
         add_certificate(_ctx(domain=None), address=None)
 
-    assert exc.value.exit_code == 1
+    assert exc.value.exit_code == 2
     assert "BENCH/DOMAIN is required" in _errors(output)[0]
     assert "--challenge http01" not in " ".join(_errors(output))
     issue.assert_not_called()

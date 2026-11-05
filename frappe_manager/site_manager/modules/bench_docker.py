@@ -428,7 +428,7 @@ class BenchDockerOps:
         """
         self.output.change_head("Stopping bench services")
         self.docker_client.compose.stop(services=[], timeout=timeout)
-        self.output.print("Stopped bench services")
+        self.output.effect("Stopped bench services")
 
     def remove_containers(self, remove_volumes: bool = True, timeout: int = 5) -> None:
         """
@@ -449,7 +449,7 @@ class BenchDockerOps:
             self.output.live_lines(
                 cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE
             )
-            self.output.print("Removed bench containers")
+            self.output.effect("Removed bench containers")
         else:
             self.output.info("Skipped containers removal: no bench compose file found")
 
@@ -703,7 +703,7 @@ class BenchDockerOps:
         self.output.change_head(f"Restarting services - {' '.join(enabled)}")
         self.docker_client.compose.restart(services=enabled, timeout=timeout)
         action = "Force restarted" if force else "Restarted"
-        self.output.print(f"{action} services - {' '.join(enabled)}")
+        self.output.effect(f"{action} services - {' '.join(enabled)}")
 
     def exec_command(self, service: str, command: str, user: str | None = None, stream: bool = False):
         """

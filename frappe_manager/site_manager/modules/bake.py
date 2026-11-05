@@ -599,7 +599,7 @@ class BakeManager:
                 extra=extra,
             )
 
-            self.output.print(f"Built image: {tag}", emoji_code=":white_check_mark:")
+            self.output.effect(f"Built image: {tag}", emoji_code=":white_check_mark:")
 
             self._build_nginx_image(frappe_bench_dir, nginx_tag, platform=platform)
 
@@ -728,7 +728,7 @@ class BakeManager:
             )
         finally:
             shutil.rmtree(staging, ignore_errors=True)
-        self.output.print(f"Built image: {nginx_tag}", emoji_code=":white_check_mark:")
+        self.output.effect(f"Built image: {nginx_tag}", emoji_code=":white_check_mark:")
         return nginx_tag
 
     def _materialize_assets(self, assets_dir: Path, frappe_bench_dir: Path, dest: Path) -> None:

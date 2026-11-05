@@ -592,7 +592,7 @@ class MigrationV100(MigrationBase):
             if docker_client.compose.is_service_running(service_name):
                 self.output.change_head("Recreating the global proxy for the fm.d mount")
                 docker_client.compose.up(services=[service_name], force_recreate=True, stream=False)
-                self.output.print("Recreated the global proxy")
+                self.output.effect("Recreated the global proxy")
                 return
 
     def _add_postgres_service(self):
@@ -651,7 +651,7 @@ class MigrationV100(MigrationBase):
             doc.setdefault("volumes", {})["postgres-data"] = template["volumes"]["postgres-data"]
 
         compose_path.write_text(_dump_yaml(doc))
-        self.output.print("Added the postgres service to the global services (switched off)")
+        self.output.effect("Added the postgres service to the global services (switched off)")
 
     def undo_services_migrate(self):
         # The rename ran last, so its rollback must undo first.
@@ -664,7 +664,7 @@ class MigrationV100(MigrationBase):
         for backup in self.backup_manager.backups:
             if backup.src == compose_path:
                 self.backup_manager.restore(backup, force=True)
-                self.output.print(f"Restored admin tools compose for {bench.name}")
+                self.output.effect(f"Restored admin tools compose for {bench.name}")
                 break
 
         # Only the FILE this migration placed, never the directory: docker resolves that
@@ -749,7 +749,7 @@ class MigrationV100(MigrationBase):
             yaml.dump(compose_data, f)
 
         self._heal_adminer_mount(bench, compose_path)
-        self.output.print(f"Updated admin tools (Adminer 5 + login plugin) for {bench.name}")
+        self.output.effect(f"Updated admin tools (Adminer 5 + login plugin) for {bench.name}")
 
     def _add_nginx_depends_on(self, bench: MigrationBench):
         """Order bench nginx after the two services it names as upstreams.
@@ -1012,7 +1012,7 @@ class MigrationV100(MigrationBase):
             doc["auth"] = auth
 
         toml_document.save(config_path, doc)
-        self.output.print(f"Moved admin tools credentials into \\[auth] for {bench.name}")
+        self.output.effect(f"Moved admin tools credentials into \\[auth] for {bench.name}")
 
     def _drop_removed_config_keys(self, bench: MigrationBench):
         """Strip keys and whole tables that no longer exist from bench_config.toml.
@@ -1324,7 +1324,7 @@ class MigrationV100(MigrationBase):
 
         data["default_site"] = resolved
         common.write_text(json.dumps(data, indent=1))
-        self.output.print(f"Recorded default_site = {resolved} for {bench.name}")
+        self.output.effect(f"Recorded default_site = {resolved} for {bench.name}")
 
     def _rewrite_switch_migrate(self, bench: MigrationBench):
         """Turn a surviving `[switch].migrate = "auto"` into `true`.
@@ -1735,7 +1735,7 @@ class MigrationV100(MigrationBase):
             return
 
         toml_document.save(config_path, doc)
-        self.output.print(f"Rewrote \\[ssl] config for {bench.name}: {', '.join(changes)}")
+        self.output.effect(f"Rewrote \\[ssl] config for {bench.name}: {', '.join(changes)}")
 
     def _admin_tools_and_config_services(self):
         # First: it is a small file rewrite, and it must not be skipped because the engine
@@ -1789,7 +1789,7 @@ class MigrationV100(MigrationBase):
         api_key = legacy.get("api_key")
 
         if DEFAULT_DNS_LABEL in providers:
-            self.output.print(
+            self.output.effect(
                 f"Dropped the legacy global \\[cloudflare] table; \\[ssl.dns_providers.{DEFAULT_DNS_LABEL}] already "
                 "holds a credential and wins",
             )
@@ -1804,7 +1804,7 @@ class MigrationV100(MigrationBase):
             if api_key:
                 entry["api_key"] = api_key
             providers[DEFAULT_DNS_LABEL] = entry
-            self.output.print(f"Moved the global Cloudflare credential into \\[ssl.dns_providers.{DEFAULT_DNS_LABEL}]")
+            self.output.effect(f"Moved the global Cloudflare credential into \\[ssl.dns_providers.{DEFAULT_DNS_LABEL}]")
         else:
             # Nothing to carry over. A credential-less set is not written, because the config
             # writer drops one anyway and the resolver treats it as absent.
@@ -1934,9 +1934,9 @@ class MigrationV100(MigrationBase):
             )
             database_manager.wait_till_db_start()
 
-        self.output.print(f"Global database engine is now {MARIADB_IMAGE}")
+        self.output.effect(f"Global database engine is now {MARIADB_IMAGE}")
         if dump_path is not None:
-            self.output.print(f"Pre-upgrade dump of every database kept at {dump_path}")
+            self.output.effect(f"Pre-upgrade dump of every database kept at {dump_path}")
         self.output.info(
             f"{MARIADB_IMAGE} is the engine frappe v16 tests against. Benches still on frappe v15 will print a "
             "MariaDB version warning when creating or restoring a site, because v15 is tested on 10.6 and warns from "
@@ -1989,13 +1989,13 @@ class MigrationV100(MigrationBase):
         for backup in self.backup_manager.backups:
             if backup.src == compose_path:
                 self.backup_manager.restore(backup, force=True)
-                self.output.print("Restored the services compose file")
+                self.output.effect("Restored the services compose file")
                 break
 
         for backup in self.backup_manager.backups:
             if backup.src == CLI_FM_CONFIG_PATH:
                 self.backup_manager.restore(backup, force=True)
-                self.output.print("Restored the global fm config")
+                self.output.effect("Restored the global fm config")
                 break
 
         self.output.warning(
@@ -2097,7 +2097,7 @@ class MigrationV100(MigrationBase):
         #    it by hand, which is exactly the partial state this migration must not leave.
         self._migrate_all_benches_files()
 
-        self.output.print("Global services renamed: mariadb, nginx-proxy")
+        self.output.effect("Global services renamed: mariadb, nginx-proxy")
 
     def _copy_data_volume(self):
         old_volume = next((name for name in OLD_VOLUME_CANDIDATES if self._volume_exists(name)), None)
@@ -2119,7 +2119,7 @@ class MigrationV100(MigrationBase):
                 command="sh -c 'cp -a /from/. /to/'",
                 stream=False,
             )
-        self.output.print(
+        self.output.effect(
             f"Databases copied to {NEW_VOLUME_NAME}. The old volume {old_volume} was kept as the "
             f"rollback path; once satisfied, remove it with: docker volume rm {old_volume}"
         )
@@ -2334,7 +2334,7 @@ class MigrationV100(MigrationBase):
         for backup in self.backup_manager.backups:
             if backup.src == compose_path:
                 self.backup_manager.restore(backup, force=True)
-                self.output.print("Restored the services compose file")
+                self.output.effect("Restored the services compose file")
                 break
 
         self._recreate_external_networks(compose_path)

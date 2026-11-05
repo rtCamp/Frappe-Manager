@@ -293,19 +293,19 @@ def _saved(bench) -> AuthConfig:
 # --- flag guards refuse before the bench is even looked up ----------------- #
 def test_rotate_with_explicit_password_is_refused(out):
     r = _run_enable(rotate=True, password=CHOSEN_PW)
-    assert r.exit.exit_code == 1
+    assert r.exit.exit_code == 2
     assert "--rotate cannot be combined with --password" in joined(out.display_error)
 
 
 def test_bad_allow_ip_is_refused_with_the_flag_named(out):
     r = _run_enable(allow_ip=["not-an-ip"])
-    assert r.exit.exit_code == 1
+    assert r.exit.exit_code == 2
     assert "--allow-ip: invalid IP range 'not-an-ip'" in joined(out.display_error)
 
 
 def test_relative_allow_path_is_refused(out):
     r = _run_enable(allow_path=["api/method/ping"])
-    assert r.exit.exit_code == 1
+    assert r.exit.exit_code == 2
     assert "--allow-path must be an absolute path prefix" in joined(out.display_error)
 
 
@@ -315,7 +315,7 @@ def test_allow_path_is_rejected_when_the_result_leaves_web_unprotected(out, tmp_
     # user error, not a silent no-op.
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=True, password=PW))
     r = _run_enable(bench, tools=True, allow_path=["/api/method/ping"])
-    assert r.exit.exit_code == 1
+    assert r.exit.exit_code == 2
     assert "web surface only" in joined(out.display_error)
     bench.save_bench_config.assert_not_called()
 
@@ -760,7 +760,7 @@ def test_no_password_is_minted_when_disable_leaves_everything_off(tmp_path):
 def test_invalid_credentials_are_refused_before_saving(out, tmp_path):
     bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=True, password=PW))
     r = _run_enable(bench, user="has:colon")
-    assert r.exit.exit_code == 1
+    assert r.exit.exit_code == 2
     assert "Invalid credentials: username cannot contain ':'" in joined(out.display_error)
     bench.save_bench_config.assert_not_called()
 
@@ -1003,7 +1003,7 @@ def test_exclude_bench_with_one_named_bench_is_refused(out, tmp_path):
     # asked for something the command cannot honour, so it says so instead of guessing.
     _bench_dir(tmp_path, "a.localhost")
     r = _run_migrate(tmp_path, address="a.localhost", exclude_bench="b.localhost")
-    assert r.exit.exit_code == 1
+    assert r.exit.exit_code == 2
     assert "--exclude-bench only means something with 'all', which names every bench" in joined(out.display_error)
     r.executor_cls.assert_not_called()
 
@@ -1011,7 +1011,7 @@ def test_exclude_bench_with_one_named_bench_is_refused(out, tmp_path):
 def test_exclude_bench_with_no_bench_named_at_all_is_refused(out, tmp_path):
     # A bare `fm migrate` touches infrastructure and no bench, so there is nothing to exclude from.
     r = _run_migrate(tmp_path, exclude_bench="a.localhost")
-    assert r.exit.exit_code == 1
+    assert r.exit.exit_code == 2
     assert "--exclude-bench only means something with 'all', which names every bench" in joined(out.display_error)
     r.executor_cls.assert_not_called()
 
@@ -1472,7 +1472,7 @@ def _run_shell(bench, *, args=None, interactive=True, isatty=True, stdin_data=""
 def test_an_unknown_service_is_refused_and_the_available_ones_listed(out, tmp_path):
     bench = _shell_bench(tmp_path)
     r = _run_shell(bench, service="postgres")
-    assert r.exit.exit_code == 1
+    assert r.exit.exit_code == 2
     assert "Service 'postgres' not found" in joined(out.display_error)
     assert "Available services: frappe, mailpit, nginx" in joined(out.print)
     bench.shell.assert_not_called()
@@ -1482,7 +1482,7 @@ def test_an_unknown_service_is_refused_and_the_available_ones_listed(out, tmp_pa
 def test_bench_console_is_refused_for_any_service_but_frappe(out, tmp_path):
     bench = _shell_bench(tmp_path)
     r = _run_shell(bench, service="nginx", bench_console=True)
-    assert r.exit.exit_code == 1
+    assert r.exit.exit_code == 2
     assert "--bench-console only works with the frappe service" in joined(out.display_error)
 
 
@@ -1746,7 +1746,7 @@ def test_a_command_with_passthrough_args_is_refused(out, tmp_path):
     # Before this guard the passthrough branch silently discarded -c.
     bench = _shell_bench(tmp_path)
     r = _run_shell(bench, command="ls", args=["bench", "migrate"])
-    assert r.exit.exit_code == 1
+    assert r.exit.exit_code == 2
     assert "-c cannot be combined with arguments after --" in joined(out.display_error)
     bench.execute_command.assert_not_called()
     r.execvp.assert_not_called()
@@ -1757,7 +1757,7 @@ def test_shell_path_with_bench_console_is_refused(out, tmp_path):
     bench = _shell_bench(tmp_path)
     with patch.object(shell_mod, "_handle_bench_console") as handler:
         r = _run_shell(bench, bench_console=True, shell_path="/bin/zsh")
-    assert r.exit.exit_code == 1
+    assert r.exit.exit_code == 2
     assert "--shell-path has no effect with --bench-console" in joined(out.display_error)
     handler.assert_not_called()
 
@@ -2360,7 +2360,7 @@ def test_tools_with_a_site_part_is_refused(out, tmp_path):
     bench-wide, which is the version an operator only finds out about when it matters."""
     bench = _auth_bench(tmp_path)
     r = _run_enable(bench, site="b.example.com", tools=True)
-    assert r.exit.exit_code == 1
+    assert r.exit.exit_code == 2
     assert "--tools cannot take a site part" in joined(out.display_error)
     bench.save_bench_config.assert_not_called()
 

@@ -41,7 +41,7 @@ def _run_uninstall(plan: TeardownPlan, docker, tmp_path) -> tuple[list[str], lis
         # Exit 1 is expected whenever a removal failed; the summary lines are what is under test.
         with contextlib.suppress(typer.Exit):
             uninstall(only=None, keep_backups=False, keep_images=False, yes=True, dry_run=False)
-    printed = [str(c.args[0]) for c in output.print.call_args_list]
+    printed = [str(c.args[0]) for c in [*output.print.call_args_list, *output.effect.call_args_list]]
     warned = [str(c.args[0]) for c in output.warning.call_args_list]
     return printed, warned
 
@@ -103,7 +103,7 @@ class TestTheUninstallSummaryCountsWhatWent:
             with contextlib.suppress(typer.Exit):
                 uninstall(only=None, keep_backups=False, keep_images=False, yes=True, dry_run=False)
 
-        printed = [str(c.args[0]) for c in output.print.call_args_list]
+        printed = [str(c.args[0]) for c in [*output.print.call_args_list, *output.effect.call_args_list]]
         warned = " ".join(str(c.args[0]) for c in output.warning.call_args_list)
         assert "fm's state is gone from this host." not in printed
         assert "docker was unreachable" in warned

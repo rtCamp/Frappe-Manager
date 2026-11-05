@@ -98,6 +98,10 @@ class _Harness:
         return [c.args[0] for c in self.output.print.call_args_list]
 
     @property
+    def effects(self) -> list[str]:
+        return [c.args[0] for c in self.output.effect.call_args_list]
+
+    @property
     def heads(self) -> list[str]:
         return [c.args[0] for c in self.output.change_head.call_args_list]
 
@@ -149,7 +153,7 @@ class TestRestartWorkersContainerPath:
         h.coordinator.restart_workers_containers_services(use_container_restart=True, force=False)
 
         assert [c.kwargs["timeout"] for c in h.workers_client.compose.restart.call_args_list] == [100, 100]
-        assert h.prints == [
+        assert h.effects == [
             "Restarted container - long-worker",
             "Restarted container - short-worker",
         ]
@@ -161,7 +165,7 @@ class TestRestartWorkersContainerPath:
         h.coordinator.restart_workers_containers_services(use_container_restart=True, force=True)
 
         assert [c.kwargs["timeout"] for c in h.workers_client.compose.restart.call_args_list] == [0, 0]
-        assert h.prints == [
+        assert h.effects == [
             "Force restarted container - long-worker",
             "Force restarted container - short-worker",
         ]
@@ -200,7 +204,7 @@ class TestRestartWorkersSupervisorForcePath:
         # no container is recreated or restarted on this path
         h.docker_ops.restart_services.assert_not_called()
         h.workers_client.compose.restart.assert_not_called()
-        assert h.prints == [
+        assert h.effects == [
             "Stopped and started supervisor processes - schedule",
             "Stopped and started supervisor processes - long-worker",
             "Stopped and started supervisor processes - short-worker",
@@ -213,7 +217,7 @@ class TestRestartWorkersSupervisorForcePath:
         h.coordinator.restart_workers_containers_services(use_container_restart=False, force=True)
 
         assert h.restart_supervisor.call_count == 3
-        assert h.prints == []
+        assert h.effects == []
 
     @pytest.mark.timeout(15)
     def test_every_service_including_schedule_is_announced(self, harness):
@@ -247,7 +251,7 @@ class TestRestartWorkersFmxCyclePath:
         h.docker_ops.restart_services.assert_not_called()
         h.workers_client.compose.restart.assert_not_called()
         h.restart_supervisor.assert_not_called()
-        assert h.prints == [
+        assert h.effects == [
             "Restarted supervisor processes - schedule",
             "Restarted supervisor processes - long-worker",
             "Restarted supervisor processes - short-worker",
@@ -297,7 +301,7 @@ class TestRestartWorkersFmxCyclePath:
             call("long-worker", docker_client_obj=h.workers_client, force=False),
             call("short-worker", docker_client_obj=h.workers_client, force=False),
         ]
-        assert h.prints == [
+        assert h.effects == [
             "Restarted supervisor processes - schedule",
             "Restarted supervisor processes - long-worker",
             "Restarted supervisor processes - short-worker",
@@ -312,7 +316,7 @@ class TestRestartWorkersFmxCyclePath:
         h.coordinator.restart_workers_containers_services(use_container_restart=False, force=False)
 
         assert len(h.infos) == 3
-        assert h.prints == []
+        assert h.effects == []
 
 
 class TestRestartWorkersNoWorkersConfigured:
@@ -324,7 +328,7 @@ class TestRestartWorkersNoWorkersConfigured:
 
         h.docker_ops.restart_services.assert_called_once_with([SCHEDULE], force=True)
         h.workers_client.compose.restart.assert_not_called()
-        assert h.prints == []
+        assert h.effects == []
         assert h.heads == []
 
     @pytest.mark.timeout(15)
@@ -335,7 +339,7 @@ class TestRestartWorkersNoWorkersConfigured:
 
         h.main_client.compose.exec.assert_called_once()
         h.workers_client.compose.exec.assert_not_called()
-        assert h.prints == ["Restarted supervisor processes - schedule"]
+        assert h.effects == ["Restarted supervisor processes - schedule"]
 
 
 class TestRestartWorkersWithoutAComposeFile:
@@ -396,7 +400,7 @@ class TestRestartWorkersWithoutAComposeFile:
 
         h.workers_client.compose.exec.assert_not_called()
         assert not [c.args[0] for c in h.output.warning.call_args_list if "worker-name" in c.args[0]]
-        assert [c.args[0] for c in h.output.print.call_args_list] == ["Restarted supervisor processes - schedule"]
+        assert [c.args[0] for c in h.output.effect.call_args_list] == ["Restarted supervisor processes - schedule"]
 
     @pytest.mark.timeout(15)
     def test_force_path_cycles_schedules_supervisor_only(self, tmp_path):
@@ -524,7 +528,7 @@ class TestSyncWorkersCompose:
         h.workers_client.compose.up.assert_not_called()
         # The announcement that NOTHING happened belongs at -v, not on every restart: the
         # always-on channel is for effects.
-        assert h.prints == []
+        assert h.effects == []
         assert "Workers configuration remains unchanged" in [str(c.args[0]) for c in h.output.info.call_args_list]
 
     @pytest.mark.timeout(15)
@@ -616,7 +620,7 @@ class TestSyncWorkersCompose:
         # a failed regen must never fall through to "unchanged" or to a start
         h.workers.generate_compose.assert_not_called()
         h.workers_client.compose.up.assert_not_called()
-        assert any(p.startswith("Rolled back ") for p in h.prints)
+        assert any(p.startswith("Rolled back ") for p in h.effects)
 
 
 class TestBackupWorkersSupervisorConf:

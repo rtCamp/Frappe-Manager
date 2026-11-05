@@ -99,6 +99,9 @@ class AppsWorld:
     @property
     def prints(self) -> list[str]:
         return [c.args[0] for c in self.output.print.call_args_list if c.args]
+    @property
+    def effects(self) -> list[str]:
+        return [c.args[0] for c in self.output.effect.call_args_list if c.args]
 
 
     def run(self, *, site: str | None = None, apps=None, **kwargs):
@@ -187,7 +190,7 @@ class TestAddressScope:
         assert "site-a" in migrate_cmd and "migrate" in migrate_cmd
         world.bench.restart_web_containers_services.assert_called_once_with(use_container_restart=False)
         world.bench.restart_workers_containers_services.assert_called_once_with(use_container_restart=False)
-        assert any("Grafted apps applied to site-a" in p for p in world.prints)
+        assert any("Grafted apps applied to site-a" in p for p in world.effects)
 
     def test_all_continues_past_a_failing_site_and_exits_nonzero(self, world):
         """`BENCH/all` reports a failing site and still finishes the rest, then exits non-zero."""

@@ -226,7 +226,7 @@ def _prompt_and_run_migration(
 
         if record_version is not None:
             record_version()
-        output.print(success_notice, emoji_code="✅ ")
+        output.effect(success_notice, emoji_code="✅ ")
         return
 
     if skip_warning is not None:

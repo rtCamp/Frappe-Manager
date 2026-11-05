@@ -454,7 +454,7 @@ def test_an_address_never_enumerates_the_other_sites(two_sites):
 
 def test_an_address_combined_with_all_sites_is_refused(two_sites):
     run = _run([f"{BENCH}/{SITE_A}", "--all-sites", "--yes"], root=two_sites, sites=[SITE_A, SITE_B])
-    assert run.result.exit_code == 1
+    assert run.result.exit_code == 2
     assert run.index("remove_site") == -1
     assert run.index("delete_bench") == -1
 

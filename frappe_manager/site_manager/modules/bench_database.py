@@ -87,13 +87,13 @@ class BenchDatabase:
                 self.output.info(f"Bench db [fm.info]{db_name}[/fm.info] not found in {engine.value}, skipped removal")
             else:
                 manager.remove_db(db_name)
-                self.output.print(f"{engine.value}: Removed bench db [fm.info]{db_name}[/fm.info]")
+                self.output.effect(f"{engine.value}: Removed bench db [fm.info]{db_name}[/fm.info]")
 
             if not manager.check_user_exists(db_user):
                 self.output.info(f"Bench db user [fm.info]{db_user}[/fm.info] not found in {engine.value}, skipped removal")
             else:
                 manager.remove_user(db_user, remove_all_host=True)
-                self.output.print(f"{engine.value}: Removed bench db users [fm.info]{db_user}[/fm.info]")
+                self.output.effect(f"{engine.value}: Removed bench db users [fm.info]{db_user}[/fm.info]")
 
     def sync_common_site_config(self):
         """

@@ -5,6 +5,7 @@ from typer_examples import example
 
 from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.commands.arguments import BenchSiteArgument
+from frappe_manager.exceptions import MissingArgumentError
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.utils.process_lock import bench_lock
@@ -219,7 +220,7 @@ def delete(
         output.display_error(
             f"--all-sites cannot be combined with the address '{address}/{site}', which already names exactly one site. Drop --all-sites to delete that site, or drop the '/{site}' to delete the whole bench."
         )
-        raise typer.Exit(1)
+        raise typer.Exit(2)
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj["verbose"]
@@ -268,12 +269,11 @@ def delete(
     # does not answer it: dropping a schema is a decision about what happens, not permission to
     # proceed, and it gets its own flag (docs/commands/index.md).
     if delete_fm_managed_db is None and any(s.droppable for s in schemas) and not output.is_interactive():
-        output.display_error(
+        raise MissingArgumentError(
             f"Bench '{address}' has {_plural(len([s for s in schemas if s.droppable]), 'schema')} on a database "
-            "server fm manages, and nothing has said what to do with them. Pass --delete-fm-managed-db to drop "
-            "them, or --no-delete-fm-managed-db to keep them."
+            "server fm manages, and nothing has said what to do with them.",
+            suggestions=["Pass --delete-fm-managed-db to drop them, or --no-delete-fm-managed-db to keep them."],
         )
-        raise typer.Exit(1)
 
     if len(schemas) > 1 and not all_sites:
         names = ", ".join(s.site for s in schemas)

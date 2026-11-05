@@ -12,7 +12,7 @@ from frappe_manager.output_manager import get_global_output_handler
 def _validate_port(output, flag: str, value: int) -> None:
     if not 1 <= value <= 65535:
         output.display_error(f"{flag} {value} is not a port (1-65535)")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=2)
 
 
 @example(
@@ -67,7 +67,7 @@ def ports(
     _validate_port(output, "--https", https)
     if http == https:
         output.display_error("--http and --https cannot be the same port")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=2)
 
     fm_config = FMConfigManager.import_from_toml()
     # Deliberately NOT written yet. `prompt_ask` raises on a non-interactive host, so recording the
@@ -89,7 +89,7 @@ def ports(
         # first-install path precisely so it can run here -- on a host whose install fails on a
         # busy port, creating the stack to change the port would fail for the port being busy.
         _record_ports()
-        output.print(f"Recorded: proxy publishes on {target}")
+        output.effect(f"Recorded: proxy publishes on {target}")
         output.print("No global services yet; the next command creates them on these ports.")
         return
 
@@ -111,7 +111,7 @@ def ports(
         if choice != "yes":
             _record_ports()
             services.compose_file_manager.write_to_file()
-            output.print(
+            output.effect(
                 f"Saved {target}; run 'fm services restart nginx-proxy --recreate' to apply it.", emoji_code=""
             )
             return
@@ -121,7 +121,7 @@ def ports(
     services.set_forwarded_trust_conf()
     # Recreate, not restart: a published port is fixed when the container is created.
     services.docker_client.compose.up(services=["nginx-proxy"], detach=True, force_recreate=True, stream=False)
-    output.print(f"Proxy recreated on {target}")
+    output.effect(f"Proxy recreated on {target}")
 
     if http != 80:
         output.print(
