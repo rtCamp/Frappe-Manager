@@ -41,6 +41,13 @@ test-file FILE:
 test-debug FILE:
     pytest {{FILE}} -vv --show-app-logs -s
 
+# `-m docker` overrides the `not docker` in pyproject addopts (last -m wins). Builds one ~15 MB
+# fixture image on first run; skips itself entirely when no daemon answers.
+
+# Run the tier that talks to a real Docker daemon (~1 min, excluded from `just test`)
+test-docker:
+    pytest tests/docker/ -m docker --no-cov -v
+
 # fmx is a separate package with its own interpreter range (>=3.10, vs fm's 3.13-only) and its
 # own deps (supervisor, redis, rq), none of which are in fm's venv -- fmx cannot even be
 # imported from it. So it gets an ephemeral env of its own here rather than coupling the two.

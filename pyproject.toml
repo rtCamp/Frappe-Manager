@@ -198,6 +198,10 @@ addopts = [
     "--cov-report=html",
     "--cov-report=term-missing",
     "--strict-markers",
+    # `tests/docker` starts real containers: minutes, not the suite's ~34s, and CI has no daemon.
+    # `just test-docker` passes `-m docker`, which overrides this (last -m wins).
+    "-m",
+    "not docker",
 ]
 # Per-test ceiling. The whole unit suite runs in ~2s, so this only ever fires on a real hang, and
 # the signal method interrupts the blocked call and prints the offending test's traceback.
@@ -207,6 +211,7 @@ markers = [
     "unit: Unit tests",
     "integration: Integration tests",
     "slow: Slow running tests",
+    "docker: Needs a real Docker daemon; excluded from the default run",
 ]
 env = [
     "FM_LETSENCRYPT_STAGING=0",
