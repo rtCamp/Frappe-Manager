@@ -1,5 +1,6 @@
 import os
 import shlex
+import shutil
 from collections.abc import Iterable
 from pathlib import Path
 from subprocess import run
@@ -201,6 +202,14 @@ def generate_random_text(length=50):
     return "".join(random.choice(alphanumeric_chars) for _ in range(length))
 
 
+def _remove_host_path(path: Path) -> None:
+    """Delete a path whatever its type. `shutil.rmtree` raises NotADirectoryError on a file."""
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
+
+
 def host_run_cp(image: str, source: str, destination: str, docker):
     """Copy files from source to destination using Docker.
 
@@ -209,12 +218,18 @@ def host_run_cp(image: str, source: str, destination: str, docker):
         source (str): The source file or directory path.
         destination (str): The destination file or directory path.
         docker: The Docker client object.
-        verbose (bool, optional): Whether to display verbose output. Defaults to False.
     """
 
     dest_path = Path(destination)
     output = get_global_output_handler()
     output.change_head(f"Populating {dest_path.name} directory")
+
+    # `src/.` copies CONTENTS into an existing destination directory. Every other form makes
+    # docker CREATE the destination entry, and an existing one makes it NEST instead: a file
+    # copied onto `sites/apps.txt` lands at `sites/apps.txt/apps.txt` and the caller's
+    # read_text() then fails on a directory, far from the cause.
+    if not source.endswith("/.") and dest_path.exists():
+        _remove_host_path(dest_path)
 
     try:
         with docker.create_temp_container(image) as container:
@@ -225,16 +240,14 @@ def host_run_cp(image: str, source: str, destination: str, docker):
                 stream=False,
             )
 
-        if not Path(destination).exists():
+        if not dest_path.exists():
             raise Exception(f"{destination} not found.")
 
         output.change_head(f"Populated {dest_path.name} directory")
 
     except DockerException as e:
         if dest_path.exists():
-            import shutil
-
-            shutil.rmtree(dest_path)
+            _remove_host_path(dest_path)
         raise Exception(f"Failed to copy files from {source} to {destination}.") from e
 
 
