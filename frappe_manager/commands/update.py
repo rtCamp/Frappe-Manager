@@ -614,6 +614,15 @@ def _apply_container_work(bench: Bench, plan: UpdatePlan, output) -> None:
             if status.get("Service") in services and status.get("State") == "running"
         )
         output.print(f"Recreated {len(running)} container(s): {', '.join(running)}")
+        # Unlike `recreate_everything` above, this arm never calls `bench.workers.generate_compose()`,
+        # so a `compose up` here would read whatever image the workers file was last written
+        # with. Re-pin to `deployments.current` first so this lighter recreate cannot leave the
+        # workers on a different image than the frappe container it just recreated.
+        if bench.workers.compose_file_manager.compose_path.exists():
+            from frappe_manager.site_manager.modules.deploy_orchestrator import pin_workers_to_current_deployment
+
+            pin_workers_to_current_deployment(bench.workers, bench.bench_config.site_names)
+            bench.workers.docker_client.compose.up(services=[], detach=True, pull="never", force_recreate=False)
 
     if plan.run_runtime_setup:
         _setup_runtime(bench, plan, output)

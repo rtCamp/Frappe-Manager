@@ -651,6 +651,13 @@ def _add_site_to_bench(
             (host_bench_dir(bench.path) / "sites" / site).mkdir(parents=True, exist_ok=True)
             bench.generate_compose(bench.bench_config.export_to_compose_inputs())
             bench.docker_client.compose.up(services=[], detach=True, pull="never", force_recreate=False)
+            # Re-pin BEFORE compose up: the workers compose on disk still names whatever image
+            # it was last written with, which can disagree with `deployments.current` (a failed
+            # rolling swap, a pin-only `fm ssl add`) even though the web tier above just
+            # converged correctly via `generate_compose`.
+            from frappe_manager.site_manager.modules.deploy_orchestrator import pin_workers_to_current_deployment
+
+            pin_workers_to_current_deployment(bench.workers, bench.bench_config.site_names)
             bench.workers.docker_client.compose.up(services=[], detach=True, pull="never", force_recreate=False)
 
         # Same funnel the bench-create pipeline's phase 3 uses before it ever reaches for `site`'s

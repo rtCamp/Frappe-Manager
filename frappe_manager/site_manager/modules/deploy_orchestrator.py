@@ -175,6 +175,27 @@ def rolling_eligible(
     return maintenance_mode
 
 
+def _apply_worker_pin(workers, sites: Sequence[str], ctx) -> list[str]:
+    """Project ``ctx`` onto the workers compose via the shared compose_shape specs.
+
+    No-op when the bench has no workers compose. Idempotent; user extras (override.yml /
+    non-managed mounts) pass through untouched. Returns the pinned service names, empty when
+    the no-op branches are taken.
+    """
+    from frappe_manager.site_manager.modules.compose_shape import apply_specs, worker_service_specs
+
+    if not workers.compose_path.exists():
+        return []
+    cfm = workers.compose_file_manager
+    svcs = cfm.get_services_list()
+    if not svcs:
+        return []
+    with cfm:
+        specs = worker_service_specs(workers.bench.bench_config, svcs, ctx)
+        apply_specs(cfm, specs, sites)
+    return list(svcs)
+
+
 def pin_workers_to_image(workers, sites: Sequence[str], deploy_image: str, deploy_nginx_image: str) -> list[str]:
     """Pin the workers compose to ``deploy_image`` + its companion ``deploy_nginx_image`` with
     image-mode data binds.
@@ -185,23 +206,28 @@ def pin_workers_to_image(workers, sites: Sequence[str], deploy_image: str, deplo
     (override.yml / non-managed mounts) pass through untouched. Returns the pinned service
     names, empty when the no-op branches are taken.
     """
-    from frappe_manager.site_manager.modules.compose_shape import (
-        RenderContext,
-        apply_specs,
-        worker_service_specs,
-    )
+    from frappe_manager.site_manager.modules.compose_shape import RenderContext
 
-    if not workers.compose_path.exists():
-        return []
-    cfm = workers.compose_file_manager
-    svcs = cfm.get_services_list()
-    if not svcs:
-        return []
-    with cfm:
-        ctx = RenderContext(deploy_image=deploy_image, deploy_nginx_image=deploy_nginx_image)
-        specs = worker_service_specs(workers.bench.bench_config, svcs, ctx)
-        apply_specs(cfm, specs, sites)
-    return list(svcs)
+    return _apply_worker_pin(workers, sites, RenderContext(deploy_image=deploy_image, deploy_nginx_image=deploy_nginx_image))
+
+
+def pin_workers_to_current_deployment(workers, sites: Sequence[str]) -> list[str]:
+    """Pin the workers compose to the bench's RECORDED deployment (``deployments.current``),
+    regardless of whatever image the compose file on disk currently names.
+
+    Every bring-up path that runs ``compose up`` against an EXISTING workers compose -- `fm
+    start`, worker autostart, adding a site to a live bench, `fm update`'s lighter recreate
+    arm, `fm telemetry enable/disable` -- must call this FIRST. ``compose up`` recreates a
+    drifted container onto whatever the FILE says, not onto the recorded deployment, so a
+    stale pin (a rolling swap that failed mid-flight, an `fm ssl add` that pinned without
+    bringing up) silently moves the workers onto the wrong image the next time any of those
+    run. No candidate image is passed: the default ``RenderContext`` is the same fallback
+    ``worker_service_specs`` already uses for deploy/switch/rollback, so a bring-up's
+    re-affirmation and a deploy's own re-pin share one code path.
+    """
+    from frappe_manager.site_manager.modules.compose_shape import RenderContext
+
+    return _apply_worker_pin(workers, sites, RenderContext())
 
 
 def _parse_app_names(lines) -> set[str]:
@@ -790,11 +816,13 @@ class DeployOrchestrator:
         old_ids = {svc: self._compose_ps_ids(svc) for svc in web}
 
         # Steps 1-3 run while the OLD replicas are still serving: any failure (unhealthy new
-        # replica, or a `compose --scale` failure) unwinds via `_abort_rolling`, since leaving a
-        # rolling-render compose (no `container_name`) in place would make `get_container_names()`
-        # stop matching and fm would read the bench as down. The drain (step 4 onward) is
-        # deliberately NOT covered: once old replicas are stopped, tearing the new ones down would
-        # cause the very outage `_abort_rolling` exists to prevent.
+        # replica, a `compose --scale` failure, OR a Ctrl-C) unwinds via `_abort_rolling`, since
+        # leaving a rolling-render compose (no `container_name`) in place would make
+        # `get_container_names()` stop matching and fm would read the bench as down. Caught as
+        # BaseException, not Exception: KeyboardInterrupt derives from BaseException, and an
+        # interrupt here must unwind exactly like any other failure, not strand two replicas up.
+        # The drain (step 4 onward) is deliberately NOT covered: once old replicas are stopped,
+        # tearing the new ones down would cause the very outage `_abort_rolling` exists to prevent.
         try:
             # Re-render the compose without container_name on the web tiers so `compose --scale`
             # is accepted, and pin workers to the new image.
@@ -819,7 +847,7 @@ class DeployOrchestrator:
             if not new_nginx or not self._container_health(new_nginx):
                 raise DeployError("new nginx replica failed health check; kept old, no swap")
             self.output.print(f"Rolling: new nginx replica {new_nginx[:12]} healthy on {new_nginx_image}")
-        except Exception:
+        except BaseException:
             self._abort_rolling(web, old_ids, old_image, old_nginx_image, snaps)
             raise
 
@@ -1729,7 +1757,9 @@ class DeployOrchestrator:
             )
             if self._deploy_outcome is None:
                 self._deploy_outcome = "succeeded"
-        except Exception:
+        # BaseException: a Ctrl-C (KeyboardInterrupt) is not caught by `except Exception` and
+        # must still classify as aborted and propagate, not be swallowed into a reported success.
+        except BaseException:
             if self._deploy_outcome is None:
                 self._deploy_outcome = "aborted"
             raise

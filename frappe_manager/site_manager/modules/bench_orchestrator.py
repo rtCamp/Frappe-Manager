@@ -1566,6 +1566,13 @@ class BenchOrchestrator:
 
         if bench.workers.compose_file_manager.exists():
             self.output.change_head("Starting bench workers services")
+            # Re-pin BEFORE compose up: `compose up` recreates a drifted container onto
+            # whatever the FILE says, not onto `deployments.current`, so a stale workers pin
+            # (left behind by a failed rolling swap or a pin-only `fm ssl add`) would otherwise
+            # silently move the workers off the image the web tier is running.
+            from frappe_manager.site_manager.modules.deploy_orchestrator import pin_workers_to_current_deployment
+
+            pin_workers_to_current_deployment(bench.workers, bench.bench_config.site_names)
             bench.workers.docker_client.compose.up(
                 services=[],
                 detach=True,

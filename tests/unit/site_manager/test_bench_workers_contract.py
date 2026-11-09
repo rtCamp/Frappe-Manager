@@ -74,6 +74,12 @@ class _Harness:
             DEFAULT_WORKERS if worker_services is None else worker_services
         )
         self.workers.bench.bench_config.workers = workers_config
+        # Mount runtime with no override: `ensure_workers_running_if_available`'s pre-up re-pin
+        # (compose_shape.worker_service_specs) needs a REAL runtime/base_image/site_names, not
+        # a bare MagicMock, to resolve an image at all.
+        self.workers.bench.bench_config.runtime = BenchRuntime.mount
+        self.workers.bench.bench_config.base_image = None
+        self.workers.bench.bench_config.site_names = []
         # WORKERS compose file
         self.workers_client = self.workers.docker_client
         self.docker_ops = MagicMock()

@@ -405,6 +405,14 @@ class BenchWorkerCoordinator:
 
             if not workers_running:
                 if self.is_running():
+                    # Re-pin BEFORE compose up: a stopped worker, brought back up on the FILE's
+                    # pin, is exactly how a bench ends up with the web tier on one image and the
+                    # workers on another with no error and no log line.
+                    from frappe_manager.site_manager.modules.deploy_orchestrator import (
+                        pin_workers_to_current_deployment,
+                    )
+
+                    pin_workers_to_current_deployment(self.workers, self.workers.bench.bench_config.site_names)
                     self.workers.docker_client.compose.up(
                         services=[],
                         detach=True,

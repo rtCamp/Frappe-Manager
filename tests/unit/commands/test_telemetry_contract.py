@@ -15,7 +15,11 @@ not the plumbing but the decisions:
 
 The container recreate is deliberately a recreate and not a restart: a container keeps the
 environment it was created with, so a restart would re-run the old NEWRELIC_ENABLED and report
-success having changed nothing.
+success having changed nothing. A real container-work run touches the bench's docker client
+TWICE: once force-recreating `frappe` (the environment change), then once more, unforced and
+over every service, which converges any OTHER container (nginx/socketio/schedule, and the
+workers project) that had drifted off `deployments.current` onto it too -- recreating frappe
+alone while leaving a drifted container behind would be wrong on its own terms, telemetry or not.
 """
 
 from contextlib import ExitStack, contextmanager
@@ -178,6 +182,19 @@ class TestEnable:
         world.bench.supervisor.setup_newrelic.assert_called_once_with(world.bench_path, force=False)
         assert world.compose_up_calls[0].kwargs == {"services": ["frappe"], "detach": True, "force_recreate": True}
 
+    def test_a_drifted_workers_container_is_converged_too(self, world):
+        """Recreating frappe alone and leaving the workers behind is the bug this closes: the
+        workers project gets the same unforced convergence call, after a re-pin to
+        `deployments.current`, whenever a workers compose exists."""
+        world.enable(license_key="ingest-key")
+
+        assert world.bench.workers.docker_client.compose.up.call_args.kwargs == {
+            "services": [],
+            "detach": True,
+            "pull": "never",
+            "force_recreate": False,
+        }
+
     def test_the_stored_key_is_reused_when_re_enabling_after_a_disable(self, world):
         world.store(enabled=False, license_key="stored-key")
 
@@ -212,7 +229,9 @@ class TestEnable:
         world.enable(license_key="new-key")
 
         assert world.config.telemetry.newrelic.license_key == "new-key"
-        assert len(world.compose_up_calls) == 1
+        # frappe (forced, the env change) + the whole-stack convergence call (unforced).
+        assert len(world.compose_up_calls) == 2
+        assert world.compose_up_calls[1].kwargs == {"services": [], "detach": True, "pull": "never"}
 
     def test_force_config_reaches_the_agent_config_writer(self, world):
         world.store(enabled=True, license_key="stored-key")
