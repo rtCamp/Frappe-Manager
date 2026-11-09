@@ -21,11 +21,52 @@ fuser -k 80/tcp
 # defaults it to 127.0.0.1. nginx runs in a SEPARATE container, so a loopback bind makes every
 # request a 502 -- on a bench that built cleanly and reported success.
 HOST_ARG=""
-if /usr/local/bin/bench serve --help 2>/dev/null | grep -q -- "--host"; then
+BENCH_BIN="${BENCH_BIN:-/usr/local/bin/bench}"
+if "$BENCH_BIN" serve --help 2>/dev/null | grep -q -- "--host"; then
 	HOST_ARG="--host 0.0.0.0"
 fi
 
-/usr/local/bin/bench serve $HOST_ARG --port 80 &
+SITES_DIR="${SITES_DIR:-/workspace/frappe-bench/sites}"
+real_sites=()
+for d in "$SITES_DIR"/*/; do
+	site="${d%/}"
+	site="${site##*/}"
+	[ -f "$d/site_config.json" ] && real_sites+=("$site")
+done
+
+# `bench serve` pins itself to ONE site the moment no `--site`/`FRAPPE_SITE` is given --
+# which is always, here -- by reading `default_site` out of `common_site_config.json`
+# (frappe/utils/bench_helper.py's `get_sites`) and holding it in a process-global for the
+# life of the server, Host header or `X-Frappe-Site-Name` notwithstanding. On a bench with
+# one site that pin happens to match the only site there is, so it looks like per-request
+# routing; on two or more it means every hostname this dev server answers serves the SAME
+# site's data -- whichever `default_site` names -- with a 200 and no error. A throwaway
+# `SITES_PATH` whose own `common_site_config.json` has no `default_site` key makes
+# `get_sites` return nothing, so frappe's global site pin stays unset and each request is
+# routed by its own Host header instead. Rebuilt from scratch on every start (this script
+# re-runs on every container start/restart, and `fm create BENCH/SITE` restarts this
+# container), so a site added since the last run is picked up for free; nothing else in
+# this container reads `SITES_PATH`, so `bench watch`'s own process tree is untouched.
+SERVE_ENV=()
+if [ "${#real_sites[@]}" -gt 1 ]; then
+	MULTISITE_SITES_PATH="${FM_DEV_MULTISITE_SITES_PATH:-/tmp/fm-multisite-sites}"
+	rm -rf "$MULTISITE_SITES_PATH"
+	mkdir -p "$MULTISITE_SITES_PATH"
+	python3 -c "
+import json
+conf = json.load(open('$SITES_DIR/common_site_config.json'))
+conf.pop('default_site', None)
+json.dump(conf, open('$MULTISITE_SITES_PATH/common_site_config.json', 'w'))
+"
+	for entry in "$SITES_DIR"/*; do
+		name="${entry##*/}"
+		[ "$name" = "common_site_config.json" ] && continue
+		ln -s "$entry" "$MULTISITE_SITES_PATH/$name"
+	done
+	SERVE_ENV=(env "SITES_PATH=$MULTISITE_SITES_PATH")
+fi
+
+"${SERVE_ENV[@]}" "$BENCH_BIN" serve $HOST_ARG --port 80 &
 
 running_script_pid=$!
 wait $running_script_pid
