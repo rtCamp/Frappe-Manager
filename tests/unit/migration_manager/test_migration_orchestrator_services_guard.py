@@ -54,6 +54,9 @@ def make_orchestrator(migrations=()):
     executor = MagicMock()
     executor.output = MagicMock()
     executor.migrations = list(migrations)
+    # Real Version, not a MagicMock: execute_migrations() now floors rollback_version
+    # against it with min(), which needs an actual ordering.
+    executor.current_version = Version("99.0.0")
     orchestrator = MigrationOrchestrator(executor)
     orchestrator.logger = Mock()
     return orchestrator

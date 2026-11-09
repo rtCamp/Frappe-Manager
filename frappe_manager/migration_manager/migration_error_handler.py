@@ -98,7 +98,10 @@ class MigrationErrorHandler:
         backup_dirs = set()
         for migration in self.executor.undo_stack:
             backup_manager = getattr(migration, "backup_manager", None)
-            if backup_manager is not None:
+            # `backup_manager` exists on every migration regardless of --skip-*-backup; only
+            # `.backups` proves it ever wrote one. Reporting the dir on existence alone names a
+            # path nothing was ever copied into (e.g. under --skip-config-backup).
+            if backup_manager is not None and backup_manager.backups:
                 backup_dirs.add(str(backup_manager.backup_dir))
         self.executor.output.warning(
             "Halted as requested (--on-failure halt): nothing was rolled back, the state is "

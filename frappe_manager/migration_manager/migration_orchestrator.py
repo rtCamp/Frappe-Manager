@@ -60,7 +60,15 @@ class MigrationOrchestrator:
 
                 prev_migration = migration
                 if not self.exception_in_bench_occurred:
-                    self.executor.rollback_version = prev_migration.get_rollback_version()
+                    # Floor rollback_version here, not at the stamp site: rollback_migrations()
+                    # (below) and the CLI-downgrade instructions also read this value, and a
+                    # migration's own version can exceed the running fm's current_version (a
+                    # migration targets a future release, not necessarily this build). Letting
+                    # it through would both skip undoing in-between migrations and tell the
+                    # operator to downgrade to a version that doesn't exist yet.
+                    self.executor.rollback_version = min(
+                        prev_migration.get_rollback_version(), self.executor.current_version
+                    )
 
             except MigrationExceptionInBench as e:
                 captured_output = capture_and_format_exception(traceback_max_frames=0)
