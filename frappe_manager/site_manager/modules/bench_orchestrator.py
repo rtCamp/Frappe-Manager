@@ -379,7 +379,7 @@ class BenchOrchestrator:
             self._phase4_create_site(force=True)
             apps_installed = self._skip_phase6_for_attach() if self._attaching else self._phase6_install_apps()
 
-        self._phase5_finalize()
+        self._phase5_finalize(bench_only=bench_only)
 
         # Workers compose was generated image-shaped in phase 5; just bring them up.
         bench.workers.docker_client.compose.up(services=[], detach=True, pull="never", wait=True, stream=False)
@@ -1130,7 +1130,7 @@ class BenchOrchestrator:
         This is what keeps attach's promise PAST the create. The key already exists and already
         has a reader, so no provenance field is needed: `false` short-circuits the `"auto"` probe,
         `schema_step` becomes false, and the maintenance window and the pre-migrate dump fall away
-        with it, which also makes a zero-downtime rolling swap eligible. Left at its `True`
+        with it, which also makes the minimal-downtime rolling swap eligible. Left at its `True`
         default, `fm switch` would migrate data that predates fm, against an app set the parity
         check only warns about.
 
@@ -1273,14 +1273,17 @@ class BenchOrchestrator:
         self.output.info("Configured bench workers")
 
         # A site's site_config.json and the proxy vhost can both take the limit once one exists,
-        # and the proxy vhost can take the HSTS override too. Without this a new bench advertised
-        # its configured upload_limit and hsts while nginx served its own 1M default and the
-        # bench's own hardcoded STS header unstripped, so both values only became true after an
-        # unrelated `fm start` or (upload limit only) `fm update --upload-limit`.
+        # the proxy vhost can take the HSTS override too, and every domain gets the upstream-retry
+        # fragment regardless. Without this a new bench advertised its configured upload_limit and
+        # hsts while nginx served its own 1M default and the bench's own hardcoded STS header
+        # unstripped, and a removed peer's address hung for nginx's 60s connect default instead of
+        # retrying, so all three only became true after an unrelated `fm start` or (upload limit
+        # only) `fm update --upload-limit`.
         self.output.change_head("Applying upload size limit")
         bench.apply_upload_limit()
         self.output.info(f"Applied upload size limit ({bench.bench_config.upload_limit})")
         bench.apply_hsts()
+        bench.apply_proxy_retry()
 
         from datetime import datetime
 
@@ -1671,16 +1674,20 @@ class BenchOrchestrator:
             self._update_alias_domains_lightweight()
 
             # A new alias has no `vhost.d` entry of its own yet, so it fell back to the proxy's 1M
-            # default (and the bench's own hardcoded HSTS header unstripped) until an unrelated
-            # `fm start` happened to heal it. Same shape `add_site_to_bench` uses for a freshly
-            # added site (commands/create.py): both run unconditionally so a change to just one is
-            # never skipped by short-circuiting the other, and the proxy reloads once for whichever
+            # default (the bench's own hardcoded HSTS header unstripped, and nginx's 60s connect
+            # timeout instead of an in-request retry) until an unrelated `fm start` happened to
+            # heal it. Same shape `add_site_to_bench` uses for a freshly added site
+            # (commands/create.py): all three run unconditionally so a change to just one is never
+            # skipped by short-circuiting the others, and the proxy reloads once for whichever
             # changed. `entry.alias_domains` is already updated above, so `bench.domains` here
             # includes the new alias and `apply_upload_limit` resolves its owning site's effective
             # limit itself.
             upload_limit_changed = bench.apply_upload_limit()
             hsts_changed = bench.apply_hsts()
-            if (upload_limit_changed or hsts_changed) and bench.services.is_service_running("nginx-proxy"):
+            retry_changed = bench.apply_proxy_retry()
+            if (upload_limit_changed or hsts_changed or retry_changed) and bench.services.is_service_running(
+                "nginx-proxy"
+            ):
                 bench.services.nginx_controller.reload()
 
             self.output.change_head("Saving configuration")
