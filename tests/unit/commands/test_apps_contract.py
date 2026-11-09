@@ -277,7 +277,11 @@ class TestListApps:
         assert "installed on disk" in out
         assert "erpnext" in out
 
-    def test_degrades_gracefully_with_no_workspace(self, world):
+    def test_degrades_gracefully_when_apps_txt_is_absent(self, world):
+        """An absent `sites/apps.txt` is reported as unknown, never as "no apps".
+
+        The file is bind-mounted into EVERY bench, image runtime included, so its absence is a
+        genuine gap on disk rather than a property of the runtime."""
         world.bench.bench_config.apps_list = []
 
         with (
@@ -290,7 +294,7 @@ class TestListApps:
         # Not "(none)": fm never writes `[[apps]]`, so an empty record is the designed steady
         # state and the line has to say that rather than read as drift on every normal bench.
         assert "no [[apps]] recorded in bench_config.toml" in out
-        assert "no workspace on disk (image runtime)" in out
+        assert "installed apps unknown" in out
 
 
 class TestRequiredAppsArgument:

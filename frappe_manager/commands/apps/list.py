@@ -22,7 +22,7 @@ def list_apps(
     """
     List the apps a bench has recorded, and what is actually on disk.
 
-    Recorded apps come from bench_config.toml, with their pinned refs. Installed apps come from the workspace's sites/apps.txt, which an image-runtime bench has no workspace to read -- that section is left out instead of guessed at.
+    Recorded apps come from bench_config.toml, with their pinned refs. Installed apps come from sites/apps.txt, which is bind-mounted into every bench -- mount OR image -- so this reads it the same way on both; "installed" is left out, not guessed, only when that file genuinely isn't there.
     """
 
     services_manager = ctx.obj["services"]
@@ -40,8 +40,8 @@ def list_apps(
     if json_result:
         get_global_output_handler().set_json_results()
         _apply_fields(fields)
-        # `installed` is null, not [], when there is no workspace to read: an image-runtime bench
-        # does not know its installed apps, which is a different fact from knowing there are none.
+        # `installed` is null, not [], when apps.txt genuinely isn't on disk: fm does not know
+        # the installed apps, which is a different fact from knowing there are none.
         output.print_data(
             {
                 "bench": bench.name,
@@ -67,4 +67,4 @@ def list_apps(
         for name in installed:
             output.data_raw(f"  {name}")
     else:
-        output.data_raw(f"{bench.name} has no workspace on disk (image runtime) -- installed apps unknown")
+        output.data_raw(f"{bench.name} has no sites/apps.txt on disk -- installed apps unknown")
