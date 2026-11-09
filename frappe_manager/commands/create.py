@@ -50,7 +50,7 @@ from frappe_manager.utils.callbacks import (
 )
 from frappe_manager.utils.helpers import ImageRef
 from frappe_manager.utils.process_lock import bench_lock
-from frappe_manager.utils.site import validate_sitename
+from frappe_manager.utils.site import host_bench_dir, validate_sitename
 
 # Help-panel rules for `fm create --help`:
 # 1. A title's FIRST word names the `BENCH/SITE` address segment the flags act on; scope is where
@@ -639,6 +639,20 @@ def _add_site_to_bench(
         schema = mint_mariadb_schema_name(site)
 
     try:
+        if bench.bench_config.runtime == BenchRuntime.image:
+            # Image runtime binds one directory per site (compose_shape.data_binds), generated
+            # from `bench_config.sites` at compose-render time. `record_site` above only updated
+            # that list in memory; the compose on disk -- and the running frappe/nginx/socketio/
+            # schedule containers -- still predate this site, so `new-site` below would write
+            # into the container's own image filesystem (never seen by the host) instead of a
+            # bound directory. Pre-create it frappe-owned, so the bind-mount `compose up` is
+            # about to create isn't root-owned, then regenerate compose and recreate the code
+            # services (and workers) so the new bind exists before `new-site` touches it.
+            (host_bench_dir(bench.path) / "sites" / site).mkdir(parents=True, exist_ok=True)
+            bench.generate_compose(bench.bench_config.export_to_compose_inputs())
+            bench.docker_client.compose.up(services=[], detach=True, pull="never", force_recreate=False)
+            bench.workers.docker_client.compose.up(services=[], detach=True, pull="never", force_recreate=False)
+
         # Same funnel the bench-create pipeline's phase 3 uses before it ever reaches for `site`'s
         # database: brings this engine's container up (this bench may have only ever needed
         # mariadb before, and this site is `--db-type postgres`, or vice versa) and does not
@@ -659,6 +673,9 @@ def _add_site_to_bench(
             site=site,
             db_name=database.name if database.external else schema,
             admin_pass=site_admin_pass,
+            # Image runtime pre-bound an empty sites/<site> above; --force lets new-site
+            # populate it instead of refusing a directory that already exists.
+            force=bench.bench_config.runtime == BenchRuntime.image,
             # Added sites never claim the bench default on their own; `--default-site` is the ask.
             set_default=set_default_site,
         )
@@ -688,17 +705,21 @@ def _add_site_to_bench(
         )
         raise
 
-    # The bench's upload limit and HSTS override both have to reach the new site before its
-    # domain is routable. Nothing else does it: `apply_upload_limit`/`apply_hsts` run on create,
-    # on `fm start` and (upload limit only) on `fm update --upload-limit`, so a site added between
-    # those had no `vhost.d` entry of its own and inherited the global proxy's 1M default (and no
-    # HSTS override, so the bench's own hardcoded header reached the browser unstripped) while the
-    # bench advertised its real limit. A 2MB upload to the new site answered 413 from the proxy,
-    # and `fm info` reported the bench limit either way. Both run unconditionally so a change to
-    # just one is never skipped by short-circuiting the other.
+    # The bench's upload limit, HSTS override and upstream-retry fragment all have to reach the
+    # new site before its domain is routable. Nothing else does it: `apply_upload_limit`/
+    # `apply_hsts`/`apply_proxy_retry` run on create, on `fm start` and (upload limit only) on
+    # `fm update --upload-limit`, so a site added between those had no `vhost.d` entry of its own
+    # and inherited the global proxy's 1M default (no HSTS override, so the bench's own hardcoded
+    # header reached the browser unstripped, and nginx's 60s connect timeout instead of an
+    # in-request retry) while the bench advertised its real limit. A 2MB upload to the new site
+    # answered 413 from the proxy, and `fm info` reported the bench limit either way. All three
+    # run unconditionally so a change to just one is never skipped by short-circuiting the others.
     upload_limit_changed = bench.apply_upload_limit()
     hsts_changed = bench.apply_hsts()
-    if (upload_limit_changed or hsts_changed) and bench.services.is_service_running("nginx-proxy"):
+    retry_changed = bench.apply_proxy_retry()
+    if (upload_limit_changed or hsts_changed or retry_changed) and bench.services.is_service_running(
+        "nginx-proxy"
+    ):
         bench.services.nginx_controller.reload()
 
     # Routing last: the new site is in `[sites]`, so the republished map now carries its domain in

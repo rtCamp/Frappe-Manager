@@ -1375,6 +1375,14 @@ class Bench:
         self.output.live_lines(
             cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE
         )
+
+        # `nginx` depends_on frappe + socketio, so `--force-recreate` above recreated all three,
+        # not just nginx -- the same reach `fm restart` has, verified the same way it does: ask
+        # gunicorn directly, then ask through the just-recreated nginx, which is the one that can
+        # see an upstream still pointed at an address nothing answers on anymore.
+        self.orchestrator.verify_bench_server_responding()
+        self.orchestrator.verify_site_reachable_through_nginx()
+
         self.output.effect(f"Published the site map to nginx for {self.name}")
 
     def remove_site(

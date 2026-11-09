@@ -40,6 +40,9 @@ def bench(tmp_path):
     # The map arrives as an environment variable, so publishing RECREATES the container. A restart
     # or a reload keeps the container and therefore keeps the old environment.
     b.docker_client = MagicMock()
+    # Publishing recreates frappe, socketio and nginx, so it waits for them through the
+    # orchestrator before claiming the map is live.
+    b.orchestrator = MagicMock()
     b.output.live_lines = MagicMock()
     return b
 
