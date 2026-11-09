@@ -76,6 +76,67 @@ fm_t() {
     return 0
 }
 
+# fm_answer <reply> <args...> -- run fm INTERACTIVELY and type <reply> at its prompt.
+# A pty is required, not a pipe: fm treats a non-tty (and CI) as non-interactive and refuses
+# a prompt instead of asking, so piping an answer would measure the refusal, not the answer.
+# `--non-interactive` is deliberately NOT passed here.
+fm_answer() {
+    local reply="$1"
+    shift
+    log "  $(c_dim "\$ fm $* <<< '$reply'")"
+    _fm_capture python3 -c '
+import os, pty, re, select, sys, time
+
+# fm asks in three shapes and none is a plain "[y/N]?": a confirm, a typed-name confirmation
+# ("Type the bench name to confirm deletion"), and a questionary SELECT already sitting on "no".
+PROMPT = re.compile(rb"\[y/N\]|\[Y/n\]|Type the bench name|\xe2\x9d\xaf|Do you want to", re.I)
+
+# A select menu takes over the terminal AFTER printing its question, so an answer typed on
+# first sight is swallowed. Retry while the child is silent -- which pty.spawn cannot do,
+# since its callback only fires when output arrives.
+RETRY, DEADLINE = 1.5, 120.0
+
+# Carriage return, not newline: the select menu runs the terminal in raw mode, where Enter
+# is \r and a \n is ignored outright. In canonical mode ICRNL translates it, so \r serves both.
+reply = sys.argv[1].encode() + b"\r"
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp(sys.argv[2], sys.argv[2:])
+
+seen, last, start = False, 0.0, time.monotonic()
+while True:
+    if time.monotonic() - start > DEADLINE:
+        os.kill(pid, 9)
+        sys.stderr.write("fm_answer: timed out, prompt never accepted the answer\n")
+        sys.exit(97)
+    r, _, _ = select.select([fd], [], [], 0.2)
+    if r:
+        try:
+            data = os.read(fd, 4096)
+        except OSError:
+            break
+        if not data:
+            break
+        os.write(1, data)
+        if PROMPT.search(data):
+            seen = True
+    if seen and time.monotonic() - last > RETRY:
+        try:
+            os.write(fd, reply)
+        except OSError:
+            break
+        last = time.monotonic()
+
+rc = os.waitpid(pid, 0)[1]
+if not seen:
+    sys.stderr.write("fm_answer: no prompt appeared, nothing was typed\n")
+    sys.exit(97)
+sys.exit(os.waitstatus_to_exitcode(rc) or 0)
+' "$reply" "$FM_BIN" "$@"
+    [[ $FM_RC -eq 97 ]] && fail "fm $* never accepted an answer at its prompt"
+    return 0
+}
+
 expect_rc() {
     local want="$1" what="${2:-last command}"
     [[ $FM_RC -eq $want ]] || fail "$what: exit $FM_RC, wanted $want"

@@ -152,3 +152,24 @@ case_K6() {
     fm --version
     [[ "$FM_OUT" == "$before" ]] || fail "version changed: '$before' -> '$FM_OUT'"
 }
+
+describe K7 "declining a confirmation exits non-zero, and changes nothing"
+case_K7() {
+    local bench=e2ek7
+    fm create "$bench" --environment dev
+    expect_rc 0 "create $bench"
+    cleanup_bench "$bench"
+
+    # The whole matrix otherwise runs --non-interactive, so this is the only case that
+    # answers a prompt at all. A decline must read as "the thing I typed did not happen".
+    fm_answer "n" delete "$bench"
+    [[ $FM_RC -ne 0 ]] || fail "declining the delete exited 0"
+    expect_dir "${FRAPPE_MANAGER_HOME:-$HOME/frappe}/sites/$bench"
+    expect_http "${bench}.localhost" 200
+
+    # A bare Enter is a decline too: every prompt defaults to No. Not prune -- a fresh bench
+    # has nothing to prune, so it never asks and exits 0 by the rule for "nothing to do".
+    fm_answer "" reset "$bench"
+    [[ $FM_RC -ne 0 ]] || fail "a bare Enter at the reset prompt exited 0"
+    expect_http "${bench}.localhost" 200
+}
