@@ -329,7 +329,12 @@ class BakeManager:
 
         common_site_config = frappe_bench_dir / "sites" / COMMON_SITE_CONFIG_FILE
         if not common_site_config.exists():
-            common_site_config.write_text("{}")
+            # Frappe's own studio frontend does `import { socketio_port } from
+            # "../../../../sites/common_site_config.json"`, so `{}` fails the asset build
+            # outright with [MISSING_EXPORT] and no image is produced. The values must match
+            # what a bench gets at runtime (bench_config.py), because the port is compiled
+            # into the bundle this build emits.
+            common_site_config.write_text(json.dumps({"webserver_port": 80, "socketio_port": 80}))
 
         uv_dir = frappe_bench_dir / ".uv"
         if not uv_dir.exists():
