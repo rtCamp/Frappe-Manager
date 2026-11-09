@@ -24,7 +24,7 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `-a, --apps TEXT`: App to install: appname or owner/repo, optional :branch (repeatable). Frappe is always first.
 * `--developer-mode [enable|disable]`: Let DocType edits write app source files. Already on for a dev-environment bench.  [default: disable]
 * `--bench-only`: Create the bench (config, directory, workspace or image, and containers) with no site in it. 'fm create BENCH/SITE' adds a site afterwards, into the workspace and containers already there. Every Site Option is ignored: there is no site yet for them to describe.  [default: false]
-* `--remove-on-failure`: On failure, skip the removal prompt and remove the bench directory and its containers, interactively or not, instead of asking (interactive) or declining and reporting (non-interactive). The command still exits non-zero either way: this cleans up, it does not turn the failure into success. Never drops a schema on an external database (--db-host); that stays declined whether this is passed or not.  [default: false]
+* `--remove-on-failure`: On failure, skip the removal prompt and remove the bench directory and its containers, interactively or not, instead of asking (interactive) or declining and reporting (non-interactive). The command still exits non-zero either way: this cleans up, it does not turn the failure into success. Says nothing about a schema on an external database (--db-host): that is --drop-provisioned-db's decision, and unanswered it stays declined.  [default: false]
 * `--dry-run`: Print the bench_config.toml this invocation would write, after --config and the flags are merged, and exit without creating anything.  [default: false]
 * `-t, --github-token TEXT`: Token for cloning private app repos.
 * `--python TEXT`: Python version, e.g. '3.11'. Auto-detected by default.
@@ -54,6 +54,7 @@ $ fm create BENCH(/SITE) [OPTIONS]
 * `--attach-existing-site`: The schema already holds a Frappe site: build the bench around it and write nothing to the database.  [default: false]
 * `--default-site`: Make this site the bench's default, the one bench commands use when none is named. A bench's FIRST site is its default already; this is for the sites added after it.  [default: false]
 * `--encryption-key TEXT`: The attached site's encryption_key, - to read from stdin. Without it Frappe mints a new one and existing encrypted secrets stop being readable.
+* `--drop-provisioned-db/--keep-provisioned-db`: Answer, without being asked, what happens to a schema and login this run created on an external database (--db-host) when the create then fails. Left unset, fm asks interactively and refuses non-interactively rather than guessing, because dropping a schema is not something --yes is allowed to decide for you.
 
 ## Examples
 

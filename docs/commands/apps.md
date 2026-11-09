@@ -19,7 +19,7 @@ Fetch app code onto a bench and install it into its site(s).
 
 Fetching an app's code and installing it into a site's database are different things. A plain fm apps add BENCH fetches the code and adds the app to the bench's sites/apps.txt, so any site created afterwards gets it, and installs it into nothing. It does not write an \[\[apps]] entry in bench_config.toml -- that is a bake config's job, which is why fm apps list reports such an app as present on disk but not recorded. fm apps add BENCH/SITE installs and migrates that one site, and fm apps add BENCH/all does every site the bench serves, reporting failures per site and exiting non-zero without stopping at the first.
 
-An image-runtime bench ships app changes by baking a new image: fm bake BENCH --apps APP:REF, then fm switch.
+An image-runtime bench ships app changes by baking a standalone image with the apps: fm bake --apps APP:REF --app-image REPO:TAG, then fm switch.
 
 **Usage**:
 
@@ -75,7 +75,7 @@ fm apps add mybench/all erpnext:version-15 --no-drain
 
 List the apps a bench has recorded, and what is actually on disk.
 
-Recorded apps come from bench_config.toml, with their pinned refs. Installed apps come from the workspace's sites/apps.txt, which an image-runtime bench has no workspace to read -- that section is left out instead of guessed at.
+Recorded apps come from bench_config.toml, with their pinned refs. Installed apps come from sites/apps.txt, which is bind-mounted into every bench -- mount OR image -- so this reads it the same way on both; "installed" is left out, not guessed, only when that file genuinely isn't there.
 
 **Usage**:
 

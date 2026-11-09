@@ -40,7 +40,7 @@ _PANEL_ADVANCED = "Advanced"
     benchname="mybench",
 )
 @example(
-    "Zero-downtime web restart",
+    "Rolling web restart",
     "{benchname} --rolling",
     benchname="mybench",
 )
@@ -96,7 +96,7 @@ def restart(
         bool,
         typer.Option(
             "--rolling",
-            help="Zero-downtime recreate of the web tier on the current image tag; image benches only. Web-only, so it conflicts with --redis, --nginx and --no-web.",
+            help="Recreates the web tier on the current image tag with the old replica running until the new one is healthy, then drains it before removing it -- minimises the request-drop window rather than closing it (about one request per swap under continuous load). Image benches only, web-only, so it conflicts with --redis, --nginx and --no-web. For zero loss, use a maintenance window instead.",
             rich_help_panel=_PANEL_CARE,
         ),
     ] = False,
@@ -182,7 +182,7 @@ def restart(
             raise typer.Exit(code=2)
         if not web:
             output.display_error(
-                "--no-web cannot be combined with --rolling (--rolling IS the zero-downtime web restart)"
+                "--no-web cannot be combined with --rolling (--rolling restarts the web tier; --no-web would leave nothing for it to do)"
             )
             raise typer.Exit(code=2)
 

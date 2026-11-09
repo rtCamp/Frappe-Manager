@@ -23,7 +23,7 @@ $ fm switch BENCH IMAGE [OPTIONS]
 * `--restore-db`: Also restore the DB dump taken during the deploy you are undoing. This REPLACES the current database: the dump drops and recreates every table, so everything written since that deploy is lost. fm asks you to confirm before importing.  [default: false]
 * `-y, --yes`: Accept the --restore-db overwrite without being asked. The only way to restore a dump unattended, and the only thing this flag skips.  [default: false]
 * `--keep INTEGER`: After a successful deploy, prune old releases keeping the newest N (minimum 1; see fm prune).
-* `--rolling/--no-rolling`: Force or disable the rolling web swap; the default is automatic whenever the overlap is safe. Forcing it is only safe when both versions run against the same database schema.
+* `--rolling/--no-rolling`: Force or disable the rolling web swap; the default is automatic whenever the overlap is safe. Forcing it is only safe when both versions run against the same database schema. A rolling swap drains the old replica before removing it and minimises the request-drop window, it does not close it (about one request per swap under continuous load) -- for zero loss, use --no-rolling with a maintenance window.
 
 ## Examples
 

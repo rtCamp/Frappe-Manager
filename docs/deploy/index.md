@@ -84,7 +84,7 @@ flowchart TD
     BK -->|migrate off| SWAP
     MIG -->|ok| SWAP{swap}
     MIG -->|fail| KEEP[no swap: old stack still live,\ncompose reverted, optional rollback_db]
-    SWAP -->|rolling eligible| ROLL[rolling web swap\nzero dropped requests]
+    SWAP -->|rolling eligible| ROLL[rolling web swap\nminimises dropped requests]
     SWAP -->|else| REC[recreate swap\nbrief blip]
     ROLL --> GATE{health gate}
     REC --> GATE
@@ -101,7 +101,7 @@ Key properties:
 
 ## The rolling web swap
 
-When the version overlap is safe, fm runs old and new web replicas side by side and drains the old (zero dropped requests instead of the recreate blip):
+When the version overlap is safe, fm runs old and new web replicas side by side and drains the old before removing it, which minimises dropped requests (about one per swap under continuous load) instead of the recreate blip:
 
 ```mermaid
 sequenceDiagram
@@ -140,9 +140,9 @@ The stop → reload → remove order exists because app-nginx resolves its `upst
 
 In every case rolling also needs the old web tier running to swap alongside; when nothing is serving, fm falls back to the recreate swap even if `--rolling` was passed (with a warning).
 
-Honest caveat: rolling is zero-**downtime**, not zero-**skew**; during the overlap a request may see old assets with new code or vice-versa. Eligibility guarantees both versions are DB-compatible, so the skew cannot 500.
+Honest caveat: rolling minimises downtime, it does not close it -- a request can still land on an address the swap just removed before the shared proxy's own config reload catches up, costing about one request per swap under continuous load. Nor is it zero-**skew**: during the overlap a request may see old assets with new code or vice-versa. Eligibility guarantees both versions are DB-compatible, so the skew cannot 500. For zero request loss, use `--no-rolling` with a maintenance window.
 
-The same engine powers `fm restart --rolling`: a zero-downtime web-tier recreate on the *current* image (fresh containers, no release change). It needs an image bench; on a mount bench web restarts already go through supervisor, which is faster.
+The same engine powers `fm restart --rolling`: a minimal-downtime web-tier recreate on the *current* image (fresh containers, no release change), with the same request-drop caveat above. It needs an image bench; on a mount bench web restarts already go through supervisor, which is faster.
 
 ## Switch hooks
 

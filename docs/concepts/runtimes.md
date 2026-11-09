@@ -35,7 +35,7 @@ A bake produces two images: the app image holds the code, the venv and the built
 - deploys are atomic and repeatable, and rollback is one command away; see [Deployment](../deploy/index.md) and [Rolling back](../deploy/rollback.md)
 - `fm update` accepts settings only: environment, upload limit, restart policy, redis endpoints (`--redis-cache`/`--redis-queue`, and `--no-redis-cache`/`--no-redis-queue` to move a side back), external-database CA; APM is `fm telemetry enable` now, not an update flag. `--python`, `--node` and `--developer-mode enable` are refused, since those are baked in. Alias domains (`fm domain add`/`fm domain remove`), admin tools (`fm tools enable`/`fm tools disable`) and app code (`fm apps add`) are separate commands now; the last of those still needs an editable workspace, so it is refused on an image bench the same way
 
-The full pipeline (baking, zero-downtime rolling swaps, rollbacks with DB restore, release pruning) is covered in the [Deployment guide](../deploy/index.md).
+The full pipeline (baking, minimal-downtime rolling swaps, rollbacks with DB restore, release pruning) is covered in the [Deployment guide](../deploy/index.md).
 
 ## Runtime is fixed at create time
 

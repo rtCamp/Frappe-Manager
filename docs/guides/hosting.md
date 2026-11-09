@@ -137,4 +137,4 @@ A fronted bench still needs its own certificate for its self-calls: see [Behind 
 
 ## Prefer immutable releases?
 
-This runbook keeps code editable on the server. For repeatable image-based deploys (bake once, roll out with zero downtime, roll back in one command), see [Deployment](../deploy/index.md).
+This runbook keeps code editable on the server. For repeatable image-based deploys (bake once, roll out with a rolling swap that minimises downtime, roll back in one command), see [Deployment](../deploy/index.md).

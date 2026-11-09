@@ -205,7 +205,7 @@ def switch(
         bool | None,
         typer.Option(
             "--rolling/--no-rolling",
-            help="Force or disable the rolling web swap; the default is automatic whenever the overlap is safe. Forcing it is only safe when both versions run against the same database schema.",
+            help="Force or disable the rolling web swap; the default is automatic whenever the overlap is safe. Forcing it is only safe when both versions run against the same database schema. A rolling swap drains the old replica before removing it and minimises the request-drop window, it does not close it (about one request per swap under continuous load) -- for zero loss, use --no-rolling with a maintenance window.",
             show_default=False,
         ),
     ] = None,

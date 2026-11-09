@@ -49,6 +49,6 @@ Details and the commands to check each one: [Before you install](installation.md
 
     ---
 
-    Bake the bench into an immutable image and ship it with a zero-downtime swap.
+    Bake the bench into an immutable image and ship it with a rolling swap that minimises downtime.
 
 </div>

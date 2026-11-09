@@ -24,7 +24,7 @@ $ fm restart BENCH [OPTIONS]
 * `--nginx`: Restart the bench nginx service, e.g. after a proxy or TLS config change.  [default: false]
 * `--recreate`: Restart whole containers instead of the supervisor processes inside them: slower, and every consumer of the restarted service reconnects. The bench nginx is restarted with them, because it resolves its upstreams once and caches the addresses a recreate changes.  [default: false]
 * `--force`: Kill everything fast instead of restarting it gracefully. Implies --no-drain; conflicts with --drain and --rolling.  [default: false]
-* `--rolling`: Zero-downtime recreate of the web tier on the current image tag; image benches only. Web-only, so it conflicts with --redis, --nginx and --no-web.  [default: false]
+* `--rolling`: Recreates the web tier on the current image tag with the old replica running until the new one is healthy, then drains it before removing it -- minimises the request-drop window rather than closing it (about one request per swap under continuous load). Image benches only, web-only, so it conflicts with --redis, --nginx and --no-web. For zero loss, use a maintenance window instead.  [default: false]
 * `--drain/--no-drain`: Wait for in-flight RQ jobs before restarting workers, and abort the restart if they outlast \[workers].drain_timeout.  [default: true]
 * `--service TEXT`: Restart only the named service (repeatable); overrides the group flags and skips the drain.
 
@@ -58,7 +58,7 @@ Repeatable, and it skips the drain.
 fm restart mybench --service socketio
 ```
 
-### Zero-downtime web restart
+### Rolling web restart
 
 ```bash
 fm restart mybench --rolling

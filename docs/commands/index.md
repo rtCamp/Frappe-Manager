@@ -116,7 +116,7 @@ The stream always ends with `run.finished`. A reader that has seen it knows noth
 | [`fm create`](create.md) | Build a new bench and start it |
 | [`fm start`](start.md) | Bring a stopped bench's containers up |
 | [`fm stop`](stop.md) | Shut a bench's containers down, keeping all data |
-| [`fm restart`](restart.md) | Restart web and workers through supervisor, whole containers, or a zero-downtime rolling swap |
+| [`fm restart`](restart.md) | Restart web and workers through supervisor, whole containers, or a rolling swap that minimises downtime |
 | [`fm delete`](delete.md) | Remove a bench directory, and optionally its database |
 | [`fm reset`](reset.md) | Drop the database and reinstall every app from scratch |
 | [`fm list`](list.md) | Every bench with its status, runtime and apps |

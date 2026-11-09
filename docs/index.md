@@ -51,7 +51,7 @@ It replaces the hand-rolled stack most Frappe developers end up maintaining: a b
 
     ---
 
-    Bake your bench into a Docker image and deploy it with a zero-downtime rolling swap. Roll back with `fm switch --previous`, or add `--restore-db` to take the database back with the code.
+    Bake your bench into a Docker image and deploy it with a rolling swap that minimises downtime, or a maintenance window for zero request loss. Roll back with `fm switch --previous`, or add `--restore-db` to take the database back with the code.
 
 </div>
 
