@@ -25,6 +25,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from frappe_manager.services_manager.proxy_dropins import ProxyDropins
+from frappe_manager.services_manager.proxy_failover import upstream_retry_conf
 from frappe_manager.site_manager.bench_config import BenchRuntime
 from frappe_manager.site_manager.modules.bench_docker import BenchDockerOps
 from frappe_manager.site_manager.modules.realip import build_bench_realip_conf
@@ -304,11 +305,12 @@ def test_the_proxy_is_not_reloaded_when_the_limit_already_matches(tmp_path):
     _healthy_base(tmp_path)
     vhostd = tmp_path / "services" / "nginx-proxy" / "vhostd"
     vhostd.mkdir(parents=True)
-    # Both halves `start` heals here (upload limit and HSTS) already match, so neither reports a
-    # change: only then does "nothing changed" mean what this test asserts.
+    # All three halves `start` heals here (upload limit, HSTS and upstream-retry) already match,
+    # so none reports a change: only then does "nothing changed" mean what this test asserts.
     dropins = _dropins(tmp_path)
     dropins.set(DOMAIN, "upload-limit", upload_limit_conf("50m"))
     dropins.set(DOMAIN, "hsts", hsts_conf("off"))
+    dropins.set(DOMAIN, "upstream-retry", upstream_retry_conf())
     bench = _bench(tmp_path, _real_ops(tmp_path))
     bench.services.path = tmp_path / "services"
 

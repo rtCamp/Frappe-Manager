@@ -52,6 +52,7 @@ from frappe_manager.site_manager.modules.compose_shape import (
     redis_server_identity,
 )
 from frappe_manager.utils.docker import run_command_with_exit_code
+from frappe_manager.utils.network import DEFAULT_NETWORK_NAME, DEFAULT_PROXY_NAME
 from frappe_manager.utils.site import host_bench_dir
 
 if TYPE_CHECKING:
@@ -63,6 +64,17 @@ FRAPPE_SERVICE = "frappe"
 TIMEOUT_EXIT_CODE = 124
 # fmx is installed as a uv tool; a bare `python` is not on the exec PATH.
 FMX_PYTHON = "/opt/uv-tools/fmx/bin/python"
+
+# Deadlines for confirming a change against the front proxy's OWN rendered config, not a
+# sleep guessed to outlast it: jwilder/nginx-proxy's docker-gen re-renders default.conf on a
+# container add/remove/connect/disconnect/die event with a 100-500ms debounce (`-wait
+# 100ms:500ms`). 15s is generous headroom for exec/subprocess overhead on a loaded host; a
+# miss past it means the proxy genuinely never saw the change, not that it was merely slow.
+PROXY_CONFIRM_DEADLINE = 15.0
+PROXY_POLL_INTERVAL = 0.2
+# Where jwilder/nginx-proxy (container `fm_nginx-proxy`) writes its rendered vhost config --
+# the only ground truth for which container IPs it is actually routing to right now.
+PROXY_VHOST_PATH = "/etc/nginx/conf.d/default.conf"
 
 
 def external_dump_tls_hint(site: str) -> str:
@@ -511,22 +523,24 @@ class DeployOrchestrator:
         """
         return max(1, self.switch_config.startup_timeout // interval)
 
+    # Shared health probe: curl where available, wget's `-S` header dump otherwise (images
+    # don't always ship both). --max-time/-T bounds it so a container that accepts the
+    # connection and never answers -- gunicorn deadlocked on a DB lock, exactly what these
+    # gates exist to catch -- is a FAILURE, not a hang that blocks the deploy forever.
+    _HTTP_PING_PROBE = (
+        'if command -v curl >/dev/null 2>&1; then '
+        'curl -s --max-time 5 -o /dev/null -w "%{http_code}" http://localhost:80/api/method/ping; '
+        'else wget -q -T 5 -O /dev/null -S http://localhost:80/api/method/ping 2>&1 | '
+        'awk "/HTTP\\//{print \\$2; exit}"; fi'
+    )
+
     def _container_health(self, container_id: str, retries: int | None = None, interval: int = 2) -> bool:
         """Poll ``/api/method/ping`` inside ``container_id`` (curl or wget) until the startup
         budget runs out."""
         retries = self._startup_retries(interval) if retries is None else retries
-        # --max-time/-T: an unbounded probe makes the budget a floor rather than a ceiling. A
-        # container that accepts the connection and never answers -- gunicorn deadlocked on a DB
-        # lock, exactly what this gate exists to catch -- would otherwise hang the deploy forever.
-        probe = (
-            'if command -v curl >/dev/null 2>&1; then '
-            'curl -s --max-time 5 -o /dev/null -w "%{http_code}" http://localhost:80/api/method/ping; '
-            'else wget -q -T 5 -O /dev/null -S http://localhost:80/api/method/ping 2>&1 | '
-            'awk "/HTTP\\//{print \\$2; exit}"; fi'
-        )
         for i in range(retries):
             try:
-                out = self._raw_docker("exec", container_id, "sh", "-c", probe)
+                out = self._raw_docker("exec", container_id, "sh", "-c", self._HTTP_PING_PROBE)
                 code = "".join(out.stdout).strip().split()[-1] if out.stdout else ""
                 if code in ("200", "404", "503"):
                     return True
@@ -562,6 +576,84 @@ class DeployOrchestrator:
                 "replaced container. Restart the bench if requests hang."
             )
 
+    # SIGQUIT is `nginx -s quit`'s graceful-shutdown signal: stop accepting new connections,
+    # finish in-flight ones, then exit. Found via /proc rather than `nginx -s quit` itself for
+    # the same reason `_NGINX_HUP` is: app-nginx's non-root supervisord setup never gets a
+    # `/run/nginx.pid` to point `-s` at.
+    _NGINX_QUIT = (
+        'for p in /proc/[0-9]*; do '
+        '[ "$(cat "$p/comm" 2>/dev/null)" = "nginx" ] || continue; '
+        'pp=$(awk "/^PPid:/{print \\$2}" "$p/status" 2>/dev/null); '
+        '[ "$(cat "/proc/$pp/comm" 2>/dev/null)" = "nginx" ] && continue; '
+        'kill -QUIT "${p#/proc/}" && exit 0; done; '
+        'nginx -s quit'
+    )
+
+    def _quit_nginx(self, container_id: str) -> None:
+        """Graceful shutdown of the OLD replica while it is STILL on the front proxy's
+        network: the listener closes immediately, so a connection the proxy still routes here
+        during docker-gen's debounce is REFUSED (and retried against the surviving replica),
+        not left hanging in connect() the way `docker network disconnect` leaves it."""
+        try:
+            self._raw_docker("exec", container_id, "sh", "-c", self._NGINX_QUIT)
+        except Exception as e:
+            self.logger.debug(f"could not quit nginx in {container_id}: {e}")
+
+    def _container_ip(self, container_id: str, network: str = DEFAULT_NETWORK_NAME) -> str | None:
+        """``container_id``'s address on ``network``, or None once it is no longer attached."""
+        try:
+            networks = self.docker.container_inspect(container_id, format="{{json .NetworkSettings.Networks}}")
+        except Exception:
+            return None
+        return (networks or {}).get(network, {}).get("IPAddress") or None
+
+    def _proxy_vhost_text(self) -> str:
+        """The front proxy's rendered vhost config, read fresh every call -- the only way to
+        know which container IPs it is ACTUALLY routing to, as opposed to which ones a
+        container add/remove was merely supposed to produce by now."""
+        out = self._raw_docker("exec", DEFAULT_PROXY_NAME, "cat", PROXY_VHOST_PATH)
+        return "".join(out.stdout)
+
+    def _wait_for_proxy_ip(self, ip: str, present: bool, deadline: float = PROXY_CONFIRM_DEADLINE) -> bool:
+        """Block until the front proxy's rendered config lists (``present=True``) or drops
+        (``present=False``) ``ip``, up to ``deadline`` seconds. False means it never confirmed
+        the transition -- callers must fail, not proceed as if the proxy had already caught up."""
+        end = time.monotonic() + deadline
+        while True:
+            try:
+                seen = ip in self._proxy_vhost_text()
+            except Exception:
+                seen = not present  # a failed read proves nothing; keep polling instead of failing on it
+            if seen == present:
+                return True
+            if time.monotonic() >= end:
+                return False
+            time.sleep(PROXY_POLL_INTERVAL)
+
+    def _settle_proxy_upstream(self, cycle: int) -> None:
+        """``cycle`` requests through the front proxy itself -- the same shape as
+        `_settle_frappe_upstream` below, one layer up. `fm_nginx-proxy` is jwilder's stock
+        image: there is no fm template under it to add a shared `zone` to, so each of its
+        worker processes tracks passive health on its own. The rendered config confirming an
+        IP present or absent only proves docker-gen wrote that file; it says nothing about
+        whether every worker has reloaded onto it yet. Called both ways: right after the new
+        replica is confirmed present, to prove it is actually reachable THROUGH the proxy
+        rather than merely named by it; and right after the old replica is confirmed absent
+        but before it is torn down, so a worker still on stale config meets a fast refusal
+        (the old replica is merely quit, still attached) and marks it down itself -- instead of
+        later routing a live request to a container that is simply gone."""
+        for _ in range(max(cycle, 1)):
+            try:
+                self._raw_docker(
+                    "exec",
+                    DEFAULT_PROXY_NAME,
+                    "sh",
+                    "-c",
+                    f'curl -s --max-time 5 -o /dev/null -w "%{{http_code}}" -H "Host: {self.site}" http://127.0.0.1/',
+                )
+            except Exception as e:
+                self.logger.debug(f"front-proxy settle probe for {self.site}: {e}")
+
     def _stop(self, container_id: str) -> None:
         # Graceful stop (SIGTERM): gunicorn/nginx finish in-flight and close their listener,
         # so new connections are refused-fast (not black-holed); also drops the container from
@@ -570,6 +662,39 @@ class DeployOrchestrator:
             self._raw_docker("stop", container_id)
         except Exception as e:
             self.logger.debug(f"could not stop {container_id}: {e}")
+
+    def _drain_frappe(self, container_id: str) -> None:
+        """Close the OLD frappe replica's listening socket directly, while its container (and
+        IP) stay on the network: a request that still reaches this IP through app-nginx's
+        cached DNS resolution is REFUSED, not black-holed. NOT `supervisorctl` -- replicas of a
+        scaled service share one `/fm-sockets/frappe.sock` control socket (the entrypoint
+        `rm -rf`s and re-binds it on start; see `render_image_compose`'s rolling comment for
+        "last-writer-wins"), so once the NEW replica's entrypoint has run, a `supervisorctl
+        stop` exec'd into THIS (old) container id is delivered over that shared socket to the
+        NEW replica's supervisord -- draining the one just brought up, not the one being
+        retired. `fuser` acts on port 80 inside this container's own network namespace, which
+        nothing else shares."""
+        try:
+            self._raw_docker("exec", "-u", "frappe", container_id, "fuser", "-k", "-TERM", "80/tcp")
+        except Exception as e:
+            self.logger.debug(f"could not drain frappe in {container_id}: {e}")
+
+    def _settle_frappe_upstream(self, container_id: str, cycle: int) -> None:
+        """``cycle`` requests through the surviving app-nginx, issued right after draining the
+        OLD frappe replica(s) but BEFORE any of them are torn down. With exactly ``cycle``
+        replicas (old + new) in its `frappe-site` upstream, nginx's own round-robin visits each
+        one at least once per full cycle, so every drained (refusing) replica fails FAST and
+        the nginx template's own passive check (`fail_timeout=120`) marks it down for 120s --
+        comfortably longer than the stop+rm that follows takes. A reload cannot do this job
+        instead: DNS for a still-attached container returns it either way, so reloading before
+        removal re-resolves to the SAME set and proves nothing. This is what holds the
+        invariant without a pollable file: make nginx stop listing the replica as live BEFORE
+        it goes away, not merely tell nginx about it after."""
+        for _ in range(max(cycle, 1)):
+            try:
+                self._raw_docker("exec", container_id, "sh", "-c", self._HTTP_PING_PROBE)
+            except Exception as e:
+                self.logger.debug(f"frappe upstream settle probe via {container_id[:12]}: {e}")
 
     def _rm(self, container_id: str) -> bool:
         # `docker rm -f` is idempotent since 20.10: it exits 0 for a name that does not exist.
@@ -641,9 +766,12 @@ class DeployOrchestrator:
         old_nginx_image: str | None,
         snaps: dict[Path, bytes],
     ) -> None:
-        """Rolling web swap: run new + old web replicas concurrently, drain old,
-        then reduce to the new replica -- zero dropped requests for a no-migrate
-        deploy (vs the recreate-swap's brief blip). Recreate-swap stays the
+        """Rolling web swap: run new + old web replicas concurrently, drain old
+        before removing it, then reduce to the new replica -- minimises dropped
+        requests for a no-migrate deploy (about one per swap under continuous
+        load, rather than eliminating them: the shared proxy's own config
+        reload lags the swap by a window this process does not control), down
+        from the recreate-swap's full blip. Recreate-swap stays the
         migrate/fallback path.
 
         Scale target = BOTH web tiers (frappe gunicorn + nginx). The global
@@ -652,10 +780,10 @@ class DeployOrchestrator:
         recreate. Frappe is scaled first so the new app-nginx (added next)
         resolves both frappe replicas. CAVEAT: during the overlap a request may
         cross version tiers (new-nginx -> old-frappe or vice-versa); for a plain
-        code+assets deploy against one shared DB this is zero-DOWNTIME (requests
-        succeed), not zero-skew -- a client may momentarily get old assets with
-        new code or vice-versa. Eligibility (no migrate / additive) guarantees
-        both code versions are DB-compatible, so the skew cannot 500."""
+        code+assets deploy against one shared DB that crossing still succeeds --
+        it is a skew, not a failure -- a client may momentarily get old assets
+        with new code or vice-versa. Eligibility (no migrate / additive)
+        guarantees both code versions are DB-compatible, so the skew cannot 500."""
         services = self.compose.get_services_list()
         web = [s for s in ("frappe", "nginx") if s in services]
         canonical = self.compose.get_container_names()
@@ -695,27 +823,79 @@ class DeployOrchestrator:
             self._abort_rolling(web, old_ids, old_image, old_nginx_image, snaps)
             raise
 
-        # Drain OLD replicas. jwilder/nginx-proxy 1.11 does not honor container health, so proxy
-        # routing only changes on container add/remove; nginx's default
-        # `proxy_next_upstream error timeout` retries the surviving upstream during the brief
-        # proxy->nginx churn. app-nginx's `upstream frappe:80` is resolved ONCE at config load, so
-        # killing old-frappe first would leave a dead IP that black-holes SYNs. We therefore
-        # `stop` old frappe first (drops Docker DNS + closes its listener) and `nginx -s reload`
-        # the survivor to re-resolve to only the new replica BEFORE removing it, so no request is
-        # ever routed to a dead IP.
-        self.output.change_head("Rolling: draining old web replicas")
-        time.sleep(5)
+        # Wait for the front proxy (jwilder/nginx-proxy, container `fm_nginx-proxy`) to actually
+        # list the new nginx replica before touching the old one. Its docker-gen does not react
+        # to container health, only to add/remove/(dis)connect/die, on a 100-500ms debounce --
+        # polled here instead of slept through, so a slow host fails loudly instead of racing
+        # the old replica's removal below.
+        self.output.change_head("Rolling: waiting for the front proxy to add the new nginx replica")
+        new_nginx_ip = self._container_ip(new_nginx)
+        if not new_nginx_ip or not self._wait_for_proxy_ip(new_nginx_ip, present=True):
+            raise DeployError(
+                f"front proxy never listed the new nginx replica {new_nginx[:12]} "
+                f"({new_nginx_ip or 'no IP on ' + DEFAULT_NETWORK_NAME}) within "
+                f"{PROXY_CONFIRM_DEADLINE}s; aborting before touching the old replica"
+            )
+        # The file proves docker-gen wrote the new replica in; it does not prove any worker has
+        # actually reloaded onto it, let alone that the new replica is reachable from the
+        # proxy's bridge yet -- an add can lose this race the same way a removal can, routing a
+        # real client to an address docker-gen named before it was ready. Old is still around
+        # as a fallback, so this is the SAFE place to make every worker's first attempt at the
+        # new replica: a failure here auto-retries to old and is invisible; after old is retired
+        # below, the same failure would not be.
+        self._settle_proxy_upstream(cycle=len(old_ids["nginx"]) + 1)
+
+        # Retire OLD nginx replicas while STILL attached to the front proxy's network. A quit
+        # signal -- not `docker network disconnect`, which was tried here before and is WRONG --
+        # closes the listener immediately: a connection still routed to this IP during
+        # docker-gen's debounce gets REFUSED, which nginx's `proxy_next_upstream error` retries
+        # against the surviving replica. `network disconnect` instead yanks the IP off the
+        # bridge with no RST, so that same connection just times out in connect() -- nginx can
+        # retry a refusal, not a hang. Removal waits for the proxy's OWN rendered config to drop
+        # the IP (its `die` event), so nothing is torn down while the proxy might still name it.
+        self.output.change_head("Rolling: retiring old nginx replica(s)")
         for cid in old_ids["nginx"]:
-            self._stop(cid)
-        self._reload_nginx(new_nginx)  # re-resolve frappe upstream on survivor
+            old_nginx_ip = self._container_ip(cid)
+            self._quit_nginx(cid)
+            if old_nginx_ip and not self._wait_for_proxy_ip(old_nginx_ip, present=False):
+                raise DeployError(
+                    f"front proxy still lists old nginx replica {cid[:12]} ({old_nginx_ip}) "
+                    f"{PROXY_CONFIRM_DEADLINE}s after it quit; aborting without removing it"
+                )
+        # Same gap, other direction: the file dropping old's IP proves docker-gen wrote THAT
+        # file, not that every worker reloaded onto it. Old is merely quit here, still attached
+        # -- a worker still serving stale config gets a fast refusal routing to it and marks it
+        # down itself (jwilder's default `fail_timeout`), closing the race in every worker that
+        # handles one of these before `_rm` turns that same refusal into a silent hang.
+        self._settle_proxy_upstream(cycle=len(old_ids["nginx"]) + 1)
         removed = sum(1 for cid in old_ids["nginx"] if self._rm(cid))
+
+        # Retire OLD frappe replicas. `frappe-site:80` is a Docker DNS name app-nginx resolves
+        # once at config load, with no file to poll for "no longer cached" the way the front
+        # proxy's vhost config is polled above -- and a reload issued before removal cannot
+        # substitute: the old container is still attached, so DNS still returns it, proving
+        # nothing. What DOES make removal safe is the nginx template's own `fail_timeout=120`
+        # passive check: draining first closes the listening socket while the container stays
+        # attached, so a routed connection is refused FAST, not black-holed; `_settle_frappe_
+        # upstream` then forces one full round-robin cycle through app-nginx's own upstream,
+        # which is what turns that fast refusal into nginx marking the replica down for 120s --
+        # comfortably longer than the stop+rm below takes. Only then is the container torn
+        # down; a final reload re-resolves to just the survivor so nothing waits out the 120s.
+        for cid in old_ids["frappe"]:
+            self._drain_frappe(cid)
+        self._settle_frappe_upstream(new_nginx, cycle=len(old_ids["frappe"]) + 1)
         for cid in old_ids["frappe"]:
             self._stop(cid)
-        self._reload_nginx(new_nginx)  # drop the just-stopped old frappe upstream
         removed += sum(1 for cid in old_ids["frappe"] if self._rm(cid))
         self._reload_nginx(new_nginx)
         if removed:
-            self.output.print(f"Rolling: drained {removed} old web replica(s)")
+            self.output.print(f"Rolling: drained {removed} old web replica(s) before removing them")
+            self.output.warning(
+                "Rolling swaps minimise the request-drop window during hand-over, they do not close "
+                "it (about one request per swap under continuous load, from a gap the shared proxy's "
+                "own config reload needs time to catch up on). For zero request loss, use "
+                "--no-rolling with a maintenance window."
+            )
 
         # Survivors are compose replica #2; rename to the canonical names and re-render the
         # canonical (container_name-bearing) compose WITHOUT a `compose up`, so
@@ -1760,7 +1940,8 @@ class DeployOrchestrator:
             self._unwind_maintenance()
             raise
 
-        # Swap: rolling when eligible for zero dropped requests, otherwise recreate-swap (the
+        # Swap: rolling when eligible to minimise dropped requests (not eliminate them -- about
+        # one per swap under continuous load), otherwise recreate-swap (the
         # maintenance window covers the brief blip). A failure IN the swap is its own abort
         # window -- the swap paths restore the compose themselves (`_abort_rolling` for rolling;
         # the recreate is already pinned to the image it brought up), but the page and suspended
@@ -1866,7 +2047,7 @@ class DeployOrchestrator:
                 self.output.warning(f"Release prune failed (continuing): {e}")
 
     def rolling_restart(self) -> None:
-        """Zero-downtime web-tier recreate on the CURRENT image (`fm restart --rolling`).
+        """Minimal-downtime web-tier recreate on the CURRENT image (`fm restart --rolling`).
 
         Same engine as the deploy swap, pointed at the running image: new frappe +
         nginx replicas come up alongside the old ones, health-gate, drain, rename

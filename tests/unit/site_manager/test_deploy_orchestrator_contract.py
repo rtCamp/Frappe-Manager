@@ -1995,6 +1995,11 @@ class TestRollingSwap:
         orch._container_health = MagicMock(
             side_effect=lambda cid, **_kw: {"newF": frappe_ok, "newN": nginx_ok}.get(cid, False),
         )
+        # The proxy confirmation is a separate concern from container plumbing (covered by its
+        # own tests below); defaulted to "already confirmed" here so the plumbing tests exercise
+        # ONE thing each.
+        orch._container_ip = MagicMock(return_value="10.1.0.9")
+        orch._wait_for_proxy_ip = MagicMock(return_value=True)
         orch._raw_docker = MagicMock()
         # ``scale_error`` keeps the REAL ``_scale`` and fails the compose call underneath it, so the
         # test exercises how a failed ``compose --scale`` is reported and unwound.
@@ -2007,17 +2012,30 @@ class TestRollingSwap:
         return orch
 
     def _docker_argv(self, orch):
-        """``(verb, container)`` per raw-docker call that CHANGES something.
+        """``(verb, container)`` per raw-docker call that CHANGES something, with flags (and
+        the value a flag takes, e.g. ``-u frappe``) stripped out.
 
         `_rm` inspects before removing, because `docker rm -f` exits 0 on a container that is
         not there and the drain count would otherwise include it. That probe is not a step in
         the swap's order, so it is not recorded here.
         """
-        return [
-            tuple(a for a in c.args if a != "-f")[:2]
-            for c in orch._raw_docker.call_args_list
-            if c.args[0] != "inspect"
-        ]
+        flag_arity = {"-f": 0, "-u": 1}
+        calls = []
+        for c in orch._raw_docker.call_args_list:
+            verb, *rest = c.args
+            if verb == "inspect":
+                continue
+            cleaned = []
+            i = 0
+            while i < len(rest):
+                skip = flag_arity.get(rest[i])
+                if skip is None:
+                    cleaned.append(rest[i])
+                    i += 1
+                else:
+                    i += 1 + skip
+            calls.append((verb, cleaned[0]))
+        return calls
 
     def test_frappe_is_scaled_before_nginx(self, tmp_path):
         orch = self._swap(tmp_path)
@@ -2033,20 +2051,87 @@ class TestRollingSwap:
         assert [c.kwargs["rolling"] for c in orch.docker_ops.render_image_compose.call_args_list] == [True, False]
         assert all(c.args[0] == NEW_TAG for c in orch.docker_ops.render_image_compose.call_args_list)
 
-    def test_old_replicas_stop_before_they_are_removed_and_nginx_reloads_between(self, tmp_path):
+    def test_new_nginx_replica_is_confirmed_by_the_front_proxy_before_anything_old_is_touched(self, tmp_path):
+        orch = self._swap(tmp_path)
+        orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
+        orch._wait_for_proxy_ip.assert_any_call("10.1.0.9", present=True)
+
+    def test_new_replica_never_reaching_the_proxy_aborts_before_the_old_one_is_touched(self, tmp_path):
+        orch = self._swap(tmp_path)
+        orch._wait_for_proxy_ip = MagicMock(return_value=False)
+        with pytest.raises(DeployError, match="front proxy never listed the new nginx replica"):
+            orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
+        assert self._docker_argv(orch) == []
+
+    def test_old_nginx_is_quit_then_removed_once_the_proxy_drops_it(self, tmp_path):
         orch = self._swap(tmp_path)
         orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
         assert self._docker_argv(orch) == [
-            ("stop", "oldN"),
-            ("exec", "newN"),  # reload: survivor re-resolves the frappe upstream
+            ("exec", "fm_nginx-proxy"),  # proxy settle 1/2: new is reachable before old is touched
+            ("exec", "fm_nginx-proxy"),  # proxy settle 2/2
+            ("exec", "oldN"),  # quit: closes the listener while still on the proxy's network
+            ("exec", "fm_nginx-proxy"),  # proxy settle 1/2: marks the now-quit oldN down in
+            ("exec", "fm_nginx-proxy"),  # proxy settle 2/2: every worker before it is removed
             ("rm", "oldN"),
+            ("exec", "oldF"),  # drain: fuser closes port 80 while oldF stays on the network
+            ("exec", "newN"),  # settle probe 1/2: round-robins app-nginx onto BOTH replicas,
+            ("exec", "newN"),  # settle probe 2/2: so the now-refusing oldF gets marked down
             ("stop", "oldF"),
-            ("exec", "newN"),
             ("rm", "oldF"),
-            ("exec", "newN"),
+            ("exec", "newN"),  # reload: drops the now-removed frappe's IP for good
             ("rename", "newF"),
             ("rename", "newN"),
         ]
+
+    def test_frappe_drain_closes_port_80_directly_not_via_supervisorctl(self, tmp_path):
+        """`supervisorctl` shares one `/fm-sockets/frappe.sock` control socket across replicas
+        of the SAME scaled service (last-writer-wins to whichever started last), so a
+        `supervisorctl stop` aimed at the OLD container id would be delivered to the NEW
+        replica's supervisord once it has started. `fuser` acts on port 80 inside the OLD
+        container's own network namespace instead, which is never shared."""
+        orch = self._swap(tmp_path)
+        orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
+        drain_calls = [c.args for c in orch._raw_docker.call_args_list if c.args[:2] == ("exec", "-u")]
+        assert ("exec", "-u", "frappe", "oldF", "fuser", "-k", "-TERM", "80/tcp") in drain_calls
+        assert not any("supervisorctl" in str(c) for c in orch._raw_docker.call_args_list)
+
+    def test_settling_the_frappe_upstream_cycles_once_per_replica(self, tmp_path):
+        """One old + one new replica is a 2-member upstream; app-nginx's round-robin only
+        guarantees visiting every member once per FULL cycle, so the settle step must send at
+        least that many requests, not a fixed count."""
+        orch = self._swap(tmp_path)
+        orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
+        settle_calls = [
+            c.args
+            for c in orch._raw_docker.call_args_list
+            if c.args[:2] == ("exec", "newN") and "curl" in str(c.args)
+        ]
+        assert len(settle_calls) == 2
+
+    def test_settling_the_proxy_upstream_cycles_once_per_replica_on_both_sides(self, tmp_path):
+        """The front proxy is a stock image with no fm template to add a shared `zone` to, so
+        its passive health state is per worker: confirming an IP present or absent in its
+        rendered config proves docker-gen wrote that file, not that every worker reloaded onto
+        it. One old + one new nginx replica is a 2-member group either way, so settling it
+        takes at least 2 requests -- once right after the new replica is confirmed present
+        (proving it is reachable, not merely named, while old is still a safe fallback), and
+        again right after the old one is confirmed absent but before it is torn down (marking
+        it down in every worker while it can still only be refused, not silently gone)."""
+        orch = self._swap(tmp_path)
+        orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
+        settle_calls = [
+            c.args
+            for c in orch._raw_docker.call_args_list
+            if c.args[:2] == ("exec", "fm_nginx-proxy") and "curl" in str(c.args)
+        ]
+        assert len(settle_calls) == 4
+
+    def test_old_nginx_still_listed_by_the_proxy_after_it_quits_aborts_without_removing_it(self, tmp_path):
+        orch = self._swap(tmp_path)
+        orch._wait_for_proxy_ip = MagicMock(side_effect=[True, False])  # new added, old never dropped
+        with pytest.raises(DeployError, match="still lists old nginx replica"):
+            orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {})
+        assert ("rm", "oldN") not in self._docker_argv(orch)
 
     def test_survivors_are_renamed_back_to_the_canonical_names(self, tmp_path):
         orch = self._swap(tmp_path)

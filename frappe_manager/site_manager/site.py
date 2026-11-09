@@ -18,6 +18,7 @@ from frappe_manager.logger import get_logger, set_context
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.output_manager import OutputHandler, get_global_output_handler
 from frappe_manager.services_manager.proxy_dropins import ProxyDropins
+from frappe_manager.services_manager.proxy_failover import upstream_retry_conf
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import (
     UPLOAD_LIMIT_RE,
@@ -747,14 +748,17 @@ class Bench:
                 self.ensure_fm_nginx_confs()
                 # The proxy vhost entry is the other half, and it is the binding one: a bench with
                 # no entry gets the proxy's 1M default and answers 413 however permissive its own
-                # nginx conf is, and no HSTS override strips the bench's own hardcoded header (see
-                # `hsts_conf`, written via `ProxyDropins`). Existing benches have neither at all, so
-                # this is what heals them without a migration. Both run unconditionally (never
-                # short-circuited by the other) so that a change to just one is not missed; reload
-                # only when something actually changed, because the proxy is shared by every bench.
+                # nginx conf is, no HSTS override strips the bench's own hardcoded header (see
+                # `hsts_conf`, written via `ProxyDropins`), and a connect failure on a removed
+                # peer hangs for nginx's 60s default instead of retrying (see `upstream_retry_conf`).
+                # Existing benches have none of this at all, so this is what heals them without a
+                # migration. All three run unconditionally (never short-circuited by each other) so
+                # that a change to just one is not missed; reload only when something actually
+                # changed, because the proxy is shared by every bench.
                 upload_limit_changed = self.apply_upload_limit()
                 hsts_changed = self.apply_hsts()
-                if (upload_limit_changed or hsts_changed) and self.services.is_service_running(
+                retry_changed = self.apply_proxy_retry()
+                if (upload_limit_changed or hsts_changed or retry_changed) and self.services.is_service_running(
                     "nginx-proxy"
                 ):
                     self.services.nginx_controller.reload()
@@ -2063,6 +2067,27 @@ class Bench:
         changed = False
         for domain in self.domains:
             if dropins.set(domain, "hsts", hsts_conf(hsts_value)):
+                changed = True
+        return changed
+
+    def apply_proxy_retry(self) -> bool:
+        """Push the `upstream-retry` fragment (`proxy_connect_timeout`/`proxy_next_upstream`,
+        see `upstream_retry_conf`) to every domain's proxy vhost.d file.
+
+        Content is constant -- no bench_config input -- so unlike `apply_upload_limit`/
+        `apply_hsts` this never changes after the first write; it is still called from the same
+        places they are (create, `fm start`, site-add) so an existing bench picks it up the next
+        time any of those run, with no migration of its own.
+
+        Idempotent and a no-op before the proxy's vhostd dir exists, same as `apply_hsts`.
+        """
+        dropins = ProxyDropins.for_services_path(self.services.path)
+        if not dropins.vhostd_dir.exists():
+            return False
+
+        changed = False
+        for domain in self.domains:
+            if dropins.set(domain, "upstream-retry", upstream_retry_conf()):
                 changed = True
         return changed
 

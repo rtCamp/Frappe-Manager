@@ -27,7 +27,7 @@ Two traps this module exists to get right, both measured against a running nginx
 import re
 from pathlib import Path
 
-ORDER = {"upload-limit": 10, "maintenance": 20, "hsts": 30, "https-redirect": 40}
+ORDER = {"upstream-retry": 5, "upload-limit": 10, "maintenance": 20, "hsts": 30, "https-redirect": 40}
 
 INCLUDE_BEGIN = "# fm:include BEGIN"
 INCLUDE_END = "# fm:include END"
