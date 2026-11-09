@@ -418,10 +418,14 @@ class BenchWorkerCoordinator:
         suspend is handled globally by the caller, so fmx's own drain is
         disabled to avoid a second wait."""
         wc = self.workers.bench.bench_config.workers or WorkersConfig()
+        # The service MUST be named. Every container mounts the same `/fm-sockets` volume, so a
+        # bare `fmx restart` discovers every socket in it and restarts the web and socketio
+        # processes too -- measured as three 2.5s bursts of 502s per worker cycle.
         cmd = (
             f"{FMX_BIN} restart --no-drain-workers --wait"
             f" --worker-kill-timeout {wc.kill_timeout}"
             f" --worker-kill-poll {wc.kill_poll}"
+            f" {service}"
         )
         docker_client_obj.compose.exec(service=service, user="frappe", command=cmd, stream=False)
 

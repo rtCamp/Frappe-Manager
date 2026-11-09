@@ -258,6 +258,18 @@ class TestRestartWorkersFmxCyclePath:
         ]
 
     @pytest.mark.timeout(15)
+    def test_fmx_command_is_scoped_to_one_service(self, harness):
+        """fmx with no service name restarts EVERY socket in the shared /fm-sockets volume --
+        web and socketio included, which 502s the site for seconds on every worker cycle."""
+        h = harness(workers_config=None)
+
+        h.coordinator.restart_workers_containers_services(use_container_restart=False, force=False)
+
+        for exec_call in h.workers_client.compose.exec.call_args_list:
+            cmd = exec_call.kwargs["command"]
+            assert cmd.split()[-1] == exec_call.kwargs["service"], f"fmx not scoped to a service: {cmd}"
+
+    @pytest.mark.timeout(15)
     def test_fmx_command_disables_its_own_drain_and_waits(self, harness):
         h = harness(workers_config=None)
 
@@ -266,7 +278,7 @@ class TestRestartWorkersFmxCyclePath:
         cmd = h.workers_client.compose.exec.call_args_list[0].kwargs["command"]
         # a missing [workers] config falls back to WorkersConfig() defaults
         defaults = WorkersConfig()
-        assert cmd == (
+        assert cmd.startswith(
             f"{FMX_BIN} restart --no-drain-workers --wait"
             f" --worker-kill-timeout {defaults.kill_timeout}"
             f" --worker-kill-poll {defaults.kill_poll}"
