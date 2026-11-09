@@ -61,6 +61,12 @@ def _docker_exception(*lines: str) -> DockerException:
     return DockerException(["docker", "compose", "ps"], SubprocessOutput(out, out, out, 1))
 
 
+def _command(c) -> str:
+    """One `compose.exec` call's command: the readiness probe passes it positionally,
+    every restart/socket call passes it as `command=`."""
+    return c.kwargs.get("command", c.args[1] if len(c.args) > 1 else None)
+
+
 # =============================================================== BenchDockerOps
 
 
@@ -1523,7 +1529,12 @@ class TestRequiredImagesCheck:
 
 
 def _supervisor(
-    *, newrelic_enabled=False, newrelic_license_key=None, bench_name="test.localhost", ssl_certificates=()
+    *,
+    newrelic_enabled=False,
+    newrelic_license_key=None,
+    bench_name="test.localhost",
+    ssl_certificates=(),
+    runtime=BenchRuntime.mount,
 ) -> BenchSupervisor:
     sup = object.__new__(BenchSupervisor)
     sup.logger = MagicMock()
@@ -1538,6 +1549,7 @@ def _supervisor(
         if newrelic_enabled or newrelic_license_key
         else None,
         ssl_certificates=list(ssl_certificates),
+        runtime=runtime,
     )
     sup.bench_name = bench_name
     sup.output = MagicMock()
@@ -2171,8 +2183,9 @@ class TestRestartSupervisorService:
 
         assert sup.restart_supervisor_service("frappe") is True
 
-        commands = [c.kwargs["command"] for c in sup.docker_client.compose.exec.call_args_list]
+        commands = [_command(c) for c in sup.docker_client.compose.exec.call_args_list]
         assert commands == [
+            "supervisorctl -c /opt/user/supervisord.conf status all",
             "supervisorctl -c /opt/user/supervisord.conf restart all",
             "test -e /fm-sockets/frappe.sock",
         ]
@@ -2186,8 +2199,9 @@ class TestRestartSupervisorService:
 
         assert sup.restart_supervisor_service("frappe", force=True) is True
 
-        commands = [c.kwargs["command"] for c in sup.docker_client.compose.exec.call_args_list]
+        commands = [_command(c) for c in sup.docker_client.compose.exec.call_args_list]
         assert commands == [
+            "supervisorctl -c /opt/user/supervisord.conf status all",
             "supervisorctl -c /opt/user/supervisord.conf stop all",
             "supervisorctl -c /opt/user/supervisord.conf start all",
             "test -e /fm-sockets/frappe.sock",
@@ -2207,7 +2221,7 @@ class TestRestartSupervisorService:
     def test_a_failed_graceful_restart_raises_naming_the_bench(self):
         sup = _supervisor(bench_name="broken.localhost")
         sup.docker_client = self._client()
-        sup.docker_client.compose.exec.side_effect = _docker_exception("no such process")
+        sup.docker_client.compose.exec.side_effect = [MagicMock(), _docker_exception("no such process")]
 
         with pytest.raises(BenchOperationException, match="Failed to restart supervisor for frappe service"):
             sup.restart_supervisor_service("frappe")
@@ -2216,7 +2230,7 @@ class TestRestartSupervisorService:
     def test_a_failed_force_restart_raises_its_own_message(self):
         sup = _supervisor()
         sup.docker_client = self._client()
-        sup.docker_client.compose.exec.side_effect = _docker_exception("boom")
+        sup.docker_client.compose.exec.side_effect = [MagicMock(), _docker_exception("boom")]
 
         with pytest.raises(BenchOperationException, match="Failed to force restart supervisor"):
             sup.restart_supervisor_service("frappe", force=True)
@@ -2229,7 +2243,7 @@ class TestRestartSupervisorService:
         monkeypatch.setattr(f"{SUPERVISOR_MODULE}.time.sleep", lambda _: None)
         sup = _supervisor()
         sup.docker_client = self._client()
-        sup.docker_client.compose.exec.side_effect = [MagicMock()] + [_docker_exception("nope")] * 3
+        sup.docker_client.compose.exec.side_effect = [MagicMock(), MagicMock()] + [_docker_exception("nope")] * 3
 
         assert sup.restart_supervisor_service("frappe", timeout=3) is True
         sup.output.warning.assert_not_called()
@@ -2241,7 +2255,7 @@ class TestRestartSupervisorService:
         monkeypatch.setattr(f"{SUPERVISOR_MODULE}.time.sleep", lambda _: None)
         sup = _supervisor()
         sup.docker_client = self._client()
-        sup.docker_client.compose.exec.side_effect = [MagicMock()] + [_docker_exception("nope")] * 3
+        sup.docker_client.compose.exec.side_effect = [MagicMock(), MagicMock()] + [_docker_exception("nope")] * 3
         # The pre-restart check (top of the method) must still see it running, or the call
         # never reaches the restart at all; only the POST-timeout check reports it gone.
         sup.docker_client.compose.get_all_services_status.side_effect = [
@@ -2265,7 +2279,8 @@ class TestRestartSupervisorService:
 
         assert sup.restart_supervisor_service("frappe", docker_client_obj=other) is True
 
-        assert [c.kwargs["command"] for c in other.compose.exec.call_args_list] == [
+        assert [_command(c) for c in other.compose.exec.call_args_list] == [
+            "supervisorctl -c /opt/user/supervisord.conf status all",
             "supervisorctl -c /opt/user/supervisord.conf restart all",
             "test -e /fm-sockets/frappe.sock",
         ]
@@ -2286,7 +2301,8 @@ class TestRestartSupervisorService:
 
         assert sup.restart_supervisor_service("short-worker", docker_client_obj=workers, force=True) is True
 
-        assert [c.kwargs["command"] for c in workers.compose.exec.call_args_list] == [
+        assert [_command(c) for c in workers.compose.exec.call_args_list] == [
+            "supervisorctl -c /opt/user/supervisord.conf status all",
             "supervisorctl -c /opt/user/supervisord.conf stop all",
             "supervisorctl -c /opt/user/supervisord.conf start all",
             "test -e /fm-sockets/short-worker.sock",
@@ -2294,6 +2310,79 @@ class TestRestartSupervisorService:
         sup.docker_client.compose.exec.assert_not_called()
         assert sleeps == []
         sup.output.warning.assert_not_called()
+
+
+class TestSupervisordReadyBeforeRestart:
+    """`restart_supervisor_service` must find supervisord actually accepting commands
+    before handing it a restart. The bug this guards: an image bench's entrypoint chowns
+    the whole baked workspace before supervisord binds its socket, so a restart issued
+    right after `fm start` can land on a socket nobody is listening on yet -- "refused
+    connection", not "not running" -- and `supervisorctl` answers that with exit 4."""
+
+    @pytest.mark.timeout(15)
+    def test_it_polls_until_supervisord_answers_then_restarts(self, monkeypatch):
+        sleeps = []
+        monkeypatch.setattr(f"{SUPERVISOR_MODULE}.time.sleep", sleeps.append)
+        sup = _supervisor()
+        sup.docker_client = TestRestartSupervisorService._client()
+        sup.docker_client.compose.exec.side_effect = [
+            _docker_exception("refused connection"),
+            _docker_exception("refused connection"),
+            MagicMock(),
+            MagicMock(),
+            MagicMock(),
+        ]
+
+        assert sup.restart_supervisor_service("frappe", interval=2) is True
+
+        commands = [_command(c) for c in sup.docker_client.compose.exec.call_args_list]
+        assert commands == [
+            "supervisorctl -c /opt/user/supervisord.conf status all",
+            "supervisorctl -c /opt/user/supervisord.conf status all",
+            "supervisorctl -c /opt/user/supervisord.conf status all",
+            "supervisorctl -c /opt/user/supervisord.conf restart all",
+            "test -e /fm-sockets/frappe.sock",
+        ]
+        assert sleeps == [2, 2]
+
+    @pytest.mark.timeout(15)
+    def test_it_gives_up_with_a_clear_error_and_never_issues_the_restart(self, monkeypatch):
+        monkeypatch.setattr(f"{SUPERVISOR_MODULE}.time.sleep", lambda _: None)
+        sup = _supervisor(bench_name="slow.localhost")
+        sup.docker_client = TestRestartSupervisorService._client()
+        sup.docker_client.compose.exec.side_effect = _docker_exception("refused connection")
+
+        with pytest.raises(BenchOperationException, match="Supervisord for frappe did not start accepting commands"):
+            sup.restart_supervisor_service("frappe", timeout=3, interval=1)
+
+        commands = [_command(c) for c in sup.docker_client.compose.exec.call_args_list]
+        assert commands == ["supervisorctl -c /opt/user/supervisord.conf status all"] * 3
+
+    @pytest.mark.timeout(15)
+    def test_a_genuine_supervisorctl_failure_is_not_swallowed_by_the_wait(self):
+        """Once supervisord answers, a real restart failure (e.g. exit 4 from a crashed
+        program) must still surface as its own error, not get retried away."""
+        sup = _supervisor()
+        sup.docker_client = TestRestartSupervisorService._client()
+        sup.docker_client.compose.exec.side_effect = [MagicMock(), _docker_exception("exit status 4")]
+
+        with pytest.raises(BenchOperationException, match="Failed to restart supervisor for frappe service"):
+            sup.restart_supervisor_service("frappe")
+
+    @pytest.mark.timeout(15)
+    def test_image_runtime_waits_longer_than_the_passed_timeout(self, monkeypatch):
+        """Mount binds the workspace with nothing to copy; image copies the baked
+        workspace first (minutes, not seconds) -- so the wait bound scales with runtime
+        rather than trusting the caller's `timeout`."""
+        monkeypatch.setattr(f"{SUPERVISOR_MODULE}.time.sleep", lambda _: None)
+        sup = _supervisor(runtime=BenchRuntime.image)
+        sup.docker_client = TestRestartSupervisorService._client()
+        sup.docker_client.compose.exec.side_effect = _docker_exception("refused connection")
+
+        with pytest.raises(BenchOperationException, match="did not start accepting commands within 600s"):
+            sup.restart_supervisor_service("frappe", timeout=5, interval=1)
+
+        assert sup.docker_client.compose.exec.call_count == 600
 
 
 class TestSetupNewrelicFailure:

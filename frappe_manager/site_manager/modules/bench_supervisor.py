@@ -10,7 +10,7 @@ from frappe_manager import CLI_SERVICES_DIRECTORY, COMMON_SITE_CONFIG_FILE, CONT
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler, get_global_output_handler
-from frappe_manager.site_manager.bench_config import BenchConfig
+from frappe_manager.site_manager.bench_config import BenchConfig, BenchRuntime
 from frappe_manager.site_manager.exceptions import BenchOperationException
 from frappe_manager.site_manager.modules.realip import trusted_ranges
 from frappe_manager.utils.helpers import get_template_path
@@ -103,21 +103,26 @@ class BenchSupervisor:
         self.bench_name = bench_name
         self.output = output_handler or get_global_output_handler()
 
-    def is_supervisord_running(self, interval: int = 2, timeout: int = 30) -> bool:
-        """
-        Check if supervisord is running.
+    def is_supervisord_running(
+        self,
+        interval: int = 2,
+        timeout: int = 30,
+        service: str = "frappe",
+        docker_client_obj: DockerClient | None = None,
+    ) -> bool:
+        """Whether ``service``'s own supervisord is accepting ``supervisorctl`` commands.
 
-        Args:
-            interval: Check interval in seconds
-            timeout: Maximum time to wait in seconds
-
-        Returns:
-            True if supervisord is running, False otherwise
+        Each bench code service (frappe, socketio, schedule) runs its own supervisord in its
+        own container, so ``service`` and ``docker_client_obj`` must match the container being
+        probed -- checking "frappe" while a worker container is still booting would read ready
+        early. ``timeout`` is an iteration count, not a second count: elapsed time is
+        ``timeout * interval`` seconds, because every loop short of the first sleeps once.
         """
+        docker_client_obj = docker_client_obj or self.docker_client
         for i in range(timeout):
             try:
                 status_command = "supervisorctl -c /opt/user/supervisord.conf status all"
-                output = self.docker_client.compose.exec("frappe", status_command, user="frappe", stream=False)
+                docker_client_obj.compose.exec(service, status_command, user="frappe", stream=False)
                 return True
             except DockerException as e:
                 if any("frappe-bench" in s for s in e.output.combined):
@@ -140,7 +145,8 @@ class BenchSupervisor:
         Args:
             service: Service name to restart
             docker_client_obj: Optional Docker client (uses self.docker_client if None)
-            timeout: Timeout in seconds (used for socket availability check after restart)
+            timeout: Timeout in seconds for the socket check after restart; also the
+                pre-restart supervisord-ready wait below, scaled to 600s on image runtime.
             interval: Check interval in seconds
             force: If True, stop then start processes (hard restart). If False, use restart command (graceful).
 
@@ -164,6 +170,24 @@ class BenchSupervisor:
         if not service_running:
             self.output.display_error(text=f"Service [fm.info]{service}[/fm.info] not running.")
             return False
+
+        # Image runtime's entrypoint chowns the whole baked workspace before supervisord starts
+        # listening (`BenchOrchestrator.verify_bench_server_responding` waits up to 600s for the
+        # same reason on create); `fm start` returns as soon as the container is up, without that
+        # wait, so a restart landing in the gap hits a socket nobody is listening on yet --
+        # "refused connection", not "not running" -- and `supervisorctl` answers that with exit 4.
+        wait_timeout = 600 if self.config.runtime == BenchRuntime.image else timeout
+        if not self.is_supervisord_running(
+            interval=interval, timeout=wait_timeout, service=service, docker_client_obj=docker_client_obj
+        ):
+            raise BenchOperationException(
+                self.bench_name,
+                message=(
+                    f"Supervisord for {service} did not start accepting commands within "
+                    f"{wait_timeout * interval}s; the container is up but its entrypoint has not "
+                    f"finished. Check 'fm logs {self.bench_name}' for where it stopped."
+                ),
+            )
 
         if force:
             stop_command = "supervisorctl -c /opt/user/supervisord.conf stop all"
