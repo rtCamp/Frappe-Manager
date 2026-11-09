@@ -1932,10 +1932,13 @@ class DeployOrchestrator:
             # Switch hooks (pre-restart): host first, then the still-running old container.
             self._run_host_hook(self._switch_hook("before_restart", host=True), "host_before_restart", new_image)
             self._run_container_hook(self._switch_hook("before_restart"), "before_restart", new_image)
-        except Exception:
-            # Abort BEFORE the swap (hook/migrate/maintenance/drain failure): the OLD stack is
-            # still live. Revert the compose re-pin, then drop the page and un-suspend RQ so an
-            # aborted deploy never leaves the site dark or the compose half-switched.
+        except BaseException:
+            # Abort BEFORE the swap (hook/migrate/maintenance/drain failure, OR a Ctrl-C): the OLD
+            # stack is still live. Revert the compose re-pin, then drop the page and un-suspend RQ
+            # so an aborted deploy never leaves the site dark or the compose half-switched.
+            # BaseException, not Exception: KeyboardInterrupt derives from BaseException, so a
+            # Ctrl-C after the compose has been re-pinned must unwind exactly like any other
+            # failure here, not skip straight past this handler to deploy()'s bare `finally`.
             self._restore_compose(snaps)
             self._unwind_maintenance()
             raise
@@ -1958,7 +1961,9 @@ class DeployOrchestrator:
                 self.output.change_head("Swapping to new image (recreate)")
                 self.docker.compose.up(services=[], detach=True, pull="never", stream=False)
                 self._up_workers()
-        except Exception:
+        except BaseException:
+            # Same BaseException reasoning as the pre-swap handler above: a Ctrl-C mid-swap must
+            # still drop the page and resume workers, not just skip to deploy()'s `finally`.
             self._unwind_maintenance()
             raise
 

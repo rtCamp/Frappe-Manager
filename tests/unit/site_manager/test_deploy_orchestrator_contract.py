@@ -1284,6 +1284,45 @@ class TestSwapFailureUnwind:
         r.orch.resume_workers.assert_called()
 
 
+# ============================================ deploy: Ctrl-C mid-switch unwinds too
+
+
+class TestInterruptUnwind:
+    """KeyboardInterrupt is a BaseException, not an Exception: `except Exception` never sees it,
+    so a Ctrl-C after the compose was re-pinned used to skip straight past `_restore_compose` and
+    `_unwind_maintenance` to `deploy()`'s bare `finally`, leaving maintenance ON with nothing
+    unwound and nothing recorded. These pin that an interrupt unwinds exactly like any other
+    abort, in both abort windows, and is never swallowed -- it still comes back out as an
+    interrupt, not a reported success and not an ordinary DeployError.
+    """
+
+    def test_a_pre_swap_interrupt_restores_compose_and_drops_the_page(self, rig):
+        r = rig(_run_container_hook={"side_effect": [None, None, KeyboardInterrupt()]})
+        with pytest.raises(KeyboardInterrupt):
+            r.orch.deploy(NEW_TAG)
+        r.orch._restore_compose.assert_called_once_with({"snap": b"x"})
+        assert [a[0] for a, _k in r.calls("set_maintenance_mode")] == [1, 0]
+        r.orch.resume_workers.assert_called()
+        r.orch._rolling_swap.assert_not_called()
+        r.orch._record.assert_not_called()
+
+    def test_a_swap_window_interrupt_drops_the_page_and_resumes(self, rig):
+        r = rig(_rolling_swap={"side_effect": KeyboardInterrupt()})
+        with pytest.raises(KeyboardInterrupt):
+            r.orch.deploy(NEW_TAG)
+        assert [a[0] for a, _k in r.calls("set_maintenance_mode")] == [1, 0]
+        r.orch.resume_workers.assert_called()
+        r.orch._record.assert_not_called()
+        # Left to the swap's own `_abort_rolling`, same as any other swap-window failure.
+        r.orch._restore_compose.assert_not_called()
+
+    def test_an_interrupt_classifies_as_aborted_not_succeeded(self, rig):
+        r = rig(_run_container_hook={"side_effect": [None, None, KeyboardInterrupt()]})
+        with pytest.raises(KeyboardInterrupt):
+            r.orch.deploy(NEW_TAG)
+        assert r.orch._deploy_outcome == "aborted"
+
+
 # =================================================== deploy: the health gate
 
 
@@ -2218,6 +2257,19 @@ class TestRollingSwap:
         assert orch._pin_workers.call_args_list[-1].args == (OLD_TAG, OLD_NGINX_TAG)
         assert ("stop", "oldF") not in self._docker_argv(orch)
         assert ("rm", "newF") in self._docker_argv(orch)
+
+    def test_an_interrupt_mid_swap_tears_down_the_new_replica_and_restores_compose(self, tmp_path):
+        """KeyboardInterrupt is a BaseException: `except Exception` here used to let a Ctrl-C
+        while the new nginx replica was coming up (frappe's replica already healthy) skip
+        `_abort_rolling` entirely, stranding BOTH web tiers up with the compose still pinned to
+        the rolling (no ``container_name``) render."""
+        orch = self._swap(tmp_path)
+        orch._scale = MagicMock(side_effect=[None, KeyboardInterrupt()])
+        with pytest.raises(KeyboardInterrupt):
+            orch._rolling_swap(NEW_TAG, NEW_NGINX_TAG, OLD_TAG, OLD_NGINX_TAG, {"p": b"old"})
+        assert ("stop", "newF") in self._docker_argv(orch)
+        orch._restore_compose.assert_called_once_with({"p": b"old"})
+        assert orch._pin_workers.call_args_list[-1].args == (OLD_TAG, OLD_NGINX_TAG)
 
 
 # =============================================================== fetch image
