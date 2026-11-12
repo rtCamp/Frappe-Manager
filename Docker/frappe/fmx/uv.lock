@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.10"
 
 [[package]]
@@ -79,7 +79,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "nuitka", specifier = ">=4.3.1" }]
+dev = [{ name = "nuitka", specifier = ">=4.3.5" }]
 
 [[package]]
 name = "markdown-it-py"
@@ -104,9 +104,9 @@ wheels = [
 
 [[package]]
 name = "nuitka"
-version = "4.3.1"
+version = "4.3.5"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/da/0f/db5cfdebf906a6de141bfdadcd72a7417ba710ba9c9d307be185a69a7c8d/nuitka-4.3.1.tar.gz", hash = "sha256:b9c87a694acc424cfffa06abf149fddbdfa85f6daac998df67411b5f4269df0f", size = 4771037, upload-time = "2026-10-17T16:34:00.545Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5f/ec/a9a448d2c429865483fdecf3e4d60e4dcdb8738085337cbd2482ec6468ef/nuitka-4.3.5.tar.gz", hash = "sha256:ca1dabc274b95efa7a46597f464ec27484b30f32cb89872d14d66541284d4f01", size = 4780637, upload-time = "2026-11-08T13:01:00.034Z" }
 
 [[package]]
 name = "pygments"
