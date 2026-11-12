@@ -211,6 +211,29 @@ fm restart mybench
     
     The default formula balances CPU utilization and memory.
 
+### Optional Gunicorn Flags
+
+Two additional Gunicorn flags can be enabled via `common_site_config.json`. Both
+are unset by default, so the generated command is unchanged unless you configure
+them.
+
+| Key | Gunicorn flag | Default |
+| --- | --- | --- |
+| `gunicorn_keep_alive` | `--keep-alive` | unset (flag omitted) |
+| `gunicorn_worker_tmp_dir` | `--worker-tmp-dir` | unset (flag omitted) |
+
+```bash
+# Keep idle connections open longer and put worker heartbeat files on tmpfs
+fm shell mybench -c "bench set-config -g gunicorn_keep_alive 5"
+fm shell mybench -c "bench set-config -g gunicorn_worker_tmp_dir /dev/shm"
+fm restart mybench
+```
+
+!!! note "Wrapper is regenerated"
+    FM regenerates the web-server wrapper on setup, restart, and migrate. Setting
+    these keys in `common_site_config.json` ensures the values survive those
+    operations instead of being reset to defaults.
+
 ---
 
 ## RQ Worker Concurrency
