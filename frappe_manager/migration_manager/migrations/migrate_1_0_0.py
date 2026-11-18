@@ -454,6 +454,8 @@ class MigrationV100(MigrationBase):
         # Daemon-truth subnets of the OLD networks, captured before anything is deleted;
         # keyed by the NEW compose network key. The rollback needs them too.
         self._old_subnets: dict[str, str | None] = {}
+        # The proxy's address before the rename; every bench's `extra_hosts` already names it.
+        self._old_proxy_ip: str | None = None
 
     def migrate_bench(self, bench: MigrationBench):
         self._admin_tools_and_config_bench(bench)
@@ -2284,6 +2286,9 @@ class MigrationV100(MigrationBase):
         self._old_subnets = {
             new_key: self._daemon_subnet(old_name) for new_key, old_name in NEW_KEY_TO_OLD_NETWORK.items()
         }
+        # Same window, same reason: the running proxy's address is only readable while the old
+        # network still exists, and it is what every bench's `extra_hosts` already names.
+        self._old_proxy_ip = self._daemon_proxy_ip()
 
         # 1. Every bench's containers must be REMOVED: removed containers are what free
         #    the old networks, and the bench composes are about to reference new ones.
@@ -2332,6 +2337,7 @@ class MigrationV100(MigrationBase):
         #    no owner at all -- nothing would recreate them after the deletion above.
         rewrite_compose_for_rename(compose_file_manager.yml)
         self._normalize_services_networks(compose_file_manager.yml)
+        self._pin_proxy_ip(compose_file_manager.yml)
         compose_file_manager.yml["x-version"] = str(self.version)
         compose_file_manager.write_to_file()
 
@@ -2403,6 +2409,57 @@ class MigrationV100(MigrationBase):
             subnet = self._old_subnets.get(key)
             if subnet:
                 network["ipam"] = {"config": [{"subnet": subnet}]}
+
+    def _pin_proxy_ip(self, compose_data: dict) -> None:
+        """Pin the proxy to the address it already holds.
+
+        A new install writes this; an upgraded one did not, so a proxy that went down while
+        anything else was starting came back on a different address while every bench's
+        `extra_hosts` still named the old one -- killing server-side self-calls with public
+        traffic still answering 200. Measured: the proxy moved 10.1.0.2 -> 10.1.0.9 and the
+        bench's call to its own site stopped connecting.
+        """
+        if not self._old_proxy_ip:
+            return
+        proxy = (compose_data.get("services") or {}).get("nginx-proxy")
+        if not isinstance(proxy, dict):
+            return
+
+        networks = proxy.get("networks")
+        # Legacy installs carry the list form, which has nowhere to put an address.
+        if isinstance(networks, list):
+            networks = {name: None for name in networks}
+            proxy["networks"] = networks
+        if not isinstance(networks, dict) or FRONTEND_NETWORK_KEY not in networks:
+            return
+
+        entry = networks.get(FRONTEND_NETWORK_KEY)
+        if not isinstance(entry, dict):
+            entry = {}
+            networks[FRONTEND_NETWORK_KEY] = entry
+        entry.setdefault("ipv4_address", self._old_proxy_ip)
+
+    @staticmethod
+    def _daemon_proxy_ip() -> str | None:
+        """The running proxy's address on the frontend network, under either service name."""
+        for container in ("fm_nginx-proxy", "fm_global-nginx-proxy"):
+            try:
+                out = run_command_with_exit_code(
+                    [
+                        "docker",
+                        "inspect",
+                        "--format",
+                        "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}",
+                        container,
+                    ],
+                    stream=False,
+                )
+            except Exception:
+                continue
+            address = "".join(out.stdout).split()  # type: ignore[union-attr]
+            if address:
+                return address[0]
+        return None
 
     @staticmethod
     def _daemon_subnet(network_name: str) -> str | None:

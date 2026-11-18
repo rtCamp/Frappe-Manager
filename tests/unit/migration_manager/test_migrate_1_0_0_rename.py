@@ -578,3 +578,51 @@ class TestTelemetryTableRewrite:
         m._rewrite_telemetry_table(bench)
 
         m.backup_manager.backup.assert_called_once_with(path, bench_name="shop")
+
+
+class TestProxyIpPin:
+    """A migrated proxy that comes back on a different address strands every bench: their
+    extra_hosts still name the old one, so server-side self-calls die while public traffic
+    keeps answering 200. Measured: the proxy moved 10.1.0.2 -> 10.1.0.9 and the call failed."""
+
+    def _compose(self, networks):
+        return {"services": {"nginx-proxy": {"container_name": "fm_nginx-proxy", "networks": networks}}}
+
+    def test_the_address_the_proxy_already_holds_is_written_onto_its_service(self):
+        migration = MigrationV100.__new__(MigrationV100)
+        migration._old_proxy_ip = "10.1.0.2"
+        data = self._compose({"frontend-network": None})
+
+        migration._pin_proxy_ip(data)
+
+        entry = data["services"]["nginx-proxy"]["networks"]["frontend-network"]
+        assert entry["ipv4_address"] == "10.1.0.2"
+
+    def test_the_legacy_list_form_is_converted_so_it_can_carry_an_address(self):
+        migration = MigrationV100.__new__(MigrationV100)
+        migration._old_proxy_ip = "10.1.0.2"
+        data = self._compose(["frontend-network", "backend-network"])
+
+        migration._pin_proxy_ip(data)
+
+        networks = data["services"]["nginx-proxy"]["networks"]
+        assert networks["frontend-network"]["ipv4_address"] == "10.1.0.2"
+        assert "backend-network" in networks
+
+    def test_an_address_the_operator_already_pinned_is_never_overwritten(self):
+        migration = MigrationV100.__new__(MigrationV100)
+        migration._old_proxy_ip = "10.1.0.2"
+        data = self._compose({"frontend-network": {"ipv4_address": "10.1.0.50"}})
+
+        migration._pin_proxy_ip(data)
+
+        assert data["services"]["nginx-proxy"]["networks"]["frontend-network"]["ipv4_address"] == "10.1.0.50"
+
+    def test_nothing_is_written_when_the_proxy_was_not_running(self):
+        migration = MigrationV100.__new__(MigrationV100)
+        migration._old_proxy_ip = None
+        data = self._compose({"frontend-network": None})
+
+        migration._pin_proxy_ip(data)
+
+        assert data["services"]["nginx-proxy"]["networks"]["frontend-network"] is None
