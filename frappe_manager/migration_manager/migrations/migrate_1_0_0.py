@@ -1033,7 +1033,13 @@ class MigrationV100(MigrationBase):
         try:
             yaml = YAML()
             data = yaml.load((CLI_SERVICES_DIRECTORY / "docker-compose.yml").read_text())
-            ipam = ((data.get("networks") or {}).get("global-frontend-network") or {}).get("ipam") or {}
+            # Either spelling: the per-bench tier always runs AFTER `migrate_services` renamed
+            # this key, so reading only the legacy name can never hit and the step would depend
+            # entirely on the daemon fallback below, which writes nothing while the proxy is down.
+            networks = data.get("networks") or {}
+            ipam = ((networks.get("frontend-network") or networks.get("global-frontend-network")) or {}).get(
+                "ipam"
+            ) or {}
             subnet = (ipam.get("config") or [{}])[0].get("subnet")
         except Exception:
             subnet = None
@@ -2537,6 +2543,13 @@ class MigrationV100(MigrationBase):
                         continue
                     client = DockerClient(compose_file_path=compose_path)
                     assert client.compose is not None
+                    if compose_name == "docker-compose.admin-tools.yml":
+                        # `pull_bench_images` covers the main compose only, and this file was just
+                        # re-pointed at adminer:5, which a 0.20.0 host has never fetched. With
+                        # `pull="never"` below, a host without it cached comes back with its
+                        # database console and mail catcher down.
+                        with contextlib.suppress(Exception):
+                            client.compose.pull(stream=False)
                     client.compose.up(services=[], detach=True, pull="never", stream=False)
         except DockerException as e:
             self.output.warning(

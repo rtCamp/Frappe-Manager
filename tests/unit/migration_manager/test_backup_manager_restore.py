@@ -96,3 +96,28 @@ class TestRestoreSkipPathsDoNotRecordRestore:
         assert result is None
         assert src.read_text() == "migrated content"
         assert backup_data.is_restored is False
+
+
+class TestTheFirstBackupOfAFileWins:
+    def test_a_second_backup_does_not_overwrite_the_pristine_copy(self, backup_manager, tmp_path):
+        """A migration backs the same file up from several steps, after mutating it in between.
+        Letting the later copy win means a rollback restores half-migrated content."""
+        src = make_source(tmp_path, "original")
+        first = backup_manager.backup(src, bench_name="test-bench")
+        src.write_text("half migrated")
+
+        second = backup_manager.backup(src, bench_name="test-bench")
+
+        assert second is first
+        assert first.real_dest.read_text() == "original"
+        assert len(backup_manager.backups) == 1
+
+    def test_a_rollback_after_two_backups_restores_what_the_operator_started_with(self, backup_manager, tmp_path):
+        src = make_source(tmp_path, "original")
+        backup_data = backup_manager.backup(src, bench_name="test-bench")
+        src.write_text("half migrated")
+        backup_manager.backup(src, bench_name="test-bench")
+
+        backup_manager.restore(backup_data, force=True)
+
+        assert src.read_text() == "original"

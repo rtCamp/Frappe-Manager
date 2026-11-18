@@ -127,6 +127,15 @@ class BackupManager:
                 if self.name == self.backup_group_name:
                     backup_dest = self.benches_dir / bench_name / self.bench_backup_dir / src.name
 
+        # First write wins. A migration touches the same file from several steps, and every later
+        # `backup()` of it would otherwise copy the ALREADY-MUTATED version over the pristine one
+        # at the same destination -- so a rollback would restore a half-migrated compose or
+        # bench_config rather than what the operator started with.
+        existing = next((b for b in self.backups if b.src == src and b.dest == backup_dest), None)
+        if existing is not None:
+            self.logger.debug(f"Backup already taken this session, keeping the first: {src}")
+            return existing
+
         backup_data = BackupData(src, backup_dest, bench=bench_name, allow_restore=allow_restore)
 
         if not backup_data.real_dest.parent.exists():
