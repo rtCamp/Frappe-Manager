@@ -664,10 +664,69 @@ class MigrationV100(MigrationBase):
                 if self._convert_vhost_domain(dropins, vhost_file.name, vhost_file):
                     converted = True
 
+        converted |= self._seed_proxy_fragments(ProxyDropins.for_services_path(CLI_SERVICES_DIRECTORY))
+
         if mount_added:
             self._recreate_proxy()
         elif converted:
             self._reload_proxy()
+
+    def _seed_proxy_fragments(self, dropins) -> bool:
+        """Write the three per-domain fragments a NEW 1.0.0 install gets, for every bench domain.
+
+        The conversion above only rewrites what a legacy `vhostd/<domain>` already held, and a
+        0.20.0 host held nothing for a plain bench: no `client_max_body_size` reached the proxy,
+        so every upgraded bench kept nginx's built-in 1M default and refused uploads with a 413
+        while its own config advertised 50M. `apply_upload_limit`/`apply_hsts`/`apply_proxy_retry`
+        write these on create and on `fm start`, neither of which a migration runs.
+        """
+        from frappe_manager.services_manager.proxy_failover import upstream_retry_conf
+        from frappe_manager.site_manager.modules.upload_limit import (
+            domains_needing_upload_limit,
+            upload_limit_conf,
+        )
+        from frappe_manager.ssl_manager.proxy_conf import hsts_conf
+
+        changed = False
+        benches_manager = getattr(self, "benches_manager", None)
+        if benches_manager is None:
+            return False
+
+        for bench_name, compose_path in benches_manager.get_all_benches().items():
+            config_path = compose_path.parent / "bench_config.toml"
+            if not config_path.exists():
+                continue
+            try:
+                doc = tomlkit.parse(config_path.read_text())
+            except Exception:
+                continue
+
+            bench_limit = str(doc.get("upload_limit", "50M"))
+            limits: dict[str, str] = {}
+            for site_name, entry in (doc.get("sites") or {}).items():
+                domains = [str(site_name)]
+                if hasattr(entry, "get"):
+                    domains += [str(alias) for alias in (entry.get("alias_domains") or [])]
+                    site_limit = str(entry.get("upload_limit") or bench_limit)
+                else:
+                    site_limit = bench_limit
+                for domain in domains:
+                    limits[domain] = site_limit
+            if not limits:
+                limits = {bench_name: bench_limit}
+
+            for domain in sorted(limits):
+                for name, content in (
+                    ("upstream-retry", upstream_retry_conf()),
+                    ("hsts", hsts_conf("off")),
+                ):
+                    changed |= bool(dropins.set(domain, name, content))
+            for domain in domains_needing_upload_limit(sorted(limits)):
+                changed |= bool(dropins.set(domain, "upload-limit", upload_limit_conf(limits[domain])))
+
+        if changed:
+            self.output.info("Wrote the proxy's per-domain upload limit, retry and HSTS fragments")
+        return changed
 
     def _convert_vhost_domain(self, dropins, domain: str, vhost_file: Path) -> bool:
         """Convert one domain's vhost.d file; returns whether it held anything to convert.

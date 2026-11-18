@@ -293,3 +293,59 @@ def test_nothing_recreated_or_reloaded_when_no_proxy_is_running(tmp_path, monkey
 
     migration.services_manager.docker.compose.up.assert_not_called()
     nginx_controller.assert_not_called()
+
+
+def _bench(tmp_path: Path, name: str, toml: str) -> Path:
+    bench_dir = tmp_path / "sites" / name
+    bench_dir.mkdir(parents=True)
+    (bench_dir / "bench_config.toml").write_text(toml)
+    return bench_dir / "docker-compose.yml"
+
+
+class TestSeededFragments:
+    def test_every_bench_domain_gets_the_three_fragments_a_new_install_writes(self, tmp_path, monkeypatch):
+        """A 0.20.0 host held nothing in vhostd for a plain bench, so the conversion produced
+        nothing and the proxy kept nginx's 1M default -- a 413 on any upload while the bench
+        advertised 50M."""
+        services_dir = _setup(tmp_path, monkeypatch)
+        compose = _bench(tmp_path, "shop", 'upload_limit = "50M"\n\n[sites."shop.localhost"]\nalias_domains = ["www.shop.com"]\n')
+        migration = _migration()
+        migration.benches_manager = MagicMock()
+        migration.benches_manager.get_all_benches.return_value = {"shop": compose}
+        from frappe_manager.services_manager.proxy_dropins import ProxyDropins
+
+        assert migration._seed_proxy_fragments(ProxyDropins.for_services_path(services_dir)) is True
+
+        for domain in ("shop.localhost", "www.shop.com"):
+            domain_dir = _fmd_vhost(services_dir) / domain
+            assert (domain_dir / "10-upload-limit.conf").read_text() == upload_limit_conf("50M")
+            assert (domain_dir / "05-upstream-retry.conf").exists()
+            assert (domain_dir / "30-hsts.conf").read_text() == hsts_conf("off")
+            assert (_vhostd(services_dir) / domain).read_text().startswith("# fm:include BEGIN")
+
+    def test_a_site_with_its_own_limit_keeps_it(self, tmp_path, monkeypatch):
+        services_dir = _setup(tmp_path, monkeypatch)
+        compose = _bench(
+            tmp_path, "shop", 'upload_limit = "50M"\n\n[sites."big.localhost"]\nupload_limit = "500M"\n'
+        )
+        migration = _migration()
+        migration.benches_manager = MagicMock()
+        migration.benches_manager.get_all_benches.return_value = {"shop": compose}
+        from frappe_manager.services_manager.proxy_dropins import ProxyDropins
+
+        migration._seed_proxy_fragments(ProxyDropins.for_services_path(services_dir))
+
+        path = _fmd_vhost(services_dir) / "big.localhost" / "10-upload-limit.conf"
+        assert path.read_text() == upload_limit_conf("500M")
+
+    def test_seeding_is_idempotent(self, tmp_path, monkeypatch):
+        services_dir = _setup(tmp_path, monkeypatch)
+        compose = _bench(tmp_path, "shop", 'upload_limit = "50M"\n\n[sites."shop.localhost"]\n')
+        migration = _migration()
+        migration.benches_manager = MagicMock()
+        migration.benches_manager.get_all_benches.return_value = {"shop": compose}
+        from frappe_manager.services_manager.proxy_dropins import ProxyDropins
+
+        dropins = ProxyDropins.for_services_path(services_dir)
+        assert migration._seed_proxy_fragments(dropins) is True
+        assert migration._seed_proxy_fragments(dropins) is False
