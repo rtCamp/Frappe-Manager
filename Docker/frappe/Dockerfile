@@ -72,6 +72,21 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     fonts-powerline \
     file \
     unzip \
+    # Chromium runtime libs for frappe's chrome PDF generator (frappe downloads
+    # headless_shell itself). jammy has no chromium-headless-shell package and
+    # chromium-browser is a snap stub, so the libs are listed individually
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libatspi2.0-0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libxkbcommon0 \
+    libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
@@ -91,7 +106,7 @@ FROM base AS tooling
 
 ARG FNM_VERSION='1.38.1'
 ARG DEFAULT_PYTHON_VERSION='3.14.2'
-ARG DEFAULT_NODE_VERSION='24.11.0'
+ARG DEFAULT_NODE_VERSION='24.22.1'
 SHELL ["/bin/bash", "-c"]
 
 ENV FNM_VERSION=${FNM_VERSION}

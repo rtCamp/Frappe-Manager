@@ -2,6 +2,7 @@ import atexit
 import os
 import signal
 import sys
+from pathlib import Path
 
 from frappe_manager import CLI_LOG_DIRECTORY
 from frappe_manager.exceptions import FrappeManagerException
@@ -99,6 +100,11 @@ def cli_entrypoint():
             "and put that user in the 'docker' group if docker is unreachable."
         )
         raise SystemExit(1)
+
+    # click runs the program with _FM_COMPLETE set to collect tab completions; a stray line there corrupts them.
+    # After the root refusal on purpose: `sudo fm` must refuse without nagging about a rename first.
+    if Path(sys.argv[0]).name == "fm" and "_FM_COMPLETE" not in os.environ:
+        basic_handler.warning("'fm' is being renamed to 'fmx' and will stop working in 1.0.0; use 'fmx'.")
 
     # Deferred on purpose: see the import comment at the top of this module.
     from frappe_manager.commands import app

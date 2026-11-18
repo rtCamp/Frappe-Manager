@@ -22,7 +22,7 @@ jobs:
 
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: astral-sh/setup-uv@v10.3.2
 
       - name: Run tests
         run: uv run --frozen pytest tests/ -v --cov=frappe_manager
@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: astral-sh/setup-uv@v10.3.2
 
       - name: Build
         run: uv build
@@ -58,9 +58,18 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Extract release notes from changelog
+      # The tag drives the package version and the published image tag.
+      - name: Verify version matches tag
         run: |
-          python3 scripts/release_notes.py "${GITHUB_REF_NAME#v}" > release-notes.md
+          VERSION="${GITHUB_REF_NAME#v}"
+          DECLARED=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' frappe_manager/__about__.py)
+          if [ "$DECLARED" != "$VERSION" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match frappe_manager/__about__.py ($DECLARED)"
+            exit 1
+          fi
+
+      - name: Extract release notes from changelog
+        run: python3 scripts/release_notes.py "${GITHUB_REF_NAME#v}" > release-notes.md
 
       - name: Create draft GitHub Release
         env:

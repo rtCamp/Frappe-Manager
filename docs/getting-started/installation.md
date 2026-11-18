@@ -86,10 +86,14 @@
 !!! note "`fm self upgrade` will not move a dev build"
     A dev build is ahead of the released version on PyPI, so `fm self upgrade` reports it as up to date and leaves it alone rather than downgrade the CLI under benches a newer fm wrote. Re-run the install command above instead.
 
+## The `fm` and `fmx` names
+
+From v0.20.0 the CLI is installed under two names, `fmx` and `fm`, which run the same program. `fm` is deprecated and is removed in 1.0.0: macOS 27 ships Apple's own `/usr/bin/fm`, which clashes with it. Every run as `fm` prints a one-line warning on stderr; switch your scripts and cron jobs to `fmx` to silence it. The rest of these docs still write `fm`; read it as `fmx`.
+
 ## Verify
 
 ```bash
-fm --version
+fmx --version
 ```
 
 If the command is not found, the tool's bin directory is not on your `PATH`. Run `uv tool update-shell` or `pipx ensurepath`, then open a new shell.

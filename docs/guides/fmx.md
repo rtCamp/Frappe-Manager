@@ -4,6 +4,9 @@
 
 You will not normally need `fmx` for day-to-day development. It becomes useful when you want to restart a single service without touching the whole bench, drain workers safely before a database migration, or debug a process that is stuck.
 
+!!! note "Two commands named fmx"
+    From v0.20.0 the host CLI is also installed as `fmx` (the old `fm` name is removed in 1.0.0), so the same name now covers both. On your machine, `fmx` runs Frappe Manager; inside a bench container (after `fm shell`), `fmx` is the service manager this page describes. The examples here use `fm shell`, which still works as `fmx shell`.
+
 ## How it fits in
 
 ```

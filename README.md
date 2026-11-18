@@ -33,6 +33,9 @@ fm create mybench
 
 Prefer pipx, want to try it without installing, or need a dev build? See the [Installation guide](https://opensource.rtcamp.com/Frappe-Manager/dev/getting-started/installation/).
 
+> [!IMPORTANT]
+> From v0.20.0 the CLI is installed as **`fmx`** as well as `fm`. `fm` is deprecated and is removed in 1.0.0, because macOS 27 ships Apple's own `/usr/bin/fm`. Every run as `fm` prints a warning; switch scripts and cron jobs to `fmx`.
+
 ## What you get
 
 | Capability | What it means |
