@@ -20,6 +20,7 @@ from ruamel.yaml import YAML
 from frappe_manager.migration_manager.migrations.migrate_1_0_0 import (
     MigrationV100,
     _add_site_network_aliases,
+    _attach_frontend_network,
     rewrite_compose_for_rename,
 )
 
@@ -131,6 +132,8 @@ class TestServicesComposeRewrite:
         assert json.dumps(data, default=str) == snapshot
 
 
+# Measured on a real 0.20.0 bench: only nginx is on the frontend network there, and the bench
+# reaches its own site through the site-name alias nginx publishes.
 PRE_1_0_0_BENCH_COMPOSE = """\
 services:
   frappe:
@@ -138,7 +141,6 @@ services:
     networks:
       site-network:
       backend-network:
-      frontend-network:
   nginx:
     image: ghcr.io/rtcamp/frappe-manager-nginx:v0.20.0
     networks:
@@ -150,7 +152,6 @@ services:
     image: ghcr.io/rtcamp/frappe-manager-frappe:v0.20.0
     networks:
       site-network:
-      frontend-network:
   redis-cache:
     image: redis:8-alpine
     networks:
@@ -192,6 +193,46 @@ class TestSiteNetworkAliases:
 
         assert _add_site_network_aliases(data["services"]) is False
         assert json.dumps(data, default=str) == snapshot
+
+
+class TestFrontendNetworkAttach:
+    def test_backend_services_join_the_proxy_network_and_point_their_domains_at_it(self):
+        """1.0.0 reaches a bench's own site through the proxy. A migrated bench survives only on
+        the site-name alias its nginx publishes, and the next `generate_compose` REPLACES that
+        list -- after which every server-side self-call times out while public traffic is fine."""
+        data = _load(PRE_1_0_0_BENCH_COMPOSE)
+
+        assert _attach_frontend_network(data, ["shop.localhost:10.1.0.2"]) is True
+
+        for name in ("frappe", "socketio"):
+            assert "frontend-network" in data["services"][name]["networks"]
+            assert data["services"][name]["extra_hosts"] == ["shop.localhost:10.1.0.2"]
+        assert data["networks"]["frontend-network"]["name"] == "fm-frontend-network"
+        assert data["networks"]["frontend-network"]["external"] is True
+
+    def test_redis_stays_off_the_proxy_network(self):
+        """Only what the 1.0.0 template attaches: redis has no business reaching the proxy."""
+        data = _load(PRE_1_0_0_BENCH_COMPOSE)
+
+        _attach_frontend_network(data, ["shop.localhost:10.1.0.2"])
+
+        assert "frontend-network" not in (data["services"]["redis-cache"]["networks"] or {})
+
+    def test_attaching_is_idempotent(self):
+        data = _load(PRE_1_0_0_BENCH_COMPOSE)
+        _attach_frontend_network(data, ["shop.localhost:10.1.0.2"])
+        snapshot = json.dumps(data, default=str)
+
+        assert _attach_frontend_network(data, ["shop.localhost:10.1.0.2"]) is False
+        assert json.dumps(data, default=str) == snapshot
+
+    def test_no_proxy_address_means_membership_without_a_hosts_entry(self):
+        """A proxy that is down yields no IP; joining the network is still correct, and writing
+        a stale or empty address never is."""
+        data = _load(PRE_1_0_0_BENCH_COMPOSE)
+
+        assert _attach_frontend_network(data, []) is True
+        assert "extra_hosts" not in data["services"]["frappe"]
 
 
 class TestBenchComposeRewrite:

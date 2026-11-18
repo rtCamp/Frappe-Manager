@@ -44,7 +44,11 @@ class MigrationErrorHandler:
             bool: True if recovery succeeded, False if rollback was required
         """
         if not self.executor.migrate_benches:
-            return False
+            # A services-tier run has no bench list to report or archive, but the exception is
+            # raised there too (a bench that refuses to go down for the rename). Falling through
+            # to `return False` left every bench down, the backups untouched and the word
+            # rollback never printed.
+            return self.handle_system_migration_failure(exception)
 
         self._report_bench_results()
 
