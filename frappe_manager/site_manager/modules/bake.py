@@ -266,8 +266,11 @@ class BakeManager:
     def _packaged_docker_dir() -> Path:
         """The build context shipped INSIDE the package, which is the only copy an installed fm
         has: `_repo_root` resolves to site-packages there, and `Docker/` is not a python package
-        so it only arrives via the wheel's force-include."""
-        return Path(__file__).resolve().parents[2] / "Docker"
+        so it only arrives via the wheel's force-include. The packaged name is `_docker_build`,
+        NOT `Docker`: on a case-insensitive filesystem (macOS) `frappe_manager/Docker` and the
+        real `frappe_manager/docker` package collapse into one directory, and import of
+        `frappe_manager.docker` then fails the case check."""
+        return Path(__file__).resolve().parents[2] / "_docker_build"
 
     def _build_context_file(self, *parts: str) -> Path:
         """Locate one file under `Docker/`: the packaged copy, then a checkout, then CWD."""

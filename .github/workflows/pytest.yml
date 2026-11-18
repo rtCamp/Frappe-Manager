@@ -84,3 +84,39 @@ jobs:
           flags: unittests
           name: codecov-umbrella
           fail_ci_if_error: false
+
+  # Builds the wheel and runs the installed fm on a case-insensitive filesystem. The Linux jobs
+  # above cannot see a case collision inside the wheel at all: `frappe_manager/Docker` and the
+  # `frappe_manager/docker` package coexisted there and merged into one directory on macOS,
+  # making fm unimportable on every Mac install while CI stayed green.
+  macos-install:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Build and run the wheel
+        run: |
+          uv build --wheel -o dist
+          uv venv /tmp/fmvenv
+          uv pip install --python /tmp/fmvenv/bin/python dist/*.whl
+          cd /tmp && /tmp/fmvenv/bin/fm --version
+
+      # `fm bake` reads its Dockerfiles out of the package, which is the lookup the rename touched.
+      - name: Packaged build context is reachable
+        run: |
+          cd /tmp && /tmp/fmvenv/bin/python -c "
+          from frappe_manager.site_manager.modules.bake import BakeManager
+          d = BakeManager._packaged_docker_dir()
+          assert (d / 'frappe' / 'runtime.Dockerfile').exists(), d
+          assert (d / 'nginx' / 'Dockerfile').exists(), d
+          import frappe_manager.docker.docker_client
+          "

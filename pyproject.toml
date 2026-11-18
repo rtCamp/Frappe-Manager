@@ -152,9 +152,11 @@ packages = ["frappe_manager"]
 # `fm bake` builds FROM these, so they are runtime data, not repo scaffolding. Without them the
 # wheel installs an `fm` whose `bake` cannot work at all: it looked for `Docker/` beside the
 # package and found nothing on every pip/uv install.
+# The destination MUST NOT be `frappe_manager/Docker`: it would collide case-insensitively with the
+# real `frappe_manager/docker` package on macOS and break every import of it.
 [tool.hatch.build.targets.wheel.force-include]
-"Docker/frappe" = "frappe_manager/Docker/frappe"
-"Docker/nginx" = "frappe_manager/Docker/nginx"
+"Docker/frappe" = "frappe_manager/_docker_build/frappe"
+"Docker/nginx" = "frappe_manager/_docker_build/nginx"
 
 [tool.hatch.version]
 path = "frappe_manager/__about__.py"
