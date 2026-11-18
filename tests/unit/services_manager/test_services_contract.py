@@ -1094,3 +1094,68 @@ def test_a_failed_compose_generation_names_the_underlying_cause(tmp_path):
 
     assert "read-only fs" in str(excinfo.value)
     assert excinfo.value.__cause__ is cause
+
+
+class TestProxyAddressConflict:
+    """Docker gives the lowest free address to whatever joins first, so a proxy that was down for
+    a moment loses its pinned address to a bench container and then refuses to start -- taking
+    every site on the host to 000, with only a bare `Address already in use` to go on."""
+
+    def _manager(self, tmp_path, holder):
+        manager = make_manager(tmp_path)
+        manager.free_pinned_proxy_address = mock.Mock(return_value=holder)
+        manager.reattach_to_frontend = mock.Mock()
+        return manager
+
+    def test_the_intruder_is_reattached_only_after_the_proxy_has_claimed_its_address(self, tmp_path):
+        """Reconnecting before the start hands the SAME address straight back, because it is the
+        lowest free one again."""
+        manager = self._manager(tmp_path, "fm__shop__frappe")
+        order = []
+        manager.docker_client.compose.up.side_effect = lambda **_: order.append("up")
+        manager.reattach_to_frontend.side_effect = lambda c: order.append("reattach")
+
+        manager.start_service()
+
+        assert order == ["up", "reattach"]
+
+    def test_a_failed_start_still_puts_the_intruder_back_on_the_network(self, tmp_path):
+        """A bench container left off the shared network is worse than the clash it was moved for."""
+        manager = self._manager(tmp_path, "fm__shop__frappe")
+        manager.docker_client.compose.up.side_effect = RuntimeError("boom")
+
+        with pytest.raises(RuntimeError):
+            manager.start_service()
+
+        manager.reattach_to_frontend.assert_called_once_with("fm__shop__frappe")
+
+    def test_nothing_is_reattached_when_no_container_had_to_move(self, tmp_path):
+        manager = self._manager(tmp_path, None)
+
+        manager.start_service()
+
+        manager.reattach_to_frontend.assert_called_once_with(None)
+
+    def test_an_unrelated_failure_is_not_explained_as_an_address_conflict(self, tmp_path):
+        manager = make_manager(tmp_path)
+        manager.output = mock.Mock()
+
+        manager._explain_address_conflict(RuntimeError("no such image"))
+
+        manager.output.display_error.assert_not_called()
+
+    def test_an_address_conflict_names_the_address_and_what_holds_it(self, tmp_path):
+        """Docker's own text names neither, while every site is down."""
+        manager = make_manager(tmp_path)
+        manager.output = mock.Mock()
+        manager._container_on_address = mock.Mock(return_value="fm__shop__frappe")
+        with mock.patch(
+            "frappe_manager.services_manager.services.FMConfigManager.import_from_toml"
+        ) as fm_config:
+            fm_config.return_value.network.proxy_ip = "10.1.0.2"
+
+            manager._explain_address_conflict(RuntimeError("Address already in use"))
+
+        message = manager.output.display_error.call_args[0][0]
+        assert "10.1.0.2" in message
+        assert "fm__shop__frappe" in message

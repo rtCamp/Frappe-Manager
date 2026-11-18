@@ -449,7 +449,16 @@ class ServicesManager:
 
                 if not all_running:
                     stopped = [s for s in services if running_statuses.get(s) != "running"]
-                    self.docker_client.compose.up(services=[], detach=True, pull="missing")
+                    displaced = self.free_pinned_proxy_address()
+                    try:
+                        self.docker_client.compose.up(services=[], detach=True, pull="missing")
+                    except Exception as e:
+                        # Docker's own text is a bare "Address already in use" that names neither
+                        # the address nor what holds it, while every site on the host is down.
+                        self._explain_address_conflict(e)
+                        raise
+                    finally:
+                        self.reattach_to_frontend(displaced)
                     # After the up, not before it: the old line announced the start while the
                     # containers were still down, and stood even if the up then failed.
                     self.output.effect(f"Started global services [blue]{', '.join(stopped)}[/blue]")
@@ -770,6 +779,93 @@ class ServicesManager:
                     "keeps its previous address"
                 )
 
+    def free_pinned_proxy_address(self) -> str | None:
+        """Detach whatever container is sitting on the proxy's pinned address. Returns its name.
+
+        Docker hands the first free address in the range to the first container that joins, so a
+        proxy that is down for a moment -- a reboot, `fm services stop`, a migration -- loses its
+        own address to the next bench container that starts. The proxy then refuses to start with
+        a bare `Address already in use` and EVERY site on the host is down.
+
+        Only DETACHES here. Reconnecting straight away hands the same address back -- docker
+        gives out the lowest free one, which is exactly the address just released -- so the
+        caller must bring the proxy up first and then call `reattach_to_frontend`.
+        """
+        from frappe_manager.utils.docker import run_command_with_exit_code
+
+        pinned = FMConfigManager.import_from_toml().network.proxy_ip
+        if not pinned:
+            return None
+
+        holder = self._container_on_address("fm-frontend-network", pinned)
+        if not holder:
+            return None
+
+        self.output.warning(f"{holder} is holding the global proxy's address {pinned}; moving it")
+        try:
+            run_command_with_exit_code(["docker", "network", "disconnect", "fm-frontend-network", holder], stream=False)
+        except Exception as e:
+            self.output.warning(
+                f"Could not move {holder} off {pinned} ({e}). The proxy will refuse to start until "
+                f"that container is restarted."
+            )
+            return None
+        return holder
+
+    def reattach_to_frontend(self, container: str | None) -> None:
+        """Put a container detached by `free_pinned_proxy_address` back on the shared network."""
+        if not container:
+            return
+        from frappe_manager.utils.docker import run_command_with_exit_code
+
+        try:
+            run_command_with_exit_code(
+                ["docker", "network", "connect", "fm-frontend-network", container], stream=False
+            )
+        except Exception as e:
+            self.output.warning(f"Could not reconnect {container} to the shared network ({e}); restart it")
+
+    @staticmethod
+    def _container_on_address(network: str, address: str) -> str | None:
+        """The non-proxy container holding `address` on `network`, if any."""
+        from frappe_manager.utils.docker import run_command_with_exit_code
+
+        try:
+            out = run_command_with_exit_code(
+                [
+                    "docker",
+                    "network",
+                    "inspect",
+                    "--format",
+                    "{{range .Containers}}{{.Name}} {{.IPv4Address}}\n{{end}}",
+                    network,
+                ],
+                stream=False,
+            )
+        except Exception:
+            return None
+
+        # `stdout` arrives as a list of lines with no terminators, so joining on "" would merge
+        # every row into one unparseable line.
+        for line in "\n".join(out.stdout).splitlines():  # type: ignore[union-attr]
+            parts = line.split()
+            if len(parts) == 2 and parts[1].split("/")[0] == address and parts[0] != "fm_nginx-proxy":
+                return parts[0]
+        return None
+
+    def _explain_address_conflict(self, error: Exception) -> None:
+        """Name the address and its holder when the proxy cannot take its pinned address."""
+        if "address already in use" not in str(error).lower():
+            return
+        pinned = FMConfigManager.import_from_toml().network.proxy_ip
+        if not pinned:
+            return
+        holder = self._container_on_address("fm-frontend-network", pinned)
+        self.output.display_error(
+            f"The global proxy's address {pinned} is held by {holder or 'another container'}. "
+            f"Every site stays down until it is freed: restart that container, then run the command again."
+        )
+
     def ensure_shared_networks(self) -> list[str]:
         """Create any shared network docker does not have yet. Returns the ones created.
 
@@ -1012,12 +1108,24 @@ class ServicesManager:
         # Before the proxy reads conf.d, not after: a vhost written afterwards needs an extra
         # reload, and a missing one would already have served 503 in the meantime.
         self.reconcile_standalone_vhosts()
-        self.docker_client.compose.up(
-            services=services,
-            detach=True,
-            pull="never",
-            force_recreate=force_recreate,
-        )
+        # Before the up: docker gives the first free address to whatever joins first, so a proxy
+        # that was down for a moment loses its pinned address to a bench container and then
+        # refuses to start, taking every site on the host down.
+        displaced = self.free_pinned_proxy_address()
+        try:
+            self.docker_client.compose.up(
+                services=services,
+                detach=True,
+                pull="never",
+                force_recreate=force_recreate,
+            )
+        except Exception as e:
+            self._explain_address_conflict(e)
+            raise
+        finally:
+            # After the up either way: a failed start must not leave a bench container off the
+            # shared network, which would break it far worse than the address clash did.
+            self.reattach_to_frontend(displaced)
 
     def stop_service(self, services: list[str] | None = None, timeout: int = 10):
         services = services or []
