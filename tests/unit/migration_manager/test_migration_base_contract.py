@@ -51,6 +51,10 @@ class _FakeBench:
         # 1.0.0 was written against. Defaulting to that fallback keeps these tests describing a
         # pre-decoupling bench unless one explicitly asks for several sites.
         self.site_names = list(sites) if sites else [name]
+        # Default: nothing running, so a migration step that only acts on a live bench is
+        # skipped unless a test says otherwise.
+        self.get_services_running_status = MagicMock(return_value={})
+        self.compose = MagicMock()
 
     @property
     def managed_compose_paths(self):
@@ -1160,6 +1164,33 @@ def test_a_bench_without_a_generated_default_conf_is_left_alone(v100, v100_bench
     v100._refresh_nginx_default_conf(v100_bench)
 
     assert v100.backup_manager.backups == []
+
+
+def test_a_running_bench_has_its_nginx_recreated_so_the_conf_is_re_rendered(v100, v100_bench):
+    """Only the entrypoint re-renders default.conf. Deleting it under a live nginx leaves it
+    serving the config it parsed at start, and the next reload finds an empty conf.d and takes
+    every site to 502."""
+    default_conf = v100_bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+    default_conf.parent.mkdir(parents=True)
+    default_conf.write_text("server { }\n")
+    v100_bench.get_services_running_status.return_value = {"nginx": "running"}
+
+    v100._refresh_nginx_default_conf(v100_bench)
+
+    v100_bench.compose.up.assert_called_once_with(
+        services=["nginx"], detach=True, force_recreate=True, pull="never", stream=False
+    )
+
+
+def test_a_stopped_bench_is_not_started_by_the_conf_refresh(v100, v100_bench):
+    """A bench the operator left down stays down; its nginx re-renders on the next start."""
+    default_conf = v100_bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+    default_conf.parent.mkdir(parents=True)
+    default_conf.write_text("server { }\n")
+
+    v100._refresh_nginx_default_conf(v100_bench)
+
+    v100_bench.compose.up.assert_not_called()
 
 
 def test_the_old_admin_tools_credentials_move_into_the_auth_table(v100, v100_bench):

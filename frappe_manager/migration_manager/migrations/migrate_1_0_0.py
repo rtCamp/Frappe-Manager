@@ -1016,6 +1016,14 @@ class MigrationV100(MigrationBase):
             return
         self.backup_manager.backup(default_conf, bench_name=bench.name)
         default_conf.unlink()
+
+        # Only the ENTRYPOINT re-renders this, so a bench that is already up must have its nginx
+        # recreated here. Deleting the file under a running nginx leaves it serving the config it
+        # parsed at start -- correct until the next reload, which then finds an empty conf.d and
+        # takes every site to 502. `fm tools enable` is one such reload.
+        if bench.get_services_running_status().get("nginx") == "running":
+            bench.compose.up(services=["nginx"], detach=True, force_recreate=True, pull="never", stream=False)
+
         self.output.info(f"Removed generated nginx default.conf for {bench.name} (re-rendered on start)")
 
     def _move_admin_tools_credentials(self, bench: MigrationBench):
