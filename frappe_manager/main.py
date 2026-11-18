@@ -46,7 +46,9 @@ def _run_app(app) -> None:
     except UsageError as e:
         from frappe_manager.exceptions import MissingArgumentError
 
-        hint = f"Run 'fm {e.ctx.command_path.removeprefix('fm ')} --help'" if e.ctx else "Pass --help"
+        # `command_path` already starts with the name the program was invoked as, which is `fmx`
+        # as often as `fm` now. Re-prefixing it produced "Run 'fm fmx list --help'".
+        hint = f"Run '{e.ctx.command_path} --help'" if e.ctx else "Pass --help"
         _emit_json_error(MissingArgumentError(e.format_message(), [hint]), get_global_output_handler())
         raise SystemExit(e.exit_code) from e
 
