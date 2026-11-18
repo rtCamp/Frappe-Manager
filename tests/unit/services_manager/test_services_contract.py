@@ -1159,3 +1159,30 @@ class TestProxyAddressConflict:
         message = manager.output.display_error.call_args[0][0]
         assert "10.1.0.2" in message
         assert "fm__shop__frappe" in message
+
+
+class TestDisplacedContainerAliases:
+    def test_the_container_comes_back_with_the_aliases_it_was_detached_with(self, tmp_path):
+        """`docker network connect` with no --alias reattaches with an EMPTY alias list, dropping
+        the compose service alias until something recreates the container."""
+        manager = make_manager(tmp_path)
+        manager.output = mock.Mock()
+        manager._displaced_aliases = ["fm__shop__nginx", "nginx"]
+
+        with mock.patch("frappe_manager.utils.docker.run_command_with_exit_code") as run:
+            manager.reattach_to_frontend("fm__shop__nginx")
+
+        command = run.call_args[0][0]
+        assert command[:3] == ["docker", "network", "connect"]
+        assert command.count("--alias") == 2
+        assert "nginx" in command and command[-1] == "fm__shop__nginx"
+
+    def test_a_container_that_had_no_aliases_is_reconnected_plainly(self, tmp_path):
+        manager = make_manager(tmp_path)
+        manager.output = mock.Mock()
+        manager._displaced_aliases = []
+
+        with mock.patch("frappe_manager.utils.docker.run_command_with_exit_code") as run:
+            manager.reattach_to_frontend("squat")
+
+        assert run.call_args[0][0] == ["docker", "network", "connect", "fm-frontend-network", "squat"]

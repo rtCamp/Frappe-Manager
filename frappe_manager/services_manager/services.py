@@ -801,6 +801,11 @@ class ServicesManager:
         if not holder:
             return None
 
+        # Captured BEFORE the disconnect: `docker network connect` with no `--alias` reattaches
+        # the container with an empty alias list, silently dropping the compose service alias it
+        # was reachable by until something recreates it.
+        self._displaced_aliases = self._network_aliases("fm-frontend-network", holder)
+
         self.output.warning(f"{holder} is holding the global proxy's address {pinned}; moving it")
         try:
             run_command_with_exit_code(["docker", "network", "disconnect", "fm-frontend-network", holder], stream=False)
@@ -813,17 +818,35 @@ class ServicesManager:
         return holder
 
     def reattach_to_frontend(self, container: str | None) -> None:
-        """Put a container detached by `free_pinned_proxy_address` back on the shared network."""
+        """Put a container detached by `free_pinned_proxy_address` back, aliases and all."""
         if not container:
             return
         from frappe_manager.utils.docker import run_command_with_exit_code
 
+        command = ["docker", "network", "connect"]
+        for alias in getattr(self, "_displaced_aliases", []):
+            command += ["--alias", alias]
+        command += ["fm-frontend-network", container]
+
         try:
-            run_command_with_exit_code(
-                ["docker", "network", "connect", "fm-frontend-network", container], stream=False
-            )
+            run_command_with_exit_code(command, stream=False)
         except Exception as e:
             self.output.warning(f"Could not reconnect {container} to the shared network ({e}); restart it")
+
+    @staticmethod
+    def _network_aliases(network: str, container: str) -> list[str]:
+        """The container's aliases on `network`, empty when docker reports none."""
+        from frappe_manager.utils.docker import run_command_with_exit_code
+
+        template = (
+            '{{range $n, $c := .NetworkSettings.Networks}}{{if eq $n "' + network + '"}}'
+            "{{range $c.Aliases}}{{.}} {{end}}{{end}}{{end}}"
+        )
+        try:
+            out = run_command_with_exit_code(["docker", "inspect", "--format", template, container], stream=False)
+        except Exception:
+            return []
+        return "\n".join(out.stdout).split()  # type: ignore[union-attr]
 
     @staticmethod
     def _container_on_address(network: str, address: str) -> str | None:
