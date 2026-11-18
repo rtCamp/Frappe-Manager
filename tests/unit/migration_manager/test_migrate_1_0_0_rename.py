@@ -19,6 +19,7 @@ from ruamel.yaml import YAML
 
 from frappe_manager.migration_manager.migrations.migrate_1_0_0 import (
     MigrationV100,
+    _add_site_network_aliases,
     rewrite_compose_for_rename,
 )
 
@@ -127,6 +128,69 @@ class TestServicesComposeRewrite:
         snapshot = json.dumps(data, default=str)
 
         assert rewrite_compose_for_rename(data) is False
+        assert json.dumps(data, default=str) == snapshot
+
+
+PRE_1_0_0_BENCH_COMPOSE = """\
+services:
+  frappe:
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.20.0
+    networks:
+      site-network:
+      backend-network:
+      frontend-network:
+  nginx:
+    image: ghcr.io/rtcamp/frappe-manager-nginx:v0.20.0
+    networks:
+      site-network:
+        aliases:
+          - shop.localhost
+      frontend-network:
+  socketio:
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.20.0
+    networks:
+      site-network:
+      frontend-network:
+  redis-cache:
+    image: redis:8-alpine
+    networks:
+      site-network:
+"""
+
+
+class TestSiteNetworkAliases:
+    def test_each_service_gains_the_alias_the_1_0_0_nginx_template_resolves(self):
+        """Without these the 1.0.0 nginx image dies on `host not found in upstream
+        "frappe-site"` and the whole bench serves 503."""
+        data = _load(PRE_1_0_0_BENCH_COMPOSE)
+
+        assert _add_site_network_aliases(data["services"]) is True
+
+        services = data["services"]
+        assert services["frappe"]["networks"]["site-network"]["aliases"] == ["frappe-site"]
+        assert services["socketio"]["networks"]["site-network"]["aliases"] == ["socketio-site"]
+
+    def test_an_existing_alias_is_kept(self):
+        """The bench's own site name is published there; dropping it breaks self-calls."""
+        data = _load(PRE_1_0_0_BENCH_COMPOSE)
+
+        _add_site_network_aliases(data["services"])
+
+        assert data["services"]["nginx"]["networks"]["site-network"]["aliases"] == ["shop.localhost", "nginx-site"]
+
+    def test_a_service_with_no_alias_of_its_own_is_left_alone(self):
+        data = _load(PRE_1_0_0_BENCH_COMPOSE)
+
+        _add_site_network_aliases(data["services"])
+
+        assert data["services"]["redis-cache"]["networks"]["site-network"] is None
+
+    def test_adding_aliases_is_idempotent(self):
+        data = _load(PRE_1_0_0_BENCH_COMPOSE)
+        _add_site_network_aliases(data["services"])
+        snapshot = json.dumps(data, default=str)
+
+        assert _add_site_network_aliases(data["services"]) is False
         assert json.dumps(data, default=str) == snapshot
 
 

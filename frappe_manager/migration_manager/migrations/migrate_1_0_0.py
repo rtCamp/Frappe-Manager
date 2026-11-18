@@ -309,6 +309,45 @@ def _rename_service_networks(service: dict, renames: dict) -> None:
         _rename_keys(networks, renames)
 
 
+# The 1.0.0 nginx image's template resolves these names at config parse time. A bench created
+# before 1.0.0 carries only its site-name alias, so moving it onto the 1.0.0 images without
+# adding these leaves nginx dead in a restart loop on `host not found in upstream "frappe-site"`
+# and the whole bench serving 503.
+SITE_NETWORK_ALIASES = {"frappe": "frappe-site", "nginx": "nginx-site", "socketio": "socketio-site"}
+
+
+def _add_site_network_aliases(services: MutableMapping) -> bool:
+    """Give each 1.0.0 service its site-network alias; returns whether anything changed.
+
+    Additive: an existing alias list keeps every entry it already had, because a bench's own
+    site name is published there too and dropping it would break the site's self-calls.
+    """
+    changed = False
+
+    for service_name, alias in SITE_NETWORK_ALIASES.items():
+        service = services.get(service_name)
+        if not isinstance(service, MutableMapping):
+            continue
+
+        networks = service.get("networks")
+        if not isinstance(networks, MutableMapping):
+            continue
+
+        site_network = networks.get("site-network")
+        if site_network is None:
+            site_network = {}
+            networks["site-network"] = site_network
+        if not isinstance(site_network, MutableMapping):
+            continue
+
+        aliases = site_network.setdefault("aliases", [])
+        if alias not in aliases:
+            aliases.append(alias)
+            changed = True
+
+    return changed
+
+
 def rewrite_compose_for_rename(compose_data: dict) -> bool:
     """Apply every rename to one loaded compose document; returns whether anything changed.
 
@@ -2196,7 +2235,8 @@ class MigrationV100(MigrationBase):
             # containers while fm reports 1.0.0.
             retagged = self.retag_fm_images(compose_data.get("services", {}), compose_name)
             self._images_retagged |= retagged
-            if renamed or retagged:
+            aliased = _add_site_network_aliases(compose_data.get("services", {}))
+            if renamed or retagged or aliased:
                 compose_data["x-version"] = str(self.version)
                 with compose_path.open("w") as f:
                     yaml.dump(compose_data, f)
