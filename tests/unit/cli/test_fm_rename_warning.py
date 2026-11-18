@@ -13,7 +13,9 @@ def run_as(argv0, monkeypatch, env=None):
     monkeypatch.setattr("sys.argv", [argv0, "list"])
     for key, value in (env or {}).items():
         monkeypatch.setenv(key, value)
-    with patch.object(main, "app"), patch.object(main.atexit, "register"):
+    # `app` is imported inside cli_entrypoint, not at module scope, so the root refusal runs
+    # before any command module opens fm.log. `_run_app` is the stable seam.
+    with patch.object(main, "_run_app"), patch.object(main.atexit, "register"):
         main.cli_entrypoint()
 
 

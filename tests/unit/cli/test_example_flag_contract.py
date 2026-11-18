@@ -24,9 +24,9 @@ granted to one passthrough command can never cover a typo in an unrelated one.
 
 import re
 
-import click
 import pytest
 import typer.main
+from typer.core import TyperCommand, TyperGroup
 from typer_examples import get_all_examples
 
 from frappe_manager.commands import app
@@ -67,30 +67,30 @@ FOREIGN: dict[tuple[str, ...], frozenset[str]] = {
 }
 
 
-def _group() -> click.Group:
+def _group() -> TyperGroup:
     """Duplicated from `test_option_scope_panels.py`/`test_command_scope_panels.py` rather than
     imported: no test module in this repo imports another as a plain module, and the helper is
     three lines."""
     group = typer.main.get_command(app)
-    assert isinstance(group, click.Group)
+    assert isinstance(group, TyperGroup)
     return group
 
 
-def _resolve(path: tuple[str, ...]) -> click.Command:
-    """The live `click.Command` a `get_all_examples` path tuple names, walking sub-apps by name."""
-    node: click.Group | click.Command = _group()
+def _resolve(path: tuple[str, ...]) -> TyperCommand:
+    """The live `TyperCommand` a `get_all_examples` path tuple names, walking sub-apps by name."""
+    node: TyperGroup | TyperCommand = _group()
     for segment in path[:-1]:
-        assert isinstance(node, click.Group)
+        assert isinstance(node, TyperGroup)
         node = node.commands[segment]
-    assert isinstance(node, click.Group)
+    assert isinstance(node, TyperGroup)
     return node.commands[path[-1]]
 
 
-def _real_flags(command: click.Command) -> set[str]:
+def _real_flags(command: TyperCommand) -> set[str]:
     """A command's own flag names, collected the way `docslint.py:104-121` `fm_flags()` does."""
     flags: set[str] = set()
     for param in command.params:
-        if isinstance(param, click.Option):
+        if getattr(param, "param_type_name", "") == "option":
             flags |= set(param.opts) | set(param.secondary_opts)
     return flags
 

@@ -38,7 +38,7 @@ V100 = "frappe_manager.migration_manager.migrations.migrate_1_0_0"
 
 
 class _FakeBench:
-    """Stands in for MigrationBench: only name/path/docker/compose/site_names are used here."""
+    """Stands in for MigrationBench: only name/path/docker/compose/site_names/managed_compose_paths are used here."""
 
     def __init__(self, name, path, output=None, sites=None):
         self.name = name
@@ -51,6 +51,17 @@ class _FakeBench:
         # 1.0.0 was written against. Defaulting to that fallback keeps these tests describing a
         # pre-decoupling bench unless one explicitly asks for several sites.
         self.site_names = list(sites) if sites else [name]
+
+    @property
+    def managed_compose_paths(self):
+        """Mirrors MigrationBench: the compose files fm generates, filtered to those on disk.
+        Not a glob -- a user's own docker-compose.override.yml is never fm's to back up."""
+        declared = [
+            self.path / "docker-compose.yml",
+            self.path / "docker-compose.workers.yml",
+            self.path / "docker-compose.admin-tools.yml",
+        ]
+        return [path for path in declared if path.is_file()]
 
 
 def _executor(

@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import typer
-from click.core import ParameterSource
+from typer._click.core import ParameterSource
 
 from frappe_manager.commands.ssl.add import add_certificate
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE

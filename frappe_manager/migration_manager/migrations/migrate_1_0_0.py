@@ -1,10 +1,15 @@
 """
 Migration for v1.0.0.
 
-This squashes the never-released v0.20.0 and v0.21.0 development migrations into one:
-neither version ever shipped to PyPI (0.19.0 is still the latest release), so no real
-install is stamped at either, and merging them means a reader sees one coherent story
-instead of wondering why one migration does two unrelated families of thing.
+This squashes the never-released v0.21.0 development migration into v1.0.0's own work, so a
+reader sees one coherent story instead of wondering why one migration does two unrelated
+families of thing.
+
+v0.20.0 DID ship and is the latest PyPI release, so real installs ARE stamped at it: its
+own migration stays a separate step in the chain and runs before this one. An upgrader
+therefore arrives here with compose files already carrying `x-version: 0.20.0` and v0.20.0
+image tags, not the v0.19.0 ones this file was first written against. Nothing else moves a
+bench off those image tags, which is why `_rewrite_bench_files` re-tags them here.
 
 Admin tools: Adminer 4 → 5 with the FM login plugin.
 
@@ -2172,6 +2177,7 @@ class MigrationV100(MigrationBase):
 
     def _rewrite_bench_files(self, bench: MigrationBench):
         changed_any = False
+        self._images_retagged = False
         for compose_name in ("docker-compose.yml", "docker-compose.workers.yml", "docker-compose.admin-tools.yml"):
             compose_path = bench.path / compose_name
             if not compose_path.exists():
@@ -2182,7 +2188,15 @@ class MigrationV100(MigrationBase):
             yaml = YAML()
             yaml.preserve_quotes = True
             compose_data = yaml.load(compose_path.read_text())
-            if compose_data and rewrite_compose_for_rename(compose_data):
+            if not compose_data:
+                continue
+            renamed = rewrite_compose_for_rename(compose_data)
+            # In the SAME pass as the rename, after the backup above: nothing else moves a
+            # bench off the 0.20.0 images, so without this a migrated bench runs 0.20.0
+            # containers while fm reports 1.0.0.
+            retagged = self.retag_fm_images(compose_data.get("services", {}), compose_name)
+            self._images_retagged |= retagged
+            if renamed or retagged:
                 compose_data["x-version"] = str(self.version)
                 with compose_path.open("w") as f:
                     yaml.dump(compose_data, f)
@@ -2292,6 +2306,15 @@ class MigrationV100(MigrationBase):
         with a loud report: the cutover itself is complete at this point, and failing
         the whole migration because one bench would not start would roll back every
         other bench's working state."""
+        # `up` below runs with pull="never", so a bench whose images were just re-tagged has
+        # nothing local to start from. Only when the re-tag actually moved, so a re-run cannot
+        # fail on a transient registry error.
+        if getattr(self, "_images_retagged", False):
+            try:
+                self.pull_bench_images(bench)
+            except Exception as e:
+                self.output.warning(f"Could not pull {bench.name}'s new images ({e}); start may fail")
+
         try:
             with spinner(self.output, f"Starting {bench.name}"):  # type: ignore[arg-type]
                 for compose_name in (

@@ -10,7 +10,7 @@ from typing import Annotated, cast
 
 import tomlkit
 import typer
-from click.core import ParameterSource
+from typer._click.core import ParameterSource
 from pydantic import BaseModel, ValidationError
 from typer_examples import example
 

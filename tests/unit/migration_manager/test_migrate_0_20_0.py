@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from ruamel.yaml import YAML
 
-from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
+from frappe_manager.migration_manager.migration_exceptions import MigrationExceptionInBench
 from frappe_manager.migration_manager.migration_helpers import MigrationBench
 from frappe_manager.migration_manager.migrations.migrate_0_20_0 import MigrationV0200
 
@@ -236,14 +236,14 @@ class TestMigrationV0200PullFailure:
         bench.compose.pull.return_value = Mock(exit_code=1)
 
         with pytest.raises(MigrationExceptionInBench, match="test-bench"):
-            migration._pull_bench_images(bench)
+            migration.pull_bench_images(bench)
 
     def test_zero_pull_exit_code_does_not_raise(self, make_migration, make_bench):
         migration = make_migration()
         bench = make_bench()
         bench.compose.pull.return_value = Mock(exit_code=0)
 
-        migration._pull_bench_images(bench)
+        migration.pull_bench_images(bench)
 
         bench.compose.pull.assert_called_once_with(stream=False)
 

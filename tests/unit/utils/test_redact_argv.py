@@ -46,8 +46,8 @@ def test_no_secret_bearing_option_is_missing_from_the_set():
     any value-taking option whose name says it carries a credential must be redacted.
 
     `--key` is the one deliberate exclusion: it names a PEM file path, not a secret."""
-    import click
     import typer.main
+    from typer.core import TyperGroup
 
     from frappe_manager.commands import app
 
@@ -57,12 +57,12 @@ def test_no_secret_bearing_option_is_missing_from_the_set():
     found: set[str] = set()
 
     def walk(command):
-        if isinstance(command, click.Group):
+        if isinstance(command, TyperGroup):
             for child in command.commands.values():
                 walk(child)
             return
         for param in command.params:
-            if isinstance(param, click.Option) and not param.is_flag:
+            if getattr(param, "param_type_name", "") == "option" and not param.is_flag:
                 name = param.opts[0]
                 if any(word in name for word in NAMES_A_SECRET):
                     # Every spelling, not just the long one: `fm ngrok -t <token>` carries the

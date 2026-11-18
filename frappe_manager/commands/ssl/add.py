@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from click.core import ParameterSource
+from typer._click.core import ParameterSource
 from typer_examples import example
 
 from frappe_manager.commands.arguments import BenchDomainArgument

@@ -25,7 +25,9 @@ def _run_app(app) -> None:
     with rich usage text on stdout and no JSON at all. Standalone mode is given up only for a
     `--json` run, so the human path keeps click's own rendering and exit codes untouched.
     """
-    import click
+    # typer 0.27 vendored click: `main()` below raises typer's OWN UsageError, and catching
+    # click's lets a `--json` usage error escape with empty stdout, which is the bug this guards.
+    from typer._click.exceptions import UsageError
 
     if not _argv_asks_for_json():
         app()
@@ -41,7 +43,7 @@ def _run_app(app) -> None:
         code = get_command(app).main(standalone_mode=False)
         if code:
             raise SystemExit(code)
-    except click.UsageError as e:
+    except UsageError as e:
         from frappe_manager.exceptions import MissingArgumentError
 
         hint = f"Run 'fm {e.ctx.command_path.removeprefix('fm ')} --help'" if e.ctx else "Pass --help"

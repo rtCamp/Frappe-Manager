@@ -22,6 +22,7 @@ yields a command that refuses too eagerly and is noticed, not one that skips a p
 import builtins
 
 import click
+from typer._click.exceptions import MissingParameter
 from typer.core import TyperCommand, TyperGroup
 
 # ctx.meta is shared across the whole context tree, so the root group can record here and any
@@ -57,10 +58,12 @@ def record_command_chain(group: click.Group, ctx: click.Context) -> None:
     # later by `Group.invoke`. The public `protected_args` is deprecated on click 8 and gone on click 9
     # (where `args` alone carries it), so read the private name defensively rather than hard-failing.
     args = [*getattr(ctx, "_protected_args", []), *ctx.args]
-    chain: builtins.list[click.Command] = []
-    current: click.Command = group
+    chain: builtins.list[TyperCommand] = []
+    current = group
 
-    while args and isinstance(current, click.Group):
+    # TyperGroup, NOT click.Group: typer 0.27 vendored its own Command/Parameter hierarchy, so
+    # every `isinstance(..., click.Group)` against a typer-built command is permanently False.
+    while args and isinstance(current, TyperGroup):
         found = current.get_command(ctx, args[0])
         if found is None:
             break
@@ -97,9 +100,13 @@ class FMCommand(TyperCommand):
 
     def parse_args(self, ctx: click.Context, args: "builtins.list[str]") -> "builtins.list[str]":
         if not args and self.no_args_is_help and not ctx.resilient_parsing:
-            missing = next((p for p in self.params if isinstance(p, click.Argument) and p.required), None)
+            missing = next(
+                (p for p in self.params if getattr(p, "param_type_name", "") == "argument" and p.required), None
+            )
             if missing is not None:
-                raise click.MissingParameter(ctx=ctx, param=missing)
+                # typer 0.27's runner only handles its OWN exception hierarchy; a click.MissingParameter
+                # escapes as an unexpected error instead of the usage message.
+                raise MissingParameter(ctx=ctx, param=missing)
         return super().parse_args(ctx, args)
 
 

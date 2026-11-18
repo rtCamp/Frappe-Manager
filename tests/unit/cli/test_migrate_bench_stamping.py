@@ -8,6 +8,7 @@ pinned to an older version forever, so every later command kept demanding a
 migration that did nothing.
 """
 
+import contextlib
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
@@ -45,12 +46,13 @@ def run_migrate(ctx, benches_dir: Path, migrate_benches: dict, **overrides):
     Returns the patched ``set_bench_migration_version`` mock.
     """
     params = {
-        "benchname": None,
-        "all_benches": False,
+        "address": None,
         "skip_backup": False,
-        "skip_backup_for": None,
-        "exclude_bench": None,
-        "auto_proceed": True,
+        "skip_config_backup": False,
+        "skip_db_backup": False,
+        "exclude_bench": [],
+        "yes": True,
+        "dry_run": False,
         "rerun": False,
         "on_failure": None,
     }
@@ -65,8 +67,16 @@ def run_migrate(ctx, benches_dir: Path, migrate_benches: dict, **overrides):
         patch("frappe_manager.commands.migrate.MigrationExecutor", return_value=executor),
         patch("frappe_manager.commands.migrate.get_current_fm_version", return_value=RUNNING_FM_VERSION),
         patch("frappe_manager.commands.migrate.set_bench_migration_version") as mock_stamp,
+        patch(
+            "frappe_manager.commands.migrate.resolve_bench_targets",
+            side_effect=lambda address: sorted(p.name for p in benches_dir.iterdir())
+            if address == "all"
+            else ([address] if address else []),
+        ),
     ):
-        migrate(ctx, **params)
+        # A run with a failed bench exits non-zero; these tests assert on stamping, not the code.
+        with contextlib.suppress(typer.Exit):
+            migrate(ctx, **params)
 
     return mock_stamp
 
@@ -81,10 +91,10 @@ def benches_dir(tmp_path):
 
 @pytest.fixture
 def ctx():
-    """Typer context carrying an FM config manager on an older system version."""
+    """Typer context whose services tier is already current, so the prerequisite gate passes."""
     context = MagicMock(spec=typer.Context)
     fm_config_manager = Mock()
-    fm_config_manager.get_system_migration_version.return_value = Version("0.19.1")
+    fm_config_manager.get_system_migration_version.return_value = Version(RUNNING_FM_VERSION)
     context.obj = {"fm_config_manager": fm_config_manager}
     return context
 
@@ -106,7 +116,7 @@ class TestBenchStampedToRunningVersion:
             ctx,
             benches_dir,
             {"test.local": bench_entry(last_migration_version="0.19.1")},
-            benchname="test.local",
+            address="test.local",
         )
 
         stamp.assert_called_once_with(bench_path, Version(RUNNING_FM_VERSION))
@@ -118,7 +128,7 @@ class TestBenchStampedToRunningVersion:
         """A release shipping no migration for the bench still advances its stamp."""
         bench_path = make_bench(benches_dir, "test.local")
 
-        stamp = run_migrate(ctx, benches_dir, {}, benchname="test.local")
+        stamp = run_migrate(ctx, benches_dir, {}, address="test.local")
 
         stamp.assert_called_once_with(bench_path, Version(RUNNING_FM_VERSION))
 
@@ -130,7 +140,7 @@ class TestBenchStampedToRunningVersion:
             ctx,
             benches_dir,
             {"test.local": bench_entry(last_migration_version=RUNNING_FM_VERSION)},
-            benchname="test.local",
+            address="test.local",
         )
 
         stamp.assert_called_once_with(bench_path, Version(RUNNING_FM_VERSION))
@@ -146,10 +156,11 @@ class TestFailedBenchNotStamped:
             ctx,
             benches_dir,
             {"test.local": bench_entry(exception=Exception("boom"), traceback="traceback")},
-            benchname="test.local",
+            address="test.local",
         )
 
         stamp.assert_not_called()
+
 
     def test_failure_does_not_block_stamping_of_healthy_benches(self, ctx, benches_dir):
         broken_path = make_bench(benches_dir, "broken.local")
@@ -162,7 +173,7 @@ class TestFailedBenchNotStamped:
                 "broken.local": bench_entry(exception=Exception("boom"), traceback="traceback"),
                 "healthy.local": bench_entry(last_migration_version="0.19.1"),
             },
-            all_benches=True,
+            address="all",
         )
 
         stamped_paths = [call.args[0] for call in stamp.call_args_list]
@@ -182,8 +193,8 @@ class TestExcludedBenchNotStamped:
             ctx,
             benches_dir,
             {"included.local": bench_entry(last_migration_version="0.19.1")},
-            all_benches=True,
-            exclude_bench="excluded.local",
+            address="all",
+            exclude_bench=["excluded.local"],
         )
 
         stamped_paths = [call.args[0] for call in stamp.call_args_list]

@@ -1,7 +1,7 @@
 from typing import Annotated
 
 import typer
-from click.core import ParameterSource
+from typer._click.core import ParameterSource
 from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required

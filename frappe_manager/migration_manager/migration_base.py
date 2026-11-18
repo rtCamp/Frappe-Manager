@@ -1,4 +1,6 @@
+import re
 from abc import ABC
+from collections.abc import MutableMapping
 from pathlib import Path
 
 from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_DIR, COMMON_SITE_CONFIG_FILE
@@ -22,6 +24,8 @@ from frappe_manager.site_manager.modules.compose_shape import container_transit_
 from frappe_manager.utils.helpers import capture_and_format_exception
 from frappe_manager.utils.prune import format_size
 from frappe_manager.utils.site import host_bench_dir
+
+FM_IMAGE_PATTERN = re.compile(r"(ghcr\.io/rtcamp/frappe-manager-[^:]+):v[0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?")
 
 
 class MigrationBase(ABC):
@@ -54,6 +58,47 @@ class MigrationBase(ABC):
         tag = self.version.version_string()
         self.logger.info(f"Stable environment: using image tag {tag}")
         return tag
+
+    def retag_fm_images(self, services: MutableMapping, filename: str) -> bool:
+        """Point every fm image in an ALREADY-LOADED compose `services` mapping at this
+        migration's tag; returns whether anything moved.
+
+        Takes the loaded mapping rather than a path on purpose: a caller that backs the file
+        up inside its own read/write pass would otherwise capture an already-re-tagged file,
+        and the backup a rollback restores would carry the new tags.
+        """
+        effective_tag = self._get_image_tag_for_migration()
+        changed = False
+
+        for service_name, service_config in services.items():
+            if "image" not in service_config:
+                continue
+
+            old_image = service_config["image"]
+            new_image = FM_IMAGE_PATTERN.sub(rf"\1:{effective_tag}", old_image)
+
+            if new_image == old_image:
+                continue
+
+            old_tag_match = re.search(r":v([0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?)", old_image)
+            old_tag = old_tag_match.group(1) if old_tag_match else "unknown"
+
+            service_config["image"] = new_image
+            changed = True
+            self.output.print(f"Re-tagged {service_name} in {filename}: v{old_tag} -> {effective_tag}")
+
+        return changed
+
+    def pull_bench_images(self, bench: MigrationBench) -> None:
+        """Fetch this migration's image tags for a bench. Call before any `compose up`: both
+        migrations start benches with `pull="never"`, so a re-tag without this leaves the
+        bench down on an image that was never fetched."""
+        result = bench.compose.pull(stream=False)
+
+        if result.exit_code != 0:
+            raise MigrationExceptionInBench(f"Failed to pull images for {bench.name}. Docker pull failed.")
+
+        self.output.print(f"✓ Images ready ({self._get_image_tag_for_migration()})", emoji_code="✅")
 
     def init(self):
         # The kind-scoped backup policy is wired into the two chokepoints ONCE, here:

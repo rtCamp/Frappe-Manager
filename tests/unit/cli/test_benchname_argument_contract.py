@@ -27,6 +27,7 @@ from unittest import mock
 import click
 import pytest
 import typer
+from typer.core import TyperCommand, TyperGroup
 
 from frappe_manager.commands import app
 from frappe_manager.commands.compose import _benchname_callback as _compose_benchname_callback
@@ -82,7 +83,7 @@ CANONICAL = BenchnameSpec(
     metavar="BENCH",
     default=None,
     required=False,
-    type_name="text",
+    type_name="str",
     autocompletion=sites_autocompletion_callback,
     callback=sitename_callback,
 )
@@ -126,7 +127,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         metavar="BENCH(/SITE)",
         default=None,
         required=True,
-        type_name="text",
+        type_name="str",
         autocompletion=None,
         callback=callbacks.create_command_sitename_callback,
     ),
@@ -140,7 +141,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         metavar="BENCH(/SITE)",
         default=None,
         required=False,
-        type_name="text",
+        type_name="str",
         autocompletion=bench_site_autocompletion_callback,
         callback=callbacks.bench_site_callback,
     ),
@@ -149,7 +150,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         metavar="BENCH(/SITE)",
         default=None,
         required=False,
-        type_name="text",
+        type_name="str",
         autocompletion=bench_site_autocompletion_callback,
         callback=callbacks.bench_site_callback,
     ),
@@ -158,7 +159,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         metavar="BENCH(/SITE)",
         default=None,
         required=False,
-        type_name="text",
+        type_name="str",
         autocompletion=bench_site_autocompletion_callback,
         callback=callbacks.bench_site_callback,
     ),
@@ -167,7 +168,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         metavar="BENCH(/SITE)",
         default=None,
         required=False,
-        type_name="text",
+        type_name="str",
         autocompletion=bench_site_autocompletion_callback,
         callback=callbacks.bench_site_callback,
     ),
@@ -180,7 +181,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         metavar="BENCH(/SITE)",
         default=None,
         required=False,
-        type_name="text",
+        type_name="str",
         autocompletion=bench_site_autocompletion_callback,
         callback=optional_bench_site_callback,
     ),
@@ -189,7 +190,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         metavar="BENCH(/SITE)",
         default=None,
         required=False,
-        type_name="text",
+        type_name="str",
         autocompletion=bench_site_autocompletion_callback,
         callback=callbacks.bench_site_callback,
     ),
@@ -203,7 +204,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         metavar="BENCH|all",
         default=None,
         required=False,
-        type_name="text",
+        type_name="str",
         autocompletion=bench_all_autocompletion_callback,
         callback=bench_all_callback,
     ),
@@ -214,7 +215,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         metavar="BENCH",
         default=None,
         required=False,
-        type_name="text",
+        type_name="str",
         autocompletion=sites_autocompletion_callback,
         callback=None,
     ),
@@ -227,7 +228,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         metavar="BENCH",
         default=None,
         required=True,
-        type_name="text",
+        type_name="str",
         autocompletion=sites_autocompletion_callback,
         callback=sitename_callback,
     ),
@@ -236,7 +237,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         metavar="BENCH",
         default=None,
         required=True,
-        type_name="text",
+        type_name="str",
         autocompletion=sites_autocompletion_callback,
         callback=sitename_callback,
     ),
@@ -250,7 +251,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         metavar="BENCH",
         default=None,
         required=False,
-        type_name="text",
+        type_name="str",
         autocompletion=sites_autocompletion_callback,
         callback=_compose_benchname_callback,
     ),
@@ -271,7 +272,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
             metavar="BENCH(/DOMAIN)",
             default=None,
             required=False,
-            type_name="text",
+            type_name="str",
             autocompletion=bench_domain_autocompletion_callback,
             callback=bench_domain_callback,
         )
@@ -282,7 +283,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         metavar="BENCH(/DOMAIN)|all",
         default=None,
         required=False,
-        type_name="text",
+        type_name="str",
         autocompletion=bench_domain_autocompletion_callback,
         callback=bench_domain_callback,
     ),
@@ -291,7 +292,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         metavar="BENCH|all",
         default=None,
         required=False,
-        type_name="text",
+        type_name="str",
         autocompletion=bench_domain_autocompletion_callback,
         callback=bench_domain_callback,
     ),
@@ -321,7 +322,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
             metavar="BENCH(/SITE)",
             default=None,
             required=False,
-            type_name="text",
+            type_name="str",
             autocompletion=bench_site_autocompletion_callback,
             callback=bench_site_callback,
         )
@@ -337,7 +338,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
             metavar="BENCH(/SITE|all)",
             default=None,
             required=False,
-            type_name="text",
+            type_name="str",
             autocompletion=bench_site_autocompletion_callback,
             callback=bench_site_all_callback,
         )
@@ -362,7 +363,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
             metavar="BENCH(/DOMAIN)",
             default=None,
             required=False,
-            type_name="text",
+            type_name="str",
             autocompletion=bench_domain_autocompletion_callback,
             callback=bench_served_domain_callback,
         )
@@ -374,17 +375,17 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         metavar="BENCH",
         default=None,
         required=False,
-        type_name="text",
+        type_name="str",
         autocompletion=sites_autocompletion_callback,
         callback=None,
     ),
 }
 
 
-def iter_click_commands(command: click.Command, prefix: str = "fm"):
+def iter_click_commands(command: TyperCommand, prefix: str = "fm"):
     """(qualified name, click command) for the whole built CLI tree."""
     yield prefix, command
-    if isinstance(command, click.Group):
+    if isinstance(command, TyperGroup):
         for name, sub in command.commands.items():
             yield from iter_click_commands(sub, f"{prefix} {name}")
 
@@ -444,7 +445,7 @@ def discover_benchname_arguments() -> dict[str, click.Parameter]:
     found = {}
     for name, command in iter_click_commands(typer.main.get_command(app)):
         for param in command.params:
-            if param.name in PARAM_NAMES and isinstance(param, click.Argument):
+            if param.name in PARAM_NAMES and getattr(param, "param_type_name", "") == "argument":
                 found[name] = param
     return found
 
@@ -474,7 +475,7 @@ def test_no_benchname_is_declared_as_an_option():
     wrong = [
         name
         for name, param in BENCHNAME_ARGUMENTS.items()
-        if isinstance(param, click.Option) or param.param_type_name != "argument" or param.opts not in (["benchname"], ["address"])
+        if getattr(param, "param_type_name", "") == "option" or param.param_type_name != "argument" or param.opts not in (["benchname"], ["address"])
     ]
     assert not wrong, f"benchname is not a bare positional argument in: {wrong}"
 

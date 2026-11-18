@@ -7,18 +7,14 @@ libraries, without which Frappe v16's chrome PDF generator cannot start, and to
 recreate already-running containers so they run off the new image immediately.
 """
 
-import re
 from pathlib import Path
-from typing import Any
 
 from ruamel.yaml import YAML
 
-from frappe_manager.migration_manager.migration_base import MigrationBase
+from frappe_manager.migration_manager.migration_base import FM_IMAGE_PATTERN, MigrationBase
 from frappe_manager.migration_manager.migration_helpers import MigrationBench
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager.context_managers import spinner
-
-FM_IMAGE_PATTERN = re.compile(r"(ghcr\.io/rtcamp/frappe-manager-[^:]+):v[0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?")
 
 
 class MigrationV0200(MigrationBase):
@@ -38,13 +34,13 @@ class MigrationV0200(MigrationBase):
             # Skip the pull when nothing changed, so re-running on an
             # already-correct bench cannot fail on a transient registry error.
             if self._images_updated:
-                self._pull_bench_images(bench)
+                self.pull_bench_images(bench)
                 self._recreate_services(bench, bench_was_running, workers_were_running)
 
         if not self._images_updated:
-            self.output.print(f"{bench.name} already on {self.version.version_string()} images")
+            self.output.print(f"Already on {self.version.version_string()} images: {bench.name}")
 
-        self.output.print(f"Successfully migrated {bench.name} to {self.version.version_string()}")
+        self.output.print(f"Migrated {bench.name} to {self.version.version_string()}")
 
     def _migrate_compose_file(self, compose_path: Path):
         yaml = YAML(typ="rt")
@@ -64,45 +60,14 @@ class MigrationV0200(MigrationBase):
         if not any(FM_IMAGE_PATTERN.search(str(svc.get("image", ""))) for svc in services.values()):
             return
 
-        self._update_service_images(services, compose_path.name)
+        if self.retag_fm_images(services, compose_path.name):
+            self._images_updated = True
 
         # Plain semver, no ``v`` prefix, matching v0.19.0.
         compose_data["x-version"] = str(self.version)
 
         with compose_path.open("w") as f:
             yaml.dump(compose_data, f)
-
-    def _update_service_images(self, services: dict[str, Any], filename: str):
-        effective_tag = self._get_image_tag_for_migration()
-
-        for service_name, service_config in services.items():
-            if "image" not in service_config:
-                continue
-
-            old_image = service_config["image"]
-            new_image = FM_IMAGE_PATTERN.sub(rf"\1:{effective_tag}", old_image)
-
-            if new_image == old_image:
-                continue
-
-            old_tag_match = re.search(r":v([0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?)", old_image)
-            old_tag = old_tag_match.group(1) if old_tag_match else "unknown"
-
-            service_config["image"] = new_image
-            self._images_updated = True
-            self.output.print(f"{filename}: {service_name} image v{old_tag} -> {effective_tag}")
-
-    def _pull_bench_images(self, bench: MigrationBench):
-        from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
-
-        self.output.print(f"Pulling updated images ({self._get_image_tag_for_migration()})...", emoji_code="📦")
-
-        result = bench.compose.pull(stream=False)
-
-        if result.exit_code != 0:
-            raise MigrationExceptionInBench(f"Failed to pull images for {bench.name}. Docker pull failed.")
-
-        self.output.print("✓ Images ready", emoji_code="✅")
 
     def _recreate_services(self, bench: MigrationBench, bench_was_running: bool, workers_were_running: bool):
         """Recreate containers that were already up, so they run off the re-tagged image.
@@ -113,7 +78,7 @@ class MigrationV0200(MigrationBase):
         if not (bench_was_running or workers_were_running):
             return
 
-        self.output.print("Recreating containers on the new images...", emoji_code="🔄")
+        self.output.print("Containers move to the new images", emoji_code="🔄")
 
         try:
             # pull="never": _pull_bench_images already fetched the new tags.
@@ -127,7 +92,7 @@ class MigrationV0200(MigrationBase):
             self.output.print("✓ Containers recreated", emoji_code="✅")
         except Exception as e:
             self.output.warning(f"Container recreation failed: {e}")
-            self.output.warning(f"Run 'fmx restart {bench.name}' to start using the new images.")
+            self.output.warning(f"Run 'fmx restart {bench.name}' to start using the new images")
 
     def _ensure_nginx_running(self, bench: MigrationBench):
         """Bring nginx back up if the parallel recreate raced it past frappe.

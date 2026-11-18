@@ -24,6 +24,7 @@ A flag added to either side lands in this test without anyone remembering to add
 import click
 import pytest
 import typer
+from typer.core import TyperGroup
 
 from frappe_manager.commands import app
 from frappe_manager.commands.create import _FLAG_TO_CONFIG
@@ -45,14 +46,14 @@ UNSCOPED = {"bench_only", "remove_on_failure", "dry_run", "yes", "help"}
 PANELLED = {"create", "update"}
 
 
-def _group() -> click.Group:
+def _group() -> TyperGroup:
     group = typer.main.get_command(app)
-    assert isinstance(group, click.Group)
+    assert isinstance(group, TyperGroup)
     return group
 
 
 def _options(command_name: str) -> list[click.Option]:
-    return [p for p in _group().commands[command_name].params if isinstance(p, click.Option)]
+    return [p for p in _group().commands[command_name].params if getattr(p, "param_type_name", "") == "option"]
 
 
 def _panel(option: click.Option) -> str:
@@ -187,5 +188,5 @@ def test_the_other_address_commands_are_still_small_enough_for_one_list():
         "shell": group.commands["shell"],
     }
     for name, command in others.items():
-        count = len([p for p in command.params if isinstance(p, click.Option) and p.name != "help"])
+        count = len([p for p in command.params if getattr(p, "param_type_name", "") == "option" and p.name != "help"])
         assert count <= 8, f"{name} now has {count} options and may deserve scope panels"

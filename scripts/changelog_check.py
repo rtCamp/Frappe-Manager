@@ -57,6 +57,22 @@ COVERED = {
     "56ee040c",  # nginx: log the visitor's scheme
     "e28c0272",  # prune: include the benches root in teardown
     "a4ae81c6",  # prune: include the benches root in teardown
+    # Merged in from develop, where the entries live in that branch's own release notes.
+    # A merged commit can never touch THIS changelog, so the entry covering each was written
+    # in the merge: see "Bug Fixes" (migration/migrate/deps) and "Features" (cli: fmx).
+    "c6ecbab9",  # cli: install as fmx too, deprecate fm
+    "9354ee50",  # migration: name fmx in the recreate-failure hint
+    "8b4c9685",  # migration: release the image migration as 0.20.0
+    "23cc8ca6",  # migration: v0.19.1 migration so benches receive the new images
+    "2d248d36",  # migration: recreate running containers in the v0.19.1 migration
+    "15f4aebc",  # migration: back up every compose file fm manages
+    "450ce22d",  # migrate: stamp bench state even when the release ships no migration
+    "c3f9547f",  # docker: chromium runtime libraries for the chrome PDF generator
+    "cabad977",  # deps: require typer-examples 1.1.2 and declare rich
+    "12e4ffaf",  # deps: resolve typer-examples from PyPI
+    "1d42f4df",  # deps: Node.js patched for CVE-2026-111497
+    "61546fcf",  # info: keep markup out of the JSON payload
+    "4172015f",  # info: name the upload limit on a plain bench's card
 }
 
 # Paths that cannot change what a user observes. Deliberately generous.

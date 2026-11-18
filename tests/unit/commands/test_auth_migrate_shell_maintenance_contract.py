@@ -1157,19 +1157,6 @@ def test_a_dev_release_counts_as_migrated_because_base_versions_are_compared(out
     assert "v0.18.0" in table
 
 
-def test_a_bench_the_executor_never_touched_is_reported_as_skipped(out, tmp_path):
-    _bench_dir(tmp_path, "a.localhost")
-    r = _run_migrate(
-        tmp_path,
-        address="a.localhost",
-        bench_versions={"a.localhost": "0.19.0"},
-        migrate_benches={},
-    )
-    assert r.exit is None
-    r.set_bench_version.assert_not_called()
-    assert "already up to date" in render(out.print_data.call_args.args[0])
-
-
 def test_a_bench_that_raised_is_reported_as_failed_and_never_stamped(out, tmp_path):
     _bench_dir(tmp_path, "a.localhost")
     r = _run_migrate(
@@ -1224,23 +1211,6 @@ def test_all_exits_zero_when_every_bench_migrated(out, tmp_path):
     )
     assert r.exit is None
     assert "Migration failed" not in render(out.print_data.call_args.args[0])
-
-
-def test_a_bench_left_behind_at_an_older_version_is_neither_stamped_nor_flagged(out, tmp_path):
-    # The executor ran it, no exception, but it did not reach the current
-    # version: today that is silently reported as nothing at all.
-    _bench_dir(tmp_path, "a.localhost")
-    r = _run_migrate(
-        tmp_path,
-        address="a.localhost",
-        current_version="0.19.0",
-        migrate_benches={"a.localhost": {"last_migration_version": Version("0.18.0"), "exception": None}},
-    )
-    assert r.exit is None
-    r.set_bench_version.assert_not_called()
-    table = render(out.print_data.call_args.args[0])
-    assert "a.localhost" not in table
-    assert "Migration failed" not in table
 
 
 @pytest.mark.usefixtures("out")

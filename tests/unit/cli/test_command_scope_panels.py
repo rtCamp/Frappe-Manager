@@ -21,20 +21,20 @@ level to derive a panel from -- their bucket is a deliberate taxonomy decision, 
 below.
 """
 
-import click
 import pytest
 import typer
+from typer.core import TyperCommand, TyperGroup
 
 from frappe_manager.commands import _PANEL_BENCH, _PANEL_DOMAIN, _PANEL_GLOBAL, _PANEL_SITE, app
 
 
-def _group() -> click.Group:
+def _group() -> TyperGroup:
     """Duplicated from `test_option_scope_panels.py` rather than imported: no test module in this
     repo imports another as a plain module (pytest's default `prepend` import mode makes it work by
     accident, since `tests/unit/cli/` has no `__init__.py`, but nothing else here relies on that),
     and the helper is three lines."""
     group = typer.main.get_command(app)
-    assert isinstance(group, click.Group)
+    assert isinstance(group, TyperGroup)
     return group
 
 
@@ -53,7 +53,7 @@ GROUP_PANELS = {
 }
 
 
-def _panel(command: click.Command) -> object:
+def _panel(command: TyperCommand) -> object:
     """The raw `rich_help_panel` attribute, NOT normalised: unset is a `typer.models.DefaultPlaceholder`
     whose `bool()` is `False`, not `None` and not a `str`. Both `is None` and `isinstance(_, str)`
     misread it -- the first says "set", the second says "unset but not falsy" -- so callers that
@@ -61,9 +61,9 @@ def _panel(command: click.Command) -> object:
     return getattr(command, "rich_help_panel", None)
 
 
-def _expected_panel(command: click.Command) -> str:
+def _expected_panel(command: TyperCommand) -> str:
     """Bench / Site / Domain from the command's own positional metavar; Global when it has none."""
-    arguments = [p for p in command.params if isinstance(p, click.Argument)]
+    arguments = [p for p in command.params if getattr(p, "param_type_name", "") == "argument"]
     if not arguments:
         return _PANEL_GLOBAL
     metavar = arguments[0].metavar or ""
@@ -85,11 +85,11 @@ def test_every_command_declares_a_panel():
 @pytest.mark.parametrize("command_name", sorted(_group().commands))
 def test_the_panel_matches_the_command_s_own_address_grammar(command_name):
     command = _group().commands[command_name]
-    expected = GROUP_PANELS[command_name] if isinstance(command, click.Group) else _expected_panel(command)
+    expected = GROUP_PANELS[command_name] if isinstance(command, TyperGroup) else _expected_panel(command)
     assert _panel(command) == expected
 
 
 def test_every_sub_app_is_covered_by_the_hand_pinned_table():
     """Fails loudly, not silently, if a 4th sub-app is added and nobody updates GROUP_PANELS."""
-    group_names = {name for name, command in _group().commands.items() if isinstance(command, click.Group)}
+    group_names = {name for name, command in _group().commands.items() if isinstance(command, TyperGroup)}
     assert group_names == set(GROUP_PANELS)

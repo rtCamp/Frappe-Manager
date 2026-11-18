@@ -7,7 +7,6 @@ in the CLI application callback.
 
 from unittest.mock import MagicMock, patch
 
-import click
 import pytest
 import typer
 
@@ -195,7 +194,7 @@ class TestInvalidLogLevel:
         ctx.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.will_print_help", return_value=True):
-            with pytest.raises(click.BadParameter) as excinfo:
+            with pytest.raises(typer.BadParameter) as excinfo:
                 app_callback(ctx, verbose=False, log_level="invalid", version=None)
 
         message = str(excinfo.value)

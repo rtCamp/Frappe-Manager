@@ -115,14 +115,14 @@ def hand_written() -> list[Path]:
 
 def fm_flags() -> set[str]:
     """Every option name the real CLI accepts, read from the live Typer/Click app."""
-    import click
+    import typer.core
     import typer.main
 
     from frappe_manager.commands import app
 
     def walk(cmd):
         yield cmd
-        if isinstance(cmd, click.Group):
+        if isinstance(cmd, typer.core.TyperGroup):
             for sub in cmd.commands.values():
                 yield from walk(sub)
 
@@ -297,7 +297,7 @@ def fm_command_spec() -> dict[tuple[str, ...], dict]:
     question a recovery message raises. `fm ssl add <bench> <domain>` names a real command and
     no flags at all, and Click still refuses it: that command takes ONE combined argument.
     """
-    import click
+    import typer.core
     import typer.main
 
     from frappe_manager.commands import app
@@ -308,11 +308,11 @@ def fm_command_spec() -> dict[tuple[str, ...], dict]:
         flags: dict[str, bool] = {}
         max_pos = 0
         for param in cmd.params:
-            if isinstance(param, click.Option):
+            if getattr(param, "param_type_name", "") == "option":
                 takes_value = not param.is_flag and param.nargs != 0
                 for name in list(param.opts) + list(param.secondary_opts):
                     flags[name] = takes_value
-            elif isinstance(param, click.Argument):
+            elif getattr(param, "param_type_name", "") == "argument":
                 max_pos = 99 if param.nargs == -1 else max_pos + param.nargs
         spec[path] = {
             "flags": flags,
@@ -320,9 +320,9 @@ def fm_command_spec() -> dict[tuple[str, ...], dict]:
             # `fm shell` and `fm compose` hand argv to another program; their positionals and
             # unknown flags belong to whatever runs inside.
             "allow_extra": bool(cmd.context_settings.get("allow_extra_args")),
-            "group": isinstance(cmd, click.Group),
+            "group": isinstance(cmd, typer.core.TyperGroup),
         }
-        if isinstance(cmd, click.Group):
+        if isinstance(cmd, typer.core.TyperGroup):
             for name, sub in cmd.commands.items():
                 walk(sub, (*path, name))
 

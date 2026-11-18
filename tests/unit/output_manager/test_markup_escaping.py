@@ -218,20 +218,20 @@ from frappe_manager.commands import app as metavar_app
 
 def _every_metavar() -> list[tuple[str, str]]:
     """`(command path, metavar)` for every argument fm declares one on."""
-    import click
+    from typer.core import TyperGroup
 
     found: list[tuple[str, str]] = []
 
     def walk(cmd, path):
-        if isinstance(cmd, click.Group):
+        if isinstance(cmd, TyperGroup):
             for name, sub in cmd.commands.items():
                 walk(sub, [*path, name])
             return
         for param in cmd.params:
-            if isinstance(param, click.Argument) and param.metavar:
+            if getattr(param, "param_type_name", "") == "argument" and param.metavar:
                 found.append((" ".join(path), param.metavar))
 
-    walk(click.Group("fm", commands=typer.main.get_group(metavar_app).commands), [])
+    walk(typer.main.get_group(metavar_app), [])
     return found
 
 

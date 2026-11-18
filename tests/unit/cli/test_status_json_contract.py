@@ -12,7 +12,7 @@ from collections.abc import Iterator
 
 import pytest
 import typer.main
-from click import Command, Group
+from typer.core import TyperCommand as Command, TyperGroup as Group
 
 from frappe_manager.commands import app
 
