@@ -21,7 +21,11 @@ yields a command that refuses too eagerly and is noticed, not one that skips a p
 
 import builtins
 
-import click
+# typer 0.27 vendored click and no longer depends on it, so `import click` resolves against
+# nothing on a user install -- it only ever worked here because a docs-only dependency happened
+# to pull click into the dev venv. `Group` has no vendored equivalent: typer builds TyperGroup,
+# which is what these annotations should have named all along.
+from typer._click.core import Context
 from typer._click.exceptions import MissingParameter
 from typer.core import TyperCommand, TyperGroup
 
@@ -48,7 +52,7 @@ class BrokenHostGroup(TyperGroup):
     tolerates_broken_host = True
 
 
-def record_command_chain(group: click.Group, ctx: click.Context) -> None:
+def record_command_chain(group: TyperGroup, ctx: Context) -> None:
     """Resolve the full command chain from the args click has already parsed.
 
     Stops at the first token that is not a subcommand of the current group -- a flag, a bench
@@ -79,7 +83,7 @@ def record_command_chain(group: click.Group, ctx: click.Context) -> None:
 class FMGroup(TyperGroup):
     """The root group. Records the command chain before the callback that gates on it runs."""
 
-    def invoke(self, ctx: click.Context):
+    def invoke(self, ctx: Context):
         record_command_chain(self, ctx)
         return super().invoke(ctx)
 
@@ -98,7 +102,7 @@ class FMCommand(TyperCommand):
     exactly as it was.
     """
 
-    def parse_args(self, ctx: click.Context, args: "builtins.list[str]") -> "builtins.list[str]":
+    def parse_args(self, ctx: Context, args: "builtins.list[str]") -> "builtins.list[str]":
         if not args and self.no_args_is_help and not ctx.resilient_parsing:
             missing = next(
                 (p for p in self.params if getattr(p, "param_type_name", "") == "argument" and p.required), None
@@ -110,17 +114,17 @@ class FMCommand(TyperCommand):
         return super().parse_args(ctx, args)
 
 
-def command_path(ctx: click.Context) -> str:
+def command_path(ctx: Context) -> str:
     """The resolved command, as a full path: "start", "ssl add", "ssl ca status"."""
     return ctx.meta.get(META_PATH, "")
 
 
-def command_args(ctx: click.Context) -> "builtins.list[str]":
+def command_args(ctx: Context) -> "builtins.list[str]":
     """What follows the command: its arguments and its own flags, global flags already removed."""
     return ctx.meta.get(META_ARGS, [])
 
 
-def tolerates_broken_host(ctx: click.Context) -> bool:
+def tolerates_broken_host(ctx: Context) -> bool:
     """True when the command, or a group it sits under, is declared a teardown."""
     return any(getattr(command, "tolerates_broken_host", False) for command in ctx.meta.get(META_CHAIN, ()))
 
@@ -128,7 +132,7 @@ def tolerates_broken_host(ctx: click.Context) -> bool:
 PASSTHROUGH_COMMANDS = frozenset({"shell", "compose"})
 
 
-def asked_for_json_result(ctx: click.Context) -> bool:
+def asked_for_json_result(ctx: Context) -> bool:
     """Whether THIS invocation asked fm for a JSON result.
 
     Read from argv because the callback runs before any command body, and the gates it runs can
@@ -146,7 +150,7 @@ def asked_for_json_result(ctx: click.Context) -> bool:
     return "--json" in argv
 
 
-def will_print_help(ctx: click.Context) -> bool:
+def will_print_help(ctx: Context) -> bool:
     """Whether click is about to print help instead of running the command.
 
     The callback's setup -- the docker probe, the migration gate, the host lock, creating and

@@ -110,6 +110,19 @@ jobs:
           uv pip install --python /tmp/fmvenv/bin/python dist/*.whl
           cd /tmp && /tmp/fmvenv/bin/fm --version
 
+      # The wheel's own dependencies, nothing else. `import click` sat in commands/gating.py while
+      # nothing declared click: typer 0.27 dropped it, and the import only resolved in a developer
+      # venv because the docs tool happened to pull click in. Every local run, the whole suite and
+      # both lints passed; the first user command raised ModuleNotFoundError.
+      - name: No dev-only package satisfies a runtime import
+        run: |
+          cd /tmp && /tmp/fmvenv/bin/python -c "
+          import importlib.util
+          assert importlib.util.find_spec('click') is None, 'click present: this check would prove nothing'
+          import frappe_manager.commands.gating
+          import frappe_manager.main
+          "
+
       # `fm bake` reads its Dockerfiles out of the package, which is the lookup the rename touched.
       - name: Packaged build context is reachable
         run: |
